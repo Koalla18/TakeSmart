@@ -1,61 +1,77 @@
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+import logging
+import time
 
-from .db import get_db
-from .models import Base, Order
-from .schemas import OrderCreate, OrderRead
-from .settings import settings
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.api.auth import router as auth_router
+from app.api.cart import router as cart_router
+from app.api.catalog import router as catalog_router
+from app.api.health import router as health_router
+from app.api.orders import router as orders_router
+from app.core.cache import invalidate_prefix
+from app.core.config import settings
+from app.core.logging import setup_logging
+from app.db.base import Base
+from app.db.session import engine
+
+setup_logging()
+logger = logging.getLogger("app")
 
 app = FastAPI(title="Take Smart API")
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # frontend dev
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration_ms = int((time.time() - start) * 1000)
+    logger.info("%s %s %s %sms", request.method, request.url.path, response.status_code, duration_ms)
+    return response
+
+
+@app.middleware("http")
+async def invalidate_cache_after_write(request: Request, call_next):
+    response = await call_next(request)
+    if request.method in {"POST", "PATCH", "PUT", "DELETE"}:
+        path = request.url.path
+        if path.startswith("/api/categories"):
+            await invalidate_prefix("catalog:categories:")
+        if path.startswith("/api/brands"):
+            await invalidate_prefix("catalog:brands:")
+        if path.startswith("/api/products"):
+            await invalidate_prefix("catalog:products:")
+            await invalidate_prefix("catalog:product:")
+            await invalidate_prefix("catalog:search:tsv:")
+    return response
+
+
+@app.exception_handler(SQLAlchemyError)
+async def db_exception_handler(_request: Request, exc: SQLAlchemyError):
+    logger.exception("database error: %s", exc)
+    return JSONResponse(status_code=500, content={"detail": "Database error"})
+
+
 @app.on_event("startup")
-def on_startup():
-    from .db import engine
-
-    Base.metadata.create_all(bind=engine)
-
-
-@app.get("/health")
-def health():
-    return {"ok": True}
+async def on_startup():
+    if settings.enable_db_init:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("database schema ensured")
 
 
-@app.post("/api/orders", response_model=OrderRead, status_code=201)
-def create_order(order_data: OrderCreate, db: Session = Depends(get_db)):
-    order = Order(
-        name=order_data.name,
-        phone=order_data.phone,
-        email=order_data.email,
-        comment=order_data.comment,
-    )
-    db.add(order)
-    db.commit()
-    db.refresh(order)
-    return order
-
-
-@app.get("/api/orders", response_model=list[OrderRead])
-def list_orders(db: Session = Depends(get_db)):
-    orders = db.query(Order).order_by(Order.created_at.desc()).all()
-    return orders
-
-
-@app.delete("/api/orders/{order_id}", status_code=204)
-def delete_order(order_id: int, db: Session = Depends(get_db)):
-    order = db.query(Order).filter(Order.id == order_id).first()
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    db.delete(order)
-    db.commit()
-    return None
+app.include_router(health_router)
+app.include_router(auth_router)
+app.include_router(catalog_router)
+app.include_router(cart_router)
+app.include_router(orders_router)
