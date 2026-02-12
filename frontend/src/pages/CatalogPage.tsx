@@ -215,7 +215,7 @@ export function CatalogPage() {
     
     // Category filter
     if (selectedCategory !== 'all') {
-      result = result.filter(p => p.category === selectedCategory)
+      result = result.filter(p => p.categorySlug === selectedCategory)
     }
     
     // Brand filter
