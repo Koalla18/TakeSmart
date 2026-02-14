@@ -4,7 +4,9 @@ import { Container, Section } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
 import { ProductCard } from '../components/ProductCard'
 import { getFeaturedProducts, products } from '../data/products'
+import type { Product } from '../data/products'
 import { useCart } from '../lib/cart'
+import { API_BASE_URL } from '../lib/config'
 import { 
   ShieldIcon, 
   TruckIcon, 
@@ -92,12 +94,47 @@ const benefits = [
 
 export function HomePage() {
   const featuredProducts = getFeaturedProducts()
-  const heroProduct = products[0] // iPhone as hero product
+  const [heroProduct, setHeroProduct] = useState<Product>(products[0]) // fallback
   const { addItem, isInCart } = useCart()
   const videoRef = useRef<HTMLVideoElement>(null)
   const heroRef = useRef<HTMLDivElement>(null)
   const [videoProgress, setVideoProgress] = useState(0)
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
+
+  // Load featured product from API
+  useEffect(() => {
+    async function loadFeatured() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/products/featured`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data) {
+            // Convert API format to local format
+            setHeroProduct({
+              id: String(data.id),
+              name: data.name,
+              brand: data.brand || '',
+              category: '',
+              categorySlug: '',
+              price: data.price,
+              oldPrice: data.old_price,
+              badge: data.badge as Product['badge'],
+              inStock: data.in_stock,
+              image: data.images?.[0] || data.image || '📱',
+              description: data.description || '',
+              specs: data.specs?.map((s: {label?: string; key?: string; value: string}) => ({
+                label: s.label || s.key || '',
+                value: s.value
+              })) || []
+            })
+          }
+        }
+      } catch (err) {
+        console.error('Error loading featured product:', err)
+      }
+    }
+    loadFeatured()
+  }, [])
 
   // Video scroll sync (Apple-style)
   useEffect(() => {
@@ -370,10 +407,18 @@ export function HomePage() {
                     {/* Glow effect */}
                     <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/30 to-amber-400/30 rounded-full blur-3xl scale-75" />
                     
-                    {/* Product emoji */}
-                    <span className="text-[20rem] relative z-10 drop-shadow-2xl transition-transform duration-500 hover:scale-105">
-                      {heroProduct.image}
-                    </span>
+                    {/* Product image or emoji */}
+                    {heroProduct.image?.startsWith('http') || heroProduct.image?.startsWith('/uploads') ? (
+                      <img 
+                        src={heroProduct.image?.startsWith('/uploads') ? `${API_BASE_URL}${heroProduct.image}` : heroProduct.image} 
+                        alt={heroProduct.name}
+                        className="relative z-10 w-80 h-80 object-contain drop-shadow-2xl transition-transform duration-500 hover:scale-105"
+                      />
+                    ) : (
+                      <span className="text-[20rem] relative z-10 drop-shadow-2xl transition-transform duration-500 hover:scale-105">
+                        {heroProduct.image}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

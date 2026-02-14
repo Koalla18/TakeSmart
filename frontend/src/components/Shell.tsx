@@ -83,6 +83,8 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
               {[
                 { to: '/', label: 'Главная' },
                 { to: '/catalog', label: 'Каталог' },
+                { to: '/used', label: 'Б/У техника' },
+                { to: '/delivery', label: 'Доставка и оплата' },
                 { to: '/cart', label: 'Оставить заявку' },
               ].map(item => (
                 <NavLink
@@ -251,6 +253,8 @@ export function Shell({ children }: PropsWithChildren) {
             <nav className="hidden items-center gap-8 lg:flex">
               <NavItem to="/" label="Главная" />
               <NavItem to="/catalog" label="Каталог" />
+              <NavItem to="/used" label="Б/У техника" />
+              <NavItem to="/delivery" label="Доставка и оплата" />
               <NavItem to="/cart" label="Оставить заявку" />
             </nav>
             
