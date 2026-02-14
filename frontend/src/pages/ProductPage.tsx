@@ -3,7 +3,7 @@ import { Link, useParams, useNavigate } from 'react-router-dom'
 import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
 import { ProductCard } from '../components/ProductCard'
-import { getProductById, products, formatPrice, getBadgeText, type Product } from '../data/products'
+import { getProductById, products, formatPrice, getBadgeText } from '../data/products'
 import { 
   ChevronLeftIcon, 
   ShieldIcon, 

@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Container } from '../components/ui/Layout'
-import { Button } from '../components/ui/Button'
-import { 
-  PhoneIcon, 
-  MailIcon, 
-  ChevronLeftIcon,
-  ClockIcon 
-} from '../components/ui/Icons'
-import { getJson, deleteJson } from '../lib/http'
+import { useNavigate } from 'react-router-dom'
+import { useAuth, getAuthHeaders } from '../lib/auth'
+import { API_BASE_URL } from '../lib/config'
+import { formatPrice } from '../data/products'
+
+interface OrderItem {
+  product_id: string
+  name: string
+  price: number
+  quantity: number
+  image: string
+}
 
 interface Order {
   id: number
@@ -16,304 +18,519 @@ interface Order {
   phone: string
   email: string
   comment: string | null
-  product_id?: string
-  quantity?: number
+  items: OrderItem[] | null
+  total_amount: number | null
+  payment_method: string | null
+  delivery_method: string | null
+  delivery_address: string | null
+  status: string
   created_at: string
 }
 
+interface Analytics {
+  total_orders: number
+  today_orders: number
+  week_orders: number
+  month_orders: number
+  status_counts: Record<string, number>
+  total_revenue: number
+  today_revenue: number
+  week_revenue: number
+  avg_order_value: number
+  payment_stats: Record<string, number>
+  delivery_stats: Record<string, number>
+  daily_orders: { date: string; count: number; revenue: number }[]
+}
+
+const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
+  new: { label: 'Новый', color: 'text-blue-600', bg: 'bg-blue-100', icon: '🆕' },
+  processing: { label: 'В обработке', color: 'text-orange-600', bg: 'bg-orange-100', icon: '⏳' },
+  ready: { label: 'Готов', color: 'text-green-600', bg: 'bg-green-100', icon: '✅' },
+  completed: { label: 'Выполнен', color: 'text-gray-600', bg: 'bg-gray-200', icon: '📦' },
+  cancelled: { label: 'Отменён', color: 'text-red-600', bg: 'bg-red-100', icon: '❌' },
+}
+
+const PAYMENT_LABELS: Record<string, string> = {
+  cash: '💵 Наличные',
+  card: '💳 Картой',
+  online: '🌐 Онлайн',
+}
+
+const DELIVERY_LABELS: Record<string, string> = {
+  pickup: '🏪 Самовывоз',
+  courier: '🚗 Курьер',
+  post: '📦 Почта',
+}
+
 export function AdminPage() {
+  const navigate = useNavigate()
+  const { isAuthenticated, logout } = useAuth()
   const [orders, setOrders] = useState<Order[]>([])
+  const [analytics, setAnalytics] = useState<Analytics | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [activeTab, setActiveTab] = useState<'orders' | 'analytics'>('orders')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
+  const [updatingStatus, setUpdatingStatus] = useState(false)
 
-  const loadOrders = () => {
-    setIsLoading(true)
-    getJson<Order[]>('/api/orders')
-      .then((data) => {
-        setOrders(data)
-        setIsLoading(false)
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Ошибка загрузки')
-        setIsLoading(false)
-      })
-  }
-  
   useEffect(() => {
-    loadOrders()
-  }, [])
-  
-  const handleDelete = async (id: number) => {
-    if (!confirm('Удалить эту заявку?')) return
+    if (!isAuthenticated) {
+      navigate('/login', { replace: true })
+    }
+  }, [isAuthenticated, navigate])
+
+  const loadData = async () => {
+    setIsLoading(true)
+    setError(null)
     
-    setDeletingId(id)
     try {
-      await deleteJson(`/api/orders/${id}`)
-      setOrders(orders.filter(o => o.id !== id))
+      const headers = { ...getAuthHeaders(), Accept: 'application/json' }
+      
+      const url = statusFilter === 'all' 
+        ? `${API_BASE_URL}/api/orders`
+        : `${API_BASE_URL}/api/orders?status=${statusFilter}`
+        
+      const ordersRes = await fetch(url, { headers })
+      if (ordersRes.status === 401) {
+        logout()
+        return
+      }
+      if (!ordersRes.ok) throw new Error('Ошибка загрузки')
+      const ordersData = await ordersRes.json()
+      setOrders(ordersData)
+      
+      const analyticsRes = await fetch(`${API_BASE_URL}/api/analytics`, { headers })
+      if (analyticsRes.ok) {
+        setAnalytics(await analyticsRes.json())
+      }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Ошибка удаления')
+      setError(err instanceof Error ? err.message : 'Ошибка')
     } finally {
-      setDeletingId(null)
+      setIsLoading(false)
     }
   }
 
-  // Stats calculation
-  const todayOrders = orders.filter(o => {
-    const today = new Date().toDateString()
-    const orderDate = new Date(o.created_at).toDateString()
-    return today === orderDate
-  }).length
-  
-  const weekOrders = orders.filter(o => {
-    const weekAgo = new Date()
-    weekAgo.setDate(weekAgo.getDate() - 7)
-    return new Date(o.created_at) >= weekAgo
-  }).length
+  useEffect(() => {
+    if (isAuthenticated) loadData()
+  }, [isAuthenticated, statusFilter])
+
+  const updateStatus = async (orderId: number, newStatus: string) => {
+    setUpdatingStatus(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/orders/${orderId}/status`, {
+        method: 'PATCH',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      })
+      if (!res.ok) throw new Error('Ошибка')
+      
+      setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o))
+      if (selectedOrder?.id === orderId) {
+        setSelectedOrder({ ...selectedOrder, status: newStatus })
+      }
+    } catch (err) {
+      alert('Ошибка обновления статуса')
+    } finally {
+      setUpdatingStatus(false)
+    }
+  }
+
+  const deleteOrder = async (orderId: number) => {
+    if (!confirm('Удалить заказ?')) return
+    try {
+      await fetch(`${API_BASE_URL}/api/orders/${orderId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      })
+      setOrders(orders.filter(o => o.id !== orderId))
+      setSelectedOrder(null)
+    } catch (err) {
+      alert('Ошибка удаления')
+    }
+  }
+
+  if (!isAuthenticated) return null
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-yellow-400 border-t-transparent"></div>
-          <span className="text-gray-600">Загрузка данных...</span>
-        </div>
+      <div className="flex min-h-screen items-center justify-center bg-slate-900">
+        <div className="text-white">Загрузка...</div>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-        <div className="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-xl">
-          <div className="bg-gradient-to-br from-red-500 to-rose-600 px-8 py-10 text-center text-white">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-white/20">
-              <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <h2 className="text-xl font-bold">Ошибка загрузки</h2>
-          </div>
-          <div className="p-8 text-center">
-            <p className="mb-6 text-gray-600">{error}</p>
-            <Button onClick={() => window.location.reload()}>
-              Повторить попытку
-            </Button>
-          </div>
+      <div className="flex min-h-screen items-center justify-center bg-slate-900">
+        <div className="text-center">
+          <div className="mb-4 text-red-400">{error}</div>
+          <button onClick={loadData} className="rounded-xl bg-yellow-400 px-6 py-3 font-semibold">
+            Повторить
+          </button>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       {/* Header */}
-      <div className="bg-gradient-to-r from-gray-900 to-gray-800">
-        <Container className="py-8">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-900/90 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-yellow-400 text-xl">⚡</div>
             <div>
-              <div className="mb-2 flex items-center gap-2">
-                <span className="rounded-full bg-yellow-400 px-3 py-1 text-xs font-bold text-gray-900">ADMIN</span>
-              </div>
-              <h1 className="text-2xl font-bold text-white sm:text-3xl">Панель управления</h1>
-              <p className="mt-1 text-gray-400">Заявки и заказы от клиентов</p>
-            </div>
-            <Link
-              to="/"
-              className="flex items-center gap-2 text-sm font-medium text-gray-400 transition-colors hover:text-white"
-            >
-              <ChevronLeftIcon className="h-4 w-4" />
-              На сайт
-            </Link>
-          </div>
-        </Container>
-      </div>
-
-      <Container className="py-8">
-        {/* Stats */}
-        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-medium text-gray-500">Всего заявок</div>
-                <div className="mt-1 text-3xl font-bold text-gray-900">{orders.length}</div>
-              </div>
-              <div className="rounded-xl bg-gray-100 p-3">
-                <svg className="h-6 w-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-              </div>
+              <h1 className="font-bold text-white">Take Smart Admin</h1>
+              <p className="text-xs text-slate-400">Панель управления</p>
             </div>
           </div>
-          
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-medium text-gray-500">Сегодня</div>
-                <div className="mt-1 text-3xl font-bold text-yellow-600">{todayOrders}</div>
-              </div>
-              <div className="rounded-xl bg-yellow-100 p-3">
-                <svg className="h-6 w-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-            </div>
-          </div>
-          
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-medium text-gray-500">За неделю</div>
-                <div className="mt-1 text-3xl font-bold text-green-600">{weekOrders}</div>
-              </div>
-              <div className="rounded-xl bg-green-100 p-3">
-                <svg className="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-              </div>
-            </div>
-          </div>
-          
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-medium text-gray-500">С комментарием</div>
-                <div className="mt-1 text-3xl font-bold text-purple-600">{orders.filter(o => o.comment).length}</div>
-              </div>
-              <div className="rounded-xl bg-purple-100 p-3">
-                <svg className="h-6 w-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                </svg>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Orders list */}
-        <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-            <h2 className="text-lg font-bold text-gray-900">Список заявок</h2>
-            <button
-              onClick={loadOrders}
-              className="flex items-center gap-2 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200"
-            >
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Обновить
+          <div className="flex gap-3">
+            <a href="/" className="rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">← На сайт</a>
+            <button onClick={() => { logout(); navigate('/login') }} className="rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">
+              Выйти
             </button>
           </div>
-          
-          {orders.length === 0 ? (
-            <div className="px-6 py-16 text-center">
-              <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-gray-100">
-                <svg className="h-10 w-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                </svg>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-7xl px-4 py-8">
+        {/* Stats */}
+        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            { label: 'Сегодня заказов', value: analytics?.today_orders || 0, icon: '📦', gradient: 'from-blue-500 to-cyan-500' },
+            { label: 'Выручка сегодня', value: formatPrice(analytics?.today_revenue || 0), icon: '💰', gradient: 'from-green-500 to-emerald-500' },
+            { label: 'Новых заказов', value: analytics?.status_counts?.new || 0, icon: '🆕', gradient: 'from-yellow-500 to-orange-500' },
+            { label: 'Средний чек', value: formatPrice(analytics?.avg_order_value || 0), icon: '📊', gradient: 'from-purple-500 to-pink-500' },
+          ].map((stat, i) => (
+            <div key={i} className="relative overflow-hidden rounded-2xl bg-white/5 p-6 backdrop-blur">
+              <div className={`absolute -right-4 -top-4 h-20 w-20 rounded-full bg-gradient-to-br ${stat.gradient} opacity-20 blur-2xl`} />
+              <div className="relative">
+                <span className="text-2xl">{stat.icon}</span>
+                <div className="mt-2 text-2xl font-bold text-white">{stat.value}</div>
+                <div className="text-sm text-slate-400">{stat.label}</div>
               </div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Заявок пока нет</h3>
-              <p className="text-gray-500">Новые заявки от клиентов появятся здесь</p>
             </div>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {orders.map((order) => (
-                <div key={order.id} className="group p-6 transition-colors hover:bg-gray-50">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-4">
-                      {/* Order number badge */}
-                      <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-yellow-400 to-amber-500 text-sm font-bold text-gray-900 shadow-sm">
-                        #{order.id}
-                      </div>
-                      
-                      <div className="min-w-0 flex-1">
-                        {/* Name */}
-                        <h3 className="font-semibold text-gray-900">{order.name}</h3>
-                        
-                        {/* Contact info */}
-                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-                          <a 
-                            href={`tel:${order.phone}`} 
-                            className="flex items-center gap-1.5 text-sm text-gray-600 transition-colors hover:text-yellow-600"
-                          >
-                            <PhoneIcon className="h-4 w-4" />
-                            {order.phone}
-                          </a>
-                          <a 
-                            href={`mailto:${order.email}`} 
-                            className="flex items-center gap-1.5 text-sm text-gray-600 transition-colors hover:text-yellow-600"
-                          >
-                            <MailIcon className="h-4 w-4" />
-                            {order.email}
-                          </a>
+          ))}
+        </div>
+
+        {/* Tabs */}
+        <div className="mb-6 flex gap-2">
+          <button
+            onClick={() => setActiveTab('orders')}
+            className={`rounded-xl px-5 py-3 text-sm font-medium transition ${
+              activeTab === 'orders' ? 'bg-yellow-400 text-gray-900' : 'bg-white/10 text-white hover:bg-white/20'
+            }`}
+          >
+            📋 Заказы ({orders.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('analytics')}
+            className={`rounded-xl px-5 py-3 text-sm font-medium transition ${
+              activeTab === 'analytics' ? 'bg-yellow-400 text-gray-900' : 'bg-white/10 text-white hover:bg-white/20'
+            }`}
+          >
+            📊 Аналитика
+          </button>
+        </div>
+
+        {/* Orders Tab */}
+        {activeTab === 'orders' && (
+          <>
+            {/* Status Filter */}
+            <div className="mb-6 flex flex-wrap gap-2">
+              {[
+                { id: 'all', label: 'Все' },
+                { id: 'new', label: '🆕 Новые' },
+                { id: 'processing', label: '⏳ В работе' },
+                { id: 'ready', label: '✅ Готовы' },
+                { id: 'completed', label: '📦 Выполнены' },
+              ].map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => setStatusFilter(f.id)}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                    statusFilter === f.id ? 'bg-white text-gray-900' : 'bg-white/10 text-white hover:bg-white/20'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Orders Grid */}
+            {orders.length === 0 ? (
+              <div className="rounded-2xl bg-white/5 p-16 text-center">
+                <div className="text-5xl mb-4">📭</div>
+                <div className="text-xl font-semibold text-white">Заказов нет</div>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {orders.map(order => (
+                  <div
+                    key={order.id}
+                    onClick={() => setSelectedOrder(order)}
+                    className="cursor-pointer rounded-2xl bg-white/5 p-5 transition-all hover:bg-white/10 hover:scale-[1.02]"
+                  >
+                    <div className="mb-3 flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 font-bold text-white">
+                          #{order.id}
                         </div>
-                        
-                        {/* Product info if exists */}
-                        {order.product_id && (
-                          <div className="mt-2 inline-flex items-center gap-2 rounded-lg bg-yellow-50 px-3 py-1.5 text-sm">
-                            <span className="font-medium text-yellow-800">Товар:</span>
-                            <span className="text-yellow-700">{order.product_id}</span>
-                            {order.quantity && order.quantity > 1 && (
-                              <span className="text-yellow-600">× {order.quantity}</span>
-                            )}
-                          </div>
-                        )}
-                        
-                        {/* Comment */}
-                        {order.comment && (
-                          <div className="mt-3 rounded-xl bg-gray-100 p-3 text-sm text-gray-700">
-                            <span className="font-medium">Комментарий:</span> {order.comment}
-                          </div>
-                        )}
+                        <div>
+                          <div className="font-semibold text-white">{order.name}</div>
+                          <div className="text-sm text-slate-400">{order.phone}</div>
+                        </div>
                       </div>
+                      <span className={`rounded-lg px-2 py-1 text-xs font-medium ${STATUS_CONFIG[order.status]?.bg} ${STATUS_CONFIG[order.status]?.color}`}>
+                        {STATUS_CONFIG[order.status]?.icon} {STATUS_CONFIG[order.status]?.label}
+                      </span>
                     </div>
                     
-                    {/* Right side: date + actions */}
-                    <div className="flex flex-col items-end gap-3">
-                      <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                        <ClockIcon className="h-3.5 w-3.5" />
-                        {new Date(order.created_at).toLocaleString('ru-RU', {
-                          day: 'numeric',
-                          month: 'short',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
+                    {order.items && order.items.length > 0 && (
+                      <div className="mb-3 flex gap-2">
+                        {order.items.slice(0, 4).map((item, i) => (
+                          <div key={i} className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/10 text-xl">
+                            {item.image}
+                          </div>
+                        ))}
+                        {order.items.length > 4 && (
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/10 text-sm text-slate-400">
+                            +{order.items.length - 4}
+                          </div>
+                        )}
                       </div>
-                      
-                      {/* Actions */}
-                      <div className="flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-                        <a
-                          href={`tel:${order.phone}`}
-                          className="rounded-lg bg-green-100 p-2 text-green-600 transition-colors hover:bg-green-200"
-                          title="Позвонить"
-                        >
-                          <PhoneIcon className="h-4 w-4" />
-                        </a>
-                        <button
-                          onClick={() => handleDelete(order.id)}
-                          disabled={deletingId === order.id}
-                          className="rounded-lg bg-red-100 p-2 text-red-600 transition-colors hover:bg-red-200 disabled:opacity-50"
-                          title="Удалить"
-                        >
-                          {deletingId === order.id ? (
-                            <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                          ) : (
-                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          )}
-                        </button>
+                    )}
+                    
+                    <div className="flex items-center justify-between border-t border-white/10 pt-3">
+                      <div className="text-lg font-bold text-yellow-400">
+                        {order.total_amount ? formatPrice(order.total_amount) : '—'}
+                      </div>
+                      <div className="text-sm text-slate-400">
+                        {new Date(order.created_at).toLocaleDateString('ru-RU')}
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Analytics Tab */}
+        {activeTab === 'analytics' && analytics && (
+          <div className="space-y-6">
+            {/* Chart */}
+            <div className="rounded-2xl bg-white/5 p-6">
+              <h3 className="mb-6 text-lg font-semibold text-white">📈 Заказы за 14 дней</h3>
+              <div className="flex h-48 items-end gap-2">
+                {analytics.daily_orders.map((day, i) => {
+                  const max = Math.max(...analytics.daily_orders.map(d => d.count), 1)
+                  const h = Math.max((day.count / max) * 100, 8)
+                  return (
+                    <div key={i} className="flex flex-1 flex-col items-center gap-1">
+                      <div className="text-xs text-white">{day.count}</div>
+                      <div className="w-full rounded-t bg-gradient-to-t from-yellow-500 to-amber-400" style={{ height: `${h}%` }} />
+                      <div className="text-xs text-slate-400">{day.date}</div>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
-          )}
+
+            {/* Stats Grid */}
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="rounded-2xl bg-white/5 p-6">
+                <h3 className="mb-4 text-lg font-semibold text-white">💳 Способы оплаты</h3>
+                <div className="space-y-3">
+                  {Object.entries(analytics.payment_stats).map(([m, c]) => {
+                    const t = Object.values(analytics.payment_stats).reduce((a, b) => a + b, 0) || 1
+                    const p = Math.round((c / t) * 100)
+                    return (
+                      <div key={m}>
+                        <div className="mb-1 flex justify-between text-sm">
+                          <span className="text-slate-300">{PAYMENT_LABELS[m] || m}</span>
+                          <span className="text-white">{c} ({p}%)</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-white/10">
+                          <div className="h-full rounded-full bg-yellow-400" style={{ width: `${p}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+              
+              <div className="rounded-2xl bg-white/5 p-6">
+                <h3 className="mb-4 text-lg font-semibold text-white">🚚 Способы доставки</h3>
+                <div className="space-y-3">
+                  {Object.entries(analytics.delivery_stats).map(([m, c]) => {
+                    const t = Object.values(analytics.delivery_stats).reduce((a, b) => a + b, 0) || 1
+                    const p = Math.round((c / t) * 100)
+                    return (
+                      <div key={m}>
+                        <div className="mb-1 flex justify-between text-sm">
+                          <span className="text-slate-300">{DELIVERY_LABELS[m] || m}</span>
+                          <span className="text-white">{c} ({p}%)</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-white/10">
+                          <div className="h-full rounded-full bg-cyan-400" style={{ width: `${p}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Order Modal */}
+      {selectedOrder && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setSelectedOrder(null)}
+        >
+          <div 
+            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-yellow-400 text-lg font-bold">
+                  #{selectedOrder.id}
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">Заказ #{selectedOrder.id}</h2>
+                  <p className="text-sm text-gray-500">
+                    {new Date(selectedOrder.created_at).toLocaleString('ru-RU')}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedOrder(null)}
+                className="rounded-xl p-2 text-gray-400 hover:bg-gray-100"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="space-y-6 p-6">
+              {/* Status Buttons */}
+              <div>
+                <label className="mb-3 block text-sm font-medium text-gray-500">Статус</label>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(STATUS_CONFIG).map(([key, config]) => (
+                    <button
+                      key={key}
+                      onClick={() => updateStatus(selectedOrder.id, key)}
+                      disabled={updatingStatus}
+                      className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition ${
+                        selectedOrder.status === key
+                          ? `${config.bg} ${config.color} ring-2 ring-offset-2`
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {config.icon} {config.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Customer */}
+              <div className="rounded-2xl bg-gray-50 p-5">
+                <h3 className="mb-4 font-semibold">👤 Клиент</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <div className="text-sm text-gray-500">Имя</div>
+                    <div className="font-medium">{selectedOrder.name}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500">Телефон</div>
+                    <a href={`tel:${selectedOrder.phone}`} className="font-medium text-yellow-600 hover:underline">
+                      {selectedOrder.phone}
+                    </a>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500">Email</div>
+                    <a href={`mailto:${selectedOrder.email}`} className="font-medium text-yellow-600 hover:underline">
+                      {selectedOrder.email}
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              {/* Items */}
+              {selectedOrder.items && selectedOrder.items.length > 0 && (
+                <div className="rounded-2xl bg-gray-50 p-5">
+                  <h3 className="mb-4 font-semibold">🛒 Товары</h3>
+                  <div className="space-y-3">
+                    {selectedOrder.items.map((item, i) => (
+                      <div key={i} className="flex items-center gap-4 rounded-xl bg-white p-3">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 text-2xl">
+                          {item.image}
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-medium">{item.name}</div>
+                          <div className="text-sm text-gray-500">{item.quantity} шт. × {formatPrice(item.price)}</div>
+                        </div>
+                        <div className="font-semibold">{formatPrice(item.price * item.quantity)}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex justify-between border-t pt-4">
+                    <span className="font-semibold">Итого:</span>
+                    <span className="text-xl font-bold text-yellow-600">
+                      {formatPrice(selectedOrder.total_amount || 0)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Payment & Delivery */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl bg-gray-50 p-5">
+                  <h3 className="mb-2 font-semibold">💳 Оплата</h3>
+                  <div className="text-lg">{PAYMENT_LABELS[selectedOrder.payment_method || ''] || '—'}</div>
+                </div>
+                <div className="rounded-2xl bg-gray-50 p-5">
+                  <h3 className="mb-2 font-semibold">🚚 Доставка</h3>
+                  <div className="text-lg">{DELIVERY_LABELS[selectedOrder.delivery_method || ''] || '—'}</div>
+                  {selectedOrder.delivery_address && selectedOrder.delivery_method !== 'pickup' && (
+                    <div className="mt-1 text-sm text-gray-600">{selectedOrder.delivery_address}</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Comment */}
+              {selectedOrder.comment && (
+                <div className="rounded-2xl bg-gray-50 p-5">
+                  <h3 className="mb-2 font-semibold">💬 Комментарий</h3>
+                  <p className="text-gray-700">{selectedOrder.comment}</p>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-3 border-t pt-6">
+                <button
+                  onClick={() => deleteOrder(selectedOrder.id)}
+                  className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600 hover:bg-red-100"
+                >
+                  🗑 Удалить
+                </button>
+                <a
+                  href={`tel:${selectedOrder.phone}`}
+                  className="flex-1 rounded-xl bg-yellow-400 py-3 text-center font-semibold hover:bg-yellow-500"
+                >
+                  📞 Позвонить
+                </a>
+              </div>
+            </div>
+          </div>
         </div>
-      </Container>
+      )}
     </div>
   )
 }

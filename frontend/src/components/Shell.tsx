@@ -4,6 +4,7 @@ import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Logo, LogoWhite } from './Logo'
 import { PhoneIcon, MailIcon, ClockIcon, MenuIcon, CloseIcon, TelegramIcon, VkIcon, WhatsAppIcon, ChevronRightIcon } from './ui/Icons'
 import { Container } from './ui/Layout'
+import { useCart } from '../lib/cart'
 
 function NavItem({ to, label, onClick }: { to: string; label: string; onClick?: () => void }) {
   return (
@@ -187,6 +188,8 @@ function CookieConsent() {
 export function Shell({ children }: PropsWithChildren) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
+  const { getItemCount } = useCart()
+  const cartCount = getItemCount()
   
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 10)
@@ -263,9 +266,14 @@ export function Shell({ children }: PropsWithChildren) {
               
               <Link
                 to="/cart"
-                className="hidden rounded-xl bg-yellow-400 px-6 py-2.5 text-sm font-semibold text-gray-900 transition-all hover:bg-yellow-500 hover:shadow-lg hover:shadow-yellow-400/25 sm:inline-flex"
+                className="hidden relative rounded-xl bg-yellow-400 px-6 py-2.5 text-sm font-semibold text-gray-900 transition-all hover:bg-yellow-500 hover:shadow-lg hover:shadow-yellow-400/25 sm:inline-flex"
               >
-                Заказать
+                {cartCount > 0 ? `Корзина (${cartCount})` : 'Заказать'}
+                {cartCount > 0 && (
+                  <span className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white">
+                    {cartCount}
+                  </span>
+                )}
               </Link>
               
               <Link
