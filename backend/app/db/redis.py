@@ -21,6 +21,14 @@ async def get_redis() -> AsyncGenerator[Redis, None]:
     yield get_redis_client()
 
 
+async def init_redis() -> None:
+    """Initialize Redis connection on startup."""
+    global _redis
+    _redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    # Test connection
+    await _redis.ping()
+
+
 async def close_redis() -> None:
     global _redis
     if _redis is not None:

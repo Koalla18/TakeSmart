@@ -23,7 +23,7 @@ services:
     env_file:
       - ./.env
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-take_smart}:${POSTGRES_PASSWORD:-take_smart_password}@db:5432/${POSTGRES_DB:-take_smart}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-take_smart}:${POSTGRES_PASSWORD:-take_smart_password}@db:5432/${POSTGRES_DB:-take_smart}
       REDIS_URL: redis://redis:6379/0
       PORT: ${BACKEND_PORT:-8000}
     ports:

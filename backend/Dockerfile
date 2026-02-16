@@ -8,9 +8,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN pip install --no-cache-dir --upgrade pip
 
 COPY requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-test.txt ./requirements-test.txt
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-test.txt
 
-COPY app ./app
+COPY app ./app/
+COPY tests ./tests/
+COPY pytest.ini ./pytest.ini
 
 EXPOSE 8000
 

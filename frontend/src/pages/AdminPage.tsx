@@ -68,13 +68,37 @@ interface Analytics {
   total_orders: number
   today_orders: number
   week_orders: number
+  month_orders: number
   status_counts: Record<string, number>
   total_revenue: number
   today_revenue: number
+  week_revenue: number
   avg_order_value: number
   payment_stats: Record<string, number>
   delivery_stats: Record<string, number>
-  daily_orders: { date: string; count: number; revenue: number }[]
+  daily_orders: { date: string; day?: string; count: number; revenue: number }[]
+}
+
+interface MediaFile {
+  name: string
+  url: string
+  size: number
+  uploadedAt: string
+}
+
+interface WeeklySlide {
+  id?: number
+  title: string
+  badge: string
+  description: string
+  price: string
+  image: string
+  color: string
+  tags: string[]
+  is_new: boolean
+  sort_order: number
+  is_active: boolean
+  created_at?: string
 }
 
 // ============ CONSTANTS ============
@@ -90,7 +114,16 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
 const PAYMENT_LABELS: Record<string, string> = { cash: '💵 Наличные', card: '💳 Картой' }
 const DELIVERY_LABELS: Record<string, string> = { pickup: '🏪 Самовывоз', courier: '🚗 Курьер', post: '📦 Почта' }
 
-type TabType = 'orders' | 'products' | 'used' | 'categories' | 'analytics'
+type TabType = 'orders' | 'products' | 'used' | 'categories' | 'slides' | 'media' | 'analytics'
+
+const GRADIENT_PRESETS = [
+  { label: 'Золото', value: 'bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50' },
+  { label: 'Графит', value: 'bg-gradient-to-br from-slate-100 via-gray-50 to-slate-50' },
+  { label: 'Лаванда', value: 'bg-gradient-to-br from-purple-50 via-white to-fuchsia-50' },
+  { label: 'Оранж', value: 'bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50' },
+  { label: 'Мята', value: 'bg-gradient-to-br from-teal-50 via-cyan-50 to-blue-50' },
+  { label: 'Роза', value: 'bg-gradient-to-br from-pink-50 via-rose-50 to-red-50' },
+]
 
 // ============ MAIN COMPONENT ============
 
@@ -109,6 +142,11 @@ export function AdminPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
+  const [slides, setSlides] = useState<WeeklySlide[]>([])
+  const [editingSlide, setEditingSlide] = useState<WeeklySlide | null>(null)
+  const [isSlideModalOpen, setIsSlideModalOpen] = useState(false)
+  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([])
+  const [uploadingMedia, setUploadingMedia] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [_error, setError] = useState<string | null>(null)
   const [updatingStatus, setUpdatingStatus] = useState(false)
@@ -152,11 +190,25 @@ export function AdminPage() {
     } catch (err) { console.error(err) }
   }
 
+  const loadSlides = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/weekly-slides`, { headers: getAuthHeaders() })
+      if (res.ok) setSlides(await res.json())
+    } catch (err) { console.error(err) }
+  }
+
+  const loadMedia = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/media`, { headers: getAuthHeaders() })
+      if (res.ok) setMediaFiles(await res.json())
+    } catch (err) { console.error(err) }
+  }
+
   const loadAllData = async () => {
     setIsLoading(true)
     setError(null)
     try {
-      await Promise.all([loadOrders(), loadAnalytics(), loadProducts(), loadCategories()])
+      await Promise.all([loadOrders(), loadAnalytics(), loadProducts(), loadCategories(), loadSlides(), loadMedia()])
     } catch { setError('Ошибка загрузки') }
     finally { setIsLoading(false) }
   }
@@ -284,6 +336,80 @@ export function AdminPage() {
     } catch { alert('Ошибка') }
   }
 
+  // Slide actions
+  const saveSlide = async (slideData: Partial<WeeklySlide>) => {
+    try {
+      const url = editingSlide?.id
+        ? `${API_BASE_URL}/api/admin/weekly-slides/${editingSlide.id}`
+        : `${API_BASE_URL}/api/admin/weekly-slides`
+      const res = await fetch(url, {
+        method: editingSlide?.id ? 'PATCH' : 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(slideData)
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.detail || 'Ошибка')
+      }
+      setIsSlideModalOpen(false)
+      setEditingSlide(null)
+      loadSlides()
+    } catch (err) { alert(err instanceof Error ? err.message : 'Ошибка') }
+  }
+
+  const deleteSlide = async (slideId: number) => {
+    if (!confirm('Удалить слайд?')) return
+    try {
+      await fetch(`${API_BASE_URL}/api/admin/weekly-slides/${slideId}`, { method: 'DELETE', headers: getAuthHeaders() })
+      loadSlides()
+    } catch { alert('Ошибка') }
+  }
+
+  const seedSlides = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/weekly-slides/seed`, { method: 'POST', headers: getAuthHeaders() })
+      if (res.ok) {
+        const data = await res.json()
+        alert(`✅ ${data.message} (слайдов: ${data.count})`)
+        loadSlides()
+      }
+    } catch { alert('Ошибка') }
+  }
+
+  // Media actions
+  const uploadMedia = async (file: File) => {
+    setUploadingMedia(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const token = localStorage.getItem('takesmart_admin_token')
+      const res = await fetch(`${API_BASE_URL}/api/admin/upload`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData
+      })
+      if (res.ok) {
+        loadMedia()
+        return await res.json()
+      }
+      throw new Error('Ошибка загрузки')
+    } catch { alert('Ошибка загрузки файла') }
+    finally { setUploadingMedia(false) }
+  }
+
+  const deleteMedia = async (filename: string) => {
+    if (!confirm('Удалить файл?')) return
+    try {
+      await fetch(`${API_BASE_URL}/api/admin/upload/${filename}`, { method: 'DELETE', headers: getAuthHeaders() })
+      loadMedia()
+    } catch { alert('Ошибка') }
+  }
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+    alert('📋 Скопировано!')
+  }
+
   // Filtering
   const regularProducts = products.filter(p => !p.is_used)
   const usedProducts = products.filter(p => p.is_used)
@@ -335,39 +461,44 @@ export function AdminPage() {
       </header>
 
       <div className="mx-auto max-w-7xl px-4 py-8">
-        {/* Stats */}
-        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {/* Quick Stats Dashboard */}
+        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
           {[
-            { label: 'Новых товаров', value: regularProducts.length, icon: '📦', gradient: 'from-blue-500 to-cyan-500' },
-            { label: 'Б/У товаров', value: usedProducts.length, icon: '🔄', gradient: 'from-purple-500 to-pink-500' },
-            { label: 'Категорий', value: categories.length, icon: '📁', gradient: 'from-indigo-500 to-violet-500' },
-            { label: 'Заказов', value: analytics?.today_orders || 0, icon: '🛒', gradient: 'from-green-500 to-emerald-500' },
-            { label: 'Выручка', value: formatPrice(analytics?.today_revenue || 0), icon: '💰', gradient: 'from-yellow-500 to-orange-500' },
+            { label: 'Заказов сегодня', value: analytics?.today_orders || 0, subtext: `всего: ${analytics?.total_orders || 0}`, icon: '📋', gradient: 'from-blue-500 to-cyan-500' },
+            { label: 'Выручка сегодня', value: formatPrice(analytics?.today_revenue || 0), subtext: 'за 24ч', icon: '💰', gradient: 'from-green-500 to-emerald-500' },
+            { label: 'За неделю', value: formatPrice(analytics?.week_revenue || 0), subtext: `${analytics?.week_orders || 0} заказов`, icon: '📈', gradient: 'from-yellow-500 to-orange-500' },
+            { label: 'Средний чек', value: formatPrice(analytics?.avg_order_value || 0), subtext: 'на заказ', icon: '🛒', gradient: 'from-purple-500 to-pink-500' },
+            { label: 'Товаров', value: products.length, subtext: `${regularProducts.length} новых / ${usedProducts.length} б/у`, icon: '📦', gradient: 'from-indigo-500 to-violet-500' },
+            { label: 'Новых заказов', value: analytics?.status_counts?.new || 0, subtext: 'требуют внимания', icon: '🔔', gradient: 'from-red-500 to-rose-500' },
           ].map((stat, i) => (
-            <div key={i} className="relative overflow-hidden rounded-2xl bg-white/5 p-5 backdrop-blur">
-              <div className={`absolute -right-4 -top-4 h-16 w-16 rounded-full bg-gradient-to-br ${stat.gradient} opacity-20 blur-2xl`} />
-              <span className="text-2xl">{stat.icon}</span>
-              <div className="mt-1 text-xl font-bold text-white">{stat.value}</div>
+            <div key={i} className="relative overflow-hidden rounded-2xl bg-white/5 p-5 backdrop-blur transition-all hover:bg-white/10 cursor-pointer">
+              <div className={`absolute -right-4 -top-4 h-20 w-20 rounded-full bg-gradient-to-br ${stat.gradient} opacity-20 blur-2xl`} />
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-2xl">{stat.icon}</span>
+              </div>
+              <div className="text-2xl font-bold text-white">{stat.value}</div>
               <div className="text-xs text-slate-400">{stat.label}</div>
+              {stat.subtext && <div className="text-[10px] text-slate-500 mt-1">{stat.subtext}</div>}
             </div>
           ))}
         </div>
 
         {/* Featured Product Banner */}
         {featuredProduct && (
-          <div className="mb-6 rounded-2xl bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30 p-4">
+          <div className="mb-6 rounded-2xl bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30 p-4 hover:from-yellow-500/30 hover:to-orange-500/30 transition-all">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-yellow-500/30 text-2xl">
+                <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-yellow-500/30 text-3xl">
                   ⭐
                 </div>
                 <div>
-                  <div className="text-sm text-yellow-400">Хит продаж на главной</div>
-                  <div className="font-bold text-white">{featuredProduct.name}</div>
+                  <div className="text-sm text-yellow-400 font-medium">Хит продаж на главной</div>
+                  <div className="text-lg font-bold text-white">{featuredProduct.name}</div>
                 </div>
               </div>
               <div className="text-right">
-                <div className="font-bold text-yellow-400">{formatPrice(featuredProduct.price)}</div>
+                <div className="text-2xl font-bold text-yellow-400">{formatPrice(featuredProduct.price)}</div>
+                <div className="text-xs text-slate-400">отображается на главной</div>
               </div>
             </div>
           </div>
@@ -380,6 +511,8 @@ export function AdminPage() {
             { id: 'products' as TabType, label: '📦 Новые товары', count: regularProducts.length },
             { id: 'used' as TabType, label: '🔄 Б/У товары', count: usedProducts.length },
             { id: 'categories' as TabType, label: '📁 Категории', count: categories.length },
+            { id: 'slides' as TabType, label: '🌟 Товары дня', count: slides.length },
+            { id: 'media' as TabType, label: '🖼️ Медиа', count: mediaFiles.length },
             { id: 'analytics' as TabType, label: '📊 Аналитика' },
           ].map(tab => (
             <button
@@ -549,32 +682,343 @@ export function AdminPage() {
 
         {/* ============ ANALYTICS TAB ============ */}
         {activeTab === 'analytics' && analytics && (
-          <div className="space-y-8">
+          <div className="space-y-6">
+            {/* Key metrics cards */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { label: 'Заказов сегодня', value: analytics.today_orders, prev: analytics.week_orders / 7, icon: '📦', color: 'from-blue-500 to-cyan-500' },
+                { label: 'Выручка сегодня', value: formatPrice(analytics.today_revenue), prev: analytics.week_revenue / 7, icon: '💰', color: 'from-green-500 to-emerald-500', isMoney: true },
+                { label: 'За неделю', value: formatPrice(analytics.week_revenue), icon: '📈', color: 'from-purple-500 to-pink-500' },
+                { label: 'Средний чек', value: formatPrice(analytics.avg_order_value), icon: '🛒', color: 'from-yellow-500 to-orange-500' },
+              ].map((stat, i) => (
+                <div key={i} className="relative overflow-hidden rounded-2xl bg-white/5 p-5 backdrop-blur">
+                  <div className={`absolute -right-4 -top-4 h-20 w-20 rounded-full bg-gradient-to-br ${stat.color} opacity-20 blur-2xl`} />
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-2xl">{stat.icon}</span>
+                    {stat.prev && (
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        (stat.isMoney ? analytics.today_revenue : analytics.today_orders) >= stat.prev 
+                          ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'
+                      }`}>
+                        {(stat.isMoney ? analytics.today_revenue : analytics.today_orders) >= stat.prev ? '📈' : '📉'} vs avg
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-2xl font-bold text-white">{stat.value}</div>
+                  <div className="text-sm text-slate-400">{stat.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Charts row */}
             <div className="grid gap-6 lg:grid-cols-2">
+              {/* Orders chart */}
               <div className="rounded-2xl bg-white/5 p-6">
-                <h3 className="mb-4 text-lg font-semibold text-white">Заказы за 14 дней</h3>
-                <div className="flex items-end gap-2 h-48">
-                  {analytics.daily_orders.map((day, i) => (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                      <div 
-                        className="w-full bg-yellow-400/80 rounded-t transition-all"
-                        style={{ height: `${Math.max(4, (day.count / Math.max(...analytics.daily_orders.map(d => d.count || 1))) * 100)}%` }}
-                      />
-                      <span className="text-xs text-slate-500">{day.date}</span>
-                    </div>
-                  ))}
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-semibold text-white">📊 Заказы за 14 дней</h3>
+                  <span className="text-sm text-slate-400">всего: {analytics.total_orders}</span>
+                </div>
+                <div className="flex items-end gap-1 h-48">
+                  {analytics.daily_orders.map((day, i) => {
+                    const maxCount = Math.max(...analytics.daily_orders.map(d => d.count || 1));
+                    const heightPercent = Math.max(4, (day.count / maxCount) * 100);
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-1 group cursor-pointer">
+                        <div className="relative w-full">
+                          {/* Tooltip */}
+                          <div className="absolute -top-16 left-1/2 -translate-x-1/2 bg-slate-800 rounded-lg px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap pointer-events-none shadow-xl border border-white/10">
+                            <div className="text-xs text-slate-400">{day.day || day.date}</div>
+                            <div className="text-sm text-white font-medium">{day.count} заказов</div>
+                            <div className="text-sm text-yellow-400">{formatPrice(day.revenue)}</div>
+                          </div>
+                          <div 
+                            className="w-full bg-gradient-to-t from-yellow-500 to-yellow-400 rounded-t transition-all group-hover:from-yellow-400 group-hover:to-yellow-300"
+                            style={{ height: `${heightPercent}%`, minHeight: '8px' }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-slate-500 group-hover:text-white transition-colors">{day.date}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
+
+              {/* Revenue chart */}
               <div className="rounded-2xl bg-white/5 p-6">
-                <h3 className="mb-4 text-lg font-semibold text-white">Статистика</h3>
-                <div className="space-y-4">
-                  <div className="flex justify-between"><span className="text-slate-400">Всего заказов</span><span className="font-bold text-white">{analytics.total_orders}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-400">Выручка всего</span><span className="font-bold text-yellow-400">{formatPrice(analytics.total_revenue)}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-400">Средний чек</span><span className="font-bold text-white">{formatPrice(analytics.avg_order_value)}</span></div>
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-semibold text-white">💰 Выручка за 14 дней</h3>
+                  <span className="text-sm text-yellow-400 font-medium">{formatPrice(analytics.total_revenue)}</span>
+                </div>
+                <div className="flex items-end gap-1 h-48">
+                  {analytics.daily_orders.map((day, i) => {
+                    const maxRev = Math.max(...analytics.daily_orders.map(d => d.revenue || 1));
+                    const heightPercent = Math.max(4, (day.revenue / maxRev) * 100);
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-1 group cursor-pointer">
+                        <div className="relative w-full">
+                          <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-800 rounded-lg px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap pointer-events-none shadow-xl border border-white/10">
+                            <div className="text-sm text-yellow-400 font-medium">{formatPrice(day.revenue)}</div>
+                          </div>
+                          <div 
+                            className="w-full bg-gradient-to-t from-green-600 to-emerald-400 rounded-t transition-all group-hover:from-green-500 group-hover:to-emerald-300"
+                            style={{ height: `${heightPercent}%`, minHeight: '8px' }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-slate-500 group-hover:text-white transition-colors">{day.date}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
+
+            {/* Status and payment breakdown */}
+            <div className="grid gap-6 lg:grid-cols-3">
+              {/* Order status */}
+              <div className="rounded-2xl bg-white/5 p-6">
+                <h3 className="mb-4 text-lg font-semibold text-white">📋 Статусы заказов</h3>
+                <div className="space-y-3">
+                  {Object.entries(analytics.status_counts).map(([status, count]) => {
+                    const config = STATUS_CONFIG[status];
+                    const percent = analytics.total_orders > 0 ? (count / analytics.total_orders) * 100 : 0;
+                    return (
+                      <div key={status} className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-300">{config?.icon} {config?.label || status}</span>
+                          <span className="text-white font-medium">{count}</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                          <div className={`h-full rounded-full ${config?.bg?.replace('bg-', 'bg-')}`} style={{ width: `${percent}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Payment methods */}
+              <div className="rounded-2xl bg-white/5 p-6">
+                <h3 className="mb-4 text-lg font-semibold text-white">💳 Способы оплаты</h3>
+                <div className="space-y-3">
+                  {Object.entries(analytics.payment_stats).map(([method, count]) => {
+                    const total = Object.values(analytics.payment_stats).reduce((a, b) => a + b, 0);
+                    const percent = total > 0 ? (count / total) * 100 : 0;
+                    const label = PAYMENT_LABELS[method] || method;
+                    return (
+                      <div key={method} className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-300">{label}</span>
+                          <span className="text-white font-medium">{count} ({percent.toFixed(0)}%)</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                          <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400" style={{ width: `${percent}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Delivery methods */}
+              <div className="rounded-2xl bg-white/5 p-6">
+                <h3 className="mb-4 text-lg font-semibold text-white">🚚 Способы доставки</h3>
+                <div className="space-y-3">
+                  {Object.entries(analytics.delivery_stats).map(([method, count]) => {
+                    const total = Object.values(analytics.delivery_stats).reduce((a, b) => a + b, 0);
+                    const percent = total > 0 ? (count / total) * 100 : 0;
+                    const label = DELIVERY_LABELS[method] || method;
+                    return (
+                      <div key={method} className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-300">{label}</span>
+                          <span className="text-white font-medium">{count} ({percent.toFixed(0)}%)</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                          <div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-pink-400" style={{ width: `${percent}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Summary cards */}
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="rounded-2xl bg-gradient-to-br from-blue-900/50 to-cyan-900/50 border border-blue-500/20 p-6">
+                <div className="text-blue-400 text-sm mb-1">За месяц</div>
+                <div className="text-2xl font-bold text-white">{analytics.month_orders || 0} заказов</div>
+              </div>
+              <div className="rounded-2xl bg-gradient-to-br from-green-900/50 to-emerald-900/50 border border-green-500/20 p-6">
+                <div className="text-green-400 text-sm mb-1">Успешных заказов</div>
+                <div className="text-2xl font-bold text-white">{(analytics.status_counts?.completed || 0) + (analytics.status_counts?.ready || 0)}</div>
+              </div>
+              <div className="rounded-2xl bg-gradient-to-br from-red-900/50 to-orange-900/50 border border-red-500/20 p-6">
+                <div className="text-red-400 text-sm mb-1">Отменённых</div>
+                <div className="text-2xl font-bold text-white">{analytics.status_counts?.cancelled || 0}</div>
+              </div>
+            </div>
           </div>
+        )}
+
+        {/* ============ MEDIA TAB ============ */}
+        {activeTab === 'media' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white">🖼️ Медиа-библиотека</h2>
+                <p className="text-sm text-slate-400 mt-1">Загружайте логотипы, фото товаров и другие изображения</p>
+              </div>
+              <label className={`cursor-pointer rounded-lg bg-yellow-400 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-yellow-300 ${uploadingMedia ? 'opacity-50' : ''}`}>
+                {uploadingMedia ? '⏳ Загрузка...' : '📤 Загрузить файл'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={uploadingMedia}
+                  onChange={(e) => e.target.files?.[0] && uploadMedia(e.target.files[0])}
+                />
+              </label>
+            </div>
+
+            {/* Tips */}
+            <div className="rounded-2xl bg-blue-900/20 border border-blue-500/30 p-4">
+              <div className="flex gap-3">
+                <span className="text-2xl">💡</span>
+                <div>
+                  <div className="font-medium text-white mb-1">Как использовать</div>
+                  <ul className="text-sm text-slate-300 space-y-1">
+                    <li>• Загрузите изображение и скопируйте URL</li>
+                    <li>• Вставьте URL в поле картинки товара или слайда</li>
+                    <li>• Поддерживаются JPG, PNG, WebP, GIF (до 10MB)</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {mediaFiles.length === 0 ? (
+              <div className="rounded-2xl bg-white/5 p-16 text-center">
+                <div className="text-5xl mb-4">🖼️</div>
+                <div className="text-xl font-semibold text-white mb-2">Файлов пока нет</div>
+                <div className="text-slate-400">Загрузите изображения для использования на сайте</div>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+                {mediaFiles.map(file => (
+                  <div key={file.name} className="group rounded-2xl bg-white/5 overflow-hidden hover:bg-white/10 transition-all">
+                    <div className="aspect-square bg-white/5 flex items-center justify-center overflow-hidden">
+                      <img 
+                        src={`${API_BASE_URL}${file.url}`}
+                        alt={file.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                    </div>
+                    <div className="p-3">
+                      <div className="text-sm text-white truncate mb-1">{file.name}</div>
+                      <div className="text-xs text-slate-500 mb-3">
+                        {(file.size / 1024).toFixed(1)} KB
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => copyToClipboard(`${API_BASE_URL}${file.url}`)}
+                          className="flex-1 rounded-lg bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/20"
+                        >
+                          📋 URL
+                        </button>
+                        <button
+                          onClick={() => deleteMedia(file.name)}
+                          className="rounded-lg bg-red-900/50 px-3 py-2 text-xs text-red-400 hover:bg-red-900"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============ SLIDES TAB ============ */}
+        {activeTab === 'slides' && (
+          <>
+            <div className="mb-6 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-white">🌟 Товары дня — карусель на главной</h2>
+              <div className="flex gap-3">
+                {slides.length === 0 && (
+                  <button onClick={seedSlides} className="rounded-lg bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700">
+                    🌱 Заполнить
+                  </button>
+                )}
+                <button
+                  onClick={() => { setEditingSlide(null); setIsSlideModalOpen(true) }}
+                  className="rounded-lg bg-yellow-400 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-yellow-500"
+                >
+                  + Добавить слайд
+                </button>
+              </div>
+            </div>
+
+            {slides.length === 0 ? (
+              <div className="rounded-2xl bg-white/5 p-16 text-center">
+                <div className="text-5xl mb-4">🌟</div>
+                <div className="text-xl font-semibold text-white mb-2">Слайдов пока нет</div>
+                <div className="text-slate-400 mb-6">Нажмите «Заполнить» для создания стандартных слайдов</div>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {slides.map(slide => (
+                  <div key={slide.id} className="rounded-2xl bg-white/5 p-5 transition-all hover:bg-white/10">
+                    <div className="flex gap-4">
+                      {/* Preview */}
+                      <div className={`w-24 h-24 rounded-xl ${slide.color} flex-shrink-0 flex items-center justify-center overflow-hidden`}>
+                        {slide.image ? (
+                          <img src={slide.image} alt={slide.title} className="w-20 h-20 object-contain" />
+                        ) : (
+                          <span className="text-3xl">📱</span>
+                        )}
+                      </div>
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <h3 className="font-bold text-white truncate">{slide.title}</h3>
+                            <p className="text-sm text-slate-400 truncate">{slide.badge}</p>
+                          </div>
+                          <span className={`flex-shrink-0 rounded-lg px-2 py-1 text-xs font-medium ${
+                            slide.is_active ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'
+                          }`}>
+                            {slide.is_active ? 'Активен' : 'Скрыт'}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-lg font-bold text-yellow-400">от {slide.price} ₽</div>
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {slide.tags?.map((tag, j) => (
+                            <span key={j} className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-300">{tag}</span>
+                          ))}
+                        </div>
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            onClick={() => { setEditingSlide(slide); setIsSlideModalOpen(true) }}
+                            className="rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/20"
+                          >
+                            ✏️ Редактировать
+                          </button>
+                          <button
+                            onClick={() => slide.id && deleteSlide(slide.id)}
+                            className="rounded-lg bg-red-900/50 px-3 py-1.5 text-sm text-red-400 hover:bg-red-900"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -605,6 +1049,15 @@ export function AdminPage() {
           category={editingCategory}
           onSave={saveCategory}
           onClose={() => { setIsCategoryModalOpen(false); setEditingCategory(null) }}
+        />
+      )}
+
+      {/* ============ SLIDE MODAL ============ */}
+      {isSlideModalOpen && (
+        <SlideModal
+          slide={editingSlide}
+          onSave={saveSlide}
+          onClose={() => { setIsSlideModalOpen(false); setEditingSlide(null) }}
         />
       )}
     </div>
@@ -1381,6 +1834,187 @@ function CategoryModal({
             <button type="button" onClick={onClose} className="flex-1 rounded-xl bg-white/10 py-3 text-white hover:bg-white/20">Отмена</button>
             <button type="submit" className="flex-1 rounded-xl bg-yellow-400 py-3 font-semibold text-gray-900 hover:bg-yellow-300">
               {category ? 'Сохранить' : 'Создать'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ========================
+// SLIDE MODAL
+// ========================
+function SlideModal({
+  slide, onSave, onClose
+}: {
+  slide: WeeklySlide | null
+  onSave: (data: Partial<WeeklySlide>) => void
+  onClose: () => void
+}) {
+  const [formData, setFormData] = useState({
+    title: slide?.title || '',
+    badge: slide?.badge || '',
+    description: slide?.description || '',
+    price: slide?.price || '',
+    image: slide?.image || '',
+    color: slide?.color || GRADIENT_PRESETS[0].value,
+    tags: slide?.tags?.join(', ') || '',
+    is_new: slide?.is_new ?? false,
+    sort_order: slide?.sort_order ?? 0,
+    is_active: slide?.is_active ?? true,
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    onSave({
+      title: formData.title,
+      badge: formData.badge,
+      description: formData.description,
+      price: formData.price,
+      image: formData.image,
+      color: formData.color,
+      tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
+      is_new: formData.is_new,
+      sort_order: formData.sort_order,
+      is_active: formData.is_active,
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 overflow-y-auto" onClick={onClose}>
+      <div className="w-full max-w-2xl rounded-3xl bg-slate-800 p-6 my-8" onClick={e => e.stopPropagation()}>
+        <div className="mb-6 flex items-start justify-between">
+          <h2 className="text-2xl font-bold text-white">{slide ? 'Редактировать' : 'Новый'} слайд</h2>
+          <button onClick={onClose} className="text-2xl text-slate-400 hover:text-white">×</button>
+        </div>
+
+        {/* Preview */}
+        <div className={`mb-6 rounded-2xl ${formData.color} p-6 flex gap-4 items-center`}>
+          {formData.image && (
+            <img src={formData.image} alt="preview" className="w-28 h-28 object-contain flex-shrink-0" />
+          )}
+          <div>
+            {formData.badge && <span className="text-xs font-semibold uppercase tracking-wider text-gray-600">{formData.badge}</span>}
+            <div className="text-2xl font-bold text-gray-900">{formData.title || 'Название'}</div>
+            {formData.price && <div className="text-xl font-bold text-gray-800 mt-1">от {formData.price} ₽</div>}
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm text-slate-400">Название *</label>
+              <input
+                type="text"
+                required
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                placeholder="iPhone 16 Pro"
+                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm text-slate-400">Бейдж / подзаголовок</label>
+              <input
+                type="text"
+                value={formData.badge}
+                onChange={(e) => setFormData({ ...formData, badge: e.target.value })}
+                placeholder="Товар недели"
+                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm text-slate-400">Описание</label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              rows={2}
+              placeholder="Мощный процессор A18 Pro, камера 48 Мп..."
+              className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
+            />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm text-slate-400">Цена (текст) *</label>
+              <input
+                type="text"
+                required
+                value={formData.price}
+                onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                placeholder="89 990"
+                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm text-slate-400">Порядок сортировки</label>
+              <input
+                type="number"
+                value={formData.sort_order}
+                onChange={(e) => setFormData({ ...formData, sort_order: Number(e.target.value) })}
+                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm text-slate-400">Ссылка на фото (URL)</label>
+            <input
+              type="url"
+              value={formData.image}
+              onChange={(e) => setFormData({ ...formData, image: e.target.value })}
+              placeholder="https://..."
+              className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm text-slate-400">Теги (через запятую)</label>
+            <input
+              type="text"
+              value={formData.tags}
+              onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
+              placeholder="A18 Pro, Титан, 48 Мп"
+              className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm text-slate-400">Фон (градиент)</label>
+            <div className="grid grid-cols-3 gap-2">
+              {GRADIENT_PRESETS.map(preset => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  onClick={() => setFormData({ ...formData, color: preset.value })}
+                  className={`rounded-lg ${preset.value} p-3 text-sm font-medium text-gray-700 border-2 transition-all ${
+                    formData.color === preset.value ? 'border-yellow-400 scale-105' : 'border-transparent opacity-70 hover:opacity-100'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex gap-6">
+            <label className="flex items-center gap-2 text-white cursor-pointer">
+              <input type="checkbox" checked={formData.is_new} onChange={(e) => setFormData({ ...formData, is_new: e.target.checked })} className="h-5 w-5 rounded" />
+              Пометить «Новинка»
+            </label>
+            <label className="flex items-center gap-2 text-white cursor-pointer">
+              <input type="checkbox" checked={formData.is_active} onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })} className="h-5 w-5 rounded" />
+              Активен (показывать)
+            </label>
+          </div>
+
+          <div className="flex gap-4 pt-4">
+            <button type="button" onClick={onClose} className="flex-1 rounded-xl bg-white/10 py-3 text-white hover:bg-white/20">Отмена</button>
+            <button type="submit" className="flex-1 rounded-xl bg-yellow-400 py-3 font-semibold text-gray-900 hover:bg-yellow-300">
+              {slide ? 'Сохранить' : 'Создать'}
             </button>
           </div>
         </form>

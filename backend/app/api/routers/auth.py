@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from ...core.security import authenticate_admin, create_access_token, verify_admin
 from ...schemas import LoginRequest, TokenResponse
@@ -21,6 +21,6 @@ async def login(request: LoginRequest) -> TokenResponse:
 
 
 @router.get("/verify", summary="Verify admin token")
-async def verify_auth(admin: dict = verify_admin) -> dict:
+async def verify_auth(admin: dict = Depends(verify_admin)) -> dict:
     return {"valid": True, "username": admin.get("username")}
 

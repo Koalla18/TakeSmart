@@ -1,84 +1,62 @@
 from __future__ import annotations
-
-import asyncio
 import logging
 import os
-import time
 from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy.exc import OperationalError
-from sqlalchemy.engine.url import make_url
-
-from .api.routers import analytics, auth, categories, health, orders, products, seed, uploads
-from .core.config import settings
-from .core.logging import configure_logging
+from .api.routers import analytics, auth, categories, health, media, orders, products, seed, uploads, weekly_slides
+from .core.logging import setup_logging
+from .db import engine
 from .db.base import Base
-from .db.redis import close_redis, get_redis_client
-from .db.session import engine
-
-configure_logging()
+from .db.redis import close_redis, init_redis
+# Setup logging
+setup_logging()
 logger = logging.getLogger(__name__)
-
-
-async def _wait_for_db(retries: int = 30, delay: float = 1.0) -> None:
-    url = make_url(settings.database_url)
-    target = f"{url.drivername}://{url.host}:{url.port}/{url.database}"
-    for attempt in range(1, retries + 1):
-        try:
-            async with engine.begin() as conn:
-                await conn.run_sync(lambda _: None)
-            logger.info("Database connected: %s", target)
-            return
-        except OperationalError as exc:
-            logger.warning("Database not ready (%s/%s): %s", attempt, retries, exc)
-            await asyncio.sleep(delay)
-    raise RuntimeError(f"Database not ready after {retries} attempts: {target}")
-
-
+# Create uploads directory
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    get_redis_client()
-    await _wait_for_db()
-    if settings.auto_create_tables:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+    """Lifespan context manager for startup/shutdown events."""
+    logger.info("🚀 Starting up TakeSmart API...")
+    # Create DB tables
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("✅ Database tables created")
+    # Initialize Redis
+    await init_redis()
+    logger.info("✅ Redis connected")
     yield
+    # Shutdown
+    logger.info("🛑 Shutting down...")
     await close_redis()
-
-
-app = FastAPI(title="Take Smart API", lifespan=lifespan)
-
-base_dir = os.path.dirname(os.path.dirname(__file__))
-uploads_dir = os.path.join(base_dir, settings.uploads_dir)
-os.makedirs(uploads_dir, exist_ok=True)
-app.mount(f"/{settings.uploads_dir}", StaticFiles(directory=uploads_dir), name="uploads")
-
+    await engine.dispose()
+    logger.info("✅ Cleanup complete")
+app = FastAPI(
+    title="TakeSmart API",
+    description="E-commerce backend for electronics and smartphones",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    start = time.perf_counter()
-    response = await call_next(request)
-    duration = (time.perf_counter() - start) * 1000
-    logger.info("%s %s -> %s (%.2fms)", request.method, request.url.path, response.status_code, duration)
-    return response
-
-
+# Mount static files for uploads
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+# Include routers
 app.include_router(health.router)
 app.include_router(auth.router)
-app.include_router(categories.router)
 app.include_router(products.router)
+app.include_router(categories.router)
 app.include_router(orders.router)
 app.include_router(analytics.router)
 app.include_router(uploads.router)
 app.include_router(seed.router)
+app.include_router(weekly_slides.router)
+app.include_router(media.router)

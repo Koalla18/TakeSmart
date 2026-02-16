@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
+import { API_BASE_URL } from './config'
 
 interface AuthContextType {
   token: string | null
@@ -20,7 +21,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
-      const response = await fetch('http://localhost:8000/api/auth/login', {
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
@@ -49,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Verify token on mount
   useEffect(() => {
     if (token) {
-      fetch('http://localhost:8000/api/auth/verify', {
+      fetch(`${API_BASE_URL}/api/auth/verify`, {
         headers: { Authorization: `Bearer ${token}` },
       })
         .then((res) => {
