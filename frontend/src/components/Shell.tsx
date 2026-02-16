@@ -85,6 +85,7 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                 { to: '/catalog', label: 'Каталог' },
                 { to: '/used', label: 'Б/У техника' },
                 { to: '/delivery', label: 'Доставка и оплата' },
+                { to: '/trade-in', label: 'Trade-in' },
                 { to: '/cart', label: 'Оставить заявку' },
               ].map(item => (
                 <NavLink
@@ -250,12 +251,13 @@ export function Shell({ children }: PropsWithChildren) {
             </Link>
             
             {/* Desktop nav */}
-            <nav className="hidden items-center gap-8 lg:flex">
+            <nav className="hidden items-center gap-6 lg:flex">
               <NavItem to="/" label="Главная" />
               <NavItem to="/catalog" label="Каталог" />
-              <NavItem to="/used" label="Б/У техника" />
-              <NavItem to="/delivery" label="Доставка и оплата" />
-              <NavItem to="/cart" label="Оставить заявку" />
+              <NavItem to="/used" label="Б/У" />
+              <NavItem to="/delivery" label="Доставка" />
+              <NavItem to="/trade-in" label="Trade-in" />
+              <NavItem to="/cart" label="Заявка" />
             </nav>
             
             {/* Actions */}
@@ -278,13 +280,6 @@ export function Shell({ children }: PropsWithChildren) {
                     {cartCount}
                   </span>
                 )}
-              </Link>
-              
-              <Link
-                to="/admin"
-                className="hidden rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 lg:inline-flex"
-              >
-                Админ
               </Link>
               
               {/* Mobile menu button */}

@@ -25,3 +25,36 @@ body,
 .animate-marquee:hover {
   animation-play-state: paused;
 }
+
+/* Slow spin animation for "Товар недели" badge */
+@keyframes spin-slow {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 20s linear infinite;
+}
+
+/* Smooth carousel crossfade transition */
+.carousel-slide {
+  transition: opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.carousel-slide-active {
+  opacity: 1;
+  transform: scale(1);
+  z-index: 10;
+}
+
+.carousel-slide-hidden {
+  opacity: 0;
+  transform: scale(1.015);
+  z-index: 0;
+  pointer-events: none;
+}

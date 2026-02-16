@@ -9,6 +9,7 @@ import { DeliveryPage } from './pages/DeliveryPage'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { ProductPage } from './pages/ProductPage'
+import { TradeInPage } from './pages/TradeInPage'
 import { UsedPage } from './pages/UsedPage'
 import { UsedProductPage } from './pages/UsedProductPage'
 
@@ -27,6 +28,7 @@ function App() {
           <Route path="/product/:id" element={<Shell><ProductPage /></Shell>} />
           <Route path="/cart" element={<Shell><CartPage /></Shell>} />
           <Route path="/delivery" element={<Shell><DeliveryPage /></Shell>} />
+          <Route path="/trade-in" element={<Shell><TradeInPage /></Shell>} />
           <Route path="/used" element={<Shell><UsedPage /></Shell>} />
           <Route path="/used/:slug" element={<Shell><UsedProductPage /></Shell>} />
           <Route path="*" element={<Navigate to="/" replace />} />

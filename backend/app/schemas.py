@@ -144,6 +144,46 @@ class ProductRead(BaseModel):
         from_attributes = True
 
 
+# ============ WEEKLY SLIDE SCHEMAS ============
+
+class WeeklySlideBase(BaseModel):
+    title: str
+    badge: Optional[str] = None
+    description: Optional[str] = None
+    price: str
+    image: Optional[str] = None
+    color: Optional[str] = 'bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50'
+    tags: Optional[List[str]] = None
+    is_new: bool = False
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class WeeklySlideCreate(WeeklySlideBase):
+    pass
+
+
+class WeeklySlideUpdate(BaseModel):
+    title: Optional[str] = None
+    badge: Optional[str] = None
+    description: Optional[str] = None
+    price: Optional[str] = None
+    image: Optional[str] = None
+    color: Optional[str] = None
+    tags: Optional[List[str]] = None
+    is_new: Optional[bool] = None
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class WeeklySlideRead(WeeklySlideBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ============ ORDER SCHEMAS ============
 
 class CartItem(BaseModel):

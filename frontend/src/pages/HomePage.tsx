@@ -3,9 +3,7 @@ import { Link } from 'react-router-dom'
 import { Container, Section } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
 import { ProductCard } from '../components/ProductCard'
-import { getFeaturedProducts, products } from '../data/products'
-import type { Product } from '../data/products'
-import { useCart } from '../lib/cart'
+import { getFeaturedProducts } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
 import { 
   ShieldIcon, 
@@ -94,47 +92,9 @@ const benefits = [
 
 export function HomePage() {
   const featuredProducts = getFeaturedProducts()
-  const [heroProduct, setHeroProduct] = useState<Product>(products[0]) // fallback
-  const { addItem, isInCart } = useCart()
   const videoRef = useRef<HTMLVideoElement>(null)
   const heroRef = useRef<HTMLDivElement>(null)
   const [videoProgress, setVideoProgress] = useState(0)
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
-
-  // Load featured product from API
-  useEffect(() => {
-    async function loadFeatured() {
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/products/featured`)
-        if (res.ok) {
-          const data = await res.json()
-          if (data) {
-            // Convert API format to local format
-            setHeroProduct({
-              id: String(data.id),
-              name: data.name,
-              brand: data.brand || '',
-              category: '',
-              categorySlug: '',
-              price: data.price,
-              oldPrice: data.old_price,
-              badge: data.badge as Product['badge'],
-              inStock: data.in_stock,
-              image: data.images?.[0] || data.image || '📱',
-              description: data.description || '',
-              specs: data.specs?.map((s: {label?: string; key?: string; value: string}) => ({
-                label: s.label || s.key || '',
-                value: s.value
-              })) || []
-            })
-          }
-        }
-      } catch (err) {
-        console.error('Error loading featured product:', err)
-      }
-    }
-    loadFeatured()
-  }, [])
 
   // Video scroll sync (Apple-style)
   useEffect(() => {
@@ -158,24 +118,12 @@ export function HomePage() {
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
 
-  // Mouse parallax effect
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      setMousePosition({
-        x: (e.clientX / window.innerWidth - 0.5) * 20,
-        y: (e.clientY / window.innerHeight - 0.5) * 20
-      })
-    }
-    window.addEventListener('mousemove', handleMouseMove)
-    return () => window.removeEventListener('mousemove', handleMouseMove)
-  }, [])
-
   return (
     <div className="overflow-hidden">
       {/* Video Hero Section - Apple Style */}
       <section 
         ref={heroRef}
-        className="relative min-h-[200vh] bg-black"
+        className="relative min-h-[130vh] bg-gradient-to-b from-black via-black to-gray-900"
       >
         {/* Sticky video container */}
         <div className="sticky top-0 h-screen overflow-hidden">
@@ -213,8 +161,8 @@ export function HomePage() {
                 
                 {/* Main heading */}
                 <h1 className="mb-6 text-5xl font-bold leading-tight text-white sm:text-6xl lg:text-8xl">
-                  <span className="block">Умная техника</span>
-                  <span className="block bg-gradient-to-r from-yellow-400 to-amber-300 bg-clip-text text-transparent">
+                  <span className="block drop-shadow-lg">Умная техника</span>
+                  <span className="block bg-gradient-to-r from-yellow-400 to-amber-300 bg-clip-text text-transparent pb-2">
                     будущего
                   </span>
                 </h1>
@@ -256,42 +204,61 @@ export function HomePage() {
         <Container>
           <AnimatedSection>
             <div className="rounded-3xl bg-white p-8 shadow-2xl shadow-black/10 sm:p-10 overflow-hidden">
-              <div className="text-center mb-6">
+              <div className="text-center mb-8">
                 <h2 className="text-lg font-semibold text-gray-900">Официальный партнёр ведущих брендов</h2>
               </div>
               
-              {/* Infinite Carousel */}
+              {/* Infinite Carousel with fade edges */}
               <div className="relative">
-                <div className="flex animate-marquee gap-12 whitespace-nowrap">
+                {/* Gradient fade left */}
+                <div className="absolute left-0 top-0 bottom-0 w-20 bg-gradient-to-r from-white to-transparent z-10 pointer-events-none" />
+                {/* Gradient fade right */}
+                <div className="absolute right-0 top-0 bottom-0 w-20 bg-gradient-to-l from-white to-transparent z-10 pointer-events-none" />
+                
+                <div className="flex animate-marquee gap-12 sm:gap-16 whitespace-nowrap py-4">
                   {[
-                    { name: 'Apple', icon: '' },
-                    { name: 'Samsung', icon: '📱' },
-                    { name: 'Sony', icon: '🎮' },
-                    { name: 'PlayStation', icon: '🎯' },
-                    { name: 'Xbox', icon: '🕹️' },
-                    { name: 'Яндекс', icon: '🔴' },
-                    { name: 'JBL', icon: '🔊' },
-                    { name: 'Xiaomi', icon: '📲' },
-                    { name: 'Nintendo', icon: '🎲' },
-                    { name: 'Huawei', icon: '📡' },
-                    { name: 'DJI', icon: '🚁' },
-                    { name: 'GoPro', icon: '📷' },
-                    { name: 'Apple', icon: '' },
-                    { name: 'Samsung', icon: '📱' },
-                    { name: 'Sony', icon: '🎮' },
-                    { name: 'PlayStation', icon: '🎯' },
-                    { name: 'Xbox', icon: '🕹️' },
-                    { name: 'Яндекс', icon: '🔴' },
-                    { name: 'JBL', icon: '🔊' },
-                    { name: 'Xiaomi', icon: '📲' },
-                    { name: 'Nintendo', icon: '🎲' },
-                    { name: 'Huawei', icon: '📡' },
-                    { name: 'DJI', icon: '🚁' },
-                    { name: 'GoPro', icon: '📷' },
+                    { name: 'Apple', logo: '/logos/apple.svg' },
+                    { name: 'Samsung', logo: '/logos/samsung.svg' },
+                    { name: 'Sony', logo: '/logos/sony.svg' },
+                    { name: 'PlayStation', logo: '/logos/playstation.svg' },
+                    { name: 'Xbox', logo: '/logos/xbox.svg' },
+                    { name: 'Яндекс', logo: '/logos/yandex.svg' },
+                    { name: 'JBL', logo: '/logos/jbl.svg' },
+                    { name: 'Xiaomi', logo: '/logos/xiaomi.svg' },
+                    { name: 'Nintendo', logo: '/logos/nintendo.svg' },
+                    { name: 'Huawei', logo: '/logos/huawei.svg' },
+                    { name: 'DJI', logo: '/logos/dji.svg' },
+                    { name: 'GoPro', logo: '/logos/gopro.svg' },
+                    // Дубликат для бесшовной анимации
+                    { name: 'Apple', logo: '/logos/apple.svg' },
+                    { name: 'Samsung', logo: '/logos/samsung.svg' },
+                    { name: 'Sony', logo: '/logos/sony.svg' },
+                    { name: 'PlayStation', logo: '/logos/playstation.svg' },
+                    { name: 'Xbox', logo: '/logos/xbox.svg' },
+                    { name: 'Яндекс', logo: '/logos/yandex.svg' },
+                    { name: 'JBL', logo: '/logos/jbl.svg' },
+                    { name: 'Xiaomi', logo: '/logos/xiaomi.svg' },
+                    { name: 'Nintendo', logo: '/logos/nintendo.svg' },
+                    { name: 'Huawei', logo: '/logos/huawei.svg' },
+                    { name: 'DJI', logo: '/logos/dji.svg' },
+                    { name: 'GoPro', logo: '/logos/gopro.svg' },
                   ].map((brand, i) => (
-                    <div key={i} className="flex items-center gap-3 text-gray-400 hover:text-gray-900 transition-colors cursor-pointer">
-                      <span className="text-2xl">{brand.icon}</span>
-                      <span className="text-xl font-semibold">{brand.name}</span>
+                    <div 
+                      key={i} 
+                      className="flex items-center justify-center flex-shrink-0 w-[100px] h-[40px] grayscale hover:grayscale-0 opacity-50 hover:opacity-100 transition-all duration-300 cursor-pointer hover:scale-110"
+                      title={brand.name}
+                    >
+                      <img 
+                        src={brand.logo} 
+                        alt={brand.name}
+                        className="max-h-[32px] max-w-[90px] w-auto h-auto object-contain"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                          const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                          if (fallback) fallback.classList.remove('hidden');
+                        }}
+                      />
+                      <span className="hidden text-lg font-semibold text-gray-500">{brand.name}</span>
                     </div>
                   ))}
                 </div>
@@ -323,106 +290,257 @@ export function HomePage() {
         </Container>
       </section>
 
-      {/* Featured Product Hero - Apple Style */}
-      <Section className="py-32 overflow-hidden">
+      {/* Featured Product Hero - HeyApple Style Carousel */}
+      <Section className="py-8 lg:py-16 overflow-hidden bg-gray-50">
         <Container>
           <AnimatedSection>
-            <div className="relative">
-              {/* Background glow */}
-              <div 
-                className="absolute inset-0 bg-gradient-to-r from-yellow-400/20 via-transparent to-amber-400/20 blur-3xl opacity-50"
-                style={{
-                  transform: `translate(${mousePosition.x}px, ${mousePosition.y}px)`
-                }}
-              />
+            {(() => {
+              const [currentSlide, setCurrentSlide] = useState(0);
               
-              <div className="relative grid lg:grid-cols-2 gap-12 items-center">
-                {/* Content */}
-                <div className="order-2 lg:order-1">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-yellow-400/10 border border-yellow-400/20 px-4 py-2 text-sm font-medium text-yellow-600 mb-6">
-                    <span className="h-2 w-2 rounded-full bg-yellow-400 animate-pulse" />
-                    Хит продаж
+              const defaultSlides = [
+                {
+                  badge: 'Мощь. Стиль. Pro.',
+                  title: 'iPhone 17 Pro',
+                  description: 'Оригинальная техника Apple без переплат.\nОбмен старого устройства на новое с выгодой до 50%.\nДоставка в день заказа по Москве и МО.',
+                  price: '94 000',
+                  image: '/iphone-17-pro.png',
+                  color: 'bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50',
+                  tags: ['trade-in', 'гарантия 12 месяцев*', 'новинка'],
+                  isNew: true
+                },
+                {
+                  badge: 'Лёгкость. Мощь. Air.',
+                  title: 'MacBook Air M3',
+                  description: 'Невероятно тонкий и лёгкий.\nДо 18 часов работы без подзарядки.\nЧип M3 — производительность нового уровня.',
+                  price: '119 990',
+                  image: 'https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/macbook-air-midnight-select-20220606?wid=800&hei=800&fmt=png-alpha',
+                  color: 'bg-gradient-to-br from-slate-100 via-gray-50 to-slate-50',
+                  tags: ['trade-in', 'гарантия 12 месяцев*', 'хит'],
+                  isNew: false
+                },
+                {
+                  badge: 'Звук. Без границ.',
+                  title: 'AirPods Pro 2',
+                  description: 'Активное шумоподавление нового поколения.\nАдаптивное аудио — под вас.\nДо 6 часов прослушивания.',
+                  price: '24 990',
+                  image: 'https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/airpods-pro-2-hero-select-202409?wid=800&hei=800&fmt=png-alpha',
+                  color: 'bg-gradient-to-br from-purple-50 via-white to-fuchsia-50',
+                  tags: ['trade-in', 'гарантия 12 месяцев*'],
+                  isNew: false
+                },
+                {
+                  badge: 'Создан для приключений.',
+                  title: 'Apple Watch Ultra 2',
+                  description: 'Титановый корпус 49 мм.\nСамый яркий дисплей Apple Watch.\nДо 36 часов автономной работы.',
+                  price: '79 990',
+                  image: '/watch-ultra-2.png',
+                  color: 'bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50',
+                  tags: ['trade-in', 'гарантия 12 месяцев*', 'новинка'],
+                  isNew: true
+                }
+              ];
+
+              const [slides, setSlides] = useState(defaultSlides);
+
+              // Fetch slides from API
+              useEffect(() => {
+                fetch(`${API_BASE_URL}/api/weekly-slides`)
+                  .then(res => res.ok ? res.json() : Promise.reject())
+                  .then((data: any[]) => {
+                    if (data.length > 0) {
+                      setSlides(data.map(s => ({
+                        badge: s.badge || '',
+                        title: s.title,
+                        description: s.description || '',
+                        price: s.price,
+                        image: s.image || '',
+                        color: s.color || 'bg-gradient-to-br from-gray-50 via-white to-gray-100',
+                        tags: s.tags || [],
+                        isNew: s.is_new || false,
+                      })));
+                    }
+                  })
+                  .catch(() => { /* use defaults */ });
+              }, []);
+              
+              const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % slides.length);
+              const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + slides.length) % slides.length);
+              
+              // Auto-slide every 6 seconds
+              useEffect(() => {
+                const timer = setInterval(() => {
+                  setCurrentSlide((prev) => (prev + 1) % slides.length);
+                }, 6000);
+                return () => clearInterval(timer);
+              }, [slides.length]);
+              
+              return (
+                <div className="relative">
+                  {/* Section Title */}
+                  <div className="mb-8 flex items-center justify-between">
+                    <div>
+                      <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">Товары недели</h2>
+                      <p className="mt-2 text-gray-500">Лучшие предложения от TakeSmart</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      {/* Slide counter */}
+                      <span className="text-sm text-gray-400 font-medium hidden sm:block">
+                        {String(currentSlide + 1).padStart(2, '0')} / {String(slides.length).padStart(2, '0')}
+                      </span>
+                      {/* Navigation Arrows */}
+                      <div className="flex gap-3">
+                        <button 
+                          onClick={prevSlide}
+                          className="w-12 h-12 rounded-2xl bg-white/90 backdrop-blur border border-gray-200 flex items-center justify-center hover:bg-gray-900 hover:border-gray-900 transition-all duration-300 group shadow-sm"
+                        >
+                          <svg className="w-5 h-5 text-gray-700 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
+                          </svg>
+                        </button>
+                        <button 
+                          onClick={nextSlide}
+                          className="w-12 h-12 rounded-2xl bg-white/90 backdrop-blur border border-gray-200 flex items-center justify-center hover:bg-gray-900 hover:border-gray-900 transition-all duration-300 group shadow-sm"
+                        >
+                          <svg className="w-5 h-5 text-gray-700 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  
-                  <h2 className="text-5xl lg:text-6xl font-bold text-gray-900 mb-6 leading-tight">
-                    {heroProduct.name}
-                  </h2>
-                  
-                  <p className="text-xl text-gray-500 mb-8 max-w-lg">
-                    {heroProduct.description}
-                  </p>
-                  
-                  {/* Specs */}
-                  <div className="grid grid-cols-2 gap-4 mb-8">
-                    {heroProduct.specs.slice(0, 4).map((spec, i) => (
-                      <div key={i} className="rounded-2xl bg-gray-50 p-4">
-                        <div className="text-sm text-gray-400 mb-1">{spec.label}</div>
-                        <div className="font-semibold text-gray-900">{spec.value}</div>
+
+                  {/* Main Card — crossfade */}
+                  <div className="relative rounded-[2rem] overflow-hidden">
+                    {/* "Товар недели" rotating badge */}
+                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none hidden lg:block">
+                      <div className="relative w-28 h-28">
+                        <div className="absolute inset-0 rounded-full border border-gray-200/60 bg-white/80 backdrop-blur-md shadow-lg" />
+                        <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full animate-spin-slow">
+                          <defs>
+                            <path id="circlePath" d="M 50, 50 m -38, 0 a 38,38 0 1,1 76,0 a 38,38 0 1,1 -76,0"/>
+                          </defs>
+                          <text className="fill-gray-500" style={{ fontSize: '9.5px', letterSpacing: '3px', textTransform: 'uppercase' }}>
+                            <textPath href="#circlePath">
+                              • товар недели • товар недели 
+                            </textPath>
+                          </text>
+                        </svg>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="w-3.5 h-3.5 rounded-full bg-gray-900" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Stacked slides — smooth crossfade */}
+                    {slides.map((s, idx) => (
+                      <div
+                        key={idx}
+                        aria-hidden={idx !== currentSlide}
+                        className={`${idx === 0 ? '' : 'absolute inset-0'} ${s.color} carousel-slide ${
+                          idx === currentSlide ? 'carousel-slide-active' : 'carousel-slide-hidden'
+                        }`}
+                      >
+                        <div className="grid lg:grid-cols-2 min-h-[580px]">
+                          {/* Left - Content */}
+                          <div className="relative p-8 lg:p-12 flex flex-col justify-between">
+                            <div className="mb-auto">
+                              <span className="inline-block rounded-full border border-gray-300 bg-white/80 backdrop-blur px-4 py-2 text-sm text-gray-600">
+                                {s.badge}
+                              </span>
+                            </div>
+                            
+                            <div className="my-auto">
+                              <h2 className="text-4xl lg:text-6xl font-bold text-gray-900 mb-6 leading-[1.1]">
+                                {s.title}
+                              </h2>
+                              <p className="text-gray-500 mb-8 whitespace-pre-line leading-relaxed max-w-md text-[15px]">
+                                {s.description}
+                              </p>
+                              <div className="flex items-center gap-6">
+                                <span className="text-2xl lg:text-3xl font-semibold text-gray-900">
+                                  от {s.price} ₽
+                                </span>
+                                <Link 
+                                  to="/catalog"
+                                  className="inline-flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 px-8 py-3.5 text-white font-medium transition-all hover:shadow-lg hover:shadow-blue-500/25"
+                                >
+                                  Подробнее
+                                </Link>
+                              </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-4 mt-8">
+                              <Link to="/delivery" className="bg-white rounded-2xl p-5 border border-gray-100 hover:shadow-lg hover:border-gray-200 transition-all group">
+                                <div className="flex items-center justify-between mb-3">
+                                  <h4 className="font-semibold text-gray-900">Доставка и оплата</h4>
+                                  <div className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center group-hover:bg-gray-900 group-hover:border-gray-900 transition-all">
+                                    <svg className="w-4 h-4 text-gray-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 17L17 7M17 7H7M17 7V17" />
+                                    </svg>
+                                  </div>
+                                </div>
+                                <div className="border-t border-gray-100 pt-3">
+                                  <p className="text-sm text-gray-500">Выбирайте подходящий вариант именно для вас.</p>
+                                </div>
+                              </Link>
+                              <Link to="/trade-in" className="bg-white rounded-2xl p-5 border border-gray-100 hover:shadow-lg hover:border-gray-200 transition-all group">
+                                <div className="flex items-center justify-between mb-3">
+                                  <h4 className="font-semibold text-gray-900">Trade-in</h4>
+                                  <div className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center group-hover:bg-gray-900 group-hover:border-gray-900 transition-all">
+                                    <svg className="w-4 h-4 text-gray-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 17L17 7M17 7H7M17 7V17" />
+                                    </svg>
+                                  </div>
+                                </div>
+                                <div className="border-t border-gray-100 pt-3">
+                                  <p className="text-sm text-gray-500">Обменяйте своё старое устройство на новое и получите скидку.</p>
+                                </div>
+                              </Link>
+                            </div>
+                          </div>
+                          
+                          {/* Right - Product Image */}
+                          <div className="relative p-8 lg:p-12 flex items-center justify-center">
+                            <div className="absolute top-6 right-6 flex flex-wrap gap-2 justify-end max-w-[300px]">
+                              {s.tags.map((tag, j) => (
+                                <span 
+                                  key={j}
+                                  className={`rounded-full px-4 py-2 text-sm font-medium ${
+                                    tag === 'новинка' || tag === 'хит'
+                                      ? 'bg-gray-900 text-white' 
+                                      : 'border border-gray-300 bg-white/80 backdrop-blur text-gray-700'
+                                  }`}
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                            <img 
+                              src={s.image}
+                              alt={s.title}
+                              className="relative z-0 max-w-[280px] lg:max-w-[380px] h-auto object-contain drop-shadow-2xl"
+                            />
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
                   
-                  {/* Price & CTA */}
-                  <div className="flex items-end gap-6 mb-8">
-                    <div>
-                      <div className="text-sm text-gray-400 mb-1">Цена</div>
-                      <div className="text-4xl font-bold text-gray-900">
-                        {heroProduct.price.toLocaleString('ru-RU')} ₽
-                      </div>
-                    </div>
-                    {heroProduct.oldPrice && (
-                      <div className="pb-1">
-                        <span className="text-xl text-gray-400 line-through">
-                          {heroProduct.oldPrice.toLocaleString('ru-RU')} ₽
-                        </span>
-                        <span className="ml-2 text-green-500 font-medium">
-                          -{Math.round((1 - heroProduct.price / heroProduct.oldPrice) * 100)}%
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="flex gap-4">
-                    <Button 
-                      size="lg" 
-                      className="shadow-xl shadow-yellow-400/30"
-                      onClick={() => addItem(heroProduct)}
-                    >
-                      {isInCart(heroProduct.id) ? '✓ В корзине' : 'В корзину'}
-                    </Button>
-                    <Button to={`/product/${heroProduct.id}`} variant="outline" size="lg">
-                      Подробнее
-                    </Button>
-                  </div>
-                </div>
-                
-                {/* Product Image */}
-                <div className="order-1 lg:order-2 relative">
-                  <div 
-                    className="relative flex items-center justify-center"
-                    style={{
-                      transform: `translate(${mousePosition.x * 0.5}px, ${mousePosition.y * 0.5}px)`
-                    }}
-                  >
-                    {/* Glow effect */}
-                    <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/30 to-amber-400/30 rounded-full blur-3xl scale-75" />
-                    
-                    {/* Product image or emoji */}
-                    {heroProduct.image?.startsWith('http') || heroProduct.image?.startsWith('/uploads') ? (
-                      <img 
-                        src={heroProduct.image?.startsWith('/uploads') ? `${API_BASE_URL}${heroProduct.image}` : heroProduct.image} 
-                        alt={heroProduct.name}
-                        className="relative z-10 w-80 h-80 object-contain drop-shadow-2xl transition-transform duration-500 hover:scale-105"
+                  {/* Slide Indicators */}
+                  <div className="flex justify-center gap-2 mt-6">
+                    {slides.map((_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setCurrentSlide(i)}
+                        className={`h-1.5 rounded-full transition-all duration-500 ${
+                          i === currentSlide ? 'w-10 bg-gray-900' : 'w-4 bg-gray-300 hover:bg-gray-400'
+                        }`}
                       />
-                    ) : (
-                      <span className="text-[20rem] relative z-10 drop-shadow-2xl transition-transform duration-500 hover:scale-105">
-                        {heroProduct.image}
-                      </span>
-                    )}
+                    ))}
                   </div>
                 </div>
-              </div>
-            </div>
+              );
+            })()}
           </AnimatedSection>
         </Container>
       </Section>
@@ -690,11 +808,12 @@ export function HomePage() {
               {/* Map */}
               <div className="lg:col-span-3 min-h-[400px]">
                 <iframe
-                  src="https://yandex.ru/map-widget/v1/?um=constructor%3A7a88a9b3b8e4c9d5f6123456789abcdef&amp;source=constructor&ll=37.495983%2C55.743749&z=16"
+                  src="https://yandex.ru/map-widget/v1/?ll=37.499283%2C55.743401&z=17&l=map&pt=37.499283%2C55.743401%2Corg"
                   width="100%"
                   height="100%"
                   frameBorder="0"
-                  className="min-h-[400px]"
+                  className="min-h-[400px] rounded-2xl"
+                  title="TakeSmart на карте"
                 />
               </div>
             </div>
@@ -714,21 +833,14 @@ export function HomePage() {
               <div className="flex items-center gap-2 rounded-full bg-yellow-100 px-4 py-2">
                 <span className="text-xl font-bold text-yellow-600">5.0</span>
                 <span className="text-yellow-500">★</span>
-                <span className="text-gray-500">| 3710 отзывов</span>
+                <span className="text-gray-500">| 115 отзывов</span>
               </div>
               <div className="flex gap-6 text-sm text-gray-600">
-                <span>Яндекс <span className="font-bold">5.0</span></span>
-                <span>2Gis <span className="font-bold">5.0</span></span>
-                <span>Авито <span className="font-bold">4.9</span></span>
+                <a href="https://yandex.ru/maps/org/takesmart/159717386486" target="_blank" rel="noopener noreferrer" className="hover:text-yellow-600">
+                  Яндекс <span className="font-bold">5.0</span>
+                </a>
+                <span>Авито <span className="font-bold">5.0</span></span>
               </div>
-            </div>
-            
-            <div className="mb-8 flex flex-wrap justify-center gap-2">
-              {['цена', 'сервис', 'доставка', 'магазин', 'продукт', 'товар', 'персонал'].map(tag => (
-                <span key={tag} className="rounded-full border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:border-yellow-400 cursor-pointer transition-colors">
-                  {tag}
-                </span>
-              ))}
             </div>
           </AnimatedSection>
           
@@ -736,25 +848,46 @@ export function HomePage() {
             <div className="grid gap-6 md:grid-cols-3">
               {[
                 {
-                  name: 'Дима ROFL',
-                  date: '10 февраля',
-                  source: 'Яндекс',
+                  name: 'Артём Киц-Ковязин',
+                  date: '1 декабря 2025',
+                  source: 'Яндекс Карты',
                   rating: 5,
-                  text: 'Номер заказа 203228175C 16.12.25 Покупал IPhone 17. Все прошло отлично, заводская упаковка, оригинал. Доставили до двери в день заказа. Рекомендую!'
+                  text: 'Брал тут 2 айфона 17 про макс на 512. Все супер. Быстро договорились, продавцы очень профессиональные и приятные! Бонусом поклеили защитное стекло и подарили чехлы.'
                 },
                 {
-                  name: 'Елена Сухарева',
-                  date: '10 февраля',
-                  source: 'Яндекс',
+                  name: 'Анна С.',
+                  date: '26 октября 2025',
+                  source: 'Яндекс Карты',
                   rating: 5,
-                  text: 'Мне понравилось покупать в этом магазине. Брали пылесос Дайсон в сентябре 2025. Персонал вежливый, пылесос идеальный, работает исправно.'
+                  text: 'Совершила сегодня свою долгожданную покупку нового телефона в этом замечательном месте! Помимо приятнейших цен и большого ассортимента, хочется отметить отношение внимательных и приветливых молодых людей к каждому клиенту!'
                 },
                 {
-                  name: 'Виктор',
-                  date: '9 февраля',
-                  source: 'Яндекс',
+                  name: 'Влад',
+                  date: '27 января 2026',
+                  source: 'Яндекс Карты',
                   rating: 5,
-                  text: 'Заказал через сайт PS5slim, привезли день в день. Все оригинальное. Рекомендую!'
+                  text: 'Магазин просто бомбовый, обслуживание на наивысшем уровне, дали вкусных конфет, обслужили юмором, позитивным настроением, а главное — быстрым и чётким обслуживанием!🙏'
+                },
+                {
+                  name: 'Александр Д.',
+                  date: '29 ноября 2025',
+                  source: 'Яндекс Карты',
+                  rating: 5,
+                  text: 'На днях покупал iPhone 16 чёрный на 128гб, все сделали хорошо, на упаковке айфона были все пломбы + проверил по серийному номеру на сайте. Приятная цена и отличное обслуживание!'
+                },
+                {
+                  name: 'Антон Аношкин',
+                  date: '3 ноября 2025',
+                  source: 'Яндекс Карты',
+                  rating: 5,
+                  text: 'Купил сегодня жене 17 pro max и Apple Watch 11. Товар оригинальный, цены хорошие. Есть возможность оплатить по карте. Могу советовать данный магазин!'
+                },
+                {
+                  name: 'Регина Хамзина',
+                  date: '1 августа 2025',
+                  source: 'Яндекс Карты',
+                  rating: 5,
+                  text: 'Огромное спасибо ребятам! Приобрела новенький iPhone 16 pro, сдав свой 12 по трейд-ин. Самая адекватная цена, без накруток. Телефон оригинальный!'
                 }
               ].map((review, i) => (
                 <div key={i} className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
@@ -782,10 +915,10 @@ export function HomePage() {
             
             <div className="mt-8 text-center">
               <a 
-                href="https://yandex.ru/maps" 
+                href="https://yandex.ru/maps/org/takesmart/159717386486/reviews/" 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl bg-green-500 px-6 py-3 font-semibold text-white hover:bg-green-600 transition-colors"
+                className="inline-flex items-center gap-2 rounded-xl bg-yellow-400 px-6 py-3 font-semibold text-gray-900 hover:bg-yellow-500 transition-colors"
               >
                 Оставить отзыв
               </a>
