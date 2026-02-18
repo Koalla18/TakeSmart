@@ -27,9 +27,10 @@ interface SectionProps {
   className?: string
   bg?: 'white' | 'gray' | 'dark' | 'gradient'
   py?: 'sm' | 'md' | 'lg' | 'xl'
+  id?: string
 }
 
-export function Section({ children, className = '', bg = 'white', py = 'lg' }: SectionProps) {
+export function Section({ children, className = '', bg = 'white', py = 'lg', id }: SectionProps) {
   const backgrounds = {
     white: 'bg-white',
     gray: 'bg-gray-50',
@@ -45,7 +46,7 @@ export function Section({ children, className = '', bg = 'white', py = 'lg' }: S
   }
   
   return (
-    <section className={`${backgrounds[bg]} ${paddings[py]} ${className}`}>
+    <section id={id} className={`${backgrounds[bg]} ${paddings[py]} ${className}`}>
       {children}
     </section>
   )

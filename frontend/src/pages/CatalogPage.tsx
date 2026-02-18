@@ -192,7 +192,15 @@ export function CatalogPage() {
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 300000])
   const [inStockOnly, setInStockOnly] = useState(false)
   const [sort, setSort] = useState<SortOption>('popular')
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '')
+
+  // Sync filters from URL (e.g. when navigating from footer links)
+  useEffect(() => {
+    const cat = searchParams.get('category') || 'all'
+    const q = searchParams.get('q') || ''
+    setSelectedCategory(cat)
+    setSearchQuery(q)
+  }, [searchParams.get('category'), searchParams.get('q')])
   
   // Simulate loading
   useEffect(() => {
@@ -206,8 +214,9 @@ export function CatalogPage() {
     const params = new URLSearchParams()
     if (selectedCategory !== 'all') params.set('category', selectedCategory)
     if (selectedBrand !== 'all') params.set('brand', selectedBrand)
+    if (searchQuery) params.set('q', searchQuery)
     setSearchParams(params, { replace: true })
-  }, [selectedCategory, selectedBrand, setSearchParams])
+  }, [selectedCategory, selectedBrand, searchQuery, setSearchParams])
   
   // Filter and sort products
   const filteredProducts = useMemo(() => {

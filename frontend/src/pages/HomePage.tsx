@@ -756,7 +756,7 @@ export function HomePage() {
       </Section>
 
       {/* Store Location & Contacts */}
-      <Section className="bg-gray-50 py-24">
+      <Section id="contacts" className="bg-gray-50 py-24">
         <Container>
           <AnimatedSection>
             <div className="mb-12 text-center">
@@ -770,14 +770,14 @@ export function HomePage() {
               {/* Contacts */}
               <div className="lg:col-span-2 p-8 lg:p-10">
                 <h3 className="mb-6 text-xl font-bold text-gray-900">
-                  г. Москва, ул. Барклая, д. 10, ТЦ "Багратионовский", 1 этаж, магазин А-27
+                  г. Москва, ул. Барклая, д. 10, ТЦ «Багратионовский», павильон А60
                 </h3>
                 
                 <div className="space-y-6">
                   <div>
                     <div className="text-sm font-medium text-gray-500 mb-1">МЕТРО</div>
                     <div className="flex items-center gap-2">
-                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">М</span>
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-sky-500 text-[10px] text-white">М</span>
                       <span className="font-medium">Багратионовская</span>
                     </div>
                   </div>
@@ -790,13 +790,12 @@ export function HomePage() {
                   
                   <div>
                     <div className="text-sm font-medium text-gray-500 mb-1">ТЕЛЕФОН</div>
-                    <a href="tel:+74952557362" className="block font-medium text-lg hover:text-yellow-600">+7 (495) 255-73-62</a>
-                    <a href="tel:+74952557362" className="block font-medium text-lg hover:text-yellow-600">+7 (495) 255-73-62</a>
+                    <a href="tel:+79998021022" className="block font-medium text-lg hover:text-yellow-600">+7 (999) 802-10-22</a>
                   </div>
                   
                   <div>
                     <div className="text-sm font-medium text-gray-500 mb-1">E-MAIL</div>
-                    <a href="mailto:info@takesmart.ru" className="font-medium hover:text-yellow-600">info@takesmart.ru</a>
+                    <a href="mailto:takesmart99@gmail.com" className="font-medium hover:text-yellow-600">takesmart99@gmail.com</a>
                   </div>
                   
                   <Button to="/cart" variant="outline" size="md" className="mt-4 border-yellow-400 text-yellow-600 hover:bg-yellow-400 hover:text-gray-900">
@@ -839,7 +838,9 @@ export function HomePage() {
                 <a href="https://yandex.ru/maps/org/takesmart/159717386486" target="_blank" rel="noopener noreferrer" className="hover:text-yellow-600">
                   Яндекс <span className="font-bold">5.0</span>
                 </a>
-                <span>Авито <span className="font-bold">5.0</span></span>
+                <a href="https://www.avito.ru/brands/takesmart/all?sellerId=a434514ec122f52f3718339ace6d3b4d" target="_blank" rel="noopener noreferrer" className="hover:text-[#00aaff]">
+                  Авито <span className="font-bold">5.0</span>
+                </a>
               </div>
             </div>
           </AnimatedSection>
@@ -888,12 +889,30 @@ export function HomePage() {
                   source: 'Яндекс Карты',
                   rating: 5,
                   text: 'Огромное спасибо ребятам! Приобрела новенький iPhone 16 pro, сдав свой 12 по трейд-ин. Самая адекватная цена, без накруток. Телефон оригинальный!'
+                },
+                {
+                  name: 'Дмитрий К.',
+                  date: '14 января 2026',
+                  source: 'Авито',
+                  rating: 5,
+                  text: 'Отличный магазин! Брал iPhone 15 Pro Max, всё оформили быстро, упаковка запечатана. Цена ниже чем в официальных магазинах. Меняли 12 про на 15 про макс по хорошему курсу трейд-ин — всё честно и прозрачно.'
+                },
+                {
+                  name: 'Марина Соколова',
+                  date: '3 февраля 2026',
+                  source: 'Авито',
+                  rating: 5,
+                  text: 'Покупала AirPods Pro 2 — доставили на следующий день, аксессуары оригинальные. Ребята очень внимательные, ответили на все вопросы. Буду обращаться ещё!'
                 }
               ].map((review, i) => (
                 <div key={i} className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
                   <div className="mb-4 flex items-start gap-3">
                     <div className="flex h-10 w-10 items-center justify-center">
-                      <span className="text-red-500 text-2xl">📍</span>
+                      {review.source === 'Авито' ? (
+                        <span className="text-[10px] font-black text-white rounded px-1 py-0.5" style={{background:'#00aaff'}}>АВИТО</span>
+                      ) : (
+                        <span className="text-red-500 text-2xl">📍</span>
+                      )}
                     </div>
                     <div>
                       <div className="font-semibold text-gray-900">{review.name}</div>
@@ -905,23 +924,9 @@ export function HomePage() {
                   <div className="mb-3 flex text-yellow-400">
                     {'★'.repeat(review.rating)}
                   </div>
-                  <p className="text-gray-700 line-clamp-4">{review.text}</p>
-                  <button className="mt-3 text-sm font-medium text-gray-900 hover:text-yellow-600">
-                    Читать дальше
-                  </button>
+                  <p className="text-gray-700">{review.text}</p>
                 </div>
               ))}
-            </div>
-            
-            <div className="mt-8 text-center">
-              <a 
-                href="https://yandex.ru/maps/org/takesmart/159717386486/reviews/" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl bg-yellow-400 px-6 py-3 font-semibold text-gray-900 hover:bg-yellow-500 transition-colors"
-              >
-                Оставить отзыв
-              </a>
             </div>
           </AnimatedSection>
         </Container>
