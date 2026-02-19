@@ -213,8 +213,8 @@ export function DeliveryPage() {
             <h2 className="mb-4 text-3xl font-bold text-white">Остались вопросы?</h2>
             <p className="mb-8 text-gray-400">Свяжитесь с нами любым удобным способом</p>
             <div className="flex flex-wrap justify-center gap-4">
-              <a href="tel:+74952557362" className="rounded-xl bg-yellow-400 px-8 py-4 font-semibold text-gray-900 hover:bg-yellow-300">
-                📞 +7 (495) 255-73-62
+              <a href="tel:+79998021022" className="rounded-xl bg-yellow-400 px-8 py-4 font-semibold text-gray-900 hover:bg-yellow-300">
+                📞 +7 (999) 802-10-22
               </a>
               <Button to="/catalog" variant="outline" size="lg" className="border-white text-white hover:bg-white hover:text-gray-900">
                 Перейти в каталог

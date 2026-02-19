@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
 from sqlalchemy import Boolean, Computed, DateTime, ForeignKey, Index, Integer, JSON, String, Text
@@ -7,6 +8,9 @@ from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.base import Base
+
+# Detect if using PostgreSQL
+_is_postgres = os.getenv("DATABASE_URL", "").startswith("postgres")
 
 
 class Product(Base):
@@ -16,7 +20,11 @@ class Product(Base):
         Index("ix_products_is_used", "is_used"),
         Index("ix_products_is_active", "is_active"),
         Index("ix_products_category_active", "category_id", "is_active"),
-        Index("ix_products_tsv", "tsv", postgresql_using="gin"),
+        *(
+            (Index("ix_products_tsv", "tsv", postgresql_using="gin"),)
+            if _is_postgres
+            else ()
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -46,19 +54,21 @@ class Product(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     specs: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
-    tsv: Mapped[str] = mapped_column(
-        TSVECTOR,
-        Computed(
-            """
-            setweight(to_tsvector('russian', coalesce(name, '')), 'A')
-            || setweight(to_tsvector('english', coalesce(name, '')), 'A')
-            || setweight(to_tsvector('russian', coalesce(description, '')), 'B')
-            || setweight(to_tsvector('english', coalesce(description, '')), 'B')
-            """,
-            persisted=True,
-        ),
-        nullable=False,
-    )
+    # Full-text search vector (PostgreSQL only)
+    if _is_postgres:
+        tsv: Mapped[str] = mapped_column(
+            TSVECTOR,
+            Computed(
+                """
+                setweight(to_tsvector('russian', coalesce(name, '')), 'A')
+                || setweight(to_tsvector('english', coalesce(name, '')), 'A')
+                || setweight(to_tsvector('russian', coalesce(description, '')), 'B')
+                || setweight(to_tsvector('english', coalesce(description, '')), 'B')
+                """,
+                persisted=True,
+            ),
+            nullable=False,
+        )
 
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -10,6 +10,8 @@ export function LoginPage() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
+  const clearError = () => { if (error) setError('') }
+
   // Redirect if already authenticated
   if (isAuthenticated) {
     navigate('/admin', { replace: true })
@@ -62,7 +64,7 @@ export function LoginPage() {
                 id="username"
                 type="text"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={(e) => { setUsername(e.target.value); clearError() }}
                 required
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-gray-500 transition focus:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-400/20"
                 placeholder="admin"
@@ -77,7 +79,7 @@ export function LoginPage() {
                 id="password"
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => { setPassword(e.target.value); clearError() }}
                 required
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-gray-500 transition focus:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-400/20"
                 placeholder="••••••••"

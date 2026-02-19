@@ -117,6 +117,7 @@ export function UsedProductPage() {
   const handleAddToCart = () => {
     const cartProduct: Product = {
       id: String(product.id),
+      slug: product.slug || String(product.id),
       name: product.name,
       brand: product.brand || '',
       category: 'Б/У техника',
@@ -314,7 +315,7 @@ export function UsedProductPage() {
                 
                 {/* One-click order */}
                 <a 
-                  href="tel:+74952557362"
+                  href="tel:+79998021022"
                   className="flex items-center justify-center gap-2 rounded-xl border-2 border-gray-200 px-6 py-3 text-sm font-semibold text-gray-700 transition-colors hover:border-yellow-400 hover:text-yellow-600"
                 >
                   <PhoneIcon className="h-5 w-5" />
@@ -351,8 +352,8 @@ export function UsedProductPage() {
                 </div>
                 <div>
                   <div className="text-sm text-gray-600">Остались вопросы?</div>
-                  <a href="tel:+74952557362" className="text-lg font-semibold text-gray-900 hover:text-yellow-600">
-                    +7 (495) 255-73-62
+                  <a href="tel:+79998021022" className="text-lg font-semibold text-gray-900 hover:text-yellow-600">
+                    +7 (999) 802-10-22
                   </a>
                 </div>
               </div>

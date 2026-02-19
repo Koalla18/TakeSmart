@@ -135,13 +135,13 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
           {/* Footer */}
           <div className="border-t border-gray-100 px-6 py-4">
             <a
-              href="tel:+79991234567"
+              href="tel:+79998021022"
               className="mb-3 flex items-center gap-3 text-lg font-semibold text-gray-900 hover:text-yellow-500"
             >
               <PhoneIcon className="h-5 w-5 text-yellow-500" />
-              +7 (999) 123-45-67
+              +7 (999) 802-10-22
             </a>
-            <p className="text-sm text-gray-500">Ежедневно с 10:00 до 21:00</p>
+            <p className="text-sm text-gray-500">Ежедневно с 11:00 до 20:00</p>
           </div>
         </div>
       </div>
@@ -317,7 +317,7 @@ export function Shell({ children }: PropsWithChildren) {
                 </div>
                 <div className="text-sm text-gray-400">Узнавайте о новинках первыми!</div>
                 <a
-                  href="https://t.me/take_smartt"
+                  href="https://t.me/c/1875029190/967"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-xl bg-blue-500 px-6 py-3 text-sm font-semibold text-white transition-all hover:bg-blue-400 hover:shadow-lg hover:shadow-blue-500/30"

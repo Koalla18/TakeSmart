@@ -1581,10 +1581,15 @@ function ProductModal({
                     for (const file of Array.from(files)) {
                       const fd = new FormData()
                       fd.append('file', file)
+                      // Smart folder routing: send category slug, brand and product name
+                      const selectedCategory = categories.find(c => c.id === formData.category_id)
+                      if (selectedCategory?.slug) fd.append('category_slug', selectedCategory.slug)
+                      if (formData.brand) fd.append('brand', formData.brand)
+                      if (formData.name) fd.append('product_name', formData.name)
                       try {
                         const res = await fetch(`${API_BASE_URL}/api/admin/upload`, {
                           method: 'POST',
-                          headers: { Authorization: `Bearer ${localStorage.getItem('admin_token')}` },
+                          headers: { Authorization: `Bearer ${localStorage.getItem('takesmart_admin_token')}` },
                           body: fd
                         })
                         if (res.ok) {

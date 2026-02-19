@@ -54,11 +54,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers: { Authorization: `Bearer ${token}` },
       })
         .then((res) => {
-          if (!res.ok) {
+          if (res.status === 401) {
             logout()
           }
         })
-        .catch(() => logout())
+        // Do NOT logout on network errors — backend may just be slow
+        .catch(() => {})
     }
   }, [token])
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
@@ -15,6 +15,201 @@ import {
   HeartIcon,
   PhoneIcon
 } from '../components/ui/Icons'
+
+/* ───────────────────── Image Lightbox ───────────────────── */
+function ImageLightbox({
+  images,
+  startIndex,
+  getUrl,
+  onClose,
+}: {
+  images: string[]
+  startIndex: number
+  getUrl: (src: string) => string
+  onClose: () => void
+}) {
+  const [index, setIndex] = useState(startIndex)
+  const [zoomed, setZoomed] = useState(false)
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
+  const [translate, setTranslate] = useState({ x: 0, y: 0 })
+  const [origin, setOrigin] = useState({ x: 50, y: 50 })
+  const imgRef = useRef<HTMLImageElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const multi = images.length > 1
+  const src = getUrl(images[index])
+
+  const goPrev = useCallback(() => {
+    setZoomed(false)
+    setTranslate({ x: 0, y: 0 })
+    setIndex((p) => (p === 0 ? images.length - 1 : p - 1))
+  }, [images.length])
+
+  const goNext = useCallback(() => {
+    setZoomed(false)
+    setTranslate({ x: 0, y: 0 })
+    setIndex((p) => (p === images.length - 1 ? 0 : p + 1))
+  }, [images.length])
+
+  // Keyboard handling
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+      if (e.key === 'ArrowLeft' && multi) goPrev()
+      if (e.key === 'ArrowRight' && multi) goNext()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose, goPrev, goNext, multi])
+
+  // Lock body scroll
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  // Swipe support
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (zoomed) return
+    setDragStart({ x: e.touches[0].clientX, y: e.touches[0].clientY })
+  }
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!dragStart || zoomed) return
+    const dx = e.changedTouches[0].clientX - dragStart.x
+    if (Math.abs(dx) > 60 && multi) {
+      dx > 0 ? goPrev() : goNext()
+    }
+    setDragStart(null)
+  }
+
+  const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
+    e.stopPropagation()
+    if (zoomed) {
+      setZoomed(false)
+      setTranslate({ x: 0, y: 0 })
+    } else {
+      // Set zoom origin to click position
+      const rect = (e.target as HTMLElement).getBoundingClientRect()
+      const x = ((e.clientX - rect.left) / rect.width) * 100
+      const y = ((e.clientY - rect.top) / rect.height) * 100
+      setOrigin({ x, y })
+      setZoomed(true)
+    }
+  }
+
+  // Drag panning when zoomed
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!zoomed) return
+    e.preventDefault()
+    setDragStart({ x: e.clientX - translate.x, y: e.clientY - translate.y })
+  }
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!zoomed || !dragStart) return
+    setTranslate({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y })
+  }
+  const handleMouseUp = () => {
+    if (zoomed) setDragStart(null)
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      {/* Close */}
+      <button
+        onClick={onClose}
+        className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+        aria-label="Закрыть"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+
+      {/* Counter */}
+      {multi && (
+        <span className="absolute left-4 top-4 rounded-full bg-white/10 px-3 py-1 text-sm text-white">
+          {index + 1} / {images.length}
+        </span>
+      )}
+
+      {/* Prev */}
+      {multi && (
+        <button
+          onClick={(e) => { e.stopPropagation(); goPrev() }}
+          className="absolute left-2 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 sm:left-4"
+          aria-label="Предыдущее фото"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+      )}
+
+      {/* Main image */}
+      <div
+        ref={containerRef}
+        className="flex h-full w-full items-center justify-center"
+        onClick={(e) => e.stopPropagation()}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        style={{ cursor: zoomed ? 'grab' : 'zoom-in' }}
+      >
+        <img
+          ref={imgRef}
+          src={src}
+          alt=""
+          onClick={handleImageClick}
+          draggable={false}
+          className="max-h-[85vh] max-w-[90vw] select-none object-contain transition-transform duration-200"
+          style={{
+            transform: zoomed
+              ? `scale(2.5) translate(${translate.x / 2.5}px, ${translate.y / 2.5}px)`
+              : 'scale(1)',
+            transformOrigin: `${origin.x}% ${origin.y}%`,
+          }}
+        />
+      </div>
+
+      {/* Next */}
+      {multi && (
+        <button
+          onClick={(e) => { e.stopPropagation(); goNext() }}
+          className="absolute right-2 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 sm:right-4"
+          aria-label="Следующее фото"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      )}
+
+      {/* Thumbnails strip */}
+      {multi && (
+        <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 gap-2 rounded-2xl bg-black/40 p-2">
+          {images.map((img, i) => (
+            <button
+              key={i}
+              onClick={(e) => { e.stopPropagation(); setZoomed(false); setTranslate({ x: 0, y: 0 }); setIndex(i) }}
+              className={`h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg border-2 transition ${
+                i === index ? 'border-yellow-400' : 'border-transparent opacity-60 hover:opacity-100'
+              }`}
+            >
+              <img src={getUrl(img)} alt="" className="h-full w-full object-cover" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+/* ───────────────────── End Lightbox ───────────────────── */
 
 interface ProductVariant {
   id: number
@@ -48,6 +243,11 @@ interface ApiProduct {
   variants?: ProductVariant[]
 }
 
+function isImageUrl(url?: string): boolean {
+  if (!url) return false
+  return url.startsWith('http') || url.startsWith('/products') || url.startsWith('/uploads')
+}
+
 function getImageUrl(url?: string): string {
   if (!url) return ''
   if (url.startsWith('/uploads')) return `${API_BASE_URL}${url}`
@@ -68,16 +268,18 @@ export function ProductPage() {
   const [quantity, setQuantity] = useState(1)
   const [activeTab, setActiveTab] = useState<'description' | 'specs' | 'reviews'>('description')
   const [activeImageIndex, setActiveImageIndex] = useState(0)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxStartIndex, setLightboxStartIndex] = useState(0)
   
-  // Load from API if it might have variants or not found locally
+  // Load from API — always try slug first (reliable), then fallback to numeric id
   useEffect(() => {
     async function loadProduct() {
       try {
-        // Try by ID first
-        let res = await fetch(`${API_BASE_URL}/api/products/${id}`)
+        // Try by slug first — this is the reliable way
+        let res = await fetch(`${API_BASE_URL}/api/products/slug/${id}`)
         if (!res.ok) {
-          // Maybe it's a slug
-          res = await fetch(`${API_BASE_URL}/api/products/slug/${id}`)
+          // Fallback: maybe it's a numeric id
+          res = await fetch(`${API_BASE_URL}/api/products/${id}`)
         }
         if (res.ok) {
           const data = await res.json()
@@ -247,8 +449,16 @@ export function ProductPage() {
                   )}
                   
                   {/* Main Image */}
-                  <div className="flex aspect-square items-center justify-center p-8">
-                    {images[activeImageIndex]?.startsWith('http') || images[activeImageIndex]?.startsWith('/uploads') ? (
+                  <div
+                    className="flex aspect-square cursor-pointer items-center justify-center p-8"
+                    onClick={() => {
+                      if (isImageUrl(images[activeImageIndex])) {
+                        setLightboxStartIndex(activeImageIndex)
+                        setLightboxOpen(true)
+                      }
+                    }}
+                  >
+                    {isImageUrl(images[activeImageIndex]) ? (
                       <img 
                         src={getImageUrl(images[activeImageIndex])}
                         alt={apiProduct.name}
@@ -278,7 +488,7 @@ export function ProductPage() {
                           i === activeImageIndex ? 'border-yellow-400' : 'border-gray-200 hover:border-gray-300'
                         }`}
                       >
-                        {img?.startsWith('http') || img?.startsWith('/uploads') ? (
+                        {isImageUrl(img) ? (
                           <img src={getImageUrl(img)} alt="" className="h-full w-full object-cover" />
                         ) : (
                           <span className="flex h-full w-full items-center justify-center text-3xl bg-gray-100">{img}</span>
@@ -286,6 +496,21 @@ export function ProductPage() {
                       </button>
                     ))}
                   </div>
+                )}
+
+                {/* Zoom hint */}
+                {isImageUrl(images[activeImageIndex]) && (
+                  <p className="mt-2 text-center text-xs text-gray-400">Нажмите на фото для увеличения</p>
+                )}
+
+                {/* Lightbox */}
+                {lightboxOpen && (
+                  <ImageLightbox
+                    images={images.filter(isImageUrl)}
+                    startIndex={Math.min(lightboxStartIndex, images.filter(isImageUrl).length - 1)}
+                    getUrl={getImageUrl}
+                    onClose={() => setLightboxOpen(false)}
+                  />
                 )}
               </div>
               
@@ -470,8 +695,8 @@ export function ProductPage() {
                   </div>
                   <div>
                     <div className="text-sm text-gray-600">Остались вопросы?</div>
-                    <a href="tel:+74952557362" className="text-lg font-semibold text-gray-900 hover:text-yellow-600">
-                      +7 (495) 255-73-62
+                    <a href="tel:+79998021022" className="text-lg font-semibold text-gray-900 hover:text-yellow-600">
+                      +7 (999) 802-10-22
                     </a>
                   </div>
                 </div>
@@ -599,10 +824,26 @@ export function ProductPage() {
                 )}
                 
                 {/* Image */}
-                <div className="flex aspect-square items-center justify-center p-12">
-                  <span className="text-[12rem] transition-transform hover:scale-105">
-                    {product!.image}
-                  </span>
+                <div
+                  className="flex aspect-square cursor-pointer items-center justify-center p-12"
+                  onClick={() => {
+                    if (isImageUrl(product!.image)) {
+                      setLightboxStartIndex(0)
+                      setLightboxOpen(true)
+                    }
+                  }}
+                >
+                  {isImageUrl(product!.image) ? (
+                    <img
+                      src={getImageUrl(product!.image)}
+                      alt={product!.name}
+                      className="max-h-full max-w-full object-contain transition-transform hover:scale-105"
+                    />
+                  ) : (
+                    <span className="text-[12rem] transition-transform hover:scale-105">
+                      {product!.image}
+                    </span>
+                  )}
                 </div>
                 
                 {/* Favorite button */}
@@ -610,6 +851,21 @@ export function ProductPage() {
                   <HeartIcon className="h-6 w-6 text-gray-400 hover:text-red-500" />
                 </button>
               </div>
+
+              {/* Zoom hint */}
+              {isImageUrl(product!.image) && (
+                <p className="mt-2 text-center text-xs text-gray-400">Нажмите на фото для увеличения</p>
+              )}
+
+              {/* Lightbox */}
+              {lightboxOpen && isImageUrl(product!.image) && (
+                <ImageLightbox
+                  images={[product!.image]}
+                  startIndex={0}
+                  getUrl={getImageUrl}
+                  onClose={() => setLightboxOpen(false)}
+                />
+              )}
             </div>
             
             {/* Product Info */}
@@ -718,8 +974,8 @@ export function ProductPage() {
                 </div>
                 <div>
                   <div className="text-sm text-gray-600">Остались вопросы?</div>
-                  <a href="tel:+74952557362" className="text-lg font-semibold text-gray-900 hover:text-yellow-600">
-                    +7 (495) 255-73-62
+                  <a href="tel:+79998021022" className="text-lg font-semibold text-gray-900 hover:text-yellow-600">
+                    +7 (999) 802-10-22
                   </a>
                 </div>
               </div>

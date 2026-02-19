@@ -156,7 +156,7 @@ export function TradeInPage() {
                   Оценить устройство
                 </Link>
                 <a 
-                  href="https://wa.me/79991234567"
+                  href="https://t.me/takesmart_manager"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center justify-center rounded-full border border-white/30 bg-white/5 backdrop-blur px-8 py-4 text-white font-semibold transition-all hover:bg-white/15 text-lg"
@@ -188,8 +188,8 @@ export function TradeInPage() {
                 {/* Old device going out */}
                 <div className="absolute left-0 bottom-8 opacity-50 -rotate-6">
                   <img 
-                    src="https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/iphone-13-finish-select-202207-midnight?wid=400&hei=400&fmt=png-alpha"
-                    alt="iPhone 13 — Ваше старое устройство"
+                    src="/iphone-15-blue.png?v=2"
+                    alt="iPhone 15 — Ваше устройство"
                     className="w-36 h-auto object-contain drop-shadow-lg"
                   />
                   <div className="mt-3 text-center text-sm text-gray-500">Ваш iPhone</div>
@@ -467,12 +467,12 @@ export function TradeInPage() {
                 Перейти в каталог
               </Button>
               <a 
-                href="https://wa.me/79991234567"
+                href="https://t.me/takesmart_manager"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center rounded-xl border-2 border-white/30 bg-white/10 backdrop-blur px-10 py-3 text-white font-semibold text-lg hover:bg-white/20 transition-all"
               >
-                Написать в WhatsApp
+                Написать в Telegram
               </a>
             </div>
             

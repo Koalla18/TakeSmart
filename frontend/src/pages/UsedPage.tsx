@@ -80,6 +80,7 @@ export function UsedPage() {
   function handleAddToCart(product: ApiProduct) {
     const cartProduct: CartProduct = {
       id: String(product.id),
+      slug: product.slug || String(product.id),
       name: product.name,
       brand: product.brand || '',
       category: 'Б/У техника',
@@ -358,10 +359,10 @@ export function UsedPage() {
             </p>
             <div className="flex flex-wrap justify-center gap-4">
               <a 
-                href="tel:+74952557362" 
+                href="tel:+79998021022" 
                 className="rounded-xl bg-yellow-400 px-8 py-4 font-semibold text-gray-900 transition-colors hover:bg-yellow-300"
               >
-                📞 +7 (495) 255-73-62
+                📞 +7 (999) 802-10-22
               </a>
               <Button to="/catalog" variant="outline" size="lg" className="border-white text-white hover:bg-white hover:text-gray-900">
                 Весь каталог

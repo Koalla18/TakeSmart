@@ -100,7 +100,7 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
                 )}
               </button>
               <Link
-                to={`/product/${product.id}`}
+                to={`/product/${product.slug}`}
                 className="rounded-2xl border-2 border-white/20 py-4 px-8 text-lg font-semibold text-white transition-all duration-300 hover:bg-white/10 hover:border-white/30"
               >
                 Подробнее
@@ -111,9 +111,17 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
           {/* Image */}
           <div className="relative flex items-center justify-center order-1 md:order-2">
             <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/10 to-transparent rounded-full blur-3xl" />
-            <span className="text-[12rem] md:text-[16rem] transition-transform duration-700 group-hover:scale-110 group-hover:rotate-3">
-              {product.image}
-            </span>
+            {product.image && (product.image.startsWith('/') || product.image.startsWith('http')) ? (
+              <img
+                src={product.image}
+                alt={product.name}
+                className="relative z-10 h-64 w-64 md:h-80 md:w-80 object-contain transition-transform duration-700 group-hover:scale-110 group-hover:rotate-3 drop-shadow-2xl"
+              />
+            ) : (
+              <span className="text-[12rem] md:text-[16rem] transition-transform duration-700 group-hover:scale-110 group-hover:rotate-3">
+                {product.image}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -150,16 +158,24 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
         </button>
         
         {/* Image area */}
-        <Link to={`/product/${product.id}`} className="block">
+        <Link to={`/product/${product.slug}`} className="block">
           <div className="relative aspect-square overflow-hidden bg-gradient-to-br from-gray-50 via-white to-gray-50">
             {/* Animated background */}
             <div className="absolute inset-0 bg-gradient-to-br from-yellow-50/0 to-yellow-100/0 transition-all duration-500 group-hover:from-yellow-50 group-hover:to-yellow-100/50" />
             
             {/* Product image */}
             <div className="relative flex h-full items-center justify-center p-8">
-              <span className="text-8xl transition-all duration-500 group-hover:scale-110 group-hover:-rotate-3">
-                {product.image}
-              </span>
+              {product.image && (product.image.startsWith('/') || product.image.startsWith('http')) ? (
+                <img
+                  src={product.image}
+                  alt={product.name}
+                  className="h-full w-full object-contain transition-all duration-500 group-hover:scale-105"
+                />
+              ) : (
+                <span className="text-8xl transition-all duration-500 group-hover:scale-110 group-hover:-rotate-3">
+                  {product.image}
+                </span>
+              )}
             </div>
             
             {/* Quick view overlay */}
@@ -193,7 +209,7 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
           </div>
           
           {/* Name */}
-          <Link to={`/product/${product.id}`}>
+          <Link to={`/product/${product.slug}`}>
             <h3 className="mb-3 line-clamp-2 text-base font-semibold text-gray-900 transition-colors hover:text-yellow-600">
               {product.name}
             </h3>
