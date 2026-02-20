@@ -25,9 +25,8 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("✅ Database tables created")
-    # Initialize Redis
+    # Initialize Redis (optional — non-fatal if not configured)
     await init_redis()
-    logger.info("✅ Redis connected")
     yield
     # Shutdown
     logger.info("🛑 Shutting down...")

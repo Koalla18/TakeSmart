@@ -30,7 +30,9 @@ async def check_rate_limit(request: Request) -> None:
     key = f"order_ratelimit:{ip}"
 
     try:
-        redis: Redis = get_redis_client()
+        redis = get_redis_client()
+        if redis is None:
+            return  # Redis не настроен — пропускаем rate limiting
         count = await redis.incr(key)
         if count == 1:
             await redis.expire(key, RATE_LIMIT_WINDOW)

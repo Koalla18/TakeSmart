@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = ""  # Опционально — если пустой rate limiting отключается
 
     # Upload settings
     uploads_dir: str = "uploads"

@@ -1,75 +1,49 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# docker-compose.yml — Timeweb App Platform
+#
+# Ограничения Timeweb которые соблюдены здесь:
+#   • Порты 80/443 НЕ используются как хост-порты
+#   • Директива volumes НЕ используется
+#   • frontend — ПЕРВЫЙ сервис (Timeweb проксирует именно его на домен)
+#
+# ⚠️  БД и Redis — подключите через Timeweb DBaaS (отдельные сервисы в панели)
+#     и задайте переменные в настройках приложения (Шаг 6):
+#       DATABASE_URL = postgresql+asyncpg://user:pass@host:5432/dbname
+#       REDIS_URL    = redis://user:pass@host:6379/0   (или оставьте пустым)
+#
+# Для локальной разработки с полным стеком — см. docker-compose.local.yml
+# ──────────────────────────────────────────────────────────────────────────────
 services:
 
-  # ─── PostgreSQL ─────────────────────────────────────────────────────────────
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    env_file:
-      - ./.env
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-take_smart}
-      POSTGRES_USER: ${POSTGRES_USER:-take_smart}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-take_smart_password}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-take_smart} -d ${POSTGRES_DB:-take_smart}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    # NOT exposed externally — only accessible within Docker network
-
-  # ─── Redis ──────────────────────────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    volumes:
-      - redisdata:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    # NOT exposed externally
-
-  # ─── Backend (FastAPI) ──────────────────────────────────────────────────────
-  backend:
-    build:
-      context: ./backend
-    restart: unless-stopped
-    env_file:
-      - ./.env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-take_smart}:${POSTGRES_PASSWORD:-take_smart_password}@db:5432/${POSTGRES_DB:-take_smart}
-      REDIS_URL: redis://redis:6379/0
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
-    volumes:
-      # Persist uploaded files
-      - uploads:/app/uploads
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    # NOT exposed externally — nginx proxies to it
-
-  # ─── Frontend (Nginx serves SPA + proxies /api → backend) ──────────────────
-  # Apache on the host proxies port 80 → this container on port 3000
+  # ─── Frontend ★ ПЕРВЫЙ — проксируется Timeweb на основной домен ─────────────
   frontend:
     build:
       context: ./frontend
+      dockerfile: Dockerfile
       args:
-        # Empty = relative URLs → nginx proxies /api/* to backend
+        # Пустой = nginx внутри контейнера сам проксирует /api/* на backend
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3000:80"
+      - "3000:80"
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
 
-volumes:
-  pgdata:
-  redisdata:
-  uploads:
+  # ─── Backend (FastAPI) ───────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # ━ Задайте в панели Timeweb ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL:-}
+      JWT_SECRET: ${JWT_SECRET:-changeme-set-in-panel}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme-set-in-panel}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    ports:
+      - "8000:8000"
