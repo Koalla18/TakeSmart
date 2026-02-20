@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from .api.routers import analytics, auth, categories, health, media, orders, products, seed, uploads, weekly_slides
 from .core.logging import setup_logging
+from .core.config import settings
 from .db import engine
 from .db.base import Base
 from .db.redis import close_redis, init_redis
@@ -42,7 +43,7 @@ app = FastAPI(
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "http://localhost:3000"],
+    allow_origins=settings.get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
