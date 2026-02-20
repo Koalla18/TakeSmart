@@ -7,6 +7,15 @@ import { useCart } from '../lib/cart'
 import { formatPrice } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
 
+function isImageUrl(url?: string): boolean {
+  if (!url) return false
+  return url.startsWith('http') || url.startsWith('/products') || url.startsWith('/uploads')
+}
+function getImageUrl(url: string): string {
+  if (url.startsWith('/uploads')) return `${API_BASE_URL}${url}`
+  return url
+}
+
 // ─── Валидация имени ──────────────────────────────────────────────────────
 
 function validateName(value: string): string | null {
@@ -234,8 +243,16 @@ export function CartPage() {
                 <div className="divide-y">
                   {items.map(item => (
                     <div key={item.product.id} className="flex gap-4 py-4">
-                      <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-gray-100 text-4xl">
-                        {item.product.image}
+                      <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl bg-gray-100">
+                        {isImageUrl(item.product.image) ? (
+                          <img
+                            src={getImageUrl(item.product.image)}
+                            alt={item.product.name}
+                            className="h-full w-full object-contain p-1"
+                          />
+                        ) : (
+                          <span className="text-4xl">{item.product.image || '📦'}</span>
+                        )}
                       </div>
                       <div className="flex-1">
                         <div className="text-sm text-gray-500">{item.product.brand}</div>
