@@ -55,6 +55,7 @@ services:
     # NOT exposed externally — nginx proxies to it
 
   # ─── Frontend (Nginx serves SPA + proxies /api → backend) ──────────────────
+  # Apache on the host proxies port 80 → this container on port 3000
   frontend:
     build:
       context: ./frontend
@@ -63,8 +64,7 @@ services:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "127.0.0.1:3000:80"
     depends_on:
       backend:
         condition: service_healthy
