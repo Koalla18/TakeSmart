@@ -379,6 +379,7 @@ export function ProductPage() {
   const handleAddToCart = () => {
     const cartProduct: CartProduct = hasApiProduct ? {
       id: String(apiProduct!.id),
+      slug: apiProduct!.slug,
       name: apiProduct!.name,
       brand: apiProduct!.brand || '',
       category: '',

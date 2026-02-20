@@ -1,8 +1,8 @@
 import type { PropsWithChildren } from 'react'
 import { useState, useEffect } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
-import { Logo, LogoWhite } from './Logo'
-import { PhoneIcon, MailIcon, ClockIcon, MenuIcon, CloseIcon, TelegramIcon, VkIcon, WhatsAppIcon, ChevronRightIcon } from './ui/Icons'
+import { Logo } from './Logo'
+import { PhoneIcon, MailIcon, ClockIcon, MenuIcon, CloseIcon, TelegramIcon, WhatsAppIcon, ChevronRightIcon } from './ui/Icons'
 import { Container } from './ui/Layout'
 import { useCart } from '../lib/cart'
 
