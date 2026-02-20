@@ -7,6 +7,52 @@ import { useCart } from '../lib/cart'
 import { formatPrice } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
 
+// ─── Валидация имени ──────────────────────────────────────────────────────
+
+function validateName(value: string): string | null {
+  if (!value.trim()) return 'Введите имя'
+  if (value.trim().length < 2) return 'Имя должно быть не менее 2 символов'
+  if (value.trim().length > 100) return 'Имя слишком длинное'
+  if (!/^[а-яА-ЯёЁa-zA-Z\s\-]+$/.test(value.trim()))
+    return 'Имя может содержать только буквы, пробелы и дефисы'
+  return null
+}
+
+// ─── Маска и валидация телефона ──────────────────────────────────────────
+function formatPhone(raw: string): string {
+  // Оставим только цифры
+  const digits = raw.replace(/\D/g, '')
+  if (!digits) return ''
+
+  // Нормализуем: 8XXX → 7XXX
+  const norm = digits.startsWith('8') ? '7' + digits.slice(1) : digits
+
+  // Формат: +7 (XXX) XXX-XX-XX
+  const d = norm.startsWith('7') ? norm : '7' + norm
+  const p1 = d.slice(1, 4)
+  const p2 = d.slice(4, 7)
+  const p3 = d.slice(7, 9)
+  const p4 = d.slice(9, 11)
+
+  let result = '+7'
+  if (p1) result += ` (${p1}`
+  if (p1.length === 3) result += ')'
+  if (p2) result += ` ${p2}`
+  if (p3) result += `-${p3}`
+  if (p4) result += `-${p4}`
+  return result
+}
+
+function validatePhone(value: string): string | null {
+  if (!value.trim()) return 'Введите номер телефона'
+  const digits = value.replace(/\D/g, '')
+  if (digits.length < 11) return 'Неполный номер телефона'
+  if (digits.length > 11) return 'Слишком много цифр'
+  const norm = digits.startsWith('8') ? '7' + digits.slice(1) : digits
+  if (!norm.startsWith('7')) return 'Номер должен начинаться на +7 или 8'
+  return null
+}
+
 interface OrderPayload {
   name: string
   phone: string
@@ -45,6 +91,7 @@ export function CartPage() {
     email: '',
     comment: '',
   })
+  const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string }>({})  
   const [paymentMethod, setPaymentMethod] = useState('card')
   const [deliveryMethod, setDeliveryMethod] = useState('pickup')
   const [deliveryAddress, setDeliveryAddress] = useState('')
@@ -60,6 +107,15 @@ export function CartPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    
+    // Клиентская валидация
+    const nameErr = validateName(formData.name)
+    const phoneErr = validatePhone(formData.phone)
+    if (nameErr || phoneErr) {
+      setFieldErrors({ name: nameErr ?? undefined, phone: phoneErr ?? undefined })
+      return
+    }
+    setFieldErrors({})
     
     if (items.length === 0) {
       setError('Корзина пуста')
@@ -96,7 +152,10 @@ export function CartPage() {
         body: JSON.stringify(payload)
       })
       
-      if (!res.ok) throw new Error('Ошибка при оформлении заказа')
+      if (!res.ok) {
+        if (res.status === 429) throw new Error('Слишком много попыток. Подождите несколько минут и повторите')
+        throw new Error('Ошибка при оформлении заказа')
+      }
       
       clearCart()
       setIsSuccess(true)
@@ -306,10 +365,21 @@ export function CartPage() {
                       type="text"
                       required
                       value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      className="w-full rounded-xl border border-gray-200 p-4 focus:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-100"
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setFormData({ ...formData, name: val })
+                        setFieldErrors(prev => ({ ...prev, name: validateName(val) ?? undefined }))
+                      }}
+                      className={`w-full rounded-xl border p-4 focus:outline-none focus:ring-2 ${
+                        fieldErrors.name
+                          ? 'border-red-400 focus:border-red-400 focus:ring-red-100'
+                          : 'border-gray-200 focus:border-yellow-400 focus:ring-yellow-100'
+                      }`}
                       placeholder="Иван Иванов"
                     />
+                    {fieldErrors.name && (
+                      <p className="mt-1 text-sm text-red-500">{fieldErrors.name}</p>
+                    )}
                   </div>
                   <div>
                     <label className="mb-2 block font-medium">Телефон *</label>
@@ -317,10 +387,21 @@ export function CartPage() {
                       type="tel"
                       required
                       value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      className="w-full rounded-xl border border-gray-200 p-4 focus:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-100"
+                      onChange={(e) => {
+                        const formatted = formatPhone(e.target.value)
+                        setFormData({ ...formData, phone: formatted })
+                        setFieldErrors(prev => ({ ...prev, phone: validatePhone(formatted) ?? undefined }))
+                      }}
+                      className={`w-full rounded-xl border p-4 focus:outline-none focus:ring-2 ${
+                        fieldErrors.phone
+                          ? 'border-red-400 focus:border-red-400 focus:ring-red-100'
+                          : 'border-gray-200 focus:border-yellow-400 focus:ring-yellow-100'
+                      }`}
                       placeholder="+7 (999) 123-45-67"
                     />
+                    {fieldErrors.phone && (
+                      <p className="mt-1 text-sm text-red-500">{fieldErrors.phone}</p>
+                    )}
                   </div>
                   <div>
                     <label className="mb-2 block font-medium">Email *</label>
