@@ -7,27 +7,24 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, model_validator
 
+# ─── Лимиты ────────────────────────────────────────────────────────────────────
+MAX_QUANTITY_PER_ITEM = 15
+MAX_POSITIONS = 20
+MAX_COMMENT_LENGTH = 1000
+MAX_ADDRESS_LENGTH = 500
+MAX_NAME_LENGTH = 100
 
-VALID_PAYMENT_METHODS = {"cash", "card", "online"}
-VALID_DELIVERY_METHODS = {"pickup", "courier", "post"}
-
-# Лимиты
-MAX_ITEMS_IN_CART = 50       # макс. уникальных позиций в корзине
-MAX_QUANTITY_PER_ITEM = 99   # макс. кол-во одного товара
-MAX_EMAIL_LEN = 254          # RFC 5321
-MAX_COMMENT_LEN = 1000
-MAX_ADDRESS_LEN = 500
-MAX_NAME_LEN = 100
-
-# ─── Источник истины по стоимостям — только сервер ───────────────────────────
-# Стоимость доставки в рублях
+# ─── Источник истины по стоимостям — ТОЛЬКО сервер ────────────────────────────
+# Клиент не передаёт цены, доставку и наценки — всё считается здесь
 DELIVERY_PRICES: dict[str, int] = {
     "pickup": 0,
     "courier": 500,
     "post": 800,
 }
 
-# Коэффициент наценки за метод оплаты (умножается на subtotal)
+# При заказе от этой суммы (subtotal) — доставка бесплатна (как на фронтенде)
+FREE_DELIVERY_THRESHOLD: int = 200_000
+
 PAYMENT_MARKUP: dict[str, float] = {
     "cash": 0.0,
     "card": 0.15,   # +15% за оплату картой
@@ -37,10 +34,9 @@ PAYMENT_MARKUP: dict[str, float] = {
 
 class CartItem(BaseModel):
     """
-    Клиент передаёт только product_id и quantity.
-    Цена, название и фото берутся ИСКЛЮЧИТЕЛЬНО из БД на сервере —
-    подмена цены клиентом невозможна.
-    Лишние поля (name, price, image и т.п.) жёстко отвергаются.
+    Клиент передаёт ТОЛЬКО product_id и quantity.
+    Цена берётся исключительно из БД — подмена цены невозможна.
+    Любые лишние поля (name, price, image, line_total и т.п.) отвергаются.
     """
     model_config = ConfigDict(extra="forbid")
 
@@ -71,9 +67,9 @@ class CartItem(BaseModel):
 
 class OrderCreate(BaseModel):
     """
-    Клиент передаёт контактные данные, список товаров (только id + кол-во),
-    метод оплаты и доставки. Цены и итоговая сумма НЕ принимаются от клиента —
-    рассчитываются сервером. Неизвестные поля отвергаются.
+    Входные данные при создании заказа.
+    Цены, total_amount и детали стоимости НЕ принимаются — считаются сервером.
+    Неизвестные поля отвергаются.
     """
     model_config = ConfigDict(extra="forbid")
 
@@ -81,7 +77,7 @@ class OrderCreate(BaseModel):
     phone: str
     email: EmailStr
     comment: Optional[str] = None
-    items: List[CartItem]          # обязательное поле, пустой список запрещён
+    items: List[CartItem]  # обязательное поле, пустой список запрещён
     payment_method: Optional[Literal["cash", "card", "online"]] = None
     delivery_method: Optional[Literal["pickup", "courier", "post"]] = None
     delivery_address: Optional[str] = None
@@ -90,12 +86,10 @@ class OrderCreate(BaseModel):
     @classmethod
     def validate_name(cls, v: str) -> str:
         v = v.strip()
-        if not v:
-            raise ValueError("Имя не может быть пустым")
         if len(v) < 2:
             raise ValueError("Имя должно быть не менее 2 символов")
-        if len(v) > MAX_NAME_LEN:
-            raise ValueError(f"Имя слишком длинное (макс. {MAX_NAME_LEN} символов)")
+        if len(v) > MAX_NAME_LENGTH:
+            raise ValueError(f"Имя слишком длинное (макс. {MAX_NAME_LENGTH} символов)")
         if not re.match(r"^[а-яА-ЯёЁa-zA-Z\s\-]+$", v):
             raise ValueError("Имя может содержать только буквы, пробелы и дефисы")
         return v
@@ -104,8 +98,6 @@ class OrderCreate(BaseModel):
     @classmethod
     def validate_phone(cls, v: str) -> str:
         v = v.strip()
-        if not v:
-            raise ValueError("Телефон не может быть пустым")
         digits = re.sub(r"\D", "", v)
         if len(digits) < 11:
             raise ValueError("Неполный номер телефона (нужно 11 цифр)")
@@ -116,13 +108,6 @@ class OrderCreate(BaseModel):
             raise ValueError("Номер должен начинаться на +7 или 8")
         return "+7" + norm[1:]  # нормализуем к +7XXXXXXXXXX
 
-    @field_validator("email")
-    @classmethod
-    def validate_email_length(cls, v: EmailStr) -> EmailStr:
-        if len(str(v)) > MAX_EMAIL_LEN:
-            raise ValueError(f"Email слишком длинный (макс. {MAX_EMAIL_LEN} символов)")
-        return v
-
     @field_validator("comment")
     @classmethod
     def validate_comment(cls, v: Optional[str]) -> Optional[str]:
@@ -130,8 +115,8 @@ class OrderCreate(BaseModel):
             v = v.strip()
             if not v:
                 return None
-            if len(v) > MAX_COMMENT_LEN:
-                raise ValueError(f"Комментарий не может превышать {MAX_COMMENT_LEN} символов")
+            if len(v) > MAX_COMMENT_LENGTH:
+                raise ValueError(f"Комментарий не может превышать {MAX_COMMENT_LENGTH} символов")
         return v
 
     @field_validator("delivery_address")
@@ -141,8 +126,8 @@ class OrderCreate(BaseModel):
             v = v.strip()
             if not v:
                 return None
-            if len(v) > MAX_ADDRESS_LEN:
-                raise ValueError(f"Адрес не может превышать {MAX_ADDRESS_LEN} символов")
+            if len(v) > MAX_ADDRESS_LENGTH:
+                raise ValueError(f"Адрес не может превышать {MAX_ADDRESS_LENGTH} символов")
         return v
 
     @field_validator("items")
@@ -150,11 +135,8 @@ class OrderCreate(BaseModel):
     def validate_items(cls, v: List[CartItem]) -> List[CartItem]:
         if not v:
             raise ValueError("Корзина не может быть пустой")
-        if len(v) > MAX_ITEMS_IN_CART:
-            raise ValueError(
-                f"Корзина не может содержать более {MAX_ITEMS_IN_CART} уникальных позиций"
-            )
-        # Проверяем дубликаты product_id
+        if len(v) > MAX_POSITIONS:
+            raise ValueError(f"Корзина не может содержать более {MAX_POSITIONS} позиций")
         ids = [item.product_id for item in v]
         if len(ids) != len(set(ids)):
             raise ValueError("Корзина содержит дублирующиеся товары")
@@ -164,18 +146,16 @@ class OrderCreate(BaseModel):
     def validate_delivery_consistency(self) -> "OrderCreate":
         """Адрес доставки обязателен при курьерской доставке и почте."""
         if self.delivery_method in {"courier", "post"} and not self.delivery_address:
-            raise ValueError(
-                "Адрес доставки обязателен для курьерской доставки и почты"
-            )
+            raise ValueError("Адрес доставки обязателен для курьерской доставки и почты")
         return self
 
 
 class OrderRead(BaseModel):
-    id: uuid.UUID
+    id: uuid.UUID  # UUID, не int
     name: str
     phone: str
     email: str
-    comment: Optional[str]
+    comment: Optional[str] = None
     items: Optional[List[dict]] = None
     total_amount: Optional[int] = None
     payment_method: Optional[str] = None
@@ -184,10 +164,9 @@ class OrderRead(BaseModel):
     status: str = "new"
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class OrderStatusUpdate(BaseModel):
+    """Допустимые статусы заказа — только из enum, произвольная строка не принимается."""
     status: Literal["new", "processing", "ready", "completed", "cancelled"]
-

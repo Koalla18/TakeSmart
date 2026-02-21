@@ -2,7 +2,7 @@ import type { PropsWithChildren } from 'react'
 import { useState, useEffect } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Logo } from './Logo'
-import { PhoneIcon, MailIcon, ClockIcon, MenuIcon, CloseIcon, TelegramIcon, WhatsAppIcon, ChevronRightIcon } from './ui/Icons'
+import { PhoneIcon, MailIcon, ClockIcon, MenuIcon, CloseIcon, TelegramIcon, ChevronRightIcon } from './ui/Icons'
 import { Container } from './ui/Layout'
 import { useCart } from '../lib/cart'
 
@@ -439,32 +439,19 @@ export function Shell({ children }: PropsWithChildren) {
                   <div className="grid grid-cols-4 gap-2">
                     {/* СБП */}
                     <div className="flex h-9 items-center justify-center rounded bg-white px-1">
-                      <svg viewBox="0 0 60 24" width="44" height="18" xmlns="http://www.w3.org/2000/svg">
-                        <text x="0" y="17" fontFamily="Arial, sans-serif" fontWeight="900" fontSize="14" fill="#1da462">СБП</text>
-                      </svg>
+                      <img src="/sbp.svg" alt="СБП" className="h-6 w-auto" />
                     </div>
                     {/* VISA */}
                     <div className="flex h-9 items-center justify-center rounded bg-white px-1">
-                      <svg viewBox="0 0 60 24" width="44" height="18" xmlns="http://www.w3.org/2000/svg">
-                        <text x="0" y="17" fontFamily="Arial, sans-serif" fontWeight="900" fontSize="14" fontStyle="italic" fill="#1a1f71">VISA</text>
-                      </svg>
+                      <img src="/visa.svg" alt="Visa" className="h-5 w-auto" />
                     </div>
                     {/* Mastercard */}
                     <div className="flex h-9 items-center justify-center rounded bg-white px-1">
-                      <svg viewBox="0 0 38 24" width="38" height="24" xmlns="http://www.w3.org/2000/svg">
-                        <circle cx="13" cy="12" r="10" fill="#eb001b"/>
-                        <circle cx="25" cy="12" r="10" fill="#f79e1b"/>
-                        <path d="M19 5.8a10 10 0 0 1 0 12.4A10 10 0 0 1 19 5.8z" fill="#ff5f00"/>
-                      </svg>
+                      <img src="/mastercard.svg" alt="Mastercard" className="h-6 w-auto" />
                     </div>
                     {/* UnionPay */}
                     <div className="flex h-9 items-center justify-center rounded bg-white px-1">
-                      <svg viewBox="0 0 50 24" width="46" height="22" xmlns="http://www.w3.org/2000/svg">
-                        <rect x="0" y="2" width="20" height="20" rx="4" fill="#e21836"/>
-                        <rect x="14" y="2" width="20" height="20" rx="4" fill="#007b5e"/>
-                        <rect x="28" y="2" width="20" height="20" rx="4" fill="#1d2f60"/>
-                        <text x="4" y="16" fontFamily="Arial" fontWeight="bold" fontSize="8" fill="white">UP</text>
-                      </svg>
+                      <img src="/union-pay.svg" alt="UnionPay" className="h-6 w-auto" />
                     </div>
                   </div>
                   {/* Row 2: currencies */}
@@ -517,14 +504,14 @@ export function Shell({ children }: PropsWithChildren) {
       {/* Cookie consent */}
       <CookieConsent />
       
-      {/* WhatsApp floating button */}
+      {/* Telegram floating button */}
       <a
-        href="https://wa.me/79998021022"
+        href="https://t.me/take_smartt"
         target="_blank"
         rel="noopener noreferrer"
-        className="fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-green-500 text-white shadow-lg transition-transform hover:scale-110 hover:shadow-xl"
+        className="fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[#0088cc] text-white shadow-lg transition-transform hover:scale-110 hover:shadow-xl"
       >
-        <WhatsAppIcon className="h-7 w-7" />
+        <TelegramIcon className="h-7 w-7" />
       </a>
     </div>
   )

@@ -52,28 +52,41 @@ async def upload_file(
             detail="Недопустимый формат файла. Разрешены: JPG, PNG, WebP, GIF",
         )
 
+    # Проверяем расширение независимо от content-type (двойная защита)
+    allowed_exts = {"jpg", "jpeg", "png", "webp", "gif"}
+    raw_ext = (file.filename.rsplit(".", 1)[-1] if "." in file.filename else "").lower()
+    if raw_ext not in allowed_exts:
+        raise HTTPException(status_code=400, detail="Недопустимое расширение файла")
+    ext = raw_ext
+
     contents = await file.read()
     if len(contents) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Файл слишком большой. Максимум 10MB")
 
-    ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
-
     # ── Smart folder routing ──
-    # When category_slug and brand are provided, save into
-    # frontend/public/products/{category_folder}/{brand}/{product-slug}.{ext}
     if category_slug and brand:
         category_folder = CATEGORY_FOLDER_MAP.get(category_slug, _slugify(category_slug))
         brand_folder = _slugify(brand)
 
-        # Build product-based filename (readable, not UUID)
+        # Защита: пустой slug после санитизации недопустим
+        if not category_folder or not brand_folder:
+            raise HTTPException(status_code=400, detail="Некорректный category_slug или brand")
+
         if product_name:
             base_name = _slugify(product_name)
         else:
-            # Fallback: use original filename without extension
-            original_name = ".".join(file.filename.split(".")[:-1]) if "." in file.filename else file.filename
+            original_name = file.filename.rsplit(".", 1)[0] if "." in file.filename else file.filename
             base_name = _slugify(original_name)
 
-        target_dir = os.path.join(PRODUCTS_PUBLIC_DIR, category_folder, brand_folder)
+        if not base_name:
+            base_name = str(uuid.uuid4())
+
+        target_dir = os.path.abspath(os.path.join(PRODUCTS_PUBLIC_DIR, category_folder, brand_folder))
+
+        # ── Path traversal guard ──────────────────────────────────────────────
+        if not target_dir.startswith(os.path.abspath(PRODUCTS_PUBLIC_DIR) + os.sep):
+            raise HTTPException(status_code=400, detail="Недопустимый путь для сохранения файла")
+
         os.makedirs(target_dir, exist_ok=True)
 
         filename = f"{base_name}.{ext}"
@@ -93,8 +106,9 @@ async def upload_file(
         return {"url": url, "filename": filename, "path": f"{category_folder}/{brand_folder}/{filename}"}
 
     # ── Fallback: legacy flat uploads/ directory ──
-    uploads_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", settings.uploads_dir)
-    uploads_dir = os.path.abspath(uploads_dir)
+    uploads_dir = os.path.abspath(
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", settings.uploads_dir)
+    )
     os.makedirs(uploads_dir, exist_ok=True)
 
     filename = f"{uuid.uuid4()}.{ext}"

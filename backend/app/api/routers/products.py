@@ -51,7 +51,7 @@ async def list_products(
     category: str | None = Query(None, description="Category slug"),
     is_used: bool | None = Query(None, description="Filter by used products"),
     in_stock: bool | None = Query(None, description="Filter by availability"),
-    search: str | None = Query(None, min_length=2, description="Full-text search query"),
+    search: str | None = Query(None, min_length=2, max_length=200, description="Full-text search query"),
     db: AsyncSession = Depends(db_session),
     redis: Redis = Depends(redis_client),
 ) -> list[ProductRead]:

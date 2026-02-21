@@ -13,7 +13,7 @@ from ...db.redis import get_redis_client
 from ...models import Product
 from ...repositories.order import OrderRepository
 from ...schemas import OrderCreate, OrderRead, OrderStatusUpdate
-from ...schemas.order import DELIVERY_PRICES, PAYMENT_MARKUP
+from ...schemas.order import DELIVERY_PRICES, FREE_DELIVERY_THRESHOLD, PAYMENT_MARKUP
 from ...services.telegram import send_telegram_notification
 
 logger = logging.getLogger(__name__)
@@ -113,14 +113,20 @@ async def create_order(
         )
 
     # ── Считаем итог на сервере: subtotal + доставка + наценка за оплату ─────
-    delivery_cost = DELIVERY_PRICES.get(order_data.delivery_method or "pickup", 0)
+    raw_delivery_cost = DELIVERY_PRICES.get(order_data.delivery_method or "pickup", 0)
+    # Бесплатная доставка при заказе от FREE_DELIVERY_THRESHOLD (как на фронтенде)
+    is_free_delivery = (
+        order_data.delivery_method != "pickup"
+        and subtotal >= FREE_DELIVERY_THRESHOLD
+    )
+    delivery_cost = 0 if is_free_delivery else raw_delivery_cost
     payment_markup_rate = PAYMENT_MARKUP.get(order_data.payment_method or "cash", 0.0)
     payment_markup_amount = round(subtotal * payment_markup_rate)
     total_amount = subtotal + delivery_cost + payment_markup_amount
 
     logger.debug(
-        "Order pricing: subtotal=%s delivery=%s payment_markup=%s total=%s",
-        subtotal, delivery_cost, payment_markup_amount, total_amount,
+        "Order pricing: subtotal=%s delivery=%s (free=%s) payment_markup=%s total=%s",
+        subtotal, delivery_cost, is_free_delivery, payment_markup_amount, total_amount,
     )
 
     order = await OrderRepository.create(

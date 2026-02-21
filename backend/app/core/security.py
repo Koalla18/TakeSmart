@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -38,7 +39,12 @@ def verify_admin(credentials: HTTPAuthorizationCredentials = Depends(security)) 
 
 
 def authenticate_admin(username: str, password: str) -> Optional[dict]:
-    if username == settings.admin_username and password == settings.admin_password:
+    """
+    Сравниваем через secrets.compare_digest — защита от timing attack.
+    Обе ветки (неверный username И неверный password) занимают одинаковое время.
+    """
+    username_ok = secrets.compare_digest(username, settings.admin_username)
+    password_ok = secrets.compare_digest(password, settings.admin_password)
+    if username_ok and password_ok:
         return {"username": username, "role": "admin"}
     return None
-

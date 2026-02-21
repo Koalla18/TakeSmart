@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
-import { useCart } from '../lib/cart'
+import { useCart, MAX_QUANTITY_PER_ITEM, MAX_TOTAL_ITEMS } from '../lib/cart'
 import { formatPrice } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
 
@@ -87,6 +87,11 @@ const DELIVERY_METHODS = [
   { id: 'post', label: 'Почта', icon: '📦', desc: 'По России', price: 800 },
 ]
 
+// При заказе от этой суммы - доставка бесплатно
+const FREE_DELIVERY_THRESHOLD = 200_000
+
+const STORE_ADDRESS = 'г. Москва, ул. Барклая, д. 10, ТЦ «Багратионовский», павильон А60'
+
 export function CartPage() {
   const { items, removeItem, updateQuantity, clearCart, getTotal } = useCart()
   
@@ -99,19 +104,125 @@ export function CartPage() {
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string }>({})  
   const [paymentMethod, setPaymentMethod] = useState('card')
   const [deliveryMethod, setDeliveryMethod] = useState('pickup')
-  const [deliveryAddress, setDeliveryAddress] = useState('')
+  // Структурированный адрес доставки
+  const [addressFields, setAddressFields] = useState({
+    city: '',
+    street: '',
+    house: '',
+    apartment: '',
+  })
+  const [addressErrors, setAddressErrors] = useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [limitWarning, setLimitWarning] = useState<string | null>(null)
 
-  const deliveryPrice = DELIVERY_METHODS.find(d => d.id === deliveryMethod)?.price || 0
-  const paymentMarkup = PAYMENT_METHODS.find(p => p.id === paymentMethod)?.markup || 0
+  // Общее количество товаров
+  const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0)
+
+  // Обработчик изменения количества с показом предупреждения
+  const handleQuantityChange = (productId: string, newQuantity: number) => {
+    setLimitWarning(null)
+    if (newQuantity > MAX_QUANTITY_PER_ITEM) {
+      setLimitWarning(`Максимум ${MAX_QUANTITY_PER_ITEM} единиц одного товара`)
+      return
+    }
+    const currentItem = items.find(i => i.product.id === productId)
+    const diff = newQuantity - (currentItem?.quantity || 0)
+    if (totalQuantity + diff > MAX_TOTAL_ITEMS) {
+      setLimitWarning(`Максимум ${MAX_TOTAL_ITEMS} товаров в заказе`)
+      return
+    }
+    updateQuantity(productId, newQuantity)
+  }
+
+  // ─── Вспомогательные проверки адреса ──────────────────────────────────────
+  // Проверяет, не является ли строка «мусорной» (одинаковые/случайные символы)
+  const isJunkString = (s: string): boolean => {
+    const t = s.trim().toLowerCase()
+    // Слишком много повторяющихся символов (например «аааааа», «qqqqqq»)
+    if (/(.)(\1){3,}/.test(t)) return true
+    // Только цифры там где должны быть буквы — для города/улицы проверяем отдельно
+    return false
+  }
+
+  // Валидация полей адреса
+  const validateAddressFields = (): boolean => {
+    if (deliveryMethod === 'pickup') return true
+    const errs: Record<string, string> = {}
+    const { city, street, house, apartment } = addressFields
+
+    // Город
+    const cityT = city.trim()
+    if (!cityT) {
+      errs.city = 'Укажите город'
+    } else if (cityT.length < 2) {
+      errs.city = 'Слишком короткое название города'
+    } else if (cityT.length > 100) {
+      errs.city = 'Не более 100 символов'
+    } else if (!/^[а-яА-ЯёЁa-zA-Z\s\-\.]+$/.test(cityT)) {
+      errs.city = 'Город может содержать только буквы, пробелы и дефисы'
+    } else if (isJunkString(cityT)) {
+      errs.city = 'Укажите корректное название города'
+    }
+
+    // Улица
+    const streetT = street.trim()
+    if (!streetT) {
+      errs.street = 'Укажите улицу'
+    } else if (streetT.length < 3) {
+      errs.street = 'Слишком короткое название улицы'
+    } else if (streetT.length > 100) {
+      errs.street = 'Не более 100 символов'
+    } else if (!/^[а-яА-ЯёЁa-zA-Z0-9\s\-\.«»"]+$/.test(streetT)) {
+      errs.street = 'Улица содержит недопустимые символы'
+    } else if (isJunkString(streetT)) {
+      errs.street = 'Укажите корректное название улицы'
+    }
+
+    // Дом — только цифры, дроби (3/4), корпус (10к2, 10к/2), литера (10А)
+    const houseT = house.trim()
+    if (!houseT) {
+      errs.house = 'Укажите номер дома'
+    } else if (houseT.length > 20) {
+      errs.house = 'Не более 20 символов'
+    } else if (!/^\d+([а-яА-ЯёЁa-zA-Z]{0,3})?([\/\-]\d+([а-яА-ЯёЁa-zA-Z]{0,3})?)?$/.test(houseT)) {
+      errs.house = 'Формат: 10, 10А, 10/2, 10к1, 10-2'
+    }
+
+    // Квартира — необязательно, но если заполнена — только цифры/буквы
+    const aptT = apartment.trim()
+    if (aptT) {
+      if (aptT.length > 20) {
+        errs.apartment = 'Не более 20 символов'
+      } else if (!/^[а-яА-ЯёЁa-zA-Z0-9\-\/]+$/.test(aptT)) {
+        errs.apartment = 'Только цифры и буквы'
+      }
+    }
+
+    setAddressErrors(errs)
+    return Object.keys(errs).length === 0
+  }
+
+  const buildDeliveryAddress = (): string => {
+    if (deliveryMethod === 'pickup') return STORE_ADDRESS
+    const { city, street, house, apartment } = addressFields
+    let addr = `${city.trim()}, ${street.trim()}, д. ${house.trim()}`
+    if (apartment.trim()) addr += `, кв. ${apartment.trim()}`
+    return addr
+  }
+
   const subtotal = getTotal()
+  const isFreeDelivery = deliveryMethod !== 'pickup' && subtotal >= FREE_DELIVERY_THRESHOLD
+  const rawDeliveryPrice = DELIVERY_METHODS.find(d => d.id === deliveryMethod)?.price || 0
+  const deliveryPrice = isFreeDelivery ? 0 : rawDeliveryPrice
+  const paymentMarkup = PAYMENT_METHODS.find(p => p.id === paymentMethod)?.markup || 0
   const cardMarkupAmount = paymentMarkup > 0 ? Math.round(subtotal * paymentMarkup) : 0
   const total = subtotal + deliveryPrice + cardMarkupAmount
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    setLimitWarning(null)
     
     // Клиентская валидация
     const nameErr = validateName(formData.name)
@@ -126,9 +237,27 @@ export function CartPage() {
       setError('Корзина пуста')
       return
     }
+    
+    // Валидация лимитов
+    if (totalQuantity > MAX_TOTAL_ITEMS) {
+      setError(`Максимум ${MAX_TOTAL_ITEMS} товаров в заказе`)
+      return
+    }
+    
+    for (const item of items) {
+      if (item.quantity > MAX_QUANTITY_PER_ITEM) {
+        setError(`Максимум ${MAX_QUANTITY_PER_ITEM} единиц одного товара`)
+        return
+      }
+      if (item.quantity < 1 || item.product.price < 0) {
+        setError('Некорректные данные в корзине')
+        return
+      }
+    }
 
-    if (deliveryMethod !== 'pickup' && !deliveryAddress.trim()) {
-      setError('Укажите адрес доставки')
+    // Валидация адреса доставки
+    if (!validateAddressFields()) {
+      setError('Пожалуйста, заполните все поля адреса')
       return
     }
 
@@ -136,6 +265,7 @@ export function CartPage() {
     setError(null)
 
     try {
+      const deliveryAddress = buildDeliveryAddress()
       const payload: OrderPayload = {
         ...formData,
         items: items.map(item => ({
@@ -145,7 +275,7 @@ export function CartPage() {
         })),
         payment_method: paymentMethod,
         delivery_method: deliveryMethod,
-        delivery_address: deliveryMethod === 'pickup' ? 'Самовывоз' : deliveryAddress,
+        delivery_address: deliveryAddress,
       }
       
       const res = await fetch(`${API_BASE_URL}/api/orders`, {
@@ -228,7 +358,14 @@ export function CartPage() {
               <div className="rounded-2xl bg-white p-6 shadow-sm">
                 <div className="mb-6 flex items-center justify-between">
                   <h2 className="text-xl font-bold">🛒 Товары ({items.length})</h2>
-                  <button type="button" onClick={clearCart} className="text-sm text-red-500 hover:text-red-600">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm('Очистить корзину? Все товары будут удалены.'))
+                        clearCart()
+                    }}
+                    className="text-sm text-red-500 hover:text-red-600"
+                  >
                     Очистить
                   </button>
                 </div>
@@ -253,9 +390,14 @@ export function CartPage() {
                         <div className="mt-2 flex items-center gap-4">
                           {/* Quantity */}
                           <div className="flex items-center gap-2 rounded-lg border px-2">
-                            <button type="button" onClick={() => updateQuantity(item.product.id, item.quantity - 1)} className="px-2 py-1 text-gray-500 hover:text-gray-900">−</button>
+                            <button type="button" onClick={() => handleQuantityChange(item.product.id, item.quantity - 1)} className="px-2 py-1 text-gray-500 hover:text-gray-900">−</button>
                             <span className="w-8 text-center">{item.quantity}</span>
-                            <button type="button" onClick={() => updateQuantity(item.product.id, item.quantity + 1)} className="px-2 py-1 text-gray-500 hover:text-gray-900">+</button>
+                            <button 
+                              type="button" 
+                              onClick={() => handleQuantityChange(item.product.id, item.quantity + 1)} 
+                              className={`px-2 py-1 ${item.quantity >= MAX_QUANTITY_PER_ITEM || totalQuantity >= MAX_TOTAL_ITEMS ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-gray-900'}`}
+                              disabled={item.quantity >= MAX_QUANTITY_PER_ITEM || totalQuantity >= MAX_TOTAL_ITEMS}
+                            >+</button>
                           </div>
                           <button type="button" onClick={() => removeItem(item.product.id)} className="text-sm text-red-500">Удалить</button>
                         </div>
@@ -268,6 +410,18 @@ export function CartPage() {
                       </div>
                     </div>
                   ))}
+                </div>
+                
+                {/* Лимит предупреждение */}
+                {limitWarning && (
+                  <div className="mt-4 rounded-lg bg-orange-50 p-3 text-sm text-orange-700">
+                    ⚠️ {limitWarning}
+                  </div>
+                )}
+                
+                {/* Счётчик товаров */}
+                <div className="mt-4 text-sm text-gray-500 text-right">
+                  Товаров в заказе: {totalQuantity} / {MAX_TOTAL_ITEMS}
                 </div>
               </div>
 
@@ -315,47 +469,149 @@ export function CartPage() {
 
               {/* Delivery Method */}
               <div className="rounded-2xl bg-white p-6 shadow-sm">
-                <h2 className="mb-6 text-xl font-bold">🚚 Способ доставки</h2>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  {DELIVERY_METHODS.map(method => (
-                    <label
-                      key={method.id}
-                      className={`relative flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all ${
-                        deliveryMethod === method.id ? 'border-yellow-400 bg-yellow-50' : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="delivery"
-                        value={method.id}
-                        checked={deliveryMethod === method.id}
-                        onChange={() => setDeliveryMethod(method.id)}
-                        className="sr-only"
-                      />
-                      <span className="text-3xl">{method.icon}</span>
-                      <span className="font-semibold">{method.label}</span>
-                      <span className="text-sm text-gray-500">{method.desc}</span>
-                      <span className="font-medium text-yellow-600">
-                        {method.price === 0 ? 'Бесплатно' : `+${formatPrice(method.price)}`}
-                      </span>
-                      {deliveryMethod === method.id && (
-                        <span className="absolute right-2 top-2 text-yellow-500">✓</span>
-                      )}
-                    </label>
-                  ))}
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-xl font-bold">🚚 Способ доставки</h2>
+                  {subtotal >= FREE_DELIVERY_THRESHOLD && (
+                    <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-semibold text-green-700">
+                      🎁 Доставка бесплатно от {formatPrice(FREE_DELIVERY_THRESHOLD)}
+                    </span>
+                  )}
                 </div>
                 
+                <div className="grid gap-4 sm:grid-cols-3">
+                  {DELIVERY_METHODS.map(method => {
+                    const effectiveFree = method.id !== 'pickup' && subtotal >= FREE_DELIVERY_THRESHOLD
+                    return (
+                      <label
+                        key={method.id}
+                        className={`relative flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all ${
+                          deliveryMethod === method.id ? 'border-yellow-400 bg-yellow-50' : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="delivery"
+                          value={method.id}
+                          checked={deliveryMethod === method.id}
+                          onChange={() => { setDeliveryMethod(method.id); setAddressErrors({}) }}
+                          className="sr-only"
+                        />
+                        <span className="text-3xl">{method.icon}</span>
+                        <span className="font-semibold">{method.label}</span>
+                        <span className="text-sm text-gray-500">{method.desc}</span>
+                        <span className={`font-medium ${effectiveFree ? 'text-green-600' : 'text-yellow-600'}`}>
+                          {method.price === 0 || effectiveFree ? 'Бесплатно' : `+${formatPrice(method.price)}`}
+                        </span>
+                        {deliveryMethod === method.id && (
+                          <span className="absolute right-2 top-2 text-yellow-500">✓</span>
+                        )}
+                      </label>
+                    )
+                  })}
+                </div>
+                
+                {/* Самовывоз — показываем адрес */}
+                {deliveryMethod === 'pickup' && (
+                  <div className="mt-6 rounded-xl bg-gray-50 p-4">
+                    <div className="mb-1 font-semibold text-gray-900">📍 Адрес самовывоза:</div>
+                    <p className="text-gray-700">{STORE_ADDRESS}</p>
+                    <p className="mt-1 text-sm text-gray-500">М. Багратионовская · Пн-Вс 10:00–20:00</p>
+                  </div>
+                )}
+
+                {/* Доставка — структурированная форма адреса */}
                 {deliveryMethod !== 'pickup' && (
-                  <div className="mt-6">
-                    <label className="mb-2 block font-medium">Адрес доставки *</label>
-                    <textarea
-                      value={deliveryAddress}
-                      onChange={(e) => setDeliveryAddress(e.target.value)}
-                      rows={3}
-                      className="w-full rounded-xl border border-gray-200 p-4 focus:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-100"
-                      placeholder="Город, улица, дом, квартира"
-                      required
-                    />
+                  <div className="mt-6 space-y-4">
+                    <div className="font-semibold text-gray-900">📍 Адрес доставки</div>
+                    
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {/* Город */}
+                      <div className="sm:col-span-2">
+                        <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                          Город <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={addressFields.city}
+                          onChange={(e) => {
+                            setAddressFields(p => ({ ...p, city: e.target.value }))
+                            if (addressErrors.city) setAddressErrors(p => ({ ...p, city: '' }))
+                          }}
+                          className={`w-full rounded-xl border p-3 focus:outline-none focus:ring-2 ${
+                            addressErrors.city ? 'border-red-400 focus:ring-red-100' : 'border-gray-200 focus:border-yellow-400 focus:ring-yellow-100'
+                          }`}
+                          placeholder="Москва"
+                        />
+                        {addressErrors.city && <p className="mt-1 text-sm text-red-500">{addressErrors.city}</p>}
+                      </div>
+                      
+                      {/* Улица */}
+                      <div className="sm:col-span-2">
+                        <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                          Улица <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={addressFields.street}
+                          onChange={(e) => {
+                            setAddressFields(p => ({ ...p, street: e.target.value }))
+                            if (addressErrors.street) setAddressErrors(p => ({ ...p, street: '' }))
+                          }}
+                          className={`w-full rounded-xl border p-3 focus:outline-none focus:ring-2 ${
+                            addressErrors.street ? 'border-red-400 focus:ring-red-100' : 'border-gray-200 focus:border-yellow-400 focus:ring-yellow-100'
+                          }`}
+                          placeholder="ул. Ленина"
+                        />
+                        {addressErrors.street && <p className="mt-1 text-sm text-red-500">{addressErrors.street}</p>}
+                      </div>
+                      
+                      {/* Дом */}
+                      <div>
+                        <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                          Дом <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={addressFields.house}
+                          onChange={(e) => {
+                            setAddressFields(p => ({ ...p, house: e.target.value }))
+                            if (addressErrors.house) setAddressErrors(p => ({ ...p, house: '' }))
+                          }}
+                          className={`w-full rounded-xl border p-3 focus:outline-none focus:ring-2 ${
+                            addressErrors.house ? 'border-red-400 focus:ring-red-100' : 'border-gray-200 focus:border-yellow-400 focus:ring-yellow-100'
+                          }`}
+                          placeholder="10к1"
+                        />
+                        {addressErrors.house && <p className="mt-1 text-sm text-red-500">{addressErrors.house}</p>}
+                      </div>
+                      
+                      {/* Квартира */}
+                      <div>
+                        <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                          Квартира / офис
+                        </label>
+                        <input
+                          type="text"
+                          value={addressFields.apartment}
+                          onChange={(e) => {
+                            setAddressFields(p => ({ ...p, apartment: e.target.value }))
+                            if (addressErrors.apartment) setAddressErrors(p => ({ ...p, apartment: '' }))
+                          }}
+                          className={`w-full rounded-xl border p-3 focus:outline-none focus:ring-2 ${
+                            addressErrors.apartment ? 'border-red-400 focus:ring-red-100' : 'border-gray-200 focus:border-yellow-400 focus:ring-yellow-100'
+                          }`}
+                          placeholder="42"
+                        />
+                        {addressErrors.apartment && <p className="mt-1 text-sm text-red-500">{addressErrors.apartment}</p>}
+                      </div>
+                    </div>
+                    
+                    {/* Превью итогового адреса */}
+                    {(addressFields.city || addressFields.street || addressFields.house) && (
+                      <div className="rounded-xl bg-blue-50 p-3 text-sm text-blue-800">
+                        📦 Доставим по адресу: <span className="font-medium">{buildDeliveryAddress()}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -456,7 +712,11 @@ export function CartPage() {
                   )}
                   <div className="flex justify-between">
                     <span className="text-gray-500">Доставка</span>
-                    <span>{deliveryPrice === 0 ? 'Бесплатно' : formatPrice(deliveryPrice)}</span>
+                    {isFreeDelivery ? (
+                      <span className="font-semibold text-green-600">Бесплатно 🎁</span>
+                    ) : (
+                      <span>{deliveryPrice === 0 ? 'Бесплатно' : formatPrice(deliveryPrice)}</span>
+                    )}
                   </div>
                   <div className="border-t pt-3">
                     <div className="flex justify-between text-lg font-bold">
@@ -466,8 +726,15 @@ export function CartPage() {
                   </div>
                 </div>
                 
+                {/* Подсказка о бесплатной доставке */}
+                {!isFreeDelivery && deliveryMethod !== 'pickup' && subtotal < FREE_DELIVERY_THRESHOLD && (
+                  <div className="mt-3 rounded-xl bg-green-50 p-3 text-sm text-green-700">
+                    🎁 До бесплатной доставки ещё {formatPrice(FREE_DELIVERY_THRESHOLD - subtotal)}
+                  </div>
+                )}
+                
                 {cardMarkupAmount > 0 && (
-                  <div className="mt-4 rounded-xl bg-orange-50 p-3 text-sm text-orange-700">
+                  <div className="mt-3 rounded-xl bg-orange-50 p-3 text-sm text-orange-700">
                     ⚠️ При оплате картой действует наценка 15%. Оплата наличными без наценки.
                   </div>
                 )}
