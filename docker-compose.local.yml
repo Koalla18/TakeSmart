@@ -4,16 +4,14 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
-    env_file:
-      - ./.env
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-take_smart}
-      POSTGRES_USER: ${POSTGRES_USER:-take_smart}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-take_smart_password}
+      POSTGRES_DB: take_smart
+      POSTGRES_USER: take_smart
+      POSTGRES_PASSWORD: take_smart_local
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-take_smart} -d ${POSTGRES_DB:-take_smart}"]
+      test: ["CMD-SHELL", "pg_isready -U take_smart -d take_smart"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -41,9 +39,9 @@ services:
     env_file:
       - ./.env
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-take_smart}:${POSTGRES_PASSWORD:-take_smart_password}@db:5432/${POSTGRES_DB:-take_smart}
+      DATABASE_URL: postgresql+asyncpg://take_smart:take_smart_local@db:5432/take_smart
       REDIS_URL: redis://redis:6379/0
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost}
     volumes:
       # Persist uploaded files
       - uploads:/app/uploads

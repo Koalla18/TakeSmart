@@ -39,7 +39,7 @@ export function DeliveryPage() {
               <div className="rounded-xl bg-gray-50 p-4">
                 <div className="mb-2 font-semibold text-gray-900">📍 Адрес магазина:</div>
                 <p className="text-gray-600">г. Москва, ул. Барклая, д. 10</p>
-                <p className="text-gray-600">ТЦ "Багратионовский", 1 этаж, А-27</p>
+                <p className="text-gray-600">ТЦ «Багратионовский», павильон А60</p>
                 <p className="mt-2 text-sm text-gray-500">М. Багратионовская</p>
               </div>
               <div className="mt-4 text-sm text-gray-500">
@@ -77,7 +77,7 @@ export function DeliveryPage() {
                 </li>
               </ul>
               <div className="mt-4 rounded-xl bg-yellow-50 p-4 text-sm">
-                <span className="font-semibold">🎁 При заказе от 50 000 ₽</span>
+                <span className="font-semibold">🎁 При заказе от 200 000 ₽</span>
                 <br/>
                 доставка бесплатно
               </div>
@@ -207,13 +207,16 @@ export function DeliveryPage() {
       </Section>
 
       {/* CTA */}
-      <Section className="bg-gray-900 py-16">
+      <Section className="bg-gray-900 py-12">
         <Container>
           <div className="mx-auto max-w-2xl text-center">
-            <h2 className="mb-4 text-3xl font-bold text-white">Остались вопросы?</h2>
-            <p className="mb-8 text-gray-400">Свяжитесь с нами любым удобным способом</p>
-            <div className="flex flex-wrap justify-center gap-4">
-              <a href="tel:+79998021022" className="rounded-xl bg-yellow-400 px-8 py-4 font-semibold text-gray-900 hover:bg-yellow-300">
+            <h2 className="mb-3 text-3xl font-bold text-white">Остались вопросы?</h2>
+            <p className="mb-6 text-gray-400">Свяжитесь с нами любым удобным способом</p>
+            <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+              <a
+                href="tel:+79998021022"
+                className="flex items-center gap-2 rounded-xl bg-yellow-400 px-8 py-4 font-semibold text-gray-900 transition hover:bg-yellow-300"
+              >
                 📞 +7 (999) 802-10-22
               </a>
               <Button to="/catalog" variant="outline" size="lg" className="border-white text-white hover:bg-white hover:text-gray-900">
