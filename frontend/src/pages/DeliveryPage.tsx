@@ -207,15 +207,15 @@ export function DeliveryPage() {
       </Section>
 
       {/* CTA */}
-      <Section className="bg-gray-900 py-12">
+      <div className="bg-gray-900">
         <Container>
-          <div className="mx-auto max-w-2xl text-center">
+          <div className="py-14 text-center">
             <h2 className="mb-3 text-3xl font-bold text-white">Остались вопросы?</h2>
-            <p className="mb-6 text-gray-400">Свяжитесь с нами любым удобным способом</p>
-            <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+            <p className="mb-8 text-gray-400">Свяжитесь с нами любым удобным способом</p>
+            <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <a
                 href="tel:+79998021022"
-                className="flex items-center gap-2 rounded-xl bg-yellow-400 px-8 py-4 font-semibold text-gray-900 transition hover:bg-yellow-300"
+                className="inline-flex items-center gap-2 rounded-xl bg-yellow-400 px-8 py-4 font-semibold text-gray-900 transition hover:bg-yellow-300"
               >
                 📞 +7 (999) 802-10-22
               </a>
@@ -225,7 +225,7 @@ export function DeliveryPage() {
             </div>
           </div>
         </Container>
-      </Section>
+      </div>
     </div>
   )
 }

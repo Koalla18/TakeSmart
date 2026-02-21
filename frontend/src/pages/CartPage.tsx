@@ -140,16 +140,70 @@ export function CartPage() {
     updateQuantity(productId, newQuantity)
   }
 
+  // ─── Вспомогательные проверки адреса ──────────────────────────────────────
+  // Проверяет, не является ли строка «мусорной» (одинаковые/случайные символы)
+  const isJunkString = (s: string): boolean => {
+    const t = s.trim().toLowerCase()
+    // Слишком много повторяющихся символов (например «аааааа», «qqqqqq»)
+    if (/(.)(\1){3,}/.test(t)) return true
+    // Только цифры там где должны быть буквы — для города/улицы проверяем отдельно
+    return false
+  }
+
   // Валидация полей адреса
   const validateAddressFields = (): boolean => {
     if (deliveryMethod === 'pickup') return true
     const errs: Record<string, string> = {}
-    if (!addressFields.city.trim()) errs.city = 'Укажите город'
-    else if (addressFields.city.trim().length < 2) errs.city = 'Слишком короткое название города'
-    if (!addressFields.street.trim()) errs.street = 'Укажите улицу'
-    else if (addressFields.street.trim().length < 3) errs.street = 'Слишком короткое название улицы'
-    if (!addressFields.house.trim()) errs.house = 'Укажите номер дома'
-    else if (!/^[\d\w\/\-]+$/i.test(addressFields.house.trim())) errs.house = 'Некорректный номер дома'
+    const { city, street, house, apartment } = addressFields
+
+    // Город
+    const cityT = city.trim()
+    if (!cityT) {
+      errs.city = 'Укажите город'
+    } else if (cityT.length < 2) {
+      errs.city = 'Слишком короткое название города'
+    } else if (cityT.length > 100) {
+      errs.city = 'Не более 100 символов'
+    } else if (!/^[а-яА-ЯёЁa-zA-Z\s\-\.]+$/.test(cityT)) {
+      errs.city = 'Город может содержать только буквы, пробелы и дефисы'
+    } else if (isJunkString(cityT)) {
+      errs.city = 'Укажите корректное название города'
+    }
+
+    // Улица
+    const streetT = street.trim()
+    if (!streetT) {
+      errs.street = 'Укажите улицу'
+    } else if (streetT.length < 3) {
+      errs.street = 'Слишком короткое название улицы'
+    } else if (streetT.length > 100) {
+      errs.street = 'Не более 100 символов'
+    } else if (!/^[а-яА-ЯёЁa-zA-Z0-9\s\-\.«»"]+$/.test(streetT)) {
+      errs.street = 'Улица содержит недопустимые символы'
+    } else if (isJunkString(streetT)) {
+      errs.street = 'Укажите корректное название улицы'
+    }
+
+    // Дом — только цифры, дроби (3/4), корпус (10к2, 10к/2), литера (10А)
+    const houseT = house.trim()
+    if (!houseT) {
+      errs.house = 'Укажите номер дома'
+    } else if (houseT.length > 20) {
+      errs.house = 'Не более 20 символов'
+    } else if (!/^\d+([а-яА-ЯёЁa-zA-Z]{0,3})?([\/\-]\d+([а-яА-ЯёЁa-zA-Z]{0,3})?)?$/.test(houseT)) {
+      errs.house = 'Формат: 10, 10А, 10/2, 10к1, 10-2'
+    }
+
+    // Квартира — необязательно, но если заполнена — только цифры/буквы
+    const aptT = apartment.trim()
+    if (aptT) {
+      if (aptT.length > 20) {
+        errs.apartment = 'Не более 20 символов'
+      } else if (!/^[а-яА-ЯёЁa-zA-Z0-9\-\/]+$/.test(aptT)) {
+        errs.apartment = 'Только цифры и буквы'
+      }
+    }
+
     setAddressErrors(errs)
     return Object.keys(errs).length === 0
   }
@@ -311,7 +365,14 @@ export function CartPage() {
               <div className="rounded-2xl bg-white p-6 shadow-sm">
                 <div className="mb-6 flex items-center justify-between">
                   <h2 className="text-xl font-bold">🛒 Товары ({items.length})</h2>
-                  <button type="button" onClick={clearCart} className="text-sm text-red-500 hover:text-red-600">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm('Очистить корзину? Все товары будут удалены.'))
+                        clearCart()
+                    }}
+                    className="text-sm text-red-500 hover:text-red-600"
+                  >
                     Очистить
                   </button>
                 </div>
@@ -539,10 +600,16 @@ export function CartPage() {
                         <input
                           type="text"
                           value={addressFields.apartment}
-                          onChange={(e) => setAddressFields(p => ({ ...p, apartment: e.target.value }))}
-                          className="w-full rounded-xl border border-gray-200 p-3 focus:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-100"
+                          onChange={(e) => {
+                            setAddressFields(p => ({ ...p, apartment: e.target.value }))
+                            if (addressErrors.apartment) setAddressErrors(p => ({ ...p, apartment: '' }))
+                          }}
+                          className={`w-full rounded-xl border p-3 focus:outline-none focus:ring-2 ${
+                            addressErrors.apartment ? 'border-red-400 focus:ring-red-100' : 'border-gray-200 focus:border-yellow-400 focus:ring-yellow-100'
+                          }`}
                           placeholder="42"
                         />
+                        {addressErrors.apartment && <p className="mt-1 text-sm text-red-500">{addressErrors.apartment}</p>}
                       </div>
                     </div>
                     
