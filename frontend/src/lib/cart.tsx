@@ -6,11 +6,16 @@ export interface CartItem {
   quantity: number
 }
 
+// ─── Ограничения корзины ─────────────────────────────────────────────────────
+export const MAX_QUANTITY_PER_ITEM = 15
+export const MAX_TOTAL_ITEMS = 15
+export const MAX_POSITIONS = 20
+
 interface CartContextType {
   items: CartItem[]
-  addItem: (product: Product, quantity?: number) => void
+  addItem: (product: Product, quantity?: number) => boolean // false если превышен лимит
   removeItem: (productId: string) => void
-  updateQuantity: (productId: string, quantity: number) => void
+  updateQuantity: (productId: string, quantity: number) => boolean // false если превышен лимит
   clearCart: () => void
   getItemCount: () => number
   getTotal: () => number
@@ -37,34 +42,59 @@ export function CartProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items))
   }, [items])
 
-  const addItem = (product: Product, quantity = 1) => {
+  const addItem = (product: Product, quantity = 1): boolean => {
+    // Проверка лимитов
+    const existing = items.find(item => item.product.id === product.id)
+    const currentTotal = items.reduce((sum, item) => sum + item.quantity, 0)
+    
+    if (existing) {
+      const newQty = existing.quantity + quantity
+      if (newQty > MAX_QUANTITY_PER_ITEM) return false
+      if (currentTotal - existing.quantity + newQty > MAX_TOTAL_ITEMS) return false
+    } else {
+      if (quantity > MAX_QUANTITY_PER_ITEM) return false
+      if (currentTotal + quantity > MAX_TOTAL_ITEMS) return false
+      if (items.length >= MAX_POSITIONS) return false
+    }
+    
     setItems(current => {
-      const existing = current.find(item => item.product.id === product.id)
-      if (existing) {
+      const exist = current.find(item => item.product.id === product.id)
+      if (exist) {
         return current.map(item =>
           item.product.id === product.id
-            ? { ...item, quantity: item.quantity + quantity }
+            ? { ...item, quantity: Math.min(item.quantity + quantity, MAX_QUANTITY_PER_ITEM) }
             : item
         )
       }
-      return [...current, { product, quantity }]
+      return [...current, { product, quantity: Math.min(quantity, MAX_QUANTITY_PER_ITEM) }]
     })
+    return true
   }
 
   const removeItem = (productId: string) => {
     setItems(current => current.filter(item => item.product.id !== productId))
   }
 
-  const updateQuantity = (productId: string, quantity: number) => {
+  const updateQuantity = (productId: string, quantity: number): boolean => {
     if (quantity <= 0) {
       removeItem(productId)
-      return
+      return true
     }
+    
+    // Проверка лимитов
+    if (quantity > MAX_QUANTITY_PER_ITEM) return false
+    
+    const currentItem = items.find(item => item.product.id === productId)
+    const currentTotal = items.reduce((sum, item) => sum + item.quantity, 0)
+    const diff = quantity - (currentItem?.quantity || 0)
+    if (currentTotal + diff > MAX_TOTAL_ITEMS) return false
+    
     setItems(current =>
       current.map(item =>
         item.product.id === productId ? { ...item, quantity } : item
       )
     )
+    return true
   }
 
   const clearCart = () => {

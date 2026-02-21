@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
-import { useCart } from '../lib/cart'
+import { useCart, MAX_QUANTITY_PER_ITEM, MAX_TOTAL_ITEMS } from '../lib/cart'
 import { formatPrice } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
 
@@ -107,6 +107,26 @@ export function CartPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [limitWarning, setLimitWarning] = useState<string | null>(null)
+
+  // Общее количество товаров
+  const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0)
+
+  // Обработчик изменения количества с показом предупреждения
+  const handleQuantityChange = (productId: string, newQuantity: number) => {
+    setLimitWarning(null)
+    if (newQuantity > MAX_QUANTITY_PER_ITEM) {
+      setLimitWarning(`Максимум ${MAX_QUANTITY_PER_ITEM} единиц одного товара`)
+      return
+    }
+    const currentItem = items.find(i => i.product.id === productId)
+    const diff = newQuantity - (currentItem?.quantity || 0)
+    if (totalQuantity + diff > MAX_TOTAL_ITEMS) {
+      setLimitWarning(`Максимум ${MAX_TOTAL_ITEMS} товаров в заказе`)
+      return
+    }
+    updateQuantity(productId, newQuantity)
+  }
 
   const deliveryPrice = DELIVERY_METHODS.find(d => d.id === deliveryMethod)?.price || 0
   const paymentMarkup = PAYMENT_METHODS.find(p => p.id === paymentMethod)?.markup || 0
@@ -116,6 +136,7 @@ export function CartPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    setLimitWarning(null)
     
     // Клиентская валидация
     const nameErr = validateName(formData.name)
@@ -129,6 +150,23 @@ export function CartPage() {
     if (items.length === 0) {
       setError('Корзина пуста')
       return
+    }
+    
+    // Валидация лимитов
+    if (totalQuantity > MAX_TOTAL_ITEMS) {
+      setError(`Максимум ${MAX_TOTAL_ITEMS} товаров в заказе`)
+      return
+    }
+    
+    for (const item of items) {
+      if (item.quantity > MAX_QUANTITY_PER_ITEM) {
+        setError(`Максимум ${MAX_QUANTITY_PER_ITEM} единиц одного товара`)
+        return
+      }
+      if (item.quantity < 1 || item.product.price < 0) {
+        setError('Некорректные данные в корзине')
+        return
+      }
     }
 
     if (deliveryMethod !== 'pickup' && !deliveryAddress.trim()) {
@@ -260,9 +298,14 @@ export function CartPage() {
                         <div className="mt-2 flex items-center gap-4">
                           {/* Quantity */}
                           <div className="flex items-center gap-2 rounded-lg border px-2">
-                            <button type="button" onClick={() => updateQuantity(item.product.id, item.quantity - 1)} className="px-2 py-1 text-gray-500 hover:text-gray-900">−</button>
+                            <button type="button" onClick={() => handleQuantityChange(item.product.id, item.quantity - 1)} className="px-2 py-1 text-gray-500 hover:text-gray-900">−</button>
                             <span className="w-8 text-center">{item.quantity}</span>
-                            <button type="button" onClick={() => updateQuantity(item.product.id, item.quantity + 1)} className="px-2 py-1 text-gray-500 hover:text-gray-900">+</button>
+                            <button 
+                              type="button" 
+                              onClick={() => handleQuantityChange(item.product.id, item.quantity + 1)} 
+                              className={`px-2 py-1 ${item.quantity >= MAX_QUANTITY_PER_ITEM || totalQuantity >= MAX_TOTAL_ITEMS ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-gray-900'}`}
+                              disabled={item.quantity >= MAX_QUANTITY_PER_ITEM || totalQuantity >= MAX_TOTAL_ITEMS}
+                            >+</button>
                           </div>
                           <button type="button" onClick={() => removeItem(item.product.id)} className="text-sm text-red-500">Удалить</button>
                         </div>
@@ -275,6 +318,18 @@ export function CartPage() {
                       </div>
                     </div>
                   ))}
+                </div>
+                
+                {/* Лимит предупреждение */}
+                {limitWarning && (
+                  <div className="mt-4 rounded-lg bg-orange-50 p-3 text-sm text-orange-700">
+                    ⚠️ {limitWarning}
+                  </div>
+                )}
+                
+                {/* Счётчик товаров */}
+                <div className="mt-4 text-sm text-gray-500 text-right">
+                  Товаров в заказе: {totalQuantity} / {MAX_TOTAL_ITEMS}
                 </div>
               </div>
 
