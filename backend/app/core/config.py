@@ -10,12 +10,12 @@ class Settings(BaseSettings):
     # Upload settings
     uploads_dir: str = "uploads"
 
-    # Admin credentials
+    # Admin credentials — ОБЯЗАТЕЛЬНО задать через переменные окружения
     admin_username: str = "admin"
-    admin_password: str = "takesmart2024"
+    admin_password: str  # Нет дефолта — обязательно задать в .env / docker env
 
-    # JWT settings
-    jwt_secret: str = "takesmart-secret-key-change-in-production"
+    # JWT settings — ОБЯЗАТЕЛЬНО задать через переменные окружения
+    jwt_secret: str  # Нет дефолта — обязательно задать в .env / docker env
     jwt_algorithm: str = "HS256"
     jwt_expire_hours: int = 24
 

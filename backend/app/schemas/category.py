@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -29,9 +30,8 @@ class CategoryUpdate(BaseModel):
 
 
 class CategoryRead(CategoryBase):
-    id: int
+    id: uuid.UUID
     created_at: datetime
 
     class Config:
         from_attributes = True
-

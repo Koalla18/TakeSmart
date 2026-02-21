@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from redis.asyncio import Redis
@@ -89,7 +90,7 @@ async def create_category(
     summary="Get category (admin)",
 )
 async def get_category(
-    category_id: int,
+    category_id: uuid.UUID,
     db: AsyncSession = Depends(db_session),
     _: dict = admin_required,
 ) -> CategoryRead:
@@ -105,7 +106,7 @@ async def get_category(
     summary="Update category (admin)",
 )
 async def update_category(
-    category_id: int,
+    category_id: uuid.UUID,
     category_data: CategoryUpdate,
     db: AsyncSession = Depends(db_session),
     redis: Redis = Depends(redis_client),
@@ -128,7 +129,7 @@ async def update_category(
     summary="Delete category (admin)",
 )
 async def delete_category(
-    category_id: int,
+    category_id: uuid.UUID,
     db: AsyncSession = Depends(db_session),
     redis: Redis = Depends(redis_client),
     _: dict = admin_required,

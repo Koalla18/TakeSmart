@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy import Select, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,7 +58,7 @@ class ProductRepository:
         return list(result.scalars().all())
 
     @staticmethod
-    async def get_by_id(session: AsyncSession, product_id: int) -> Product | None:
+    async def get_by_id(session: AsyncSession, product_id: uuid.UUID) -> Product | None:
         result = await session.execute(select(Product).where(Product.id == product_id))
         return result.scalars().first()
 

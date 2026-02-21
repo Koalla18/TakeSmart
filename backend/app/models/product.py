@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
+import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, Computed, DateTime, ForeignKey, Index, Integer, JSON, String, Text
-from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.dialects.postgresql import TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.base import Base
@@ -27,12 +28,14 @@ class Product(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True
+    )
     name: Mapped[str] = mapped_column(String(300), nullable=False)
     slug: Mapped[str] = mapped_column(String(300), unique=True, nullable=False, index=True)
     brand: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
 
-    category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True, index=True)
+    category_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("categories.id"), nullable=True, index=True)
     category: Mapped["Category | None"] = relationship("Category", back_populates="products")
 
     price: Mapped[int] = mapped_column(Integer, nullable=False)

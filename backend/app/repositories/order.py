@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +27,7 @@ class OrderRepository:
         return list(result.scalars().all())
 
     @staticmethod
-    async def get_by_id(session: AsyncSession, order_id: int) -> Order | None:
+    async def get_by_id(session: AsyncSession, order_id: uuid.UUID) -> Order | None:
         result = await session.execute(select(Order).where(Order.id == order_id))
         return result.scalars().first()
 
@@ -56,4 +58,6 @@ class OrderRepository:
         result = await session.execute(select(func.avg(Order.total_amount)).where(Order.total_amount.isnot(None)))
         value = result.scalar()
         return int(value) if value else 0
+
+
 

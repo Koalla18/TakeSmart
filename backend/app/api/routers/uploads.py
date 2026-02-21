@@ -113,7 +113,9 @@ async def delete_uploaded_file(
 ) -> dict:
     uploads_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", settings.uploads_dir)
     uploads_dir = os.path.abspath(uploads_dir)
-    filepath = os.path.join(uploads_dir, filename)
+    filepath = os.path.abspath(os.path.join(uploads_dir, filename))
+    if not filepath.startswith(uploads_dir + os.sep):
+        raise HTTPException(status_code=400, detail="Недопустимое имя файла")
     if os.path.exists(filepath):
         os.remove(filepath)
         return {"ok": True}

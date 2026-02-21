@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +28,7 @@ async def seed_database(
         {"slug": "tv", "name": "ТВ и аудио", "description": "Samsung, LG, Sony", "icon": "📺", "sort_order": 8},
     ]
 
-    created_categories: dict[str, int] = {}
+    created_categories: dict[str, Any] = {}
     for cat_data in categories_data:
         existing = await CategoryRepository.get_by_slug(db, cat_data["slug"])
         if not existing:

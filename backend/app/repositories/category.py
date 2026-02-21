@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +22,7 @@ class CategoryRepository:
         return list(result.scalars().all())
 
     @staticmethod
-    async def get_by_id(session: AsyncSession, category_id: int) -> Category | None:
+    async def get_by_id(session: AsyncSession, category_id: uuid.UUID) -> Category | None:
         result = await session.execute(select(Category).where(Category.id == category_id))
         return result.scalars().first()
 
@@ -51,8 +53,10 @@ class CategoryRepository:
         await session.commit()
 
     @staticmethod
-    async def clear_products_category(session: AsyncSession, category_id: int) -> None:
+    async def clear_products_category(session: AsyncSession, category_id: uuid.UUID) -> None:
         await session.execute(
             update(Product).where(Product.category_id == category_id).values(category_id=None)
         )
         await session.commit()
+
+

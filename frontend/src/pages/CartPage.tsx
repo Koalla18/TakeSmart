@@ -69,12 +69,8 @@ interface OrderPayload {
   comment: string
   items: Array<{
     product_id: string
-    name: string
-    price: number
     quantity: number
-    image: string
   }>
-  total_amount: number
   payment_method: string
   delivery_method: string
   delivery_address: string
@@ -144,12 +140,9 @@ export function CartPage() {
         ...formData,
         items: items.map(item => ({
           product_id: item.product.id,
-          name: item.product.name,
-          price: item.product.price,
           quantity: item.quantity,
-          image: item.product.image
+          // name, price, image НЕ передаются — сервер берёт их из БД
         })),
-        total_amount: total,
         payment_method: paymentMethod,
         delivery_method: deliveryMethod,
         delivery_address: deliveryMethod === 'pickup' ? 'Самовывоз' : deliveryAddress,

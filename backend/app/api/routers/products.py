@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -56,7 +57,7 @@ async def list_products(
 ) -> list[ProductRead]:
     version_key = "ver:products:search" if search else "ver:products:list"
     version = await get_version(redis, version_key)
-    cache_suffix = f"category={category}|used={is_used}|stock={in_stock}|search={search}";
+    cache_suffix = f"category={category}|used={is_used}|stock={in_stock}|search={search}"
     cache_key = make_cache_key("products:list", version, cache_suffix)
     cached = await get_json(redis, cache_key)
     if cached is not None:
@@ -96,7 +97,7 @@ async def get_featured_product(
     summary="Get product by id",
 )
 async def get_product_public(
-    product_id: int,
+    product_id: uuid.UUID,
     db: AsyncSession = Depends(db_session),
     redis: Redis = Depends(redis_client),
 ) -> dict[str, Any]:
@@ -194,7 +195,7 @@ async def create_product(
     summary="Set featured product (admin)",
 )
 async def set_featured_product(
-    product_id: int,
+    product_id: uuid.UUID,
     db: AsyncSession = Depends(db_session),
     redis: Redis = Depends(redis_client),
     _: dict = admin_required,
@@ -216,7 +217,7 @@ async def set_featured_product(
     summary="Get product (admin)",
 )
 async def get_product_admin(
-    product_id: int,
+    product_id: uuid.UUID,
     db: AsyncSession = Depends(db_session),
     _: dict = admin_required,
 ) -> dict[str, Any]:
@@ -232,7 +233,7 @@ async def get_product_admin(
     summary="Update product (admin)",
 )
 async def update_product(
-    product_id: int,
+    product_id: uuid.UUID,
     product_data: ProductUpdate,
     db: AsyncSession = Depends(db_session),
     redis: Redis = Depends(redis_client),
@@ -262,7 +263,7 @@ async def update_product(
     summary="Delete product (admin)",
 )
 async def delete_product(
-    product_id: int,
+    product_id: uuid.UUID,
     db: AsyncSession = Depends(db_session),
     redis: Redis = Depends(redis_client),
     _: dict = admin_required,

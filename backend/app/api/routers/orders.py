@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from redis.asyncio import Redis
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...api.deps import admin_required, db_session
 from ...db.redis import get_redis_client
+from ...models import Product
 from ...repositories.order import OrderRepository
 from ...schemas import OrderCreate, OrderRead, OrderStatusUpdate
+from ...schemas.order import DELIVERY_PRICES, PAYMENT_MARKUP
 from ...services.telegram import send_telegram_notification
 
 logger = logging.getLogger(__name__)
@@ -25,14 +28,13 @@ RATE_LIMIT_MAX    = 5    # макс запросов с одного IP за WIN
 async def check_rate_limit(request: Request) -> None:
     """Reject requests if the IP has exceeded the order rate limit."""
     ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown")
-    # Берём первый IP если их несколько (X-Forwarded-For)
     ip = ip.split(",")[0].strip()
     key = f"order_ratelimit:{ip}"
 
     try:
         redis = get_redis_client()
         if redis is None:
-            return  # Redis не настроен — пропускаем rate limiting
+            return
         count = await redis.incr(key)
         if count == 1:
             await redis.expire(key, RATE_LIMIT_WINDOW)
@@ -47,7 +49,6 @@ async def check_rate_limit(request: Request) -> None:
     except HTTPException:
         raise
     except Exception as exc:
-        # Redis недоступен — пропускаем запрос без блокировки
         logger.error("Не удалось проверить rate limit: %s", exc)
 
 
@@ -56,7 +57,13 @@ async def check_rate_limit(request: Request) -> None:
     response_model=OrderRead,
     status_code=201,
     summary="Create order",
-    description="Create a new order with full cart data.",
+    description="""
+Create a new order.
+
+**Важно:** цены товаров берутся из базы данных на сервере.
+Клиент передаёт только `product_id` и `quantity` — подмена цены невозможна.
+Итоговая сумма (`total_amount`) рассчитывается на сервере автоматически.
+""",
 )
 async def create_order(
     order_data: OrderCreate,
@@ -65,7 +72,56 @@ async def create_order(
     db: AsyncSession = Depends(db_session),
     _rl: None = Depends(check_rate_limit),
 ) -> OrderRead:
-    items_data = [item.model_dump() for item in order_data.items] if order_data.items else None
+    # ── Загружаем цены из БД, строим items ───────────────────────────────────
+    items_data: list[dict] = []
+    subtotal: int = 0
+
+    for cart_item in order_data.items:
+        try:
+            product_uuid = uuid.UUID(cart_item.product_id)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Некорректный product_id: {cart_item.product_id}")
+
+        result = await db.execute(
+            select(Product).where(
+                Product.id == product_uuid,
+                Product.is_active.is_(True),
+                Product.in_stock.is_(True),
+            )
+        )
+        product = result.scalars().first()
+
+        if not product:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Товар {cart_item.product_id} недоступен для заказа",
+            )
+
+        # Цену берём ТОЛЬКО из БД — подмена цены клиентом невозможна
+        line_total = product.price * cart_item.quantity
+        subtotal += line_total
+
+        items_data.append(
+            {
+                "product_id": str(product.id),
+                "name": product.name,
+                "price": product.price,   # ← цена из БД, не от клиента
+                "quantity": cart_item.quantity,
+                "image": product.image or "",
+                "line_total": line_total,
+            }
+        )
+
+    # ── Считаем итог на сервере: subtotal + доставка + наценка за оплату ─────
+    delivery_cost = DELIVERY_PRICES.get(order_data.delivery_method or "pickup", 0)
+    payment_markup_rate = PAYMENT_MARKUP.get(order_data.payment_method or "cash", 0.0)
+    payment_markup_amount = round(subtotal * payment_markup_rate)
+    total_amount = subtotal + delivery_cost + payment_markup_amount
+
+    logger.debug(
+        "Order pricing: subtotal=%s delivery=%s payment_markup=%s total=%s",
+        subtotal, delivery_cost, payment_markup_amount, total_amount,
+    )
 
     order = await OrderRepository.create(
         db,
@@ -75,7 +131,7 @@ async def create_order(
             "email": order_data.email,
             "comment": order_data.comment,
             "items": items_data,
-            "total_amount": order_data.total_amount,
+            "total_amount": total_amount,
             "payment_method": order_data.payment_method,
             "delivery_method": order_data.delivery_method,
             "delivery_address": order_data.delivery_address,
@@ -84,12 +140,15 @@ async def create_order(
     )
 
     order_dict = {
-        "id": order.id,
+        "id": str(order.id),
         "name": order.name,
         "phone": order.phone,
         "email": order.email,
         "comment": order.comment,
         "items": items_data,
+        "subtotal": subtotal,
+        "delivery_cost": delivery_cost,
+        "payment_markup": payment_markup_amount,
         "total_amount": order.total_amount,
         "payment_method": order.payment_method,
         "delivery_method": order.delivery_method,
@@ -97,7 +156,10 @@ async def create_order(
         "created_at": order.created_at.strftime("%d.%m.%Y %H:%M"),
     }
     background_tasks.add_task(send_telegram_notification, order_dict)
-    logger.info("Order created: %s", order.id)
+    logger.info(
+        "Order created: %s (subtotal=%s delivery=%s markup=%s total=%s)",
+        order.id, subtotal, delivery_cost, payment_markup_amount, order.total_amount,
+    )
     return OrderRead.model_validate(order)
 
 
@@ -121,7 +183,7 @@ async def list_orders(
     summary="Get order (admin)",
 )
 async def get_order(
-    order_id: int,
+    order_id: uuid.UUID,
     db: AsyncSession = Depends(db_session),
     _: dict = admin_required,
 ) -> OrderRead:
@@ -136,7 +198,7 @@ async def get_order(
     summary="Update order status (admin)",
 )
 async def update_order_status(
-    order_id: int,
+    order_id: uuid.UUID,
     status_data: OrderStatusUpdate,
     db: AsyncSession = Depends(db_session),
     _: dict = admin_required,
@@ -144,10 +206,6 @@ async def update_order_status(
     order = await OrderRepository.get_by_id(db, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-
-    valid_statuses = ["new", "processing", "ready", "completed", "cancelled"]
-    if status_data.status not in valid_statuses:
-        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
 
     await OrderRepository.update_status(db, order, status_data.status)
     logger.info("Order status updated: %s -> %s", order_id, status_data.status)
@@ -160,7 +218,7 @@ async def update_order_status(
     summary="Delete order (admin)",
 )
 async def delete_order(
-    order_id: int,
+    order_id: uuid.UUID,
     db: AsyncSession = Depends(db_session),
     _: dict = admin_required,
 ) -> Response:
@@ -170,3 +228,5 @@ async def delete_order(
     await OrderRepository.delete(db, order)
     logger.info("Order deleted: %s", order_id)
     return Response(status_code=204)
+
+
