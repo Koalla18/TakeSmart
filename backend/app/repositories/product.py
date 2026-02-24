@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 import uuid
+from typing import NamedTuple
 
 from sqlalchemy import Select, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Category, Product
+
+# Максимальный limit за один запрос — защита от dump всей БД
+MAX_PAGE_SIZE = 100
+
+
+class ProductPage(NamedTuple):
+    """Результат постраничного запроса."""
+    items: list[Product]
+    total: int
 
 
 class ProductRepository:
@@ -20,7 +30,11 @@ class ProductRepository:
         is_used: bool | None,
         in_stock: bool | None,
         search: str | None,
-    ) -> list[Product]:
+        limit: int = 40,
+        offset: int = 0,
+    ) -> ProductPage:
+        """Возвращает страницу активных продуктов + общее количество."""
+        limit = min(limit, MAX_PAGE_SIZE)
         query = ProductRepository._base_active_query()
 
         if category_slug:
@@ -43,8 +57,14 @@ class ProductRepository:
         else:
             query = query.order_by(Product.sort_order, Product.created_at.desc())
 
-        result = await session.execute(query)
-        return list(result.scalars().all())
+        # Считаем total без limit/offset
+        count_query = select(func.count()).select_from(query.subquery())
+        total_result = await session.execute(count_query)
+        total = total_result.scalar_one()
+
+        paginated = query.limit(limit).offset(offset)
+        result = await session.execute(paginated)
+        return ProductPage(items=list(result.scalars().all()), total=total)
 
     @staticmethod
     def _build_search_query(search: str):
@@ -53,9 +73,16 @@ class ProductRepository:
         return ru_query.op("||")(en_query)
 
     @staticmethod
-    async def list_all(session: AsyncSession) -> list[Product]:
-        result = await session.execute(select(Product).order_by(Product.sort_order, Product.created_at.desc()))
-        return list(result.scalars().all())
+    async def list_all(session: AsyncSession, limit: int = 100, offset: int = 0) -> ProductPage:
+        count_q = select(func.count()).select_from(Product)
+        total = (await session.execute(count_q)).scalar_one()
+        result = await session.execute(
+            select(Product)
+            .order_by(Product.sort_order, Product.created_at.desc())
+            .limit(min(limit, MAX_PAGE_SIZE))
+            .offset(offset)
+        )
+        return ProductPage(items=list(result.scalars().all()), total=total)
 
     @staticmethod
     async def get_by_id(session: AsyncSession, product_id: uuid.UUID) -> Product | None:
@@ -111,4 +138,6 @@ class ProductRepository:
             .order_by(Product.price)
         )
         return list(result.scalars().all())
+
+
 

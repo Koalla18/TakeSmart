@@ -384,8 +384,34 @@ class ProductRead(BaseModel):
     updated_at: datetime
     # Variants list (populated by API)
     variants: Optional[List[ProductVariantInfo]] = None
-    
+
     class Config:
         from_attributes = True
+
+
+class ProductListResponse(BaseModel):
+    """Ответ с пагинацией для списка продуктов."""
+    items: List[ProductRead]
+    total: int
+    limit: int
+    offset: int
+    has_next: bool
+
+    @classmethod
+    def build(
+        cls,
+        items: List[ProductRead],
+        total: int,
+        limit: int,
+        offset: int,
+    ) -> "ProductListResponse":
+        return cls(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_next=(offset + limit) < total,
+        )
+
 
 

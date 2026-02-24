@@ -6,3 +6,13 @@ htmlcov/
 coverage.xml
 *.cover
 .hypothesis/
+
+# Media & uploads — не коммитим файлы, только структуру
+static/*
+!static/README.md
+uploads/*
+!uploads/.gitkeep
+
+# Env
+.env
+

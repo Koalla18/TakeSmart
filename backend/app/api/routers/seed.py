@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -8,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...api.deps import admin_required, db_session
 from ...repositories.category import CategoryRepository
 from ...repositories.product import ProductRepository
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["seed"])
 
@@ -394,8 +397,15 @@ async def seed_database(
             await ProductRepository.create(db, product_data)
             products_created += 1
 
+    already_seeded = products_created == 0
+    if already_seeded:
+        logger.info("Seed called but database already populated (skipped %d products)", len(products_data))
+    else:
+        logger.info("Seed complete: %d categories, %d products created", len(created_categories), products_created)
+
     return {
-        "message": "База данных заполнена",
+        "message": "База данных уже заполнена" if already_seeded else "База данных заполнена",
+        "already_seeded": already_seeded,
         "categories_count": len(created_categories),
         "products_created": products_created,
         "products_total": len(products_data),

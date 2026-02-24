@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
@@ -44,7 +44,18 @@ async def _check_login_rate_limit(request: Request) -> None:
         logger.error("Не удалось проверить rate limit для login: %s", exc)
 
 
-@router.post("/login", response_model=TokenResponse, summary="Admin login")
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="Admin login",
+    description="""
+Аутентификация администратора. Возвращает JWT токен.
+
+Передавайте токен в заголовке: `Authorization: Bearer <token>`
+
+**Rate limit:** 10 попыток за 15 минут с одного IP.
+""",
+)
 async def login(request: Request, body: LoginRequest) -> TokenResponse:
     await _check_login_rate_limit(request)
 
@@ -62,6 +73,39 @@ async def login(request: Request, body: LoginRequest) -> TokenResponse:
     return TokenResponse(access_token=access_token)
 
 
-@router.get("/verify", summary="Verify admin token")
+@router.get(
+    "/verify",
+    summary="Verify admin token",
+    description="Проверяет валидность JWT токена.",
+)
 async def verify_auth(admin: dict = Depends(verify_admin)) -> dict:
     return {"valid": True, "username": admin.get("username")}
+
+
+@router.post(
+    "/logout",
+    summary="Admin logout",
+    description="""
+Инвалидирует текущий JWT токен — добавляет его в Redis blacklist до истечения TTL.
+После этого токен будет отклонён на `verify` и всех защищённых эндпоинтах.
+
+Если Redis недоступен — возвращает 200 (токен истечёт сам по exp).
+""",
+)
+async def logout(admin: dict = Depends(verify_admin)) -> dict:
+    redis = get_redis_client()
+    if redis is not None:
+        try:
+            exp = admin.get("exp")
+            if exp:
+                now = int(datetime.now(timezone.utc).timestamp())
+                ttl = max(exp - now, 1)
+                blacklist_key = f"token_blacklist:{admin.get('username')}:{exp}"
+                await redis.set(blacklist_key, "1", ex=ttl)
+                logger.info("Token blacklisted for user='%s' ttl=%ds", admin.get("username"), ttl)
+        except Exception as exc:
+            logger.warning("Не удалось добавить токен в blacklist: %s", exc)
+
+    return {"ok": True, "message": "Logged out successfully"}
+
+

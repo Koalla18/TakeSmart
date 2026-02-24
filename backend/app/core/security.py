@@ -30,11 +30,33 @@ def verify_token(token: str) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc
 
 
-def verify_admin(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+async def verify_admin(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     token = credentials.credentials
     payload = verify_token(token)
     if payload.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+
+    # Проверяем blacklist в Redis (если доступен)
+    try:
+        from ..db.redis import get_redis_client
+        redis = get_redis_client()
+        if redis is not None:
+            exp = payload.get("exp")
+            username = payload.get("username")
+            if exp and username:
+                blacklist_key = f"token_blacklist:{username}:{exp}"
+                is_blacklisted = await redis.exists(blacklist_key)
+                if is_blacklisted:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Token has been revoked. Please login again.",
+                    )
+    except HTTPException:
+        raise
+    except Exception:
+        # Если Redis недоступен — пропускаем проверку blacklist
+        pass
+
     return payload
 
 

@@ -43,8 +43,10 @@ services:
       REDIS_URL: redis://redis:6379/0
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost}
     volumes:
-      # Persist uploaded files
+      # Persist uploaded files (legacy)
       - uploads:/app/uploads
+      # Persist media files (new storage system)
+      - static:/app/static
     depends_on:
       db:
         condition: service_healthy
@@ -71,3 +73,4 @@ volumes:
   pgdata:
   redisdata:
   uploads:
+  static:

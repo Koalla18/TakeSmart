@@ -23,6 +23,8 @@ services:
       # Live-reload code in dev
       - ./backend/app:/app/app
       - ./backend/uploads:/app/uploads
+      # Persist static media files in dev
+      - ./backend/static:/app/static
 
   frontend:
     build:

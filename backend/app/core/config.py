@@ -7,7 +7,11 @@ class Settings(BaseSettings):
     database_url: str
     redis_url: str = ""  # Опционально — если пустой rate limiting отключается
 
-    # Upload settings
+    # Директория для статических файлов (фото товаров, категорий и т.д.)
+    # По умолчанию — папка static/ рядом с backend/
+    static_dir: str = "static"
+
+    # Upload settings (legacy — используется для обратной совместимости)
     uploads_dir: str = "uploads"
 
     # Admin credentials — ОБЯЗАТЕЛЬНО задать через переменные окружения

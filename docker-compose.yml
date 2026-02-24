@@ -45,5 +45,6 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      STATIC_DIR: /app/static
     ports:
       - "8000:8000"

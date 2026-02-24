@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...api.deps import admin_required, db_session, redis_client
 from ...repositories.product import ProductRepository
-from ...schemas import ProductCreate, ProductRead, ProductUpdate
+from ...schemas import ProductCreate, ProductListResponse, ProductRead, ProductUpdate
 from ...services.cache import bump_version, get_json, get_version, make_cache_key, set_json
 
 logger = logging.getLogger(__name__)
@@ -43,30 +43,44 @@ async def _with_variants(product, session: AsyncSession) -> dict[str, Any]:
 
 @router.get(
     "/products",
-    response_model=list[ProductRead],
+    response_model=ProductListResponse,
     summary="List products",
-    description="Public product list with optional filters and full-text search.",
+    description="""
+Public product list with optional filters and full-text search.
+
+**Пагинация:** используйте `limit` и `offset`.
+В ответе: `items`, `total`, `has_next`.
+""",
 )
 async def list_products(
     category: str | None = Query(None, description="Category slug"),
     is_used: bool | None = Query(None, description="Filter by used products"),
     in_stock: bool | None = Query(None, description="Filter by availability"),
     search: str | None = Query(None, min_length=2, max_length=200, description="Full-text search query"),
+    limit: int = Query(40, ge=1, le=100, description="Количество товаров на странице (макс. 100)"),
+    offset: int = Query(0, ge=0, description="Смещение от начала"),
     db: AsyncSession = Depends(db_session),
     redis: Redis = Depends(redis_client),
-) -> list[ProductRead]:
+) -> ProductListResponse:
     version_key = "ver:products:search" if search else "ver:products:list"
     version = await get_version(redis, version_key)
-    cache_suffix = f"category={category}|used={is_used}|stock={in_stock}|search={search}"
+    cache_suffix = f"cat={category}|used={is_used}|stock={in_stock}|q={search}|lim={limit}|off={offset}"
     cache_key = make_cache_key("products:list", version, cache_suffix)
     cached = await get_json(redis, cache_key)
     if cached is not None:
         return cached
 
-    products = await ProductRepository.list_active(db, category, is_used, in_stock, search)
-    payload = [ProductRead.model_validate(item).model_dump() for item in products]
+    page = await ProductRepository.list_active(db, category, is_used, in_stock, search, limit, offset)
+    response = ProductListResponse.build(
+        items=[ProductRead.model_validate(item) for item in page.items],
+        total=page.total,
+        limit=limit,
+        offset=offset,
+    )
+    payload = response.model_dump()
     await set_json(redis, cache_key, payload)
-    return payload
+    return response
+
 
 
 @router.get(
@@ -140,24 +154,34 @@ async def get_product_by_slug(
 
 @router.get(
     "/admin/products",
-    response_model=list[ProductRead],
+    response_model=ProductListResponse,
     summary="List all products (admin)",
+    description="Список всех продуктов для панели администратора с пагинацией.",
 )
 async def list_all_products(
+    limit: int = Query(40, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(db_session),
     redis: Redis = Depends(redis_client),
     _: dict = admin_required,
-) -> list[ProductRead]:
+) -> ProductListResponse:
     version = await get_version(redis, "ver:products:admin:list")
-    cache_key = make_cache_key("products:admin:list", version, "all")
+    cache_key = make_cache_key("products:admin:list", version, f"lim={limit}|off={offset}")
     cached = await get_json(redis, cache_key)
     if cached is not None:
         return cached
 
-    products = await ProductRepository.list_all(db)
-    payload = [ProductRead.model_validate(item).model_dump() for item in products]
+    page = await ProductRepository.list_all(db, limit, offset)
+    response = ProductListResponse.build(
+        items=[ProductRead.model_validate(item) for item in page.items],
+        total=page.total,
+        limit=limit,
+        offset=offset,
+    )
+    payload = response.model_dump()
     await set_json(redis, cache_key, payload)
-    return payload
+    return response
+
 
 
 @router.post(
