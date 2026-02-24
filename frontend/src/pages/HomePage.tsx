@@ -208,12 +208,8 @@ export function HomePage() {
                 <h2 className="text-lg font-semibold text-gray-900">Официальный партнёр ведущих брендов</h2>
               </div>
               
-              {/* Infinite Carousel with fade edges */}
-              <div className="relative">
-                {/* Gradient fade left */}
-                <div className="absolute left-0 top-0 bottom-0 w-20 bg-gradient-to-r from-white to-transparent z-10 pointer-events-none" />
-                {/* Gradient fade right */}
-                <div className="absolute right-0 top-0 bottom-0 w-20 bg-gradient-to-l from-white to-transparent z-10 pointer-events-none" />
+              {/* Infinite Carousel */}
+              <div className="relative overflow-hidden">
                 
                 <div className="flex animate-marquee gap-12 sm:gap-16 whitespace-nowrap py-4">
                   {[
@@ -440,7 +436,7 @@ export function HomePage() {
                           idx === currentSlide ? 'carousel-slide-active' : 'carousel-slide-hidden'
                         }`}
                       >
-                        <div className="grid lg:grid-cols-2 min-h-[580px]">
+                        <div className="grid lg:grid-cols-2 sm:min-h-[580px]">
                           {/* Left - Content */}
                           <div className="relative p-8 lg:p-12 flex flex-col justify-between">
                             <div className="mb-auto">
@@ -469,7 +465,7 @@ export function HomePage() {
                               </div>
                             </div>
                             
-                            <div className="grid grid-cols-2 gap-4 mt-8">
+                            <div className="hidden sm:grid grid-cols-2 gap-4 mt-8">
                               <Link to="/delivery" className="bg-white rounded-2xl p-5 border border-gray-100 hover:shadow-lg hover:border-gray-200 transition-all group">
                                 <div className="flex items-center justify-between mb-3">
                                   <h4 className="font-semibold text-gray-900">Доставка и оплата</h4>
@@ -500,7 +496,7 @@ export function HomePage() {
                           </div>
                           
                           {/* Right - Product Image */}
-                          <div className="relative p-8 lg:p-12 flex items-center justify-center">
+                          <div className="relative px-6 py-4 lg:p-12 flex items-center justify-center">
                             <div className="absolute top-6 right-6 flex flex-wrap gap-2 justify-end max-w-[300px]">
                               {s.tags.map((tag, j) => (
                                 <span 

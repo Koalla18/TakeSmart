@@ -1,5 +1,5 @@
 import type { PropsWithChildren } from 'react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Logo } from './Logo'
 import { PhoneIcon, MailIcon, ClockIcon, MenuIcon, CloseIcon, TelegramIcon, ChevronRightIcon } from './ui/Icons'
@@ -193,6 +193,7 @@ export function Shell({ children }: PropsWithChildren) {
   const [scrolled, setScrolled] = useState(false)
   const { getItemCount } = useCart()
   const cartCount = getItemCount()
+  const handleCloseMenu = useCallback(() => setMobileMenuOpen(false), [])
   
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 10)
@@ -284,6 +285,7 @@ export function Shell({ children }: PropsWithChildren) {
               <button
                 onClick={() => setMobileMenuOpen(true)}
                 className="rounded-lg p-2 text-gray-600 hover:bg-gray-100 hover:text-gray-900 lg:hidden"
+                aria-label="Открыть меню"
               >
                 <MenuIcon />
               </button>
@@ -293,7 +295,7 @@ export function Shell({ children }: PropsWithChildren) {
       </header>
       
       {/* Mobile menu */}
-      <MobileMenu isOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
+      <MobileMenu isOpen={mobileMenuOpen} onClose={handleCloseMenu} />
       
       {/* Main content */}
       <main className="flex-1">{children}</main>
@@ -304,18 +306,20 @@ export function Shell({ children }: PropsWithChildren) {
         {/* Telegram CTA banner */}
         <div className="border-b border-white/10">
           <Container>
-            <div className="flex flex-col items-start justify-between gap-6 py-10 sm:flex-row sm:items-center">
+            <div className="flex flex-col items-start justify-between gap-4 py-6 sm:flex-row sm:items-center sm:py-10">
               {/* Left: brand */}
               <div>
                 <div className="mb-1 text-3xl font-extrabold tracking-tight text-white">TakeSmart</div>
                 <div className="text-sm text-gray-400">Магазин электроники с низкими ценами</div>
               </div>
               {/* Right: Telegram */}
-              <div className="flex flex-col gap-3 sm:items-end">
-                <div className="text-lg font-bold text-white leading-tight">
-                  Подписывайтесь<br />на наш телеграм-канал
+              <div className="flex flex-row items-center gap-4 sm:flex-col sm:items-end sm:gap-3">
+                <div>
+                  <div className="text-sm font-bold text-white leading-tight sm:text-lg">
+                    Подписывайтесь на наш<br className="hidden sm:block" /> телеграм-канал
+                  </div>
+                  <div className="hidden sm:block text-sm text-gray-400">Узнавайте о новинках первыми!</div>
                 </div>
-                <div className="text-sm text-gray-400">Узнавайте о новинках первыми!</div>
                 <a
                   href="https://t.me/c/1875029190/967"
                   target="_blank"
@@ -333,10 +337,10 @@ export function Shell({ children }: PropsWithChildren) {
         {/* Main footer grid */}
         <div className="border-b border-white/10 py-12">
           <Container>
-            <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-6 grid-cols-2 lg:grid-cols-4">
 
               {/* Contacts block */}
-              <div className="sm:col-span-2 lg:col-span-1">
+              <div className="col-span-2 lg:col-span-1">
                 <div className="mb-5 space-y-2 text-sm text-gray-300">
                   <div className="flex items-center gap-2">
                     <ClockIcon className="h-4 w-4 flex-shrink-0 text-gray-500" />
@@ -398,9 +402,7 @@ export function Shell({ children }: PropsWithChildren) {
                     'iPhone 17',
                     'iPhone Air',
                     'iPhone 16 Pro Max',
-                    'iPhone 16 Pro',
                     'iPhone 16',
-                    'iPhone 16 Plus',
                   ].map(model => (
                     <li key={model}>
                       <Link
@@ -415,7 +417,7 @@ export function Shell({ children }: PropsWithChildren) {
               </div>
 
               {/* Help */}
-              <div>
+              <div className="col-span-2 lg:col-span-1">
                 <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-gray-500">Помощь</h3>
                 <ul className="space-y-2.5">
                   {[
