@@ -1,6 +1,6 @@
 import type { PropsWithChildren } from 'react'
 import { useState, useEffect, useCallback } from 'react'
-import { Link, NavLink, useLocation } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import { Logo } from './Logo'
 import { PhoneIcon, MailIcon, ClockIcon, MenuIcon, CloseIcon, TelegramIcon, ChevronRightIcon } from './ui/Icons'
 import { Container } from './ui/Layout'
@@ -32,12 +32,6 @@ function NavItem({ to, label, onClick }: { to: string; label: string; onClick?: 
 }
 
 function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const location = useLocation()
-  
-  useEffect(() => {
-    onClose()
-  }, [location, onClose])
-  
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden'
