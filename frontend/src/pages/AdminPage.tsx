@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth, getAuthHeaders } from '../lib/auth'
 import { API_BASE_URL } from '../lib/config'
@@ -7,11 +7,13 @@ import { formatPrice } from '../data/products'
 // ============ TYPES ============
 
 interface OrderItem {
+  id: string
   product_id: string
   product_name: string
-  product_price: number
+  product_sku: string | null
+  unit_price: number
+  total_price: number
   quantity: number
-  line_total: number
 }
 
 interface Order {
@@ -91,9 +93,24 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   refunded:   { label: 'Возврат',     color: 'text-gray-600',   bg: 'bg-gray-200',   icon: '💸' },
 }
 
-type TabType = 'orders' | 'products' | 'categories'
+type TabType = 'orders' | 'products' | 'categories' | 'slides'
 
 // ============ HELPERS ============
+
+interface WeeklySlide {
+  id: string
+  badge: string | null
+  title: string
+  description: string | null
+  price: string | null
+  image: string | null
+  color: string | null
+  tags: string[] | null
+  link_url: string | null
+  is_new: boolean
+  sort_order: number
+  is_active: boolean
+}
 
 function getImageUrl(url?: string | null): string {
   if (!url) return ''
@@ -118,6 +135,9 @@ export function AdminPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
+  const [slides, setSlides] = useState<WeeklySlide[]>([])
+  const [editingSlide, setEditingSlide] = useState<WeeklySlide | null>(null)
+  const [isSlideModalOpen, setIsSlideModalOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [_error, setError] = useState<string | null>(null)
   const [updatingStatus, setUpdatingStatus] = useState(false)
@@ -132,7 +152,7 @@ export function AdminPage() {
   const loadOrders = async () => {
     try {
       const headers = { ...getAuthHeaders(), Accept: 'application/json' }
-      let url = `${API_BASE_URL}/api/orders?limit=200`
+      let url = `${API_BASE_URL}/api/orders?limit=100`
       if (statusFilter !== 'all') url += `&status=${statusFilter}`
       const res = await fetch(url, { headers })
       if (res.status === 401) { logout(); return }
@@ -162,11 +182,18 @@ export function AdminPage() {
     } catch (err) { console.error(err) }
   }
 
+  const loadSlides = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/weekly-slides/all`, { headers: getAuthHeaders() })
+      if (res.ok) setSlides(await res.json())
+    } catch (err) { console.error(err) }
+  }
+
   const loadAllData = async () => {
     setIsLoading(true)
     setError(null)
     try {
-      await Promise.all([loadOrders(), loadProducts(), loadCategories()])
+      await Promise.all([loadOrders(), loadProducts(), loadCategories(), loadSlides()])
     } catch { setError('Ошибка загрузки') }
     finally { setIsLoading(false) }
   }
@@ -210,24 +237,28 @@ export function AdminPage() {
   }
 
   // Product actions
-  const saveProduct = async (productData: Record<string, unknown>) => {
-    try {
-      const url = editingProduct?.id 
-        ? `${API_BASE_URL}/api/products/${editingProduct.id}`
-        : `${API_BASE_URL}/api/products`
-      const res = await fetch(url, {
-        method: editingProduct?.id ? 'PATCH' : 'POST',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify(productData)
-      })
-      if (!res.ok) {
+  const saveProduct = async (productData: Record<string, unknown>, productId?: string): Promise<Product | null> => {
+    const id = productId || editingProduct?.id
+    const url = id
+      ? `${API_BASE_URL}/api/products/${id}`
+      : `${API_BASE_URL}/api/products`
+    const res = await fetch(url, {
+      method: id ? 'PATCH' : 'POST',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(productData)
+    })
+    if (!res.ok) {
+      let detail = 'Ошибка сервера'
+      try {
         const err = await res.json()
-        throw new Error(err.detail || 'Ошибка')
-      }
-      setIsProductModalOpen(false)
-      setEditingProduct(null)
-      loadProducts()
-    } catch (err) { alert(err instanceof Error ? err.message : 'Ошибка') }
+        if (typeof err.detail === 'string') detail = err.detail
+        else if (Array.isArray(err.detail)) detail = err.detail.map((e: { msg?: string }) => e.msg).join('; ')
+      } catch { /* ignore */ }
+      throw new Error(detail)
+    }
+    const saved: Product = await res.json()
+    loadProducts()
+    return saved
   }
 
   const deleteProduct = async (productId: string) => {
@@ -287,6 +318,43 @@ export function AdminPage() {
       await fetch(`${API_BASE_URL}/api/categories/${categoryId}`, { method: 'DELETE', headers: getAuthHeaders() })
       loadCategories()
       loadProducts()
+    } catch { alert('Ошибка') }
+  }
+
+  // Weekly slides actions
+  const saveSlide = async (data: Record<string, unknown>, slideId?: string) => {
+    try {
+      const url = slideId
+        ? `${API_BASE_URL}/api/weekly-slides/${slideId}`
+        : `${API_BASE_URL}/api/weekly-slides`
+      const res = await fetch(url, {
+        method: slideId ? 'PATCH' : 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Ошибка') }
+      setIsSlideModalOpen(false)
+      setEditingSlide(null)
+      loadSlides()
+    } catch (err) { alert(err instanceof Error ? err.message : 'Ошибка') }
+  }
+
+  const deleteSlide = async (slideId: string) => {
+    if (!confirm('Удалить слайд?')) return
+    try {
+      await fetch(`${API_BASE_URL}/api/weekly-slides/${slideId}`, { method: 'DELETE', headers: getAuthHeaders() })
+      loadSlides()
+    } catch { alert('Ошибка') }
+  }
+
+  const toggleSlideActive = async (slide: WeeklySlide) => {
+    try {
+      await fetch(`${API_BASE_URL}/api/weekly-slides/${slide.id}`, {
+        method: 'PATCH',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !slide.is_active }),
+      })
+      loadSlides()
     } catch { alert('Ошибка') }
   }
 
@@ -357,20 +425,25 @@ export function AdminPage() {
 
         {/* Featured Product Banner */}
         {featuredProduct && (
-          <div className="mb-6 rounded-2xl bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30 p-4 hover:from-yellow-500/30 hover:to-orange-500/30 transition-all">
+          <div
+            className="mb-6 rounded-2xl bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30 p-4 hover:from-yellow-500/30 hover:to-orange-500/30 transition-all cursor-pointer"
+            onClick={() => { setEditingProduct(featuredProduct); setIsProductModalOpen(true) }}
+            title="Нажмите, чтобы редактировать"
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-yellow-500/30 text-3xl">
                   ⭐
                 </div>
                 <div>
-                  <div className="text-sm text-yellow-400 font-medium">Хит продаж на главной</div>
+                  <div className="text-sm text-yellow-400 font-medium">Хит продаж — показывается в разделе «Хиты» на главной</div>
                   <div className="text-lg font-bold text-white">{featuredProduct.name}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">Нажмите, чтобы редактировать товар</div>
                 </div>
               </div>
               <div className="text-right">
                 <div className="text-2xl font-bold text-yellow-400">{formatPrice(featuredProduct.price)}</div>
-                <div className="text-xs text-slate-400">отображается на главной</div>
+                <div className="text-xs text-slate-400">{products.filter(p => p.is_featured).length} товар(ов) отмечено</div>
               </div>
             </div>
           </div>
@@ -382,6 +455,7 @@ export function AdminPage() {
             { id: 'orders' as TabType, label: '📋 Заказы', count: orders.length },
             { id: 'products' as TabType, label: '📦 Товары', count: products.length },
             { id: 'categories' as TabType, label: '📁 Категории', count: categories.length },
+            { id: 'slides' as TabType, label: '🏞 Слайды недели', count: slides.length },
           ].map(tab => (
             <button
               key={tab.id}
@@ -398,23 +472,29 @@ export function AdminPage() {
         {/* ============ ORDERS TAB ============ */}
         {activeTab === 'orders' && (
           <>
-            <div className="mb-6 flex flex-wrap gap-2">
+            {/* Фильтры */}
+            <div className="mb-4 flex flex-wrap gap-2">
               {[
-                { id: 'all', label: 'Все' },
-                { id: 'pending', label: '🆕 Новые' },
-                { id: 'confirmed', label: '✅ Подтверждённые' },
-                { id: 'processing', label: '⏳ В работе' },
-                { id: 'shipped', label: '🚚 Отправлены' },
-                { id: 'delivered', label: '📦 Доставлены' },
+                { id: 'all', label: 'Все', count: orders.length },
+                { id: 'pending', label: '🆕 Новые', count: orders.filter(o => o.status === 'pending').length },
+                { id: 'confirmed', label: '✅ Подтвержд.', count: orders.filter(o => o.status === 'confirmed').length },
+                { id: 'processing', label: '⏳ В работе', count: orders.filter(o => o.status === 'processing').length },
+                { id: 'shipped', label: '🚚 Отправлены', count: orders.filter(o => o.status === 'shipped').length },
+                { id: 'delivered', label: '📦 Доставлены', count: orders.filter(o => o.status === 'delivered').length },
               ].map(f => (
                 <button
                   key={f.id}
                   onClick={() => setStatusFilter(f.id)}
-                  className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition flex items-center gap-1.5 ${
                     statusFilter === f.id ? 'bg-white text-gray-900' : 'bg-white/10 text-white hover:bg-white/20'
                   }`}
                 >
                   {f.label}
+                  {f.count > 0 && (
+                    <span className={`rounded-full px-1.5 text-xs font-bold ${
+                      statusFilter === f.id ? 'bg-black/10 text-gray-700' : 'bg-white/20 text-white'
+                    }`}>{f.count}</span>
+                  )}
                 </button>
               ))}
             </div>
@@ -425,33 +505,58 @@ export function AdminPage() {
                 <div className="text-xl font-semibold text-white">Заказов нет</div>
               </div>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {orders.map(order => (
-                  <div
-                    key={order.id}
-                    onClick={() => loadOrderDetail(order.id)}
-                    className="cursor-pointer rounded-2xl bg-white/5 p-5 transition-all hover:bg-white/10 hover:scale-[1.02]"
-                  >
-                    <div className="mb-3 flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 font-bold text-white text-xs">
-                          {order.order_number}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-white">{order.customer_name}</div>
-                          <div className="text-sm text-slate-400">{order.customer_phone || order.customer_email}</div>
-                        </div>
+              <div className="rounded-2xl overflow-hidden border border-white/10">
+                {/* Шапка */}
+                <div className="grid grid-cols-[140px_1fr_1fr_140px_120px_140px] bg-white/5 px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-widest border-b border-white/10">
+                  <span>Номер</span>
+                  <span>Клиент</span>
+                  <span>Город / Адрес</span>
+                  <span>Дата</span>
+                  <span className="text-right">Сумма</span>
+                  <span className="text-right">Статус</span>
+                </div>
+                {/* Строки */}
+                {orders.map((order, idx) => {
+                  const cfg = STATUS_CONFIG[order.status]
+                  return (
+                    <div
+                      key={order.id}
+                      onClick={() => loadOrderDetail(order.id)}
+                      className={`grid grid-cols-[140px_1fr_1fr_140px_120px_140px] items-center px-5 py-4 cursor-pointer transition-colors hover:bg-white/8 ${
+                        idx !== orders.length - 1 ? 'border-b border-white/5' : ''
+                      }`}
+                    >
+                      <span className="font-mono text-sm font-bold text-yellow-400">{order.order_number}</span>
+
+                      <div className="pr-4 min-w-0">
+                        <div className="text-sm font-semibold text-white truncate">{order.customer_name}</div>
+                        <div className="text-xs text-slate-500 truncate mt-0.5">{order.customer_phone || order.customer_email}</div>
                       </div>
-                      <span className={`rounded-lg px-2 py-1 text-xs font-medium ${STATUS_CONFIG[order.status]?.bg || 'bg-gray-100'} ${STATUS_CONFIG[order.status]?.color || 'text-gray-600'}`}>
-                        {STATUS_CONFIG[order.status]?.icon} {STATUS_CONFIG[order.status]?.label || order.status}
-                      </span>
+
+                      <div className="pr-4 min-w-0">
+                        <div className="text-sm text-slate-300 truncate">{order.shipping_city}</div>
+                        <div className="text-xs text-slate-500 truncate mt-0.5">{order.shipping_address}</div>
+                      </div>
+
+                      <div className="text-xs text-slate-400">
+                        {new Date(order.created_at).toLocaleString('ru-RU', {
+                          day: '2-digit', month: '2-digit', year: '2-digit',
+                          hour: '2-digit', minute: '2-digit'
+                        })}
+                      </div>
+
+                      <div className="text-right text-sm font-bold text-yellow-400">
+                        {formatPrice(order.total_amount || 0)}
+                      </div>
+
+                      <div className="flex justify-end">
+                        <span className={`inline-flex items-center gap-1 rounded-lg px-3 py-1 text-xs font-semibold ${cfg?.bg || 'bg-gray-100'} ${cfg?.color || 'text-gray-600'}`}>
+                          {cfg?.icon} {cfg?.label || order.status}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-slate-400">{new Date(order.created_at).toLocaleString('ru-RU')}</span>
-                      <span className="font-bold text-yellow-400">{formatPrice(order.total_amount || 0)}</span>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </>
@@ -526,6 +631,85 @@ export function AdminPage() {
                 ))}
               </div>
             )}
+          </>  
+        )}
+
+        {/* ============ SLIDES TAB ============ */}
+        {activeTab === 'slides' && (
+          <>
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white">🏞 Слайды «Товары недели»</h2>
+                <p className="text-sm text-slate-400">Отображаются на главной странице в блоке «Товары недели»</p>
+              </div>
+              <button
+                onClick={() => { setEditingSlide(null); setIsSlideModalOpen(true) }}
+                className="rounded-xl bg-yellow-400 px-5 py-3 font-semibold text-gray-900 hover:bg-yellow-300"
+              >
+                + Новый слайд
+              </button>
+            </div>
+
+            {slides.length === 0 ? (
+              <div className="rounded-2xl bg-white/5 p-16 text-center">
+                <div className="text-5xl mb-4">🏞</div>
+                <div className="text-xl font-semibold text-white">Слайдов нет</div>
+                <div className="mt-2 text-slate-400">Создайте первый слайд для главной страницы</div>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {slides.sort((a, b) => a.sort_order - b.sort_order).map(slide => (
+                  <div key={slide.id} className="group relative rounded-2xl bg-white/5 overflow-hidden hover:bg-white/10 transition">
+                    {/* Colored preview band */}
+                    <div className={`h-2 ${slide.color?.includes('from-') ? slide.color : 'bg-gradient-to-r from-yellow-400 to-orange-400'}`} />
+
+                    <div className="p-5">
+                      {/* Badges row */}
+                      <div className="mb-2 flex flex-wrap gap-1">
+                        {slide.badge && <span className="rounded-full bg-yellow-400/20 px-2 py-0.5 text-xs text-yellow-300">{slide.badge}</span>}
+                        {slide.is_new && <span className="rounded-full bg-green-400/20 px-2 py-0.5 text-xs text-green-300">Новинка</span>}
+                        <span className={`rounded-full px-2 py-0.5 text-xs ${slide.is_active ? 'bg-green-400/20 text-green-300' : 'bg-red-400/20 text-red-300'}`}>
+                          {slide.is_active ? 'Активен' : 'Скрыт'}
+                        </span>
+                        <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-400">#{slide.sort_order + 1}</span>
+                      </div>
+
+                      {/* Title */}
+                      <div className="mb-1 text-base font-bold text-white leading-snug">{slide.title}</div>
+                      {slide.description && <div className="mb-2 text-sm text-slate-400 line-clamp-2">{slide.description}</div>}
+                      {slide.price && <div className="text-lg font-bold text-yellow-400">{slide.price} ₽</div>}
+
+                      {/* Tags */}
+                      {slide.tags && slide.tags.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {slide.tags.map((t, i) => <span key={i} className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-slate-300">{t}</span>)}
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div className="mt-4 flex gap-2">
+                        <button
+                          onClick={() => toggleSlideActive(slide)}
+                          className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium transition ${
+                            slide.is_active ? 'bg-white/10 text-slate-300 hover:bg-red-900/40 hover:text-red-300' : 'bg-white/10 text-slate-300 hover:bg-green-900/40 hover:text-green-300'
+                          }`}
+                        >
+                          {slide.is_active ? '⬛ Скрыть' : '✅ Включить'}
+                        </button>
+                        <button
+                          onClick={() => { setEditingSlide(slide); setIsSlideModalOpen(true) }}
+                          className="rounded-lg bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/20"
+                        >✏️ Редактировать</button>
+                        <button
+                          onClick={() => deleteSlide(slide.id)}
+                          className="rounded-lg bg-red-900/30 px-3 py-2 text-xs text-red-400 hover:bg-red-900/60"
+                        >🗑</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -547,6 +731,7 @@ export function AdminPage() {
           product={editingProduct}
           categories={categories}
           onSave={saveProduct}
+          onRefresh={loadProducts}
           onClose={() => { setIsProductModalOpen(false); setEditingProduct(null) }}
         />
       )}
@@ -557,6 +742,15 @@ export function AdminPage() {
           category={editingCategory}
           onSave={saveCategory}
           onClose={() => { setIsCategoryModalOpen(false); setEditingCategory(null) }}
+        />
+      )}
+
+      {/* ============ SLIDE MODAL ============ */}
+      {isSlideModalOpen && (
+        <SlideModal
+          slide={editingSlide}
+          onSave={saveSlide}
+          onClose={() => { setIsSlideModalOpen(false); setEditingSlide(null) }}
         />
       )}
     </div>
@@ -711,151 +905,372 @@ function OrderModal({
   onDelete: (id: string) => void
   updatingStatus: boolean
 }) {
+  const cfg = STATUS_CONFIG[order.status]
+  // Подгружаем фото товаров по product_id
+  const [productImages, setProductImages] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!order.items?.length) return
+    order.items.forEach(async (item) => {
+      if (!item.product_id) return
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/products/${item.product_id}`)
+        if (!res.ok) return
+        const p = await res.json()
+        if (p.main_image_url) {
+          setProductImages(prev => ({ ...prev, [item.product_id!]: p.main_image_url }))
+        }
+      } catch { /* нет фото */ }
+    })
+  }, [order.id])
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-slate-800 p-6" onClick={e => e.stopPropagation()}>
-        <div className="mb-6 flex items-start justify-between">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 backdrop-blur-sm p-4 pt-8 overflow-y-auto" onClick={onClose}>
+      <div className="w-full max-w-3xl rounded-3xl bg-slate-900 border border-white/10 shadow-2xl" onClick={e => e.stopPropagation()}>
+
+        {/* ── Шапка ── */}
+        <div className="flex items-start justify-between p-6 border-b border-white/10">
+          <div className="flex items-center gap-4">
+            <div className="flex flex-col">
+              <span className="font-mono text-lg font-bold text-yellow-400">{order.order_number}</span>
+              <span className="text-xs text-slate-500">{new Date(order.created_at).toLocaleString('ru-RU')}</span>
+            </div>
+            <span className={`rounded-xl px-3 py-1.5 text-sm font-semibold ${cfg?.bg || 'bg-gray-100'} ${cfg?.color || 'text-gray-600'}`}>
+              {cfg?.icon} {cfg?.label || order.status}
+            </span>
+          </div>
+          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white text-xl transition">×</button>
+        </div>
+
+        <div className="p-6 space-y-5">
+
+          {/* ── Клиент + Доставка ── */}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="rounded-2xl bg-white/5 p-4 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                <span>👤</span> Клиент
+              </div>
+              <div className="font-bold text-white text-base">{order.customer_name}</div>
+              {order.customer_phone && (
+                <a href={`tel:${order.customer_phone}`} className="flex items-center gap-2 text-sm text-sky-400 hover:text-sky-300 transition">
+                  <span>📞</span> {order.customer_phone}
+                </a>
+              )}
+              {order.customer_email && (
+                <a href={`mailto:${order.customer_email}`} className="flex items-center gap-2 text-sm text-sky-400 hover:text-sky-300 transition">
+                  <span>📧</span> {order.customer_email}
+                </a>
+              )}
+            </div>
+            <div className="rounded-2xl bg-white/5 p-4 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                <span>🚚</span> Доставка
+              </div>
+              <div className="font-bold text-white text-base">{order.shipping_city}</div>
+              <div className="text-sm text-slate-400 leading-relaxed">{order.shipping_address}</div>
+              {order.shipping_postal_code && (
+                <div className="inline-block rounded-lg bg-white/5 px-2 py-0.5 text-xs text-slate-400">Индекс: {order.shipping_postal_code}</div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Примечание ── */}
+          {order.customer_note && (
+            <div className="rounded-2xl bg-blue-500/10 border border-blue-500/20 p-4">
+              <div className="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-1">💬 Примечание</div>
+              <div className="text-sm text-slate-300 whitespace-pre-line">{order.customer_note}</div>
+            </div>
+          )}
+          {order.admin_note && (
+            <div className="rounded-2xl bg-yellow-500/10 border border-yellow-500/20 p-4">
+              <div className="text-xs font-semibold text-yellow-400 uppercase tracking-wider mb-1">📝 Заметка</div>
+              <div className="text-sm text-slate-300">{order.admin_note}</div>
+            </div>
+          )}
+
+          {/* ── Товары ── */}
+          {order.items && order.items.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">📦 Состав заказа — {order.items.length} поз.</div>
+              <div className="space-y-2">
+                {order.items.map((item, i) => {
+                  const imgUrl = item.product_id ? productImages[item.product_id] : undefined
+                  const isExternal = imgUrl?.startsWith('http')
+                  const fullImg = imgUrl ? (isExternal ? imgUrl : `${API_BASE_URL}${imgUrl}`) : null
+                  return (
+                    <div key={i} className="flex items-center gap-3 rounded-xl bg-white/5 hover:bg-white/8 transition p-3">
+                      {/* Фото */}
+                      <div className="flex-shrink-0 h-16 w-16 rounded-xl bg-white/10 overflow-hidden flex items-center justify-center">
+                        {fullImg
+                          ? <img src={fullImg} alt={item.product_name} className="h-full w-full object-contain p-1" />
+                          : <span className="text-2xl">📦</span>
+                        }
+                      </div>
+                      {/* Инфо */}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-white text-sm truncate">{item.product_name}</div>
+                        <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                          {item.product_sku && (
+                            <span className="inline-flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 font-mono text-xs text-slate-400">
+                              SKU: {item.product_sku}
+                            </span>
+                          )}
+                          <span className="text-xs text-slate-400">{item.quantity} шт. × {formatPrice(item.unit_price)}</span>
+                        </div>
+                      </div>
+                      {/* Сумма */}
+                      <div className="flex-shrink-0 text-right">
+                        <div className="font-bold text-yellow-400">{formatPrice(item.total_price)}</div>
+                        {item.quantity > 1 && <div className="text-xs text-slate-500">за {item.quantity} шт.</div>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Итого ── */}
+          <div className="rounded-2xl bg-gradient-to-r from-yellow-500/20 to-amber-500/10 border border-yellow-500/20 flex items-center justify-between px-5 py-4">
+            <div>
+              <div className="text-sm text-slate-400">{order.items?.length || 0} позиций</div>
+              <div className="text-base font-semibold text-white">Итого к оплате</div>
+            </div>
+            <div className="text-3xl font-bold text-yellow-400">{formatPrice(order.total_amount || 0)}</div>
+          </div>
+
+          {/* ── Смена статуса ── */}
           <div>
-            <h2 className="text-2xl font-bold text-white">Заказ {order.order_number}</h2>
-            <p className="text-slate-400">{new Date(order.created_at).toLocaleString('ru-RU')}</p>
-          </div>
-          <button onClick={onClose} className="text-2xl text-slate-400 hover:text-white">×</button>
-        </div>
-
-        <div className="mb-6 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-xl bg-white/5 p-4">
-            <div className="text-sm text-slate-400">Клиент</div>
-            <div className="font-semibold text-white">{order.customer_name}</div>
-            <div className="text-slate-300">{order.customer_phone}</div>
-            <div className="text-slate-300">{order.customer_email}</div>
-          </div>
-          <div className="rounded-xl bg-white/5 p-4">
-            <div className="text-sm text-slate-400">Доставка</div>
-            <div className="text-white">{order.shipping_city}</div>
-            <div className="text-sm text-slate-400 mt-1">{order.shipping_address}</div>
-            {order.shipping_postal_code && <div className="text-sm text-slate-400">Индекс: {order.shipping_postal_code}</div>}
-          </div>
-        </div>
-
-        {order.customer_note && (
-          <div className="mb-6 rounded-xl bg-blue-900/20 border border-blue-500/30 p-4">
-            <div className="text-sm text-blue-400 mb-1">Комментарий клиента</div>
-            <div className="text-white">{order.customer_note}</div>
-          </div>
-        )}
-
-        {order.admin_note && (
-          <div className="mb-6 rounded-xl bg-yellow-900/20 border border-yellow-500/30 p-4">
-            <div className="text-sm text-yellow-400 mb-1">Заметка администратора</div>
-            <div className="text-white">{order.admin_note}</div>
-          </div>
-        )}
-
-        {order.items && order.items.length > 0 && (
-          <div className="mb-6">
-            <div className="text-sm text-slate-400 mb-3">Товары</div>
-            <div className="space-y-2">
-              {order.items.map((item, i) => (
-                <div key={i} className="flex items-center gap-3 rounded-xl bg-white/5 p-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/10 text-xl">📦</div>
-                  <div className="flex-1">
-                    <div className="font-medium text-white">{item.product_name}</div>
-                    <div className="text-sm text-slate-400">{item.quantity} × {formatPrice(item.product_price)}</div>
-                  </div>
-                  <div className="font-bold text-yellow-400">{formatPrice(item.line_total)}</div>
-                </div>
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Изменить статус</div>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(STATUS_CONFIG).map(([status, config]) => (
+                <button
+                  key={status}
+                  onClick={() => onUpdateStatus(order.id, status)}
+                  disabled={updatingStatus || order.status === status}
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                    order.status === status
+                      ? `${config.bg} ${config.color} ring-2 ring-offset-2 ring-offset-slate-900 ring-current`
+                      : 'bg-white/10 text-slate-300 hover:bg-white/20 hover:text-white'
+                  } disabled:opacity-40`}
+                >
+                  {config.icon} {config.label}
+                </button>
               ))}
             </div>
           </div>
-        )}
 
-        <div className="mb-6 flex items-center justify-between rounded-xl bg-yellow-400/20 p-4">
-          <span className="text-white">Итого</span>
-          <span className="text-2xl font-bold text-yellow-400">{formatPrice(order.total_amount || 0)}</span>
+          {/* ── Удалить ── */}
+          <button
+            onClick={() => onDelete(order.id)}
+            className="w-full rounded-xl border border-red-500/20 bg-red-500/10 py-3 text-sm font-medium text-red-400 hover:bg-red-500/20 hover:text-red-300 transition"
+          >
+            🗑️ Удалить заказ
+          </button>
         </div>
-
-        <div className="mb-6">
-          <div className="text-sm text-slate-400 mb-3">Изменить статус</div>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(STATUS_CONFIG).map(([status, config]) => (
-              <button
-                key={status}
-                onClick={() => onUpdateStatus(order.id, status)}
-                disabled={updatingStatus || order.status === status}
-                className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                  order.status === status ? `${config.bg} ${config.color}` : 'bg-white/10 text-white hover:bg-white/20'
-                } disabled:opacity-50`}
-              >
-                {config.icon} {config.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <button onClick={() => onDelete(order.id)} className="w-full rounded-xl bg-red-600/20 py-3 text-red-400 hover:bg-red-600/30">
-          🗑️ Удалить заказ
-        </button>
       </div>
     </div>
   )
 }
 
+// ─── Brand list ──────────────────────────────────────────────────────────────
+const BRANDS = [
+  'Apple', 'Samsung', 'Xiaomi', 'Sony', 'Google', 'Huawei', 'Nothing',
+  'OnePlus', 'Realme', 'OPPO', 'Vivo', 'Motorola',
+  'DJI', 'GoPro',
+  'JBL', 'Bose', 'Beats', 'Marshall', 'Sennheiser',
+  'Nintendo', 'Microsoft', 'Asus', 'Lenovo', 'HP', 'Dell', 'Acer', 'LG',
+]
+
+const MAX_DESC = 3000
+
+interface ImageRecord {
+  id: string
+  url: string
+  file_path: string
+  sort_order: number
+  is_main: boolean
+  original_filename: string
+}
+
 // ============ PRODUCT MODAL COMPONENT ============
 
 function ProductModal({
-  product, categories, onSave, onClose
+  product, categories, onSave, onRefresh, onClose
 }: {
   product: Product | null
   categories: Category[]
-  onSave: (data: Record<string, unknown>) => void
+  onSave: (data: Record<string, unknown>, productId?: string) => Promise<Product | null>
+  onRefresh: () => void
   onClose: () => void
 }) {
-  const [formData, setFormData] = useState({
-    name: product?.name || '',
-    description: product?.description || '',
-    short_description: product?.short_description || '',
-    price: product?.price || 0,
-    discount_price: product?.discount_price || null as number | null,
-    stock_quantity: product?.stock_quantity ?? 0,
-    sku: product?.sku || '',
-    brand: product?.brand || '',
-    model: product?.model || '',
-    color: product?.color || '',
-    warranty_months: product?.warranty_months || null as number | null,
-    is_active: product?.is_active ?? true,
-    is_featured: product?.is_featured ?? false,
-    category_id: product?.category_id || null as string | null,
-  })
+  // ─── Form state (strings to avoid leading-zero issues) ───────────────────
+  const [name, setName] = useState(product?.name || '')
+  const [brand, setBrand] = useState(product?.brand || '')
+  const [brandMode, setBrandMode] = useState<'select' | 'custom'>(
+    product?.brand && !BRANDS.includes(product.brand) ? 'custom' : 'select'
+  )
+  const [model, setModel] = useState(product?.model || '')
+  const [categoryId, setCategoryId] = useState(product?.category_id || '')
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const payload: Record<string, unknown> = {
-      name: formData.name,
-      price: formData.price,
-      stock_quantity: formData.stock_quantity,
-      is_active: formData.is_active,
-      is_featured: formData.is_featured,
-    }
-    // Only include optional fields if they have values
-    if (formData.description) payload.description = formData.description
-    if (formData.short_description) payload.short_description = formData.short_description
-    if (formData.discount_price) payload.discount_price = formData.discount_price
-    if (formData.sku) payload.sku = formData.sku
-    if (formData.brand) payload.brand = formData.brand
-    if (formData.model) payload.model = formData.model
-    if (formData.color) payload.color = formData.color
-    if (formData.warranty_months) payload.warranty_months = formData.warranty_months
-    if (formData.category_id) payload.category_id = formData.category_id
+  const [priceStr, setPriceStr] = useState(product?.price ? String(product.price) : '')
+  const [discountStr, setDiscountStr] = useState(product?.discount_price ? String(product.discount_price) : '')
+  const [stockStr, setStockStr] = useState(product?.stock_quantity != null ? String(product.stock_quantity) : '')
+  const [warrantyStr, setWarrantyStr] = useState(product?.warranty_months ? String(product.warranty_months) : '')
 
-    onSave(payload)
+  const [sku, setSku] = useState(product?.sku || '')
+  const [color, setColor] = useState(product?.color || '')
+  const [shortDesc, setShortDesc] = useState(product?.short_description || '')
+  const [description, setDescription] = useState(product?.description || '')
+  const [isActive, setIsActive] = useState(product?.is_active ?? true)
+  const [isFeatured, setIsFeatured] = useState(product?.is_featured ?? false)
+
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [savedProductId, setSavedProductId] = useState<string | null>(product?.id || null)
+
+  // ─── Images state ─────────────────────────────────────────────────────────
+  const [images, setImages] = useState<ImageRecord[]>([])
+  const [loadingImages, setLoadingImages] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Load images on mount if product already exists
+  useEffect(() => {
+    if (savedProductId) loadImages(savedProductId)
+  }, [savedProductId])
+
+  const loadImages = async (productId: string) => {
+    setLoadingImages(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/products/${productId}/images`, { headers: getAuthHeaders() })
+      if (res.ok) {
+        const data: ImageRecord[] = await res.json()
+        setImages(data.sort((a, b) => a.sort_order - b.sort_order))
+      }
+    } catch {}
+    finally { setLoadingImages(false) }
   }
+
+  // ─── Form submit ──────────────────────────────────────────────────────────
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaveError(null)
+
+    const price = parseFloat(priceStr)
+    if (!priceStr || isNaN(price) || price <= 0) {
+      setSaveError('Введите корректную цену (больше 0)')
+      return
+    }
+
+    const payload: Record<string, unknown> = {
+      name: name.trim(),
+      price,
+      stock_quantity: parseInt(stockStr) || 0,
+      is_active: isActive,
+      is_featured: isFeatured,
+    }
+    if (description) payload.description = description.slice(0, MAX_DESC)
+    if (shortDesc) payload.short_description = shortDesc
+    if (discountStr) { const dp = parseFloat(discountStr); if (!isNaN(dp) && dp > 0) {
+      if (dp >= price) { setSaveError('Цена со скидкой должна быть меньше основной цены'); return }
+      payload.discount_price = dp
+    } }
+    if (sku.trim()) payload.sku = sku.trim()
+    if (brand.trim()) payload.brand = brand.trim()
+    if (model.trim()) payload.model = model.trim()
+    if (color.trim()) payload.color = color.trim()
+    if (warrantyStr) { const w = parseInt(warrantyStr); if (!isNaN(w) && w > 0) payload.warranty_months = w }
+    if (categoryId) payload.category_id = categoryId
+
+    setSaving(true)
+    try {
+      const saved = await onSave(payload, savedProductId || undefined)
+      setSaving(false)
+      if (saved) {
+        setSavedProductId(saved.id)
+        onRefresh()
+        if (!product?.id) {
+          // New product: load images section inline
+          await loadImages(saved.id)
+        }
+      }
+    } catch (err) {
+      setSaving(false)
+      setSaveError(err instanceof Error ? err.message : 'Не удалось сохранить товар. Проверьте данные и повторите.')
+    }
+  }
+
+  // ─── Image upload ─────────────────────────────────────────────────────────
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (!files.length || !savedProductId) return
+    setUploading(true)
+    for (const file of files) {
+      try {
+        const fd = new FormData()
+        fd.append('file', file)
+        const res = await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: fd,
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          alert(`Ошибка загрузки «${file.name}»: ${err.detail || res.status}`)
+        }
+      } catch { alert(`Ошибка загрузки «${file.name}»`) }
+    }
+    setUploading(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    await loadImages(savedProductId)
+    onRefresh()
+  }
+
+  const handleDeleteImage = async (imageId: string) => {
+    if (!savedProductId || !confirm('Удалить изображение?')) return
+    await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images/${imageId}`, { method: 'DELETE', headers: getAuthHeaders() })
+    await loadImages(savedProductId)
+    onRefresh()
+  }
+
+  const handleSetMain = async (imageId: string) => {
+    if (!savedProductId) return
+    await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images/${imageId}/set-main`, { method: 'PATCH', headers: getAuthHeaders() })
+    await loadImages(savedProductId)
+    onRefresh()
+  }
+
+  const moveImage = async (idx: number, dir: -1 | 1) => {
+    const newOrder = [...images]
+    const target = idx + dir
+    if (target < 0 || target >= newOrder.length) return
+    ;[newOrder[idx], newOrder[target]] = [newOrder[target], newOrder[idx]]
+    setImages(newOrder)
+    if (!savedProductId) return
+    try {
+      await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images/reorder`, {
+        method: 'PATCH',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ordered_ids: newOrder.map(i => i.id) }),
+      })
+      await loadImages(savedProductId)
+    } catch {}
+  }
+
+
+
+  // ─── Render ──────────────────────────────────────────────────────────────
+  const descPct = description.length / MAX_DESC
+  const descColor = descPct >= 1 ? 'text-red-400' : descPct >= 0.9 ? 'text-yellow-400' : 'text-slate-400'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-slate-800 p-6" onClick={e => e.stopPropagation()}>
-        <div className="mb-6 flex items-start justify-between">
+
+        {/* Header */}
+        <div className="mb-4 flex items-start justify-between">
           <h2 className="text-2xl font-bold text-white">
-            {product?.id ? 'Редактировать' : 'Новый'} товар
+            {product?.id ? 'Редактировать товар' : (savedProductId ? 'Товар создан ✓' : 'Новый товар')}
           </h2>
           <button onClick={onClose} className="text-2xl text-slate-400 hover:text-white">×</button>
         </div>
@@ -867,36 +1282,56 @@ function ProductModal({
             <input
               type="text"
               required
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              value={name}
+              onChange={e => setName(e.target.value)}
               className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
             />
           </div>
 
+          {/* Brand + Model + Category */}
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label className="mb-1 block text-sm text-slate-400">Бренд</label>
-              <input
-                type="text"
-                value={formData.brand}
-                onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
-                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
-              />
+              {brandMode === 'select' ? (
+                <select
+                  value={brand}
+                  onChange={e => {
+                    if (e.target.value === '__custom__') { setBrandMode('custom'); setBrand('') }
+                    else setBrand(e.target.value)
+                  }}
+                  className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
+                >
+                  <option value="">— не указан —</option>
+                  {BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                  <option value="__custom__">Другой…</option>
+                </select>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={brand}
+                    onChange={e => setBrand(e.target.value)}
+                    placeholder="Введите бренд"
+                    className="min-w-0 flex-1 rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
+                  />
+                  <button type="button" onClick={() => { setBrandMode('select'); setBrand('') }} className="rounded-xl bg-white/10 px-3 text-slate-400 hover:text-white">✕</button>
+                </div>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-sm text-slate-400">Модель</label>
               <input
                 type="text"
-                value={formData.model}
-                onChange={(e) => setFormData({ ...formData, model: e.target.value })}
+                value={model}
+                onChange={e => setModel(e.target.value)}
                 className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
               />
             </div>
             <div>
               <label className="mb-1 block text-sm text-slate-400">Категория</label>
               <select
-                value={formData.category_id || ''}
-                onChange={(e) => setFormData({ ...formData, category_id: e.target.value || null })}
+                value={categoryId}
+                onChange={e => setCategoryId(e.target.value)}
                 className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
               >
                 <option value="">Без категории</option>
@@ -905,122 +1340,337 @@ function ProductModal({
             </div>
           </div>
 
-          {/* Price */}
+          {/* Price + Discount + Stock */}
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label className="mb-1 block text-sm text-slate-400">Цена *</label>
               <input
-                type="number"
+                type="text"
+                inputMode="decimal"
                 required
-                step="0.01"
-                min="0.01"
-                value={formData.price}
-                onChange={(e) => setFormData({ ...formData, price: Number(e.target.value) })}
-                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
+                value={priceStr}
+                onFocus={e => { if (e.target.value === '0') setPriceStr('') }}
+                onChange={e => setPriceStr(e.target.value.replace(/[^\d.]/g, ''))}
+                placeholder="0"
+                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
               />
             </div>
             <div>
               <label className="mb-1 block text-sm text-slate-400">Цена со скидкой</label>
               <input
-                type="number"
-                step="0.01"
-                value={formData.discount_price || ''}
-                onChange={(e) => setFormData({ ...formData, discount_price: e.target.value ? Number(e.target.value) : null })}
-                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
+                type="text"
+                inputMode="decimal"
+                value={discountStr}
+                onFocus={e => { if (e.target.value === '0') setDiscountStr('') }}
+                onChange={e => setDiscountStr(e.target.value.replace(/[^\d.]/g, ''))}
+                placeholder="—"
+                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
               />
             </div>
             <div>
               <label className="mb-1 block text-sm text-slate-400">Кол-во на складе</label>
               <input
-                type="number"
-                min="0"
-                value={formData.stock_quantity}
-                onChange={(e) => setFormData({ ...formData, stock_quantity: Number(e.target.value) })}
-                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
+                type="text"
+                inputMode="numeric"
+                value={stockStr}
+                onFocus={e => { if (e.target.value === '0') setStockStr('') }}
+                onChange={e => setStockStr(e.target.value.replace(/\D/g, ''))}
+                placeholder="0"
+                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
               />
             </div>
           </div>
 
+          {/* SKU + Color + Warranty */}
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label className="mb-1 block text-sm text-slate-400">Артикул (SKU)</label>
-              <input
-                type="text"
-                value={formData.sku}
-                onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
-              />
+              <input type="text" value={sku} onChange={e => setSku(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none" />
             </div>
             <div>
               <label className="mb-1 block text-sm text-slate-400">Цвет</label>
-              <input
-                type="text"
-                value={formData.color}
-                onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                placeholder="Чёрный титан"
-                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
-              />
+              <input type="text" value={color} onChange={e => setColor(e.target.value)} placeholder="Чёрный титан" className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none" />
             </div>
             <div>
               <label className="mb-1 block text-sm text-slate-400">Гарантия (мес.)</label>
               <input
-                type="number"
-                min="0"
-                max="120"
-                value={formData.warranty_months || ''}
-                onChange={(e) => setFormData({ ...formData, warranty_months: e.target.value ? Number(e.target.value) : null })}
-                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
+                type="text"
+                inputMode="numeric"
+                value={warrantyStr}
+                onFocus={e => { if (e.target.value === '0') setWarrantyStr('') }}
+                onChange={e => setWarrantyStr(e.target.value.replace(/\D/g, ''))}
+                placeholder="—"
+                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
               />
             </div>
           </div>
 
-          {/* Short Description */}
+          {/* Short description */}
           <div>
             <label className="mb-1 block text-sm text-slate-400">Краткое описание (до 500 симв.)</label>
-            <input
-              type="text"
-              maxLength={500}
-              value={formData.short_description}
-              onChange={(e) => setFormData({ ...formData, short_description: e.target.value })}
-              className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
-            />
+            <input type="text" maxLength={500} value={shortDesc} onChange={e => setShortDesc(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none" />
           </div>
 
-          {/* Description */}
+          {/* Full description with counter */}
           <div>
-            <label className="mb-1 block text-sm text-slate-400">Полное описание</label>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="text-sm text-slate-400">Полное описание</label>
+              <span className={`text-xs ${descColor}`}>{description.length} / {MAX_DESC}</span>
+            </div>
             <textarea
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              rows={4}
+              value={description}
+              onChange={e => setDescription(e.target.value.slice(0, MAX_DESC))}
+              rows={5}
               className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
             />
-          </div>
-
-          {/* Note about images */}
-          <div className="rounded-xl bg-blue-900/20 border border-blue-500/30 p-4">
-            <div className="text-sm text-blue-300">
-              📷 Изображения загружаются через API: POST /api/products/{'{id}'}/images после создания товара.
-            </div>
           </div>
 
           {/* Checkboxes */}
           <div className="flex flex-wrap gap-6 rounded-xl bg-white/5 p-4">
-            <label className="flex items-center gap-2 text-white cursor-pointer">
-              <input type="checkbox" checked={formData.is_active} onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })} className="h-5 w-5 rounded" />
+            <label className="flex cursor-pointer items-center gap-2 text-white">
+              <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="h-5 w-5 rounded" />
               <span>👁 Активен</span>
             </label>
-            <label className="flex items-center gap-2 text-white cursor-pointer">
-              <input type="checkbox" checked={formData.is_featured} onChange={(e) => setFormData({ ...formData, is_featured: e.target.checked })} className="h-5 w-5 rounded" />
+            <label className="flex cursor-pointer items-center gap-2 text-white">
+              <input type="checkbox" checked={isFeatured} onChange={e => setIsFeatured(e.target.checked)} className="h-5 w-5 rounded" />
               <span>⭐ Хит продаж</span>
             </label>
           </div>
 
+          {/* Error */}
+          {saveError && <div className="rounded-xl bg-red-900/40 border border-red-500/40 p-3 text-sm text-red-300">{saveError}</div>}
+
+          {/* ── PHOTOS — inline, always shown when product saved ── */}
+          {savedProductId && (
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="text-sm text-slate-400">📷 Фото товара {images.length > 0 ? `(${images.length})` : ''}</label>
+                {images.length > 0 && <span className="text-xs text-slate-500">Нажмите на фото чтобы выбрать обложку</span>}
+              </div>
+
+              {/* Upload dropzone */}
+              <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="mb-3 w-full rounded-xl border-2 border-dashed border-white/15 py-4 text-center text-sm text-slate-400 transition hover:border-yellow-400/60 hover:text-yellow-400 disabled:opacity-40"
+              >
+                {uploading ? '⏳ Загружаю…' : '+ Добавить фото (можно несколько сразу)'}
+              </button>
+
+              {/* Photo grid */}
+              {loadingImages ? (
+                <div className="text-center text-sm text-slate-500">Загружаю…</div>
+              ) : images.length > 0 ? (
+                <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+                  {images.map((img, idx) => {
+                    const src = img.url.startsWith('/') ? `${API_BASE_URL}${img.url}` : img.url
+                    return (
+                      <div
+                        key={img.id}
+                        title={img.is_main ? 'Обложка' : 'Нажмите чтобы сделать обложкой'}
+                        className={`group relative cursor-pointer rounded-xl overflow-hidden transition ${
+                          img.is_main ? 'ring-2 ring-yellow-400 ring-offset-2 ring-offset-slate-800' : 'hover:ring-1 hover:ring-white/30'
+                        }`}
+                        onClick={() => !img.is_main && handleSetMain(img.id)}
+                      >
+                        {/* Image */}
+                        <div className="aspect-square bg-white/5">
+                          <img src={src} alt="" className="h-full w-full object-cover" />
+                        </div>
+
+                        {/* Main badge */}
+                        {img.is_main && (
+                          <div className="absolute left-1.5 top-1.5 rounded-md bg-yellow-400 px-1.5 py-0.5 text-[10px] font-bold text-gray-900">★ Обложка</div>
+                        )}
+
+                        {/* Reorder buttons */}
+                        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-0.5 bg-black/60 px-1 py-0.5 opacity-0 transition group-hover:opacity-100">
+                          <button
+                            type="button"
+                            onClick={e => { e.stopPropagation(); moveImage(idx, -1) }}
+                            disabled={idx === 0}
+                            className="flex-1 rounded text-xs text-white disabled:opacity-30 hover:text-yellow-300"
+                          >←</button>
+                          <span className="text-[10px] text-slate-400">{idx + 1}</span>
+                          <button
+                            type="button"
+                            onClick={e => { e.stopPropagation(); moveImage(idx, 1) }}
+                            disabled={idx === images.length - 1}
+                            className="flex-1 rounded text-xs text-white disabled:opacity-30 hover:text-yellow-300"
+                          >→</button>
+                        </div>
+
+                        {/* Delete button */}
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); handleDeleteImage(img.id) }}
+                          className="absolute right-1 top-1 hidden items-center justify-center rounded-full bg-black/70 p-0.5 text-red-400 hover:bg-red-900 group-hover:flex"
+                        >
+                          <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {/* Error */}
+          {saveError && <div className="rounded-xl bg-red-900/40 border border-red-500/40 p-3 text-sm text-red-300">{saveError}</div>}
+
           {/* Buttons */}
-          <div className="flex gap-4 pt-4">
+          <div className="flex gap-4 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 rounded-xl bg-white/10 py-3 text-white hover:bg-white/20">Закрыть</button>
+            <button type="submit" disabled={saving} className="flex-1 rounded-xl bg-yellow-400 py-3 font-semibold text-gray-900 hover:bg-yellow-300 disabled:opacity-50">
+              {saving ? 'Сохранение…' : (savedProductId ? 'Сохранить' : 'Создать товар')}
+            </button>
+          </div>
+        </form>
+
+      </div>
+    </div>
+  )
+}
+
+// ============ SLIDE MODAL COMPONENT ============
+
+function SlideModal({
+  slide, onSave, onClose
+}: {
+  slide: WeeklySlide | null
+  onSave: (data: Record<string, unknown>, id?: string) => void
+  onClose: () => void
+}) {
+  const [title, setTitle] = useState(slide?.title || '')
+  const [badge, setBadge] = useState(slide?.badge || '')
+  const [description, setDescription] = useState(slide?.description || '')
+  const [price, setPrice] = useState(slide?.price || '')
+  const [image, setImage] = useState(slide?.image || '')
+  const [color, setColor] = useState(slide?.color || '')
+  const [tagsStr, setTagsStr] = useState(slide?.tags?.join(', ') || '')
+  const [linkUrl, setLinkUrl] = useState(slide?.link_url || '')
+  const [sortOrder, setSortOrder] = useState(String(slide?.sort_order ?? 0))
+  const [isNew, setIsNew] = useState(slide?.is_new ?? false)
+  const [isActive, setIsActive] = useState(slide?.is_active ?? true)
+
+  const COLOR_PRESETS = [
+    { label: 'Серый (дефолт)', value: 'bg-gradient-to-br from-gray-50 via-white to-gray-100' },
+    { label: 'Жёлтый', value: 'bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50' },
+    { label: 'Синий', value: 'bg-gradient-to-br from-blue-50 via-indigo-50 to-violet-50' },
+    { label: 'Зелёный', value: 'bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50' },
+    { label: 'Розовый', value: 'bg-gradient-to-br from-pink-50 via-rose-50 to-red-50' },
+    { label: 'Тёмный', value: 'bg-gradient-to-br from-gray-900 via-slate-800 to-gray-900' },
+  ]
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const payload: Record<string, unknown> = {
+      title: title.trim(),
+      is_active: isActive,
+      is_new: isNew,
+      sort_order: parseInt(sortOrder) || 0,
+    }
+    if (badge.trim()) payload.badge = badge.trim()
+    if (description.trim()) payload.description = description.trim()
+    if (price.trim()) payload.price = price.trim()
+    if (image.trim()) payload.image = image.trim()
+    if (color.trim()) payload.color = color.trim()
+    if (linkUrl.trim()) payload.link_url = linkUrl.trim()
+    const tagsArr = tagsStr.split(',').map(t => t.trim()).filter(Boolean)
+    if (tagsArr.length) payload.tags = tagsArr
+
+    onSave(payload, slide?.id)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-slate-800 p-6" onClick={e => e.stopPropagation()}>
+        <div className="mb-5 flex items-start justify-between">
+          <h2 className="text-2xl font-bold text-white">{slide?.id ? 'Редактировать слайд' : 'Новый слайд'}</h2>
+          <button onClick={onClose} className="text-2xl text-slate-400 hover:text-white">×</button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Title */}
+          <div>
+            <label className="mb-1 block text-sm text-slate-400">Заголовок *</label>
+            <input type="text" required value={title} onChange={e => setTitle(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none" placeholder="iPhone 17 Pro" />
+          </div>
+
+          {/* Badge + Price */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm text-slate-400">Бейдж (маленький текст вверху)</label>
+              <input type="text" value={badge} onChange={e => setBadge(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none" placeholder="Новинка 2025" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm text-slate-400">Цена (текст)</label>
+              <input type="text" value={price} onChange={e => setPrice(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none" placeholder="от 94 000" />
+            </div>
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="mb-1 block text-sm text-slate-400">Описание</label>
+            <textarea rows={3} value={description} onChange={e => setDescription(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none" />
+          </div>
+
+          {/* Image + Link */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm text-slate-400">URL изображения</label>
+              <input type="text" value={image} onChange={e => setImage(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none" placeholder="/static/..." />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm text-slate-400">Ссылка (link_url)</label>
+              <input type="text" value={linkUrl} onChange={e => setLinkUrl(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none" placeholder="/catalog?..." />
+            </div>
+          </div>
+
+          {/* Background color */}
+          <div>
+            <label className="mb-1 block text-sm text-slate-400">Фон карточки</label>
+            <select
+              value={color}
+              onChange={e => setColor(e.target.value)}
+              className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
+            >
+              <option value="">— выберите пресет —</option>
+              {COLOR_PRESETS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+            {color && <div className="mt-1 text-xs text-slate-500 break-all">{color}</div>}
+          </div>
+
+          {/* Tags */}
+          <div>
+            <label className="mb-1 block text-sm text-slate-400">Теги (через запятую)</label>
+            <input type="text" value={tagsStr} onChange={e => setTagsStr(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none" placeholder="trade-in, гарантия 12 мес., новинка" />
+          </div>
+
+          {/* Sort order + Checkboxes */}
+          <div className="flex flex-wrap items-center gap-6 rounded-xl bg-white/5 p-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-400">Порядок:</label>
+              <input type="text" inputMode="numeric" value={sortOrder} onChange={e => setSortOrder(e.target.value.replace(/\D/g, ''))} className="w-16 rounded-lg bg-white/10 px-3 py-2 text-center text-white focus:bg-white/20 focus:outline-none" />
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 text-white">
+              <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="h-5 w-5 rounded" />
+              <span>👁 Активен</span>
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 text-white">
+              <input type="checkbox" checked={isNew} onChange={e => setIsNew(e.target.checked)} className="h-5 w-5 rounded" />
+              <span>🆕 Новинка</span>
+            </label>
+          </div>
+
+          {/* Buttons */}
+          <div className="flex gap-4 pt-2">
             <button type="button" onClick={onClose} className="flex-1 rounded-xl bg-white/10 py-3 text-white hover:bg-white/20">Отмена</button>
             <button type="submit" className="flex-1 rounded-xl bg-yellow-400 py-3 font-semibold text-gray-900 hover:bg-yellow-300">
-              {product?.id ? 'Сохранить' : 'Создать'}
+              {slide?.id ? 'Сохранить' : 'Создать'}
             </button>
           </div>
         </form>

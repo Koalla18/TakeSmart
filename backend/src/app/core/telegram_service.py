@@ -25,22 +25,23 @@ logger = get_logger(__name__)
 _TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 
 
-def _escape(text: str) -> str:
-    """Экранирует спецсимволы для MarkdownV2."""
-    special = r"\_*[]()~`>#+-=|{}.!"
-    for ch in special:
-        text = text.replace(ch, f"\\{ch}")
-    return text
+def _esc(text: str) -> str:
+    """Экранирует специальные символы HTML."""
+    return (
+        text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+    )
 
 
-def _format_price(value: Decimal) -> str:
+def _price(value: Decimal) -> str:
     """Форматирует сумму: 124990.00 → «124 990 ₽»."""
     return f"{value:,.0f}".replace(",", " ") + " ₽"
 
 
 async def send_order_notification(order: "Order") -> None:
     """
-    Отправляет уведомление о новом заказе в Telegram.
+    Отправляет уведомление о новом заказе в Telegram (HTML-формат).
     Ошибки перехватываются — они не должны падать основной запрос.
     """
     token = settings.TELEGRAM_BOT_TOKEN
@@ -50,39 +51,43 @@ async def send_order_notification(order: "Order") -> None:
         logger.debug("telegram_not_configured", skipping=True)
         return
 
-    # ── Формируем тело сообщения ─────────────────────────────────────
-    lines: list[str] = []
-    lines.append("🛒 *Новый заказ\\!*")
-    lines.append("")
-    lines.append(f"📋 Номер: `{_escape(order.order_number)}`")
-    lines.append(f"👤 Клиент: {_escape(order.customer_name)}")
+    sep = "─" * 28
+
+    lines: list[str] = [
+        f"🛒 <b>Новый заказ #{_esc(order.order_number)}</b>",
+        sep,
+        f"👤 <b>{_esc(order.customer_name)}</b>",
+    ]
 
     if order.customer_phone:
-        lines.append(f"📞 Телефон: {_escape(order.customer_phone)}")
+        lines.append(f"📞 {_esc(order.customer_phone)}")
     if order.customer_email:
-        lines.append(f"📧 Email: {_escape(order.customer_email)}")
+        lines.append(f"📧 {_esc(order.customer_email)}")
 
-    lines.append("")
-    lines.append(f"📍 Город: {_escape(order.shipping_city)}")
-    lines.append(f"🏠 Адрес: {_escape(order.shipping_address)}")
+    lines += [
+        "",
+        f"📍 <b>{_esc(order.shipping_city)}</b>",
+        f"🏠 {_esc(order.shipping_address)}",
+    ]
 
     if order.customer_note:
-        lines.append("")
-        lines.append(f"💬 Комментарий: {_escape(order.customer_note)}")
+        lines += ["", f"💬 <i>{_esc(order.customer_note)}</i>"]
 
-    # позиции заказа
+    # ── Позиции заказа ───────────────────────────────────────────────
     if order.items:
-        lines.append("")
-        lines.append("*Состав заказа:*")
-        for item in order.items:
-            name = _escape(item.product_name)
+        lines += ["", "📦 <b>Состав:</b>"]
+        for i, item in enumerate(order.items, 1):
+            name = _esc(item.product_name)
             qty = item.quantity
-            price = _format_price(item.unit_price)
-            total = _format_price(item.total_price)
-            lines.append(f"  • {name} × {qty} — {price} \\= {total}")
+            unit = _price(item.unit_price)
+            total = _price(item.total_price)
+            lines.append(f"  {i}. {name} × {qty} — {unit} = <b>{total}</b>")
 
-    lines.append("")
-    lines.append(f"💰 *Итого: {_escape(_format_price(order.total_amount))}*")
+    lines += [
+        "",
+        sep,
+        f"💰 <b>Итого: {_price(order.total_amount)}</b>",
+    ]
 
     text = "\n".join(lines)
 
@@ -91,7 +96,7 @@ async def send_order_notification(order: "Order") -> None:
     payload = {
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "MarkdownV2",
+        "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
 

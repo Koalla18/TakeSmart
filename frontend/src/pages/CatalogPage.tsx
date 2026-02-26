@@ -230,7 +230,8 @@ export function CatalogPage() {
 
         if (!catResp.ok || !prodResp.ok) return
 
-        const catData: ApiCategoryOut[] = await catResp.json()
+        const catRaw = await catResp.json()
+        const catData: ApiCategoryOut[] = Array.isArray(catRaw) ? catRaw : (catRaw.items ?? [])
         const prodData: ApiPaginatedResponse<ApiProductOut> = await prodResp.json()
 
         if (cancelled) return

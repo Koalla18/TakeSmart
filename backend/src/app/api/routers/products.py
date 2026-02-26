@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from src.app.api.admin.endpoints import oauth2_scheme
 from src.app.core.logger import get_logger
 from src.app.core.slugify import build_unique_slug
+from src.app.core.static_service import static_service
 from src.app.database.unit_of_work import UnitOfWork
 from src.app.schemas.common import PaginatedResponse
 from src.app.schemas.product import (
@@ -116,7 +117,13 @@ async def get_product(product_id: UUID) -> ProductDetailOut:
         images = await uow.product_images.get_by_product(product_id)
         result = ProductDetailOut(
             **ProductOut.model_validate(product).model_dump(),
-            images=[ProductImageOut.model_validate(img, from_attributes=True) for img in images],
+            images=[
+                ProductImageOut(
+                    **{k: v for k, v in vars(img).items() if not k.startswith("_")},
+                    url=static_service.build_url(img.file_path),
+                )
+                for img in images
+            ],
         )
     return result
 
@@ -139,7 +146,13 @@ async def get_product_by_slug(slug: str) -> ProductDetailOut:
         images = await uow.product_images.get_by_product(product.id)
         result = ProductDetailOut(
             **ProductOut.model_validate(product).model_dump(),
-            images=[ProductImageOut.model_validate(img, from_attributes=True) for img in images],
+            images=[
+                ProductImageOut(
+                    **{k: v for k, v in vars(img).items() if not k.startswith("_")},
+                    url=static_service.build_url(img.file_path),
+                )
+                for img in images
+            ],
         )
     return result
 

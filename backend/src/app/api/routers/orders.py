@@ -219,17 +219,6 @@ async def create_order(body: OrderCreate) -> OrderDetailOut:
     },
 )
 async def update_order_status(order_id: UUID, body: OrderStatusUpdate) -> OrderOut:
-    # Допустимые переходы статусов
-    allowed_transitions: dict[OrderStatus, set[OrderStatus]] = {
-        OrderStatus.PENDING:    {OrderStatus.CONFIRMED, OrderStatus.CANCELLED},
-        OrderStatus.CONFIRMED:  {OrderStatus.PROCESSING, OrderStatus.CANCELLED},
-        OrderStatus.PROCESSING: {OrderStatus.SHIPPED, OrderStatus.CANCELLED},
-        OrderStatus.SHIPPED:    {OrderStatus.DELIVERED},
-        OrderStatus.DELIVERED:  {OrderStatus.REFUNDED},
-        OrderStatus.CANCELLED:  set(),
-        OrderStatus.REFUNDED:   set(),
-    }
-
     async with UnitOfWork() as uow:
         order = await uow.orders.get_by_id(order_id)
         if not order:
@@ -239,17 +228,6 @@ async def update_order_status(order_id: UUID, body: OrderStatusUpdate) -> OrderO
             )
 
         current = OrderStatus(order.status)
-        if body.status not in allowed_transitions.get(current, set()):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"Нельзя перевести заказ из статуса '{current.value}' "
-                    f"в '{body.status.value}'. "
-                    f"Допустимые переходы: "
-                    f"{[s.value for s in allowed_transitions[current]] or 'нет'}"
-                ),
-            )
-
         updated = await uow.orders.update_status(order_id, body.status)
         await uow.commit()
 
