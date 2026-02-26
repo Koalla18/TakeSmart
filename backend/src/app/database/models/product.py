@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from src.app.database.models.category import Category
     from src.app.database.models.order import OrderItem
     from src.app.database.models.product_image import ProductImage
+    from src.app.database.models.product_variant import ProductVariant
 
 
 class Product(Base):
@@ -70,6 +71,12 @@ class Product(Base):
         back_populates="product",
         cascade="all, delete-orphan",
         order_by="ProductImage.sort_order",
+    )
+    variants: Mapped[list["ProductVariant"]] = relationship(
+        "ProductVariant",
+        back_populates="product",
+        cascade="all, delete-orphan",
+        order_by="ProductVariant.sort_order",
     )
 
     def __repr__(self) -> str:

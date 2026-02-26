@@ -16,6 +16,7 @@ from src.app.api.routers import (
     categories_router,
     products_router,
     orders_router,
+    weekly_slides_router,
 )
 from src.app.api.admin.endpoints import router as admin_router
 
@@ -144,12 +145,13 @@ def create_app() -> FastAPI:
     #  Роутеры                                                             #
     # ------------------------------------------------------------------ #
     prefix = "/api/v1"
-    app.include_router(health_router,        prefix=prefix)
-    app.include_router(categories_router,    prefix=prefix)
-    app.include_router(products_router,      prefix=prefix)
+    app.include_router(health_router,         prefix=prefix)
+    app.include_router(categories_router,     prefix=prefix)
+    app.include_router(products_router,       prefix=prefix)
     app.include_router(product_images_router, prefix=prefix)
-    app.include_router(orders_router,        prefix=prefix)
-    app.include_router(admin_router,         prefix="/admin", tags=["admin"])
+    app.include_router(orders_router,         prefix=prefix)
+    app.include_router(weekly_slides_router,  prefix=prefix)
+    app.include_router(admin_router,          prefix=f"{prefix}/admin", tags=["admin"])
 
     return app
 

@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     PRODUCTS_IMAGES_DIR: str = "products"
     CATEGORIES_IMAGES_DIR: str = "categories"
 
+    # Telegram notifications
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_CHAT_ID: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

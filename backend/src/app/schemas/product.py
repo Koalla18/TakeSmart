@@ -84,6 +84,27 @@ class ProductOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_validator("main_image_url", mode="after")
+    @classmethod
+    def normalize_image_url(cls, v: Optional[str]) -> Optional[str]:
+        """
+        Нормализует main_image_url перед отдачей клиенту.
+
+        В БД путь может хранится двумя способами:
+          - Голый relative path от static-директории: "products/{id}/{uuid}.jpg"
+            (так сохраняет static_service после admin-upload)
+          - URL-путь с префиксом: "/static/products/..." или "https://..."
+            (так сохраняет seeder и внешние ссылки)
+
+        Нормализация: если путь не начинается с "/" или "http" —
+        добавляем "/static/" чтобы браузер корректно разрезолвил через nginx.
+        """
+        if not v:
+            return v
+        if v.startswith("/") or v.startswith("http"):
+            return v
+        return f"/static/{v}"
+
 
 class ProductDetailOut(ProductOut):
     """Детальное представление товара — со списком изображений."""

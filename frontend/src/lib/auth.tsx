@@ -21,12 +21,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
-      // Backend uses OAuth2 form-data at /admin/token
+      // Backend uses OAuth2 form-data at /api/admin/token
       const body = new URLSearchParams()
       body.append('username', username)
       body.append('password', password)
 
-      const response = await fetch(`${API_BASE_URL}/admin/token`, {
+      const response = await fetch(`${API_BASE_URL}/api/admin/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString(),
@@ -56,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (token) {
       // No dedicated verify endpoint — try fetching orders to check token validity
-      fetch(`${API_BASE_URL}/api/orders?limit=1`, {
+      fetch(`${API_BASE_URL}/api/orders?limit=1&check_auth=1`, {
         headers: { Authorization: `Bearer ${token}` },
       })
         .then((res) => {

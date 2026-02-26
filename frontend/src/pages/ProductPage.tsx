@@ -246,6 +246,20 @@ interface ApiProduct {
   updated_at: string
 }
 
+interface ApiVariant {
+  id: string
+  name: string
+  sku: string | null
+  price: number | null
+  discount_price: number | null
+  stock_quantity: number
+  color: string | null
+  storage: string | null
+  size: string | null
+  image_url: string | null
+  sort_order: number
+}
+
 function isImageUrl(url?: string): boolean {
   if (!url) return false
   return url.startsWith('http') || url.startsWith('/products') || url.startsWith('/uploads') || url.startsWith('/static')
@@ -273,6 +287,8 @@ export function ProductPage() {
   const [activeImageIndex, setActiveImageIndex] = useState(0)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [lightboxStartIndex, setLightboxStartIndex] = useState(0)
+  const [variants, setVariants] = useState<ApiVariant[]>([])
+  const [selectedVariant, setSelectedVariant] = useState<ApiVariant | null>(null)
   
   // Load from API — always try slug first (reliable), then fallback to numeric id
   useEffect(() => {
@@ -297,6 +313,26 @@ export function ProductPage() {
     
     loadProduct()
   }, [id])
+
+  // Load variants once apiProduct is known
+  useEffect(() => {
+    if (!apiProduct) return
+    fetch(`${API_BASE_URL}/api/products/${apiProduct.id}/variants`)
+      .then(res => res.ok ? res.json() : [])
+      .then((data: ApiVariant[]) => {
+        setVariants(data)
+        if (data.length > 0) setSelectedVariant(data[0])
+      })
+      .catch(() => {})
+  }, [apiProduct?.id])
+
+  // Derived values: use selected variant's price/stock when available
+  const effectivePrice = selectedVariant?.price ?? apiProduct?.discount_price ?? apiProduct?.price ?? 0
+  const effectiveOldPrice = selectedVariant?.price
+    ? (selectedVariant.discount_price ? selectedVariant.price : null)
+    : apiProduct?.discount_price ? apiProduct.price : null
+  const effectiveStock = selectedVariant?.stock_quantity ?? apiProduct?.stock_quantity ?? 0
+  const effectiveImage = selectedVariant?.image_url || (apiProduct && apiProduct.main_image_url) || null
   
   // Get related products from the same category
   const relatedProducts = localProduct 
@@ -331,29 +367,39 @@ export function ProductPage() {
   // Render for API product
   if (hasApiProduct) {
     const handleAddToCart = () => {
+      // Variant-aware name: append variant name if selected
+      const productName = selectedVariant
+        ? `${apiProduct!.name} — ${selectedVariant.name}`
+        : apiProduct!.name
+
+      const variantSpecs: Array<{label: string; value: string}> = []
+      if (selectedVariant?.color) variantSpecs.push({ label: 'Цвет', value: selectedVariant.color })
+      if (selectedVariant?.storage) variantSpecs.push({ label: 'Память', value: selectedVariant.storage })
+      if (selectedVariant?.size) variantSpecs.push({ label: 'Размер', value: selectedVariant.size })
+
       const cartProduct: CartProduct = {
         id: apiProduct!.id,
         slug: apiProduct!.slug,
-        name: apiProduct!.name,
+        name: productName,
         brand: apiProduct!.brand || '',
         category: '',
         categorySlug: '',
-        price: apiProduct!.discount_price || apiProduct!.price,
-        oldPrice: apiProduct!.discount_price ? apiProduct!.price : undefined,
-        inStock: apiProduct!.stock_quantity > 0,
-        image: apiProduct!.main_image_url || '📦',
+        price: Number(effectivePrice),
+        oldPrice: effectiveOldPrice != null ? Number(effectiveOldPrice) : undefined,
+        inStock: effectiveStock > 0,
+        image: effectiveImage || '📦',
         description: apiProduct!.description || '',
         specs: [
           apiProduct!.brand && { label: 'Бренд', value: apiProduct!.brand },
           apiProduct!.model && { label: 'Модель', value: apiProduct!.model },
-          apiProduct!.color && { label: 'Цвет', value: apiProduct!.color },
+          ...variantSpecs,
         ].filter(Boolean) as Array<{label: string; value: string}>
       }
-    
+
       for (let i = 0; i < quantity; i++) {
         addItem(cartProduct)
       }
-    
+
       navigate('/cart')
     }
 
@@ -488,7 +534,7 @@ export function ProductPage() {
                 
                 {/* Stock status */}
                 <div className="mb-4">
-                  {apiProduct.stock_quantity > 0 ? (
+                  {effectiveStock > 0 ? (
                     <span className="inline-flex items-center gap-1.5 text-sm text-green-600">
                       <CheckIcon className="h-4 w-4" />
                       В наличии
@@ -497,23 +543,112 @@ export function ProductPage() {
                     <span className="text-sm text-red-500">Нет в наличии</span>
                   )}
                 </div>
-                
-                {/* Color info */}
-                {apiProduct.color && (
+
+                {/* Variant selector */}
+                {variants.length > 0 && (() => {
+                  const colors = [...new Set(variants.filter(v => v.color).map(v => v.color!))]
+                  const storages = [...new Set(variants.filter(v => v.storage).map(v => v.storage!))]
+                  const sizes = [...new Set(variants.filter(v => v.size).map(v => v.size!))]
+
+                  const selectVariant = (color?: string, storage?: string, size?: string) => {
+                    const match = variants.find(v =>
+                      (color === undefined || v.color === color) &&
+                      (storage === undefined || v.storage === storage) &&
+                      (size === undefined || v.size === size)
+                    )
+                    if (match) setSelectedVariant(match)
+                  }
+
+                  return (
+                    <div className="mb-4 space-y-4">
+                      {colors.length > 0 && (
+                        <div>
+                          <p className="mb-2 text-sm text-gray-500">
+                            Цвет: <span className="font-medium text-gray-900">{selectedVariant?.color || colors[0]}</span>
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {colors.map(c => (
+                              <button
+                                key={c}
+                                onClick={() => selectVariant(c, selectedVariant?.storage ?? undefined, selectedVariant?.size ?? undefined)}
+                                className={`rounded-lg border-2 px-4 py-2 text-sm font-medium transition-all ${
+                                  selectedVariant?.color === c
+                                    ? 'border-yellow-400 bg-yellow-50 text-gray-900'
+                                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                                }`}
+                              >
+                                {c}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {storages.length > 0 && (
+                        <div>
+                          <p className="mb-2 text-sm text-gray-500">
+                            Память: <span className="font-medium text-gray-900">{selectedVariant?.storage || storages[0]}</span>
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {storages.map(s => (
+                              <button
+                                key={s}
+                                onClick={() => selectVariant(selectedVariant?.color ?? undefined, s, selectedVariant?.size ?? undefined)}
+                                className={`rounded-lg border-2 px-4 py-2 text-sm font-medium transition-all ${
+                                  selectedVariant?.storage === s
+                                    ? 'border-yellow-400 bg-yellow-50 text-gray-900'
+                                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                                }`}
+                              >
+                                {s}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {sizes.length > 0 && (
+                        <div>
+                          <p className="mb-2 text-sm text-gray-500">
+                            Размер: <span className="font-medium text-gray-900">{selectedVariant?.size || sizes[0]}</span>
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {sizes.map(s => (
+                              <button
+                                key={s}
+                                onClick={() => selectVariant(selectedVariant?.color ?? undefined, selectedVariant?.storage ?? undefined, s)}
+                                className={`rounded-lg border-2 px-4 py-2 text-sm font-medium transition-all ${
+                                  selectedVariant?.size === s
+                                    ? 'border-yellow-400 bg-yellow-50 text-gray-900'
+                                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                                }`}
+                              >
+                                {s}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+
+                {/* Color info (only when no variant selector) */}
+                {variants.length === 0 && apiProduct.color && (
                   <div className="mb-4">
                     <span className="text-sm text-gray-500">Цвет: </span>
                     <span className="text-sm font-medium text-gray-900">{apiProduct.color}</span>
                   </div>
                 )}
-                
+
                 {/* Price */}
                 <div className="mb-6 flex items-end gap-3">
                   <span className="text-3xl font-bold text-gray-900 sm:text-4xl">
-                    {formatPrice(apiProduct.discount_price || apiProduct.price)}
+                    {formatPrice(Number(effectivePrice))}
                   </span>
-                  {apiProduct.discount_price && (
+                  {effectiveOldPrice != null && (
                     <span className="mb-1 text-xl text-gray-400 line-through">
-                      {formatPrice(apiProduct.price)}
+                      {formatPrice(Number(effectiveOldPrice))}
                     </span>
                   )}
                 </div>
@@ -524,42 +659,48 @@ export function ProductPage() {
                 )}
                 
                 {/* Actions */}
-                <div className="mb-8 flex flex-wrap items-center gap-3">
-                  {/* Quantity */}
-                  <div className="flex items-center rounded-xl border border-gray-200 bg-white">
+                <div className="mb-8 space-y-3">
+                  {/* Quantity row */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center rounded-xl border border-gray-200 bg-white">
+                      <button
+                        onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                        className="flex h-12 w-12 items-center justify-center text-xl font-medium text-gray-500 transition-colors hover:text-gray-900"
+                        disabled={quantity <= 1}
+                      >
+                        −
+                      </button>
+                      <span className="w-8 text-center text-lg font-semibold">{quantity}</span>
+                      <button
+                        onClick={() => setQuantity(q => q + 1)}
+                        className="flex h-12 w-12 items-center justify-center text-xl font-medium text-gray-500 transition-colors hover:text-gray-900"
+                      >
+                        +
+                      </button>
+                    </div>
+                    <span className="text-sm text-gray-400">шт.</span>
+                  </div>
+
+                  {/* Buy buttons — stack on mobile, row on sm+ */}
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {/* Buy now button */}
                     <button
-                      onClick={() => setQuantity(q => Math.max(1, q - 1))}
-                      className="flex h-12 w-12 items-center justify-center text-xl font-medium text-gray-500 transition-colors hover:text-gray-900"
-                      disabled={quantity <= 1}
+                      onClick={handleAddToCart}
+                      disabled={effectiveStock <= 0}
+                      className="w-full rounded-xl bg-yellow-400 px-8 py-4 text-base font-semibold text-gray-900 shadow-sm transition-all hover:bg-yellow-500 hover:shadow-md active:scale-[0.98] disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none"
                     >
-                      −
+                      Купить сейчас
                     </button>
-                    <span className="w-8 text-center text-lg font-semibold">{quantity}</span>
+
+                    {/* Add to cart */}
                     <button
-                      onClick={() => setQuantity(q => q + 1)}
-                      className="flex h-12 w-12 items-center justify-center text-xl font-medium text-gray-500 transition-colors hover:text-gray-900"
+                      onClick={handleAddToCart}
+                      disabled={effectiveStock <= 0}
+                      className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-yellow-400 bg-white px-6 py-4 text-base font-semibold text-gray-900 transition-all hover:bg-yellow-50 active:scale-[0.98] disabled:border-gray-200 disabled:text-gray-400"
                     >
-                      +
+                      В корзину 🛒
                     </button>
                   </div>
-                  
-                  {/* Buy now button */}
-                  <button 
-                    onClick={handleAddToCart}
-                    disabled={apiProduct.stock_quantity <= 0}
-                    className="rounded-xl bg-yellow-400 px-8 py-3 text-base font-semibold text-gray-900 shadow-sm transition-all hover:bg-yellow-500 hover:shadow-md active:scale-[0.98] disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none"
-                  >
-                    Купить сейчас
-                  </button>
-                  
-                  {/* Add to cart */}
-                  <button 
-                    onClick={handleAddToCart}
-                    disabled={apiProduct.stock_quantity <= 0}
-                    className="flex items-center gap-2 rounded-xl border-2 border-yellow-400 bg-white px-6 py-2.5 text-base font-semibold text-gray-900 transition-all hover:bg-yellow-50 active:scale-[0.98] disabled:border-gray-200 disabled:text-gray-400"
-                  >
-                    В корзину 🛒
-                  </button>
                 </div>
                 
                 {/* Disclaimer */}

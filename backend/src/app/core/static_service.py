@@ -90,11 +90,12 @@ class StaticFileService:
 
     def build_url(self, relative_path: str) -> str:
         """
-        Строит публичный URL файла.
-        Пример: "products/abc/def.jpg"
-             → "http://localhost:8000/static/products/abc/def.jpg"
+        Строит публичный URL файла в виде абсолютного URL-пути (без хоста).
+        Браузер резолвит относительно origin → nginx проксирует на бэкенд.
+
+        Пример: "products/abc/def.jpg"  →  "/static/products/abc/def.jpg"
         """
-        return f"{settings.BASE_URL}{settings.STATIC_URL}/{relative_path}"
+        return f"{settings.STATIC_URL}/{relative_path}"
 
     def build_url_or_none(self, relative_path: str | None) -> str | None:
         if not relative_path:

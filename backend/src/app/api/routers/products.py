@@ -16,6 +16,12 @@ from src.app.schemas.product import (
     ProductOut,
     ProductUpdate,
 )
+from src.app.schemas.product_image import ProductImageOut
+from src.app.schemas.product_variant import (
+    ProductVariantCreate,
+    ProductVariantOut,
+    ProductVariantUpdate,
+)
 
 logger = get_logger(__name__)
 
@@ -29,7 +35,7 @@ router = APIRouter(prefix="/products", tags=["Products"])
 )
 async def list_products(
     offset: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=1000),
     only_active: bool = Query(True),
     category_id: UUID | None = Query(None, description="Фильтр по категории"),
     brand: str | None = Query(None, description="Фильтр по бренду"),
@@ -108,9 +114,10 @@ async def get_product(product_id: UUID) -> ProductDetailOut:
                 detail=f"Товар с id={product_id} не найден",
             )
         images = await uow.product_images.get_by_product(product_id)
-
-    result = ProductDetailOut.model_validate(product)
-    result.images = list(images)
+        result = ProductDetailOut(
+            **ProductOut.model_validate(product).model_dump(),
+            images=[ProductImageOut.model_validate(img, from_attributes=True) for img in images],
+        )
     return result
 
 
@@ -130,9 +137,10 @@ async def get_product_by_slug(slug: str) -> ProductDetailOut:
                 detail=f"Товар со slug='{slug}' не найден",
             )
         images = await uow.product_images.get_by_product(product.id)
-
-    result = ProductDetailOut.model_validate(product)
-    result.images = list(images)
+        result = ProductDetailOut(
+            **ProductOut.model_validate(product).model_dump(),
+            images=[ProductImageOut.model_validate(img, from_attributes=True) for img in images],
+        )
     return result
 
 
@@ -278,3 +286,117 @@ async def delete_product(product_id: UUID) -> None:
         await uow.commit()
 
     logger.info("product_deleted", product_id=str(product_id))
+
+
+# ─────────────────────────────────────────────────────────────────── #
+#  Варианты товара                                                     #
+# ─────────────────────────────────────────────────────────────────── #
+
+@router.get(
+    "/{product_id}/variants",
+    response_model=list[ProductVariantOut],
+    summary="Варианты товара (цвет, объём памяти и т.д.)",
+    responses={404: {"description": "Товар не найден"}},
+)
+async def list_product_variants(
+    product_id: UUID,
+    only_active: bool = Query(True),
+) -> list[ProductVariantOut]:
+    async with UnitOfWork() as uow:
+        product = await uow.products.get_by_id(product_id)
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Товар с id={product_id} не найден",
+            )
+        variants = await uow.product_variants.get_by_product(
+            product_id, only_active=only_active
+        )
+    return list(variants)
+
+
+@router.post(
+    "/{product_id}/variants",
+    response_model=ProductVariantOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Добавить вариант товара",
+    responses={404: {"description": "Товар не найден"}},
+)
+async def create_product_variant(
+    product_id: UUID,
+    body: ProductVariantCreate,
+    _token: str = Depends(oauth2_scheme),
+) -> ProductVariantOut:
+    async with UnitOfWork() as uow:
+        product = await uow.products.get_by_id(product_id)
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Товар с id={product_id} не найден",
+            )
+        if body.sku:
+            existing = await uow.product_variants.get_by_sku(body.sku)
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Вариант с SKU='{body.sku}' уже существует",
+                )
+        variant = await uow.product_variants.create(
+            product_id=product_id, **body.model_dump()
+        )
+        await uow.commit()
+        await uow.product_variants.session.refresh(variant)
+    logger.info("variant_created", product_id=str(product_id), variant_id=str(variant.id))
+    return variant
+
+
+@router.patch(
+    "/{product_id}/variants/{variant_id}",
+    response_model=ProductVariantOut,
+    summary="Обновить вариант товара",
+    responses={404: {"description": "Вариант не найден"}},
+)
+async def update_product_variant(
+    product_id: UUID,
+    variant_id: UUID,
+    body: ProductVariantUpdate,
+    _token: str = Depends(oauth2_scheme),
+) -> ProductVariantOut:
+    async with UnitOfWork() as uow:
+        variant = await uow.product_variants.get_by_id(variant_id)
+        if not variant or variant.product_id != product_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Вариант с id={variant_id} не найден",
+            )
+        data = body.model_dump(exclude_unset=True)
+        for field, value in data.items():
+            setattr(variant, field, value)
+        await uow.commit()
+        await uow.product_variants.session.refresh(variant)
+    logger.info("variant_updated", variant_id=str(variant_id))
+    return variant
+
+
+@router.delete(
+    "/{product_id}/variants/{variant_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Удалить вариант товара",
+    responses={404: {"description": "Вариант не найден"}},
+)
+async def delete_product_variant(
+    product_id: UUID,
+    variant_id: UUID,
+    _token: str = Depends(oauth2_scheme),
+) -> None:
+    async with UnitOfWork() as uow:
+        variant = await uow.product_variants.get_by_id(variant_id)
+        if not variant or variant.product_id != product_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Вариант с id={variant_id} не найден",
+            )
+        await uow.product_variants.session.delete(variant)
+        await uow.commit()
+    logger.info("variant_deleted", variant_id=str(variant_id))
+

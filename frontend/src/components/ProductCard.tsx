@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import type { Product } from '../data/products'
 import { formatPrice, getBadgeText } from '../data/products'
@@ -11,6 +11,7 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product, variant = 'default' }: ProductCardProps) {
+  const navigate = useNavigate()
   const { addItem, isInCart } = useCart()
   const [isAdding, setIsAdding] = useState(false)
   const [showAdded, setShowAdded] = useState(false)
@@ -149,7 +150,7 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
         
         {/* Favorite button */}
         <button 
-          className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white/80 backdrop-blur-sm text-gray-400 opacity-0 transition-all duration-300 hover:bg-white hover:text-red-500 group-hover:opacity-100"
+          className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white/80 backdrop-blur-sm text-gray-400 transition-all duration-300 hover:bg-white hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100"
           onClick={(e) => e.preventDefault()}
         >
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -271,7 +272,7 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
             <button
               onClick={() => {
                 addItem(product)
-                window.location.href = '/cart?quick=true'
+                navigate('/cart')
               }}
               disabled={!product.inStock}
               className="w-full rounded-xl border-2 border-yellow-400 py-2.5 text-sm font-semibold text-yellow-600 hover:bg-yellow-400 hover:text-gray-900 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"

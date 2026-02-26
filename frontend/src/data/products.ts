@@ -410,6 +410,22 @@ export interface ApiProductOut {
   updated_at: string
 }
 
+export interface ApiProductVariant {
+  id: string
+  product_id: string
+  name: string
+  sku: string | null
+  price: number | null
+  discount_price: number | null
+  stock_quantity: number
+  color: string | null
+  storage: string | null
+  size: string | null
+  image_url: string | null
+  sort_order: number
+  is_active: boolean
+}
+
 export interface ApiCategoryOut {
   id: string
   name: string

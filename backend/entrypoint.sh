@@ -19,7 +19,13 @@ asyncio.run(check())
 done
 echo "✅ PostgreSQL готов"
 
-echo "🔄 Применяем миграции Alembic..."
+echo "� Синхронизируем статические файлы..."
+if [ -d "/app/static_seed" ]; then
+  cp -rn /app/static_seed/. /app/static/ 2>/dev/null || true
+  echo "✅ Статика скопирована"
+fi
+
+echo "�🔄 Применяем миграции Alembic..."
 alembic upgrade head
 echo "✅ Миграции применены"
 

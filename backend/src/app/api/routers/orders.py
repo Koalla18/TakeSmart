@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
 
 from src.app.core.logger import get_logger
+from src.app.core.telegram_service import send_order_notification
 from src.app.database.models.order import OrderStatus, PaymentStatus
 from src.app.database.unit_of_work import UnitOfWork
 from src.app.schemas.common import PaginatedResponse
@@ -201,6 +202,10 @@ async def create_order(body: OrderCreate) -> OrderDetailOut:
         total=str(order.total_amount),
         items=len(order.items),
     )
+
+    # Уведомление в Telegram (не блокирует ответ — ошибки перехватываются внутри)
+    await send_order_notification(order)
+
     return order
 
 

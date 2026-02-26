@@ -10,6 +10,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Сохраняем статику в static_seed — она не будет затёрта Docker volume
+COPY static /app/static_seed
+
 RUN mkdir -p /app/static/products /app/static/categories
 
 EXPOSE 8000

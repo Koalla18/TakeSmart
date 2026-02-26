@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
 import { useCart, MAX_QUANTITY_PER_ITEM, MAX_TOTAL_ITEMS } from '../lib/cart'
-import { formatPrice } from '../data/products'
+import { formatPrice, mapApiProduct, type ApiProductOut } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
 
 function isImageUrl(url?: string): boolean {
@@ -221,6 +221,55 @@ export function CartPage() {
   const cardMarkupAmount = paymentMarkup > 0 ? Math.round(subtotal * paymentMarkup) : 0
   const total = subtotal + deliveryPrice + cardMarkupAmount
 
+  // ─── Вспомогательная функция: непосредственная отправка заказа ──────────────
+  const submitOrder = async (orderItems: Array<{ product_id: string; quantity: number }>) => {
+    const deliveryAddress = buildDeliveryAddress()
+    const paymentLabel = PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label || paymentMethod
+    const deliveryLabel = DELIVERY_METHODS.find(d => d.id === deliveryMethod)?.label || deliveryMethod
+    const noteParts: string[] = []
+    noteParts.push(`Оплата: ${paymentLabel}`)
+    noteParts.push(`Доставка: ${deliveryLabel}`)
+    if (formData.comment.trim()) noteParts.push(`Комментарий: ${formData.comment.trim()}`)
+
+    const shippingCity = deliveryMethod === 'pickup' ? 'Москва' : (addressFields.city.trim() || 'Москва')
+    const phoneDigits = formData.phone.replace(/\D/g, '')
+    const phoneNorm = phoneDigits.startsWith('8') ? '+7' + phoneDigits.slice(1) : '+' + phoneDigits
+
+    const payload: OrderPayload = {
+      customer_name: formData.name.trim(),
+      customer_email: formData.email.trim() || 'noemail@takesmart.ru',
+      customer_phone: phoneNorm || null,
+      shipping_address: deliveryAddress,
+      shipping_city: shippingCity,
+      shipping_postal_code: null,
+      customer_note: noteParts.join(' | ') || null,
+      items: orderItems,
+    }
+
+    const res = await fetch(`${API_BASE_URL}/api/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    if (!res.ok) {
+      if (res.status === 422) {
+        const data = await res.json().catch(() => null)
+        const details = data?.details as Array<{ field?: string | null; message: string }> | undefined
+        if (details?.length) {
+          throw new Error(details.map(d => (d.field ? `${d.field}: ${d.message}` : d.message)).join('\n'))
+        }
+      }
+      if (res.status === 429) throw new Error('Слишком много попыток. Подождите несколько минут и повторите')
+      throw new Error('Ошибка при оформлении заказа')
+    }
+
+    const order = await res.json()
+    clearCart()
+    setOrderNumber(order.order_number ?? null)
+    setIsSuccess(true)
+  }
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setLimitWarning(null)
@@ -238,15 +287,47 @@ export function CartPage() {
       setError('Корзина пуста')
       return
     }
-    
-    // Проверяем, что все product_id — корректные UUID (от API), иначе не сможем оформить заказ
+
+    // Если в корзине остались mock-товары (не-UUID id) — обновляем их из API перед отправкой
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-    const mockItems = items.filter(item => !uuidRegex.test(item.product.id))
-    if (mockItems.length > 0) {
-      setError(
-        `Для оформления заказа перейдите на страницу товара — некоторые товары не загружены из каталога: ${mockItems.map(i => i.product.name).join(', ')}`
-      )
-      return
+    const mockCarts = items.filter(item => !uuidRegex.test(item.product.id))
+    if (mockCarts.length > 0) {
+      setIsSubmitting(true)
+      setError(null)
+      try {
+        const resolved = await Promise.allSettled(
+          mockCarts.map(async ci => {
+            const res = await fetch(`${API_BASE_URL}/api/products/slug/${ci.product.slug}`)
+            if (!res.ok) throw new Error('not found')
+            const data: ApiProductOut = await res.json()
+            return { oldId: ci.product.id, realProduct: mapApiProduct(data), quantity: ci.quantity }
+          })
+        )
+        const ok = resolved
+          .filter(r => r.status === 'fulfilled')
+          .map(r => (r as PromiseFulfilledResult<{ oldId: string; realProduct: ReturnType<typeof mapApiProduct>; quantity: number }>).value)
+        const failed = mockCarts.length - ok.length
+
+        if (failed > 0) {
+          setError(`Не удалось загрузить ${failed} товар(а) из каталога. Попробуйте обновить страницу.`)
+          setIsSubmitting(false)
+          return
+        }
+
+        const replacementMap = new Map(ok.map(({ oldId, realProduct }) => [oldId, realProduct]))
+        const reconciledItems = items.map(item =>
+          replacementMap.has(item.product.id)
+            ? { product: replacementMap.get(item.product.id)!, quantity: item.quantity }
+            : item
+        )
+
+        await submitOrder(reconciledItems.map(i => ({ product_id: i.product.id, quantity: i.quantity })))
+        return
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Ошибка синхронизации корзины. Обновите страницу.')
+        setIsSubmitting(false)
+        return
+      }
     }
     
     // Валидация лимитов
@@ -276,58 +357,7 @@ export function CartPage() {
     setError(null)
 
     try {
-      const deliveryAddress = buildDeliveryAddress()
-      // Собираем доп. инфо в customer_note
-      const paymentLabel = PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label || paymentMethod
-      const deliveryLabel = DELIVERY_METHODS.find(d => d.id === deliveryMethod)?.label || deliveryMethod
-      const noteParts: string[] = []
-      noteParts.push(`Оплата: ${paymentLabel}`)
-      noteParts.push(`Доставка: ${deliveryLabel}`)
-      if (formData.comment.trim()) noteParts.push(`Комментарий: ${formData.comment.trim()}`)
-
-      // Извлекаем город из адреса
-      const shippingCity = deliveryMethod === 'pickup' ? 'Москва' : (addressFields.city.trim() || 'Москва')
-
-      // Телефон: оставляем только цифры в международном формате
-      const phoneDigits = formData.phone.replace(/\D/g, '')
-      const phoneNorm = phoneDigits.startsWith('8') ? '+7' + phoneDigits.slice(1) : '+' + phoneDigits
-
-      const payload: OrderPayload = {
-        customer_name: formData.name.trim(),
-        customer_email: formData.email.trim() || 'noemail@takesmart.ru',
-        customer_phone: phoneNorm || null,
-        shipping_address: deliveryAddress,
-        shipping_city: shippingCity,
-        shipping_postal_code: null,
-        customer_note: noteParts.join(' | ') || null,
-        items: items.map(item => ({
-          product_id: item.product.id,
-          quantity: item.quantity,
-        })),
-      }
-      
-      const res = await fetch(`${API_BASE_URL}/api/orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-      
-      if (!res.ok) {
-        if (res.status === 422) {
-          const data = await res.json().catch(() => null)
-          const details = data?.details as Array<{field?: string | null; message: string}> | undefined
-          if (details?.length) {
-            throw new Error(details.map(d => d.field ? `${d.field}: ${d.message}` : d.message).join('\n'))
-          }
-        }
-        if (res.status === 429) throw new Error('Слишком много попыток. Подождите несколько минут и повторите')
-        throw new Error('Ошибка при оформлении заказа')
-      }
-      
-      const order = await res.json()
-      clearCart()
-      setOrderNumber(order.order_number ?? null)
-      setIsSuccess(true)
+      await submitOrder(items.map(item => ({ product_id: item.product.id, quantity: item.quantity })))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка отправки')
     } finally {
@@ -382,7 +412,7 @@ export function CartPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
+    <div className="min-h-screen bg-gray-50 py-12 pb-32 lg:pb-12">
       <Container>
         {/* Breadcrumbs */}
         <nav className="mb-8 flex items-center gap-2 text-sm">
@@ -415,8 +445,8 @@ export function CartPage() {
                 
                 <div className="divide-y">
                   {items.map(item => (
-                    <div key={item.product.id} className="flex gap-4 py-4">
-                      <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl bg-gray-100">
+                    <div key={item.product.id} className="flex gap-3 py-4">
+                      <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gray-100 sm:h-20 sm:w-20">
                         {isImageUrl(item.product.image) ? (
                           <img
                             src={getImageUrl(item.product.image)}
@@ -427,9 +457,9 @@ export function CartPage() {
                           <span className="text-4xl">{item.product.image || '📦'}</span>
                         )}
                       </div>
-                      <div className="flex-1">
+                      <div className="min-w-0 flex-1">
                         <div className="text-sm text-gray-500">{item.product.brand}</div>
-                        <div className="font-semibold">{item.product.name}</div>
+                        <div className="line-clamp-2 font-semibold">{item.product.name}</div>
                         <div className="mt-2 flex items-center gap-4">
                           {/* Quantity */}
                           <div className="flex items-center gap-2 rounded-lg border px-2">
@@ -445,10 +475,10 @@ export function CartPage() {
                           <button type="button" onClick={() => removeItem(item.product.id)} className="text-sm text-red-500">Удалить</button>
                         </div>
                       </div>
-                      <div className="text-right">
+                      <div className="flex-shrink-0 text-right">
                         <div className="font-bold">{formatPrice(item.product.price * item.quantity)}</div>
                         {item.quantity > 1 && (
-                          <div className="text-sm text-gray-500">{formatPrice(item.product.price)} / шт</div>
+                          <div className="text-xs text-gray-500">{formatPrice(item.product.price)} / шт</div>
                         )}
                       </div>
                     </div>
@@ -790,6 +820,22 @@ export function CartPage() {
                   Нажимая кнопку, вы соглашаетесь с политикой конфиденциальности
                 </p>
               </div>
+            </div>
+          </div>
+
+          {/* ── Mobile sticky checkout bar ──────────────────────────────────── */}
+          <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-gray-200 bg-white/95 px-4 py-3 shadow-2xl shadow-gray-900/10 backdrop-blur-sm lg:hidden">
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xs text-gray-500">К оплате</div>
+                <div className="text-lg font-bold text-yellow-600">{formatPrice(total)}</div>
+                {cardMarkupAmount > 0 && (
+                  <div className="text-xs text-orange-600">+15% — оплата картой</div>
+                )}
+              </div>
+              <Button type="submit" disabled={isSubmitting} size="md" className="shrink-0">
+                {isSubmitting ? 'Оформляем...' : 'Оформить заказ'}
+              </Button>
             </div>
           </div>
         </form>
