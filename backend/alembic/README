@@ -1,3 +1,1 @@
-Alembic migration folder placeholder.
-
-If you want migrations, we'll initialize alembic properly (env.py, versions/).
+Generic single-database configuration.

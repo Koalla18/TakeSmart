@@ -9,10 +9,10 @@ import { API_BASE_URL } from '../lib/config'
 
 function isImageUrl(url?: string): boolean {
   if (!url) return false
-  return url.startsWith('http') || url.startsWith('/products') || url.startsWith('/uploads')
+  return url.startsWith('http') || url.startsWith('/products') || url.startsWith('/uploads') || url.startsWith('/static')
 }
 function getImageUrl(url: string): string {
-  if (url.startsWith('/uploads')) return `${API_BASE_URL}${url}`
+  if (url.startsWith('/uploads') || url.startsWith('/static')) return `${API_BASE_URL}${url}`
   return url
 }
 
@@ -63,17 +63,17 @@ function validatePhone(value: string): string | null {
 }
 
 interface OrderPayload {
-  name: string
-  phone: string
-  email: string
-  comment: string
+  customer_name: string
+  customer_email: string
+  customer_phone: string | null
+  shipping_address: string
+  shipping_city: string
+  shipping_postal_code: string | null
+  customer_note: string | null
   items: Array<{
     product_id: string
     quantity: number
   }>
-  payment_method: string
-  delivery_method: string
-  delivery_address: string
 }
 
 const PAYMENT_METHODS = [
@@ -114,6 +114,7 @@ export function CartPage() {
   const [addressErrors, setAddressErrors] = useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
+  const [orderNumber, setOrderNumber] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [limitWarning, setLimitWarning] = useState<string | null>(null)
 
@@ -238,6 +239,16 @@ export function CartPage() {
       return
     }
     
+    // Проверяем, что все product_id — корректные UUID (от API), иначе не сможем оформить заказ
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const mockItems = items.filter(item => !uuidRegex.test(item.product.id))
+    if (mockItems.length > 0) {
+      setError(
+        `Для оформления заказа перейдите на страницу товара — некоторые товары не загружены из каталога: ${mockItems.map(i => i.product.name).join(', ')}`
+      )
+      return
+    }
+    
     // Валидация лимитов
     if (totalQuantity > MAX_TOTAL_ITEMS) {
       setError(`Максимум ${MAX_TOTAL_ITEMS} товаров в заказе`)
@@ -266,16 +277,33 @@ export function CartPage() {
 
     try {
       const deliveryAddress = buildDeliveryAddress()
+      // Собираем доп. инфо в customer_note
+      const paymentLabel = PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label || paymentMethod
+      const deliveryLabel = DELIVERY_METHODS.find(d => d.id === deliveryMethod)?.label || deliveryMethod
+      const noteParts: string[] = []
+      noteParts.push(`Оплата: ${paymentLabel}`)
+      noteParts.push(`Доставка: ${deliveryLabel}`)
+      if (formData.comment.trim()) noteParts.push(`Комментарий: ${formData.comment.trim()}`)
+
+      // Извлекаем город из адреса
+      const shippingCity = deliveryMethod === 'pickup' ? 'Москва' : (addressFields.city.trim() || 'Москва')
+
+      // Телефон: оставляем только цифры в международном формате
+      const phoneDigits = formData.phone.replace(/\D/g, '')
+      const phoneNorm = phoneDigits.startsWith('8') ? '+7' + phoneDigits.slice(1) : '+' + phoneDigits
+
       const payload: OrderPayload = {
-        ...formData,
+        customer_name: formData.name.trim(),
+        customer_email: formData.email.trim() || 'noemail@takesmart.ru',
+        customer_phone: phoneNorm || null,
+        shipping_address: deliveryAddress,
+        shipping_city: shippingCity,
+        shipping_postal_code: null,
+        customer_note: noteParts.join(' | ') || null,
         items: items.map(item => ({
           product_id: item.product.id,
           quantity: item.quantity,
-          // name, price, image НЕ передаются — сервер берёт их из БД
         })),
-        payment_method: paymentMethod,
-        delivery_method: deliveryMethod,
-        delivery_address: deliveryAddress,
       }
       
       const res = await fetch(`${API_BASE_URL}/api/orders`, {
@@ -285,11 +313,20 @@ export function CartPage() {
       })
       
       if (!res.ok) {
+        if (res.status === 422) {
+          const data = await res.json().catch(() => null)
+          const details = data?.details as Array<{field?: string | null; message: string}> | undefined
+          if (details?.length) {
+            throw new Error(details.map(d => d.field ? `${d.field}: ${d.message}` : d.message).join('\n'))
+          }
+        }
         if (res.status === 429) throw new Error('Слишком много попыток. Подождите несколько минут и повторите')
         throw new Error('Ошибка при оформлении заказа')
       }
       
+      const order = await res.json()
       clearCart()
+      setOrderNumber(order.order_number ?? null)
       setIsSuccess(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка отправки')
@@ -308,6 +345,12 @@ export function CartPage() {
               <span className="text-5xl">✅</span>
             </div>
             <h1 className="mb-4 text-3xl font-bold text-gray-900">Заказ оформлен!</h1>
+            {orderNumber && (
+              <div className="mb-4 rounded-xl bg-yellow-50 px-6 py-3 text-center">
+                <span className="text-sm text-gray-500">Номер заказа</span>
+                <div className="text-2xl font-bold text-yellow-600">{orderNumber}</div>
+              </div>
+            )}
             <p className="mb-8 text-lg text-gray-600">
               Мы свяжемся с вами в течение 15 минут для подтверждения заказа.
             </p>

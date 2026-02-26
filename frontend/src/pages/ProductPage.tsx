@@ -211,46 +211,49 @@ function ImageLightbox({
 }
 /* ───────────────────── End Lightbox ───────────────────── */
 
-interface ProductVariant {
-  id: number
-  slug: string
-  color?: string
-  color_code?: string
-  storage?: string
-  price: number
-  in_stock: boolean
+interface ProductImage {
+  id: string
+  product_id: string
+  file_path: string
+  url: string
+  original_filename: string
+  mime_type: string
+  file_size: number
+  sort_order: number
+  is_main: boolean
 }
 
 interface ApiProduct {
-  id: number
+  id: string
   name: string
   slug: string
-  brand: string
-  category_id: number
+  brand: string | null
+  category_id: string | null
   price: number
-  old_price?: number
-  badge?: string
-  in_stock: boolean
-  is_used: boolean
-  image: string
-  images?: string[]
-  description: string
-  specs?: Array<{label?: string; key?: string; value: string}>
-  variant_group_id?: string
-  color?: string
-  color_code?: string
-  storage?: string
-  variants?: ProductVariant[]
+  discount_price: number | null
+  stock_quantity: number
+  is_active: boolean
+  is_featured: boolean
+  main_image_url: string | null
+  images?: ProductImage[]
+  description: string | null
+  short_description: string | null
+  sku: string | null
+  model: string | null
+  color: string | null
+  warranty_months: number | null
+  created_at: string
+  updated_at: string
 }
 
 function isImageUrl(url?: string): boolean {
   if (!url) return false
-  return url.startsWith('http') || url.startsWith('/products') || url.startsWith('/uploads')
+  return url.startsWith('http') || url.startsWith('/products') || url.startsWith('/uploads') || url.startsWith('/static')
 }
 
 function getImageUrl(url?: string): string {
   if (!url) return ''
-  if (url.startsWith('/uploads')) return `${API_BASE_URL}${url}`
+  if (url.startsWith('/uploads') || url.startsWith('/static')) return `${API_BASE_URL}${url}`
   return url
 }
 
@@ -325,84 +328,39 @@ export function ProductPage() {
     )
   }
   
-  // Get unique colors and storages from variants
-  const variants = apiProduct?.variants || []
-  const uniqueColors = [...new Map(
-    variants.filter(v => v.color).map(v => [v.color, { color: v.color!, color_code: v.color_code }])
-  ).values()]
-  const uniqueStorages = [...new Set(variants.filter(v => v.storage).map(v => v.storage!))]
-  
-  // Check if a specific combination is available
-  const isVariantAvailable = (color?: string, storage?: string) => {
-    return variants.some(v => 
-      (!color || v.color === color) && 
-      (!storage || v.storage === storage) && 
-      v.in_stock
-    )
-  }
-  
-  // Get variant for specific color/storage combination
-  const getVariantForOptions = (color?: string, storage?: string) => {
-    return variants.find(v => 
-      (!color || v.color === color) && 
-      (!storage || v.storage === storage)
-    )
-  }
-  
-  // Handle variant selection
-  const handleColorSelect = (color: string) => {
-    const variant = getVariantForOptions(color, apiProduct?.storage)
-    if (variant) {
-      navigate(`/product/${variant.slug}`, { replace: true })
-    } else {
-      // Find any variant with this color
-      const anyVariant = variants.find(v => v.color === color)
-      if (anyVariant) {
-        navigate(`/product/${anyVariant.slug}`, { replace: true })
-      }
-    }
-  }
-  
-  const handleStorageSelect = (storage: string) => {
-    const variant = getVariantForOptions(apiProduct?.color, storage)
-    if (variant) {
-      navigate(`/product/${variant.slug}`, { replace: true })
-    } else {
-      // Find any variant with this storage
-      const anyVariant = variants.find(v => v.storage === storage)
-      if (anyVariant) {
-        navigate(`/product/${anyVariant.slug}`, { replace: true })
-      }
-    }
-  }
-  
-  const handleAddToCart = () => {
-    const cartProduct: CartProduct = hasApiProduct ? {
-      id: String(apiProduct!.id),
-      slug: apiProduct!.slug,
-      name: apiProduct!.name,
-      brand: apiProduct!.brand || '',
-      category: '',
-      categorySlug: '',
-      price: apiProduct!.price,
-      oldPrice: apiProduct!.old_price,
-      badge: apiProduct!.badge as CartProduct['badge'],
-      inStock: apiProduct!.in_stock,
-      image: apiProduct!.images?.[0] || apiProduct!.image || '📦',
-      description: apiProduct!.description || '',
-      specs: apiProduct!.specs?.map(s => ({ label: s.label || s.key || '', value: s.value })) || []
-    } : product!
-    
-    for (let i = 0; i < quantity; i++) {
-      addItem(cartProduct)
-    }
-    
-    navigate('/cart')
-  }
-  
-  // Render for API product with variants
+  // Render for API product
   if (hasApiProduct) {
-    const images = apiProduct.images?.length ? apiProduct.images : [apiProduct.image]
+    const handleAddToCart = () => {
+      const cartProduct: CartProduct = {
+        id: apiProduct!.id,
+        slug: apiProduct!.slug,
+        name: apiProduct!.name,
+        brand: apiProduct!.brand || '',
+        category: '',
+        categorySlug: '',
+        price: apiProduct!.discount_price || apiProduct!.price,
+        oldPrice: apiProduct!.discount_price ? apiProduct!.price : undefined,
+        inStock: apiProduct!.stock_quantity > 0,
+        image: apiProduct!.main_image_url || '📦',
+        description: apiProduct!.description || '',
+        specs: [
+          apiProduct!.brand && { label: 'Бренд', value: apiProduct!.brand },
+          apiProduct!.model && { label: 'Модель', value: apiProduct!.model },
+          apiProduct!.color && { label: 'Цвет', value: apiProduct!.color },
+        ].filter(Boolean) as Array<{label: string; value: string}>
+      }
+    
+      for (let i = 0; i < quantity; i++) {
+        addItem(cartProduct)
+      }
+    
+      navigate('/cart')
+    }
+
+    // Build image URL list from ProductDetailOut images array
+    const images: string[] = apiProduct.images?.length 
+      ? apiProduct.images.map(img => img.url || img.file_path)
+      : apiProduct.main_image_url ? [apiProduct.main_image_url] : []
     
     return (
       <div className="min-h-screen bg-gray-50">
@@ -435,16 +393,17 @@ export function ProductPage() {
                 
                 <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-gray-50 to-gray-100">
                   {/* Badge */}
-                  {apiProduct.badge && (
+                  {apiProduct.is_featured && (
                     <div className="absolute left-4 top-4 z-10">
-                      <span className={`rounded-full px-4 py-1.5 text-sm font-semibold ${
-                        apiProduct.badge === 'hit' 
-                          ? 'bg-yellow-400 text-gray-900'
-                          : apiProduct.badge === 'sale'
-                          ? 'bg-red-500 text-white'
-                          : 'bg-green-500 text-white'
-                      }`}>
-                        {getBadgeText(apiProduct.badge as 'hit' | 'new' | 'sale')}
+                      <span className="rounded-full bg-yellow-400 px-4 py-1.5 text-sm font-semibold text-gray-900">
+                        Хит
+                      </span>
+                    </div>
+                  )}
+                  {apiProduct.discount_price && (
+                    <div className={`absolute left-4 ${apiProduct.is_featured ? 'top-14' : 'top-4'} z-10`}>
+                      <span className="rounded-full bg-red-500 px-4 py-1.5 text-sm font-semibold text-white">
+                        -{Math.round((1 - apiProduct.discount_price / apiProduct.price) * 100)}%
                       </span>
                     </div>
                   )}
@@ -519,7 +478,7 @@ export function ProductPage() {
               <div className="flex flex-col">
                 {/* Brand */}
                 <div className="mb-2 flex items-center gap-2 text-sm">
-                  <span className="text-yellow-600">{apiProduct.brand}</span>
+                  <span className="text-yellow-600">{apiProduct.brand || ''}</span>
                 </div>
                 
                 {/* Name */}
@@ -529,7 +488,7 @@ export function ProductPage() {
                 
                 {/* Stock status */}
                 <div className="mb-4">
-                  {apiProduct.in_stock ? (
+                  {apiProduct.stock_quantity > 0 ? (
                     <span className="inline-flex items-center gap-1.5 text-sm text-green-600">
                       <CheckIcon className="h-4 w-4" />
                       В наличии
@@ -539,78 +498,22 @@ export function ProductPage() {
                   )}
                 </div>
                 
-                {/* Color Selector */}
-                {uniqueColors.length > 0 && (
+                {/* Color info */}
+                {apiProduct.color && (
                   <div className="mb-4">
-                    <label className="mb-2 block text-sm text-gray-500">Цвет</label>
-                    <div className="flex flex-wrap gap-2">
-                      {uniqueColors.map(({ color, color_code }) => {
-                        const isSelected = apiProduct.color === color
-                        const isAvailable = isVariantAvailable(color, apiProduct.storage)
-                        return (
-                          <button
-                            key={color}
-                            onClick={() => handleColorSelect(color)}
-                            disabled={!isAvailable}
-                            className={`flex items-center gap-2 rounded-full border-2 px-4 py-2 text-sm font-medium transition-all ${
-                              isSelected
-                                ? 'border-yellow-400 bg-yellow-50'
-                                : isAvailable
-                                ? 'border-gray-200 bg-white hover:border-gray-300'
-                                : 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed'
-                            }`}
-                          >
-                            <span 
-                              className={`h-5 w-5 rounded-full border ${
-                                isAvailable ? 'border-gray-300' : 'border-gray-200 opacity-50'
-                              }`}
-                              style={{ backgroundColor: color_code || '#ccc' }}
-                            />
-                            {color}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-                
-                {/* Storage Selector */}
-                {uniqueStorages.length > 0 && (
-                  <div className="mb-6">
-                    <label className="mb-2 block text-sm text-gray-500">Накопитель</label>
-                    <div className="flex flex-wrap gap-2">
-                      {uniqueStorages.map(storage => {
-                        const isSelected = apiProduct.storage === storage
-                        const isAvailable = isVariantAvailable(apiProduct.color, storage)
-                        return (
-                          <button
-                            key={storage}
-                            onClick={() => handleStorageSelect(storage)}
-                            disabled={!isAvailable}
-                            className={`rounded-full border-2 px-4 py-2 text-sm font-medium transition-all ${
-                              isSelected
-                                ? 'border-yellow-400 bg-yellow-50'
-                                : isAvailable
-                                ? 'border-gray-200 bg-white hover:border-gray-300'
-                                : 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed'
-                            }`}
-                          >
-                            {storage}
-                          </button>
-                        )
-                      })}
-                    </div>
+                    <span className="text-sm text-gray-500">Цвет: </span>
+                    <span className="text-sm font-medium text-gray-900">{apiProduct.color}</span>
                   </div>
                 )}
                 
                 {/* Price */}
                 <div className="mb-6 flex items-end gap-3">
                   <span className="text-3xl font-bold text-gray-900 sm:text-4xl">
-                    {formatPrice(apiProduct.price)}
+                    {formatPrice(apiProduct.discount_price || apiProduct.price)}
                   </span>
-                  {apiProduct.old_price && (
+                  {apiProduct.discount_price && (
                     <span className="mb-1 text-xl text-gray-400 line-through">
-                      {formatPrice(apiProduct.old_price)}
+                      {formatPrice(apiProduct.price)}
                     </span>
                   )}
                 </div>
@@ -643,7 +546,7 @@ export function ProductPage() {
                   {/* Buy now button */}
                   <button 
                     onClick={handleAddToCart}
-                    disabled={!apiProduct.in_stock}
+                    disabled={apiProduct.stock_quantity <= 0}
                     className="rounded-xl bg-yellow-400 px-8 py-3 text-base font-semibold text-gray-900 shadow-sm transition-all hover:bg-yellow-500 hover:shadow-md active:scale-[0.98] disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none"
                   >
                     Купить сейчас
@@ -652,7 +555,7 @@ export function ProductPage() {
                   {/* Add to cart */}
                   <button 
                     onClick={handleAddToCart}
-                    disabled={!apiProduct.in_stock}
+                    disabled={apiProduct.stock_quantity <= 0}
                     className="flex items-center gap-2 rounded-xl border-2 border-yellow-400 bg-white px-6 py-2.5 text-base font-semibold text-gray-900 transition-all hover:bg-yellow-50 active:scale-[0.98] disabled:border-gray-200 disabled:text-gray-400"
                   >
                     В корзину 🛒
@@ -744,9 +647,15 @@ export function ProductPage() {
               
               {activeTab === 'specs' && (
                 <div className="divide-y divide-gray-100">
-                  {apiProduct.specs?.map((spec, i) => (
+                  {([
+                    apiProduct.brand ? { label: 'Бренд', value: apiProduct.brand } : null,
+                    apiProduct.model ? { label: 'Модель', value: apiProduct.model } : null,
+                    apiProduct.color ? { label: 'Цвет', value: apiProduct.color } : null,
+                    apiProduct.sku ? { label: 'Артикул', value: apiProduct.sku } : null,
+                    apiProduct.warranty_months ? { label: 'Гарантия', value: `${apiProduct.warranty_months} мес.` } : null,
+                  ] as Array<{label: string; value: string} | null>).filter((x): x is {label: string; value: string} => x !== null).map((spec, i) => (
                     <div key={i} className="flex justify-between py-4 first:pt-0 last:pb-0">
-                      <span className="text-gray-500">{spec.label || spec.key}</span>
+                      <span className="text-gray-500">{spec.label}</span>
                       <span className="font-medium text-gray-900">{spec.value}</span>
                     </div>
                   ))}
@@ -932,7 +841,7 @@ export function ProductPage() {
                 
                 {/* Order button */}
                 <Button 
-                  onClick={handleAddToCart}
+                  onClick={() => { addItem(product!); navigate('/cart') }}
                   size="lg"
                   className="flex-1 sm:flex-initial"
                   disabled={!product!.inStock}

@@ -7,28 +7,33 @@ import { API_BASE_URL } from '../lib/config'
 import type { Product as CartProduct } from '../data/products'
 
 interface ApiProduct {
-  id: number
+  id: string
   name: string
   slug: string
-  brand: string
+  brand: string | null
   price: number
-  old_price?: number
-  badge?: string
-  in_stock: boolean
-  is_used: boolean
-  image: string
-  images?: string[]
-  description: string
-  specs: Array<{label?: string; key?: string; value: string}>
-  category_id?: number
+  discount_price: number | null
+  stock_quantity: number
+  main_image_url: string | null
+  is_active: boolean
+  is_featured: boolean
+  description: string | null
+  short_description: string | null
+  category_id: string | null
+  sku: string | null
+  model: string | null
+  color: string | null
+  warranty_months: number | null
+  created_at: string
+  updated_at: string
 }
 
 export function UsedPage() {
   const [products, setProducts] = useState<ApiProduct[]>([])
   const [loading, setLoading] = useState(true)
   const [sortBy, setSortBy] = useState<'price_asc' | 'price_desc' | 'name'>('name')
-  const [categoryFilter, setCategoryFilter] = useState<number | null>(null)
-  const [categories, setCategories] = useState<{id: number; name: string; icon?: string}[]>([])
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
+  const [categories, setCategories] = useState<{id: string; name: string; slug: string; image_url?: string | null}[]>([])
   const { addItem } = useCart()
 
   useEffect(() => {
@@ -38,11 +43,14 @@ export function UsedPage() {
 
   async function fetchUsedProducts() {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/products?is_used=true`)
+      // Бэкенд не имеет фильтра is_used — получаем все активные товары
+      // В будущем можно добавить фильтр по категории или тег
+      const res = await fetch(`${API_BASE_URL}/api/products?limit=200`)
       if (res.ok) {
         const data = await res.json()
-        console.log('Used products:', data)
-        setProducts(data)
+        const items = data.items || data
+        console.log('Products:', items)
+        setProducts(Array.isArray(items) ? items : [])
       }
     } catch (err) {
       console.error('Error fetching used products:', err)
@@ -53,9 +61,11 @@ export function UsedPage() {
 
   async function fetchCategories() {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/categories`)
+      const res = await fetch(`${API_BASE_URL}/api/categories?limit=100`)
       if (res.ok) {
-        setCategories(await res.json())
+        const data = await res.json()
+        const items = data.items || data
+        setCategories(Array.isArray(items) ? items : [])
       }
     } catch (err) {
       console.error('Error fetching categories:', err)
@@ -77,21 +87,27 @@ export function UsedPage() {
     products.some(p => p.category_id === cat.id)
   )
 
+  function getImageUrl(url?: string | null): string {
+    if (!url) return 'https://placehold.co/400x400/f3f4f6/9ca3af?text=Фото'
+    if (url.startsWith('http')) return url
+    if (url.startsWith('/static') || url.startsWith('/uploads')) return `${API_BASE_URL}${url}`
+    return url
+  }
+
   function handleAddToCart(product: ApiProduct) {
     const cartProduct: CartProduct = {
-      id: String(product.id),
-      slug: product.slug || String(product.id),
+      id: product.id,
+      slug: product.slug || product.id,
       name: product.name,
       brand: product.brand || '',
       category: 'Б/У техника',
       categorySlug: 'used',
-      price: product.price,
-      oldPrice: product.old_price,
-      badge: product.badge as CartProduct['badge'],
-      inStock: product.in_stock,
-      image: product.images?.[0] || product.image || '📦',
+      price: product.discount_price || product.price,
+      oldPrice: product.discount_price ? product.price : undefined,
+      inStock: product.stock_quantity > 0,
+      image: product.main_image_url || '📦',
       description: product.description || '',
-      specs: product.specs?.map(s => ({ label: s.label || s.key || '', value: s.value })) || []
+      specs: []
     }
     addItem(cartProduct)
   }
@@ -166,7 +182,7 @@ export function UsedPage() {
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}
                 >
-                  {cat.icon} {cat.name}
+                  {cat.name}
                 </button>
               ))}
             </div>
@@ -209,10 +225,7 @@ export function UsedPage() {
           ) : (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {sortedProducts.map((product) => {
-                const imgSrc = product.images?.[0] || product.image
-                const displayImage = imgSrc?.startsWith('/uploads') 
-                  ? `${API_BASE_URL}${imgSrc}` 
-                  : imgSrc || 'https://placehold.co/400x400/f3f4f6/9ca3af?text=Фото'
+                const displayImage = getImageUrl(product.main_image_url)
                 return (
                 <div 
                   key={product.id} 
@@ -226,16 +239,16 @@ export function UsedPage() {
                       className="h-full w-full object-cover transition-transform group-hover:scale-105"
                     />
                     {/* Badge */}
-                    {product.badge && (
+                    {product.is_featured && (
                       <span className="absolute left-3 top-3 rounded-full bg-yellow-400 px-3 py-1 text-sm font-semibold text-gray-900">
-                        {product.badge}
+                        Хит
                       </span>
                     )}
                     <span className="absolute right-3 top-3 rounded-full bg-orange-500 px-3 py-1 text-sm font-semibold text-white">
                       Б/У
                     </span>
                     {/* Stock */}
-                    {!product.in_stock && (
+                    {product.stock_quantity <= 0 && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/50">
                         <span className="rounded-full bg-white px-4 py-2 font-semibold text-gray-900">
                           Нет в наличии
@@ -246,18 +259,18 @@ export function UsedPage() {
 
                   {/* Content - clickable */}
                   <Link to={`/used/${product.slug}`} className="mb-3 block">
-                    <div className="text-sm text-gray-500">{product.brand}</div>
+                    <div className="text-sm text-gray-500">{product.brand || ''}</div>
                     <h3 className="line-clamp-2 font-semibold text-gray-900 hover:text-yellow-600">{product.name}</h3>
                   </Link>
 
                   {/* Price */}
                   <div className="mb-4">
                     <span className="text-2xl font-bold text-gray-900">
-                      {product.price.toLocaleString('ru-RU')} ₽
+                      {(product.discount_price || product.price).toLocaleString('ru-RU')} ₽
                     </span>
-                    {product.old_price && (
+                    {product.discount_price && (
                       <span className="ml-2 text-lg text-gray-400 line-through">
-                        {product.old_price.toLocaleString('ru-RU')} ₽
+                        {product.price.toLocaleString('ru-RU')} ₽
                       </span>
                     )}
                   </div>
@@ -266,7 +279,7 @@ export function UsedPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleAddToCart(product)}
-                      disabled={!product.in_stock}
+                      disabled={product.stock_quantity <= 0}
                       className="flex-1 rounded-xl bg-yellow-400 px-4 py-3 font-semibold text-gray-900 transition-colors hover:bg-yellow-300 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400"
                     >
                       В корзину

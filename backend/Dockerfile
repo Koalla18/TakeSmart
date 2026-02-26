@@ -1,36 +1,17 @@
+# ─────────────────────────────────────────────
+#  Stage 1: builder — устанавливаем зависимости
+# ─────────────────────────────────────────────
 FROM python:3.12-slim
 
 WORKDIR /app
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-# Системные зависимости:
-#   - libpq-dev: нужен для asyncpg (PostgreSQL клиент)
-#   - libjpeg-dev, libwebp-dev, zlib1g-dev: нужны для Pillow (WebP, JPEG обработка)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev \
-    libjpeg-dev \
-    libwebp-dev \
-    zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN pip install --no-cache-dir --upgrade pip
-
-COPY requirements.txt ./requirements.txt
-COPY requirements-test.txt ./requirements-test.txt
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app ./app/
-COPY alembic ./alembic/
-COPY alembic.ini ./alembic.ini
+COPY . .
 
-# Создаём директории для файлов
-RUN mkdir -p uploads static/products static/categories static/slides static/misc
+RUN mkdir -p /app/static/products /app/static/categories
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+ENTRYPOINT ["sh", "/app/entrypoint.sh"]

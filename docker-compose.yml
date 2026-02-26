@@ -7,9 +7,9 @@
 #   • frontend — ПЕРВЫЙ сервис (Timeweb проксирует именно его на домен)
 #
 # ⚠️  БД и Redis — подключите через Timeweb DBaaS (отдельные сервисы в панели)
-#     и задайте переменные в настройках приложения (Шаг 6):
-#       DATABASE_URL = postgresql+asyncpg://user:pass@host:5432/dbname
-#       REDIS_URL    = redis://user:pass@host:6379/0   (или оставьте пустым)
+#     и задайте переменные в настройках приложения:
+#       DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
+#       REDIS_HOST, REDIS_PORT, REDIS_PASSWORD (или оставьте пустыми)
 #
 # Для локальной разработки с полным стеком — см. docker-compose.local.yml
 # ──────────────────────────────────────────────────────────────────────────────
@@ -37,8 +37,15 @@ services:
     restart: unless-stopped
     environment:
       # ━ Задайте в панели Timeweb ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL:-}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      REDIS_HOST: ${REDIS_HOST:-}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       JWT_SECRET: ${JWT_SECRET:-changeme-set-in-panel}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme-set-in-panel}

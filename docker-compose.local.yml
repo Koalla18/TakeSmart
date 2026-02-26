@@ -40,7 +40,14 @@ services:
       - ./.env
     environment:
       DATABASE_URL: postgresql+asyncpg://take_smart:take_smart_local@db:5432/take_smart
-      REDIS_URL: redis://redis:6379/0
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: take_smart
+      DB_PASSWORD: take_smart_local
+      DB_NAME: take_smart
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost}
     volumes:
       # Persist uploaded files (legacy)
@@ -52,6 +59,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     # NOT exposed externally — nginx proxies to it
 
   # ─── Frontend (Nginx serves SPA + proxies /api → backend) ──────────────────

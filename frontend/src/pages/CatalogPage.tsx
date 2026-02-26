@@ -3,7 +3,20 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
 import { ProductCard, ProductCardSkeleton } from '../components/ProductCard'
-import { products, categories, brands } from '../data/products'
+import {
+  products as staticProducts,
+  categories as staticCategories,
+  brands as staticBrands,
+  type CatalogCategory,
+  type CatalogBrand,
+  type ApiProductOut,
+  type ApiCategoryOut,
+  type ApiPaginatedResponse,
+  type Product,
+  mapApiProduct,
+  mapApiCategory,
+} from '../data/products'
+import { API_BASE_URL } from '../lib/config'
 import { 
   ChevronDownIcon, 
   FilterIcon, 
@@ -35,6 +48,8 @@ function FilterSidebar({
   onReset,
   isMobile = false,
   onClose,
+  categoriesList,
+  brandsList,
 }: {
   selectedCategory: string
   setSelectedCategory: (v: string) => void
@@ -47,6 +62,8 @@ function FilterSidebar({
   onReset: () => void
   isMobile?: boolean
   onClose?: () => void
+  categoriesList: CatalogCategory[]
+  brandsList: CatalogBrand[]
 }) {
   const minPrice = 0
   const maxPrice = 300000
@@ -76,7 +93,7 @@ function FilterSidebar({
           >
             Все товары
           </button>
-          {categories.map((cat) => (
+          {categoriesList.map((cat) => (
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
@@ -106,7 +123,7 @@ function FilterSidebar({
           >
             Все бренды
           </button>
-          {brands.map((brand) => (
+          {brandsList.map((brand) => (
             <button
               key={brand.id}
               onClick={() => setSelectedBrand(brand.id)}
@@ -186,6 +203,11 @@ export function CatalogPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false)
   
+  // ─── Данные (API первичен, моки — запасной вариант) ─────────────────────────
+  const [displayProducts, setDisplayProducts] = useState<Product[]>(staticProducts)
+  const [displayCategories, setDisplayCategories] = useState<CatalogCategory[]>(staticCategories)
+  const [displayBrands, setDisplayBrands] = useState<CatalogBrand[]>(staticBrands)
+
   // Filter states
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || 'all')
   const [selectedBrand, setSelectedBrand] = useState(searchParams.get('brand') || 'all')
@@ -193,6 +215,71 @@ export function CatalogPage() {
   const [inStockOnly, setInStockOnly] = useState(false)
   const [sort, setSort] = useState<SortOption>('popular')
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '')
+
+  // ─── Загрузка данных из API ──────────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false
+
+    async function fetchData() {
+      try {
+        // Загружаем категории и товары параллельно
+        const [catResp, prodResp] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/categories`),
+          fetch(`${API_BASE_URL}/api/products?limit=200&only_active=true`),
+        ])
+
+        if (!catResp.ok || !prodResp.ok) return
+
+        const catData: ApiCategoryOut[] = await catResp.json()
+        const prodData: ApiPaginatedResponse<ApiProductOut> = await prodResp.json()
+
+        if (cancelled) return
+
+        if (prodData.items.length === 0) return // пустой каталог — оставляем моки
+
+        // Строим map category_id -> { slug, name }
+        const catMap = new Map<string, { slug: string; name: string }>(
+          catData.map(c => [c.id, { slug: c.slug, name: c.name }])
+        )
+
+        // Маппим товары
+        const mapped = prodData.items.map(p => {
+          const cat = p.category_id ? catMap.get(p.category_id) : undefined
+          return mapApiProduct(p, cat?.slug ?? '', cat?.name ?? '')
+        })
+
+        // Вычисляем бренды из товаров
+        const uniqueBrands = [...new Set(mapped.map(p => p.brand).filter(Boolean))]
+        const brandIcons: Record<string, string> = {
+          apple: '🍎', samsung: '📱', xiaomi: '📱', sony: '🎮',
+          google: '🔍', huawei: '📱', oppo: '📱', lg: '📺',
+          microsoft: '💻', asus: '💻', lenovo: '💻', hp: '💻',
+          dell: '💻', nintendo: '🎮',
+        }
+        const apiBrands: CatalogBrand[] = uniqueBrands.map(b => ({
+          id: b.toLowerCase(),
+          name: b,
+          logo: brandIcons[b.toLowerCase()] ?? '📦',
+        }))
+
+        // Категории из API (только с товарами)
+        const activeSlugs = new Set(mapped.map(p => p.categorySlug).filter(Boolean))
+        const apiCategories: CatalogCategory[] = catData
+          .filter(c => c.is_active)
+          .map(c => ({ ...mapApiCategory(c), count: mapped.filter(p => p.categorySlug === c.slug).length }))
+          .filter(c => activeSlugs.has(c.id) || c.count > 0)
+
+        setDisplayProducts(mapped)
+        setDisplayCategories(apiCategories.length ? apiCategories : staticCategories)
+        setDisplayBrands(apiBrands.length ? apiBrands : staticBrands)
+      } catch {
+        // Ошибка — оставляем статичные моки
+      }
+    }
+
+    fetchData()
+    return () => { cancelled = true }
+  }, [])
 
   // Sync filters from URL (e.g. when navigating from footer links)
   useEffect(() => {
@@ -220,7 +307,7 @@ export function CatalogPage() {
   
   // Filter and sort products
   const filteredProducts = useMemo(() => {
-    let result = [...products]
+    let result = [...displayProducts]
     
     // Category filter
     if (selectedCategory !== 'all') {
@@ -269,7 +356,7 @@ export function CatalogPage() {
     }
     
     return result
-  }, [selectedCategory, selectedBrand, priceRange, inStockOnly, sort, searchQuery])
+  }, [displayProducts, selectedCategory, selectedBrand, priceRange, inStockOnly, sort, searchQuery])
   
   const resetFilters = () => {
     setSelectedCategory('all')
@@ -279,7 +366,7 @@ export function CatalogPage() {
     setSearchQuery('')
   }
   
-  const currentCategory = categories.find(c => c.id === selectedCategory)
+  const currentCategory = displayCategories.find(c => c.id === selectedCategory)
   const activeFiltersCount = [
     selectedCategory !== 'all',
     selectedBrand !== 'all',
@@ -347,6 +434,8 @@ export function CatalogPage() {
               inStockOnly={inStockOnly}
               setInStockOnly={setInStockOnly}
               onReset={resetFilters}
+              categoriesList={displayCategories}
+              brandsList={displayBrands}
             />
           </aside>
           
@@ -442,7 +531,7 @@ export function CatalogPage() {
                     onClick={() => setSelectedBrand('all')}
                     className="flex items-center gap-1 rounded-full bg-yellow-100 px-3 py-1 text-sm font-medium text-yellow-800"
                   >
-                    {brands.find(b => b.id === selectedBrand)?.name}
+                    {displayBrands.find(b => b.id === selectedBrand)?.name}
                     <CloseIcon className="h-3 w-3" />
                   </button>
                 )}
@@ -528,6 +617,8 @@ export function CatalogPage() {
               onReset={resetFilters}
               isMobile
               onClose={() => setShowMobileFilters(false)}
+              categoriesList={displayCategories}
+              brandsList={displayBrands}
             />
           </div>
         </>

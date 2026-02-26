@@ -14,52 +14,49 @@ import {
   PhoneIcon
 } from '../components/ui/Icons'
 
+interface ProductImage {
+  id: string
+  product_id: string
+  file_path: string
+  url: string
+  original_filename: string
+  mime_type: string
+  file_size: number
+  sort_order: number
+  is_main: boolean
+}
+
 interface ApiProduct {
-  id: number
+  id: string
   name: string
   slug: string
-  brand: string
-  category_id: number
+  brand: string | null
+  category_id: string | null
   price: number
-  old_price?: number
-  badge?: string
-  in_stock: boolean
-  is_used: boolean
-  image: string
-  images?: string[]
-  description: string
-  specs?: Array<{label?: string; key?: string; value: string}>
-  variant_group_id?: string
-  color?: string
-  color_code?: string
-  storage?: string
-  variants?: Array<{
-    id: number
-    slug: string
-    color?: string
-    color_code?: string
-    storage?: string
-    price: number
-    in_stock: boolean
-  }>
+  discount_price: number | null
+  stock_quantity: number
+  is_active: boolean
+  is_featured: boolean
+  main_image_url: string | null
+  images?: ProductImage[]
+  description: string | null
+  short_description: string | null
+  sku: string | null
+  model: string | null
+  color: string | null
+  warranty_months: number | null
+  created_at: string
+  updated_at: string
 }
 
 function formatPrice(price: number): string {
   return new Intl.NumberFormat('ru-RU').format(price) + ' ₽'
 }
 
-function getBadgeText(badge?: string): string {
-  switch (badge) {
-    case 'hit': return 'Хит продаж'
-    case 'new': return 'Новинка'
-    case 'sale': return 'Скидка'
-    default: return ''
-  }
-}
-
-function getImageUrl(url?: string): string {
+function getImageUrl(url?: string | null): string {
   if (!url) return 'https://placehold.co/400x400/f3f4f6/9ca3af?text=Фото'
-  if (url.startsWith('/uploads')) return `${API_BASE_URL}${url}`
+  if (url.startsWith('http')) return url
+  if (url.startsWith('/static') || url.startsWith('/uploads')) return `${API_BASE_URL}${url}`
   return url
 }
 
@@ -116,19 +113,18 @@ export function UsedProductPage() {
   
   const handleAddToCart = () => {
     const cartProduct: Product = {
-      id: String(product.id),
-      slug: product.slug || String(product.id),
+      id: product.id,
+      slug: product.slug || product.id,
       name: product.name,
       brand: product.brand || '',
       category: 'Б/У техника',
       categorySlug: 'used',
-      price: product.price,
-      oldPrice: product.old_price,
-      badge: product.badge as Product['badge'],
-      inStock: product.in_stock,
-      image: product.images?.[0] || product.image || '📦',
+      price: product.discount_price || product.price,
+      oldPrice: product.discount_price ? product.price : undefined,
+      inStock: product.stock_quantity > 0,
+      image: product.main_image_url || '📦',
       description: product.description || '',
-      specs: product.specs?.map(s => ({ label: s.label || s.key || '', value: s.value })) || []
+      specs: []
     }
     
     for (let i = 0; i < quantity; i++) {
@@ -138,7 +134,10 @@ export function UsedProductPage() {
     navigate('/cart')
   }
   
-  const images = product.images?.length ? product.images : [product.image]
+  // Build image list from product images or main_image_url
+  const images: string[] = product.images?.length 
+    ? product.images.map(img => img.url || img.file_path)
+    : product.main_image_url ? [product.main_image_url] : []
   
   return (
     <div className="min-h-screen bg-gray-50">
@@ -175,22 +174,21 @@ export function UsedProductPage() {
                   <span className="rounded-full bg-orange-500 px-4 py-1.5 text-sm font-semibold text-white">
                     Б/У
                   </span>
-                  {product.badge && (
-                    <span className={`rounded-full px-4 py-1.5 text-sm font-semibold ${
-                      product.badge === 'hit' 
-                        ? 'bg-yellow-400 text-gray-900'
-                        : product.badge === 'sale'
-                        ? 'bg-red-500 text-white'
-                        : 'bg-green-500 text-white'
-                    }`}>
-                      {getBadgeText(product.badge)}
+                  {product.is_featured && (
+                    <span className="rounded-full bg-yellow-400 px-4 py-1.5 text-sm font-semibold text-gray-900">
+                      Хит
+                    </span>
+                  )}
+                  {product.discount_price && (
+                    <span className="rounded-full bg-red-500 px-4 py-1.5 text-sm font-semibold text-white">
+                      -{Math.round((1 - product.discount_price / product.price) * 100)}%
                     </span>
                   )}
                 </div>
                 
                 {/* Main Image */}
                 <div className="flex aspect-square items-center justify-center p-8">
-                  {images[activeImageIndex]?.startsWith('http') || images[activeImageIndex]?.startsWith('/uploads') ? (
+                  {images[activeImageIndex] ? (
                     <img 
                       src={getImageUrl(images[activeImageIndex])}
                       alt={product.name}
@@ -198,7 +196,7 @@ export function UsedProductPage() {
                     />
                   ) : (
                     <span className="text-[12rem] transition-transform hover:scale-105">
-                      {images[activeImageIndex] || '📦'}
+                      📦
                     </span>
                   )}
                 </div>
@@ -220,11 +218,7 @@ export function UsedProductPage() {
                         i === activeImageIndex ? 'border-yellow-400' : 'border-gray-200 hover:border-gray-300'
                       }`}
                     >
-                      {img?.startsWith('http') || img?.startsWith('/uploads') ? (
-                        <img src={getImageUrl(img)} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        <span className="flex h-full w-full items-center justify-center text-3xl bg-gray-100">{img}</span>
-                      )}
+                      <img src={getImageUrl(img)} alt="" className="h-full w-full object-cover" />
                     </button>
                   ))}
                 </div>
@@ -251,7 +245,7 @@ export function UsedProductPage() {
               
               {/* Stock status */}
               <div className="mb-6">
-                {product.in_stock ? (
+                {product.stock_quantity > 0 ? (
                   <span className="inline-flex items-center gap-1.5 text-sm text-green-600">
                     <CheckIcon className="h-4 w-4" />
                     В наличии
@@ -264,15 +258,15 @@ export function UsedProductPage() {
               {/* Price */}
               <div className="mb-6 flex items-end gap-3">
                 <span className="text-3xl font-bold text-gray-900 sm:text-4xl">
-                  {formatPrice(product.price)}
+                  {formatPrice(product.discount_price || product.price)}
                 </span>
-                {product.old_price && (
+                {product.discount_price && (
                   <>
                     <span className="mb-1 text-xl text-gray-400 line-through">
-                      {formatPrice(product.old_price)}
+                      {formatPrice(product.price)}
                     </span>
                     <span className="mb-1 rounded-full bg-red-100 px-2 py-0.5 text-sm font-semibold text-red-600">
-                      -{Math.round((1 - product.price / product.old_price) * 100)}%
+                      -{Math.round((1 - product.discount_price / product.price) * 100)}%
                     </span>
                   </>
                 )}
@@ -308,9 +302,9 @@ export function UsedProductPage() {
                   onClick={handleAddToCart}
                   size="lg"
                   className="flex-1 sm:flex-initial"
-                  disabled={!product.in_stock}
+                  disabled={product.stock_quantity <= 0}
                 >
-                  {product.in_stock ? 'Добавить в корзину' : 'Нет в наличии'}
+                  {product.stock_quantity > 0 ? 'Добавить в корзину' : 'Нет в наличии'}
                 </Button>
                 
                 {/* One-click order */}
@@ -407,21 +401,23 @@ export function UsedProductPage() {
             
             {activeTab === 'specs' && (
               <div className="space-y-3">
-                {product.specs && product.specs.length > 0 ? (
-                  product.specs.map((spec, i) => (
+                {(() => {
+                  const specs: Array<{label: string; value: string}> = []
+                  if (product.brand) specs.push({ label: 'Бренд', value: product.brand })
+                  if (product.model) specs.push({ label: 'Модель', value: product.model })
+                  if (product.color) specs.push({ label: 'Цвет', value: product.color })
+                  if (product.sku) specs.push({ label: 'Артикул', value: product.sku })
+                  if (product.warranty_months) specs.push({ label: 'Гарантия', value: `${product.warranty_months} мес.` })
+                  return specs.length > 0 ? specs.map((spec, i) => (
                     <div
                       key={i}
-                      className={`flex justify-between rounded-lg px-4 py-3 ${
-                        i % 2 === 0 ? 'bg-white' : ''
-                      }`}
+                      className={`flex justify-between rounded-lg px-4 py-3 ${i % 2 === 0 ? 'bg-white' : ''}`}
                     >
-                      <span className="text-gray-500">{spec.label || spec.key}</span>
+                      <span className="text-gray-500">{spec.label}</span>
                       <span className="font-medium text-gray-900">{spec.value}</span>
                     </div>
-                  ))
-                ) : (
-                  <p className="text-gray-500">Характеристики не указаны</p>
-                )}
+                  )) : <p className="text-gray-500">Характеристики не указаны</p>
+                })()}
               </div>
             )}
           </div>

@@ -3,7 +3,12 @@ import { Link } from 'react-router-dom'
 import { Container, Section } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
 import { ProductCard } from '../components/ProductCard'
-import { getFeaturedProducts } from '../data/products'
+import {
+  getFeaturedProducts,
+  type ApiProductOut,
+  mapApiProduct,
+  type Product,
+} from '../data/products'
 import { API_BASE_URL } from '../lib/config'
 import { 
   ShieldIcon, 
@@ -91,10 +96,20 @@ const benefits = [
 ]
 
 export function HomePage() {
-  const featuredProducts = getFeaturedProducts()
+  const [featuredProducts, setFeaturedProducts] = useState<Product[]>(getFeaturedProducts())
   const videoRef = useRef<HTMLVideoElement>(null)
   const heroRef = useRef<HTMLDivElement>(null)
   const [videoProgress, setVideoProgress] = useState(0)
+
+  // Load featured products from API
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/products/featured?limit=8`)
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then((data: ApiProductOut[]) => {
+        if (data.length > 0) setFeaturedProducts(data.map(p => mapApiProduct(p)))
+      })
+      .catch(() => { /* keep static mocks */ })
+  }, [])
 
   // Video scroll sync (Apple-style)
   useEffect(() => {
