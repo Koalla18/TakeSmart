@@ -8,6 +8,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.app.schemas.product_image import ProductImageOut
+from src.app.schemas.product_spec import ProductSpecIn, ProductSpecGroupOut
 
 
 class ProductCreate(BaseModel):
@@ -25,6 +26,27 @@ class ProductCreate(BaseModel):
     is_active: bool = Field(True)
     is_featured: bool = Field(False)
     category_id: Optional[uuid.UUID] = None
+
+    # Произвольные характеристики — любые ключ-значение
+    attributes: Optional[dict[str, Any]] = Field(
+        None,
+        description=(
+            "Произвольные характеристики товара в формате JSON. "
+            "Пример для смартфона: {\"ram_gb\": 12, \"storage_gb\": 256, \"5g\": true, \"os\": \"iOS 18\"}. "
+            "Пример для наушников: {\"driver_mm\": 40, \"noise_cancelling\": true, \"battery_hours\": 30}."
+        ),
+        examples=[{"ram_gb": 12, "storage_gb": 256, "5g": True, "os": "iOS 18"}],
+    )
+
+    # Структурированные спецификации — для таблицы характеристик на странице товара
+    specs: Optional[list[ProductSpecIn]] = Field(
+        None,
+        description=(
+            "Структурированные характеристики с группировкой для отображения "
+            "в таблице на странице товара. "
+            "Пример: [{\"group_name\": \"Дисплей\", \"name\": \"Диагональ\", \"value\": \"6.7\", \"unit\": \"дюйм\"}]"
+        ),
+    )
 
     @field_validator("discount_price", mode="after")
     @classmethod
@@ -54,6 +76,18 @@ class ProductUpdate(BaseModel):
     is_featured: Optional[bool] = None
     category_id: Optional[uuid.UUID] = None
 
+    # Произвольные атрибуты — передать новый dict для полной замены
+    attributes: Optional[dict[str, Any]] = Field(
+        None,
+        description="Полная замена произвольных атрибутов товара. Передай null чтобы очистить.",
+    )
+
+    # Спецификации — передать список для полной замены всех спецификаций
+    specs: Optional[list[ProductSpecIn]] = Field(
+        None,
+        description="Полная замена спецификаций товара. Передай [] чтобы удалить все.",
+    )
+
     @model_validator(mode="after")
     def at_least_one_field(self) -> "ProductUpdate":
         if not any(v is not None for v in self.model_dump().values()):
@@ -75,6 +109,10 @@ class ProductOut(BaseModel):
     model: Optional[str]
     color: Optional[str]
     warranty_months: Optional[int]
+    attributes: Optional[dict[str, Any]] = Field(
+        None,
+        description="Произвольные характеристики товара (JSONB)",
+    )
     main_image_url: Optional[str]
     is_active: bool
     is_featured: bool
@@ -107,5 +145,9 @@ class ProductOut(BaseModel):
 
 
 class ProductDetailOut(ProductOut):
-    """Детальное представление товара — со списком изображений."""
-    images: list[ProductImageOut] = []
+    """Детальное представление товара — со списком изображений и спецификациями."""
+    images: list[ProductImageOut] = Field(default_factory=list)
+    specs_grouped: list[ProductSpecGroupOut] = Field(
+        default_factory=list,
+        description="Характеристики товара, сгруппированные по group_name",
+    )

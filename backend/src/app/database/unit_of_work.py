@@ -9,6 +9,7 @@ from src.app.database.session import AsyncSessionFactory
 from src.app.database.repositories.category_repository import CategoryRepository
 from src.app.database.repositories.product_repository import ProductRepository
 from src.app.database.repositories.product_image_repository import ProductImageRepository
+from src.app.database.repositories.product_spec_repository import ProductSpecRepository
 from src.app.database.repositories.product_variant_repository import ProductVariantRepository
 from src.app.database.repositories.weekly_slide_repository import WeeklySlideRepository
 from src.app.database.repositories.order_repository import OrderRepository, OrderItemRepository
@@ -49,6 +50,7 @@ class UnitOfWork:
         self.categories = CategoryRepository(self._session)
         self.products = ProductRepository(self._session)
         self.product_images = ProductImageRepository(self._session)
+        self.product_specs = ProductSpecRepository(self._session)
         self.product_variants = ProductVariantRepository(self._session)
         self.weekly_slides = WeeklySlideRepository(self._session)
         self.orders = OrderRepository(self._session)

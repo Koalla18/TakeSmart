@@ -4,7 +4,8 @@ from decimal import Decimal
 from typing import Any, Sequence
 from uuid import UUID
 
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, cast
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -161,3 +162,59 @@ class ProductRepository(BaseRepository[Product]):
             return None
         new_qty = max(0, product.stock_quantity - quantity)
         return await self.update(product_id, stock_quantity=new_qty)
+
+    async def filter_by_attributes(
+        self,
+        attrs: dict[str, Any],
+        *,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> Sequence[Product]:
+        """
+        Фильтрация товаров по произвольным атрибутам из JSONB-поля.
+
+        Пример:
+            attrs = {"ram_gb": 12, "5g": True}
+            → WHERE attributes @> '{"ram_gb": 12, "5g": true}'
+
+        Использует GIN-индекс ix_products_attributes_gin для быстрого поиска.
+        """
+        result = await self.session.execute(
+            select(Product)
+            .where(
+                Product.is_active.is_(True),
+                Product.attributes.cast(JSONB).contains(attrs),
+            )
+            .offset(offset)
+            .limit(limit)
+        )
+        return result.scalars().all()
+
+    async def get_with_specs(self, product_id: UUID) -> Product | None:
+        """Получить товар вместе с категорией, изображениями и спецификациями."""
+        result = await self.session.execute(
+            select(Product)
+            .where(Product.id == product_id)
+            .options(
+                selectinload(Product.category),
+                selectinload(Product.images),
+                selectinload(Product.specs),
+                selectinload(Product.variants),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_slug_with_specs(self, slug: str) -> Product | None:
+        """Получить товар по slug вместе со всеми связанными данными."""
+        result = await self.session.execute(
+            select(Product)
+            .where(Product.slug == slug)
+            .options(
+                selectinload(Product.category),
+                selectinload(Product.images),
+                selectinload(Product.specs),
+                selectinload(Product.variants),
+            )
+        )
+        return result.scalar_one_or_none()
+

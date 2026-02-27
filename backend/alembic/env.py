@@ -12,7 +12,10 @@ from alembic import context
 
 # ── Подключаем все модели, чтобы autogenerate их видел ──────────────────────
 from src.app.database.session import Base
-from src.app.database.models import Category, Product, ProductImage, Order, OrderItem  # noqa: F401
+from src.app.database.models import (  # noqa: F401
+    Category, Product, ProductSpec, ProductImage,
+    ProductVariant, WeeklySlide, Order, OrderItem, Admin,
+)
 
 # ── Alembic Config ───────────────────────────────────────────────────────────
 config = context.config
