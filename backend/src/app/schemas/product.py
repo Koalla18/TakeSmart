@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.app.schemas.product_image import ProductImageOut
 from src.app.schemas.product_spec import ProductSpecIn, ProductSpecGroupOut
+from src.app.schemas.product_variant import ProductVariantOut
 
 
 class ProductCreate(BaseModel):
@@ -23,6 +24,7 @@ class ProductCreate(BaseModel):
     model: Optional[str] = Field(None, max_length=150, examples=["iPhone 16 Pro"])
     color: Optional[str] = Field(None, max_length=50, examples=["Чёрный титан"])
     warranty_months: Optional[int] = Field(None, ge=0, le=120)
+    condition: str = Field("new", pattern="^(new|used)$", description="Состояние: new или used")
     is_active: bool = Field(True)
     is_featured: bool = Field(False)
     category_id: Optional[uuid.UUID] = None
@@ -72,6 +74,7 @@ class ProductUpdate(BaseModel):
     model: Optional[str] = Field(None, max_length=150)
     color: Optional[str] = Field(None, max_length=50)
     warranty_months: Optional[int] = Field(None, ge=0, le=120)
+    condition: Optional[str] = Field(None, pattern="^(new|used)$", description="Состояние: new или used")
     is_active: Optional[bool] = None
     is_featured: Optional[bool] = None
     category_id: Optional[uuid.UUID] = None
@@ -114,6 +117,7 @@ class ProductOut(BaseModel):
         description="Произвольные характеристики товара (JSONB)",
     )
     main_image_url: Optional[str]
+    condition: str = "new"
     is_active: bool
     is_featured: bool
     category_id: Optional[uuid.UUID]
@@ -145,9 +149,13 @@ class ProductOut(BaseModel):
 
 
 class ProductDetailOut(ProductOut):
-    """Детальное представление товара — со списком изображений и спецификациями."""
+    """Детальное представление товара — со списком изображений, спецификациями и вариантами."""
     images: list[ProductImageOut] = Field(default_factory=list)
     specs_grouped: list[ProductSpecGroupOut] = Field(
         default_factory=list,
         description="Характеристики товара, сгруппированные по group_name",
+    )
+    variants: list[ProductVariantOut] = Field(
+        default_factory=list,
+        description="Варианты товара (цвет, память, тип связи и т.д.)",
     )

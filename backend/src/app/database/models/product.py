@@ -65,6 +65,12 @@ class Product(Base):
     # Медиа
     main_image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
+    # Состояние товара: new | used
+    condition: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="new", server_default="new", index=True,
+        comment="Состояние товара: new — новый, used — б/у",
+    )
+
     # Статусы
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

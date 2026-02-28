@@ -78,7 +78,8 @@ interface OrderPayload {
 
 const PAYMENT_METHODS = [
   { id: 'cash', label: 'Наличными', icon: '💵', desc: 'При получении', markup: 0 },
-  { id: 'card', label: 'Картой', icon: '💳', desc: '+15% к цене', markup: 0.15 },
+  { id: 'card', label: 'Картой', icon: '💳', desc: '+16% к цене', markup: 0.16 },
+  { id: 'qr', label: 'QR-код в магазине', icon: '📱', desc: '+13% к цене', markup: 0.13 },
 ]
 
 const DELIVERY_METHODS = [
@@ -525,7 +526,7 @@ export function CartPage() {
                       <span className="text-lg font-semibold">{method.label}</span>
                       {method.markup > 0 ? (
                         <span className="rounded-full bg-orange-100 px-3 py-1 text-sm font-medium text-orange-700">
-                          +15% к цене
+                          +{Math.round(method.markup * 100)}% к цене
                         </span>
                       ) : (
                         <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700">
@@ -779,7 +780,7 @@ export function CartPage() {
                   </div>
                   {cardMarkupAmount > 0 && (
                     <div className="flex justify-between text-orange-600">
-                      <span>Оплата картой +15%</span>
+                      <span>Наценка ({PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label} +{Math.round(paymentMarkup * 100)}%)</span>
                       <span>+{formatPrice(cardMarkupAmount)}</span>
                     </div>
                   )}
@@ -808,7 +809,7 @@ export function CartPage() {
                 
                 {cardMarkupAmount > 0 && (
                   <div className="mt-3 rounded-xl bg-orange-50 p-3 text-sm text-orange-700">
-                    ⚠️ При оплате картой действует наценка 15%. Оплата наличными без наценки.
+                    ⚠️ При оплате {paymentMethod === 'card' ? 'картой' : 'по QR-коду'} действует наценка {Math.round(paymentMarkup * 100)}%. Оплата наличными без наценки.
                   </div>
                 )}
                 
@@ -830,7 +831,7 @@ export function CartPage() {
                 <div className="truncate text-xs text-gray-500">К оплате</div>
                 <div className="text-lg font-bold text-yellow-600">{formatPrice(total)}</div>
                 {cardMarkupAmount > 0 && (
-                  <div className="text-xs text-orange-600">+15% — оплата картой</div>
+                  <div className="text-xs text-orange-600">+{Math.round(paymentMarkup * 100)}% — {PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label}</div>
                 )}
               </div>
               <Button type="submit" disabled={isSubmitting} size="md" className="shrink-0">

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, status
+from typing import Optional
+
+from fastapi import APIRouter, Form, HTTPException, Query, UploadFile, File, status
 
 from src.app.core.static_service import static_service
 from src.app.database.unit_of_work import UnitOfWork
@@ -16,13 +18,19 @@ router = APIRouter(prefix="/products/{product_id}/images", tags=["Product Images
 # ------------------------------------------------------------------ #
 
 @router.get("", summary="Список изображений товара")
-async def list_images(product_id: UUID) -> list[ProductImageOut]:
+async def list_images(
+    product_id: UUID,
+    variant_color: Optional[str] = Query(None, description="Фильтр по цвету варианта"),
+) -> list[ProductImageOut]:
     async with UnitOfWork() as uow:
         product = await uow.products.get_by_id(product_id)
         if not product:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Товар не найден")
 
         images = await uow.product_images.get_by_product(product_id)
+        # Optional filter: only images for a specific variant_color (+ general images)
+        if variant_color is not None:
+            images = [img for img in images if img.variant_color is None or img.variant_color == variant_color]
         return [
             ProductImageOut(
                 **{k: v for k, v in vars(img).items() if not k.startswith("_")},
@@ -36,20 +44,28 @@ async def list_images(product_id: UUID) -> list[ProductImageOut]:
 async def upload_image(
     product_id: UUID,
     file: UploadFile = File(..., description="Изображение товара (JPEG / PNG / WebP, макс. 5 МБ)"),
+    variant_color: Optional[str] = Form(None, description="Цвет варианта (если привязка к цвету)"),
 ) -> ProductImageOut:
     async with UnitOfWork() as uow:
         product = await uow.products.get_by_id(product_id)
         if not product:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Товар не найден")
 
-        # Определяем sort_order = количество уже загруженных изображений
-        current_count = await uow.product_images.count_by_product(product_id)
-        is_first = current_count == 0
+        # Определяем sort_order для этой группы (по цвету или общие)
+        all_images = await uow.product_images.get_by_product(product_id)
+        if variant_color:
+            color_count = len([img for img in all_images if img.variant_color == variant_color])
+            is_first_for_color = color_count == 0
+        else:
+            generic_count = len([img for img in all_images if img.variant_color is None])
+            is_first_for_color = generic_count == 0
+        
+        current_count = len(all_images)
 
         # Сохраняем файл на диск
         relative_path, file_size = await static_service.save_product_image(file, product_id)
 
-        # Записываем в БД
+        # Записываем в БД — первое фото для данного цвета/группы автоматически становится главным
         image = await uow.product_images.create(
             product_id=product_id,
             file_path=relative_path,
@@ -57,12 +73,15 @@ async def upload_image(
             mime_type=file.content_type or "image/jpeg",
             file_size=file_size,
             sort_order=current_count,
-            is_main=is_first,  # первое загруженное фото автоматически становится главным
+            is_main=is_first_for_color,  # первое фото в этой группе = главное
+            variant_color=variant_color or None,
         )
 
-        # Если это первое фото — обновляем main_image_url на товаре
-        if is_first:
-            await uow.products.update(product_id, main_image_url=relative_path)
+        # Обновляем main_image_url на товаре (первое фото общее или первое фото первого цвета)
+        if is_first_for_color:
+            # Если это первое общее фото, или вообще нет main_image_url — ставим
+            if not variant_color or not product.main_image_url:
+                await uow.products.update(product_id, main_image_url=relative_path)
 
         await uow.commit()
 
@@ -81,6 +100,7 @@ async def delete_image(product_id: UUID, image_id: UUID) -> None:
 
         was_main = image.is_main
         file_path = image.file_path
+        img_color = image.variant_color
 
         # Удаляем запись из БД
         await uow.product_images.delete(image_id)
@@ -88,12 +108,20 @@ async def delete_image(product_id: UUID, image_id: UUID) -> None:
         # Удаляем файл с диска
         await static_service.delete_file(file_path)
 
-        # Если удалили главное фото — назначаем главным следующее по порядку
+        # Если удалили главное фото — назначаем главным следующее в той же цветовой группе
         if was_main:
             remaining = await uow.product_images.get_by_product(product_id)
+            # Ищем следующее фото в той же группе (тот же variant_color)
+            same_group = [img for img in remaining if img.variant_color == img_color]
+            if same_group:
+                await uow.product_images.set_main(product_id, same_group[0].id, variant_color=img_color)
+            
+            # Обновляем main_image_url товара
             if remaining:
-                await uow.product_images.set_main(product_id, remaining[0].id)
-                await uow.products.update(product_id, main_image_url=remaining[0].file_path)
+                # Берём первое is_main фото, или просто первое фото
+                main_candidates = [img for img in remaining if img.is_main]
+                best = main_candidates[0] if main_candidates else remaining[0]
+                await uow.products.update(product_id, main_image_url=best.file_path)
             else:
                 await uow.products.update(product_id, main_image_url=None)
 
@@ -107,7 +135,8 @@ async def set_main_image(product_id: UUID, image_id: UUID) -> ProductImageOut:
         if not image or image.product_id != product_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Изображение не найдено")
 
-        await uow.product_images.set_main(product_id, image_id)
+        await uow.product_images.set_main(product_id, image_id, variant_color=image.variant_color)
+        # Обновляем main_image_url товара только если нет лучшего кандидата
         await uow.products.update(product_id, main_image_url=image.file_path)
         await uow.commit()
 

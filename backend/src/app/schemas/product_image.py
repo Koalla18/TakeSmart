@@ -15,6 +15,7 @@ class ProductImageOut(BaseModel):
     file_size: int
     sort_order: int
     is_main: bool
+    variant_color: str | None = None
 
     model_config = {"from_attributes": True}
 

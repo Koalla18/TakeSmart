@@ -66,6 +66,7 @@ interface Product {
   color: string | null
   warranty_months: number | null
   main_image_url: string | null
+  condition: string
   is_active: boolean
   is_featured: boolean
   category_id: string | null
@@ -81,6 +82,22 @@ interface PaginatedResponse<T> {
   has_next: boolean
 }
 
+interface ProductVariant {
+  id: string
+  product_id: string
+  name: string
+  sku: string | null
+  price: number | null
+  discount_price: number | null
+  stock_quantity: number
+  color: string | null
+  storage: string | null
+  size: string | null
+  image_url: string | null
+  sort_order: number
+  is_active: boolean
+}
+
 // ============ CONSTANTS ============
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
@@ -93,7 +110,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   refunded:   { label: 'Возврат',     color: 'text-gray-600',   bg: 'bg-gray-200',   icon: '💸' },
 }
 
-type TabType = 'orders' | 'products' | 'categories' | 'slides'
+type TabType = 'orders' | 'products' | 'categories' | 'slides' | 'used'
 
 // ============ HELPERS ============
 
@@ -132,6 +149,7 @@ export function AdminPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [isProductModalOpen, setIsProductModalOpen] = useState(false)
+  const [isUsedProductMode, setIsUsedProductMode] = useState(false)
   const [categories, setCategories] = useState<Category[]>([])
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
@@ -453,7 +471,8 @@ export function AdminPage() {
         <div className="mb-6 flex flex-wrap gap-2">
           {[
             { id: 'orders' as TabType, label: '📋 Заказы', count: orders.length },
-            { id: 'products' as TabType, label: '📦 Товары', count: products.length },
+            { id: 'products' as TabType, label: '📦 Товары', count: products.filter(p => (p.condition || 'new') === 'new').length },
+            { id: 'used' as TabType, label: '♻️ Б/У', count: products.filter(p => p.condition === 'used').length },
             { id: 'categories' as TabType, label: '📁 Категории', count: categories.length },
             { id: 'slides' as TabType, label: '🏞 Слайды недели', count: slides.length },
           ].map(tab => (
@@ -565,17 +584,35 @@ export function AdminPage() {
         {/* ============ PRODUCTS TAB ============ */}
         {activeTab === 'products' && (
           <ProductsSection
-            products={filterProducts(products)}
+            products={filterProducts(products).filter(p => (p.condition || 'new') === 'new')}
             categories={categories}
             categoryFilter={categoryFilter}
             setCategoryFilter={setCategoryFilter}
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
-            onEdit={(p) => { setEditingProduct(p); setIsProductModalOpen(true) }}
-            onNew={() => { setEditingProduct(null); setIsProductModalOpen(true) }}
+            onEdit={(p) => { setEditingProduct(p); setIsUsedProductMode(false); setIsProductModalOpen(true) }}
+            onNew={() => { setEditingProduct(null); setIsUsedProductMode(false); setIsProductModalOpen(true) }}
             onDelete={deleteProduct}
             onToggleFeatured={toggleFeatured}
             onToggleActive={toggleActive}
+          />
+        )}
+
+        {/* ============ USED PRODUCTS TAB ============ */}
+        {activeTab === 'used' && (
+          <ProductsSection
+            products={filterProducts(products).filter(p => p.condition === 'used')}
+            categories={categories}
+            categoryFilter={categoryFilter}
+            setCategoryFilter={setCategoryFilter}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            onEdit={(p) => { setEditingProduct(p); setIsUsedProductMode(true); setIsProductModalOpen(true) }}
+            onNew={() => { setEditingProduct(null); setIsUsedProductMode(true); setIsProductModalOpen(true) }}
+            onDelete={deleteProduct}
+            onToggleFeatured={toggleFeatured}
+            onToggleActive={toggleActive}
+            isUsedMode
           />
         )}
 
@@ -732,7 +769,8 @@ export function AdminPage() {
           categories={categories}
           onSave={saveProduct}
           onRefresh={loadProducts}
-          onClose={() => { setIsProductModalOpen(false); setEditingProduct(null) }}
+          onClose={() => { setIsProductModalOpen(false); setEditingProduct(null); setIsUsedProductMode(false) }}
+          isUsedMode={isUsedProductMode}
         />
       )}
 
@@ -761,7 +799,7 @@ export function AdminPage() {
 
 function ProductsSection({
   products, categories, categoryFilter, setCategoryFilter, searchQuery, setSearchQuery,
-  onEdit, onNew, onDelete, onToggleFeatured, onToggleActive
+  onEdit, onNew, onDelete, onToggleFeatured, onToggleActive, isUsedMode
 }: {
   products: Product[]
   categories: Category[]
@@ -774,6 +812,7 @@ function ProductsSection({
   onDelete: (id: string) => void
   onToggleFeatured: (p: Product) => void
   onToggleActive: (p: Product) => void
+  isUsedMode?: boolean
 }) {
   return (
     <>
@@ -805,14 +844,15 @@ function ProductsSection({
           onClick={onNew}
           className="rounded-lg bg-yellow-400 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-yellow-300"
         >
-          + Добавить товар
+          + {isUsedMode ? 'Добавить Б/У товар' : 'Добавить товар'}
         </button>
       </div>
 
       {products.length === 0 ? (
         <div className="rounded-2xl bg-white/5 p-16 text-center">
-          <div className="text-5xl mb-4">📦</div>
-          <div className="text-xl font-semibold text-white mb-4">Товаров нет</div>
+          <div className="text-5xl mb-4">{isUsedMode ? '♻️' : '📦'}</div>
+          <div className="text-xl font-semibold text-white mb-4">{isUsedMode ? 'Б/У товаров нет' : 'Товаров нет'}</div>
+          {isUsedMode && <div className="text-slate-400 text-sm">Добавьте первый б/у товар через кнопку выше</div>}
         </div>
       ) : (
         <div className="overflow-hidden rounded-2xl bg-white/5">
@@ -1090,18 +1130,73 @@ interface ImageRecord {
   sort_order: number
   is_main: boolean
   original_filename: string
+  variant_color?: string | null
 }
 
 // ============ PRODUCT MODAL COMPONENT ============
 
+// ─── Category-specific variant axes ─────────────────────────────────────────
+// Each axis maps to one DB column (color/storage/size) but gets a custom label
+interface VariantAxis {
+  field: 'color' | 'storage' | 'size'
+  label: string
+  placeholder: string
+  hasPhoto?: boolean // only color axis has photos
+}
+
+const CATEGORY_AXES: Record<string, VariantAxis[]> = {
+  smartphones: [
+    { field: 'color', label: 'Цвет', placeholder: 'Чёрный, Рыжий, Белый…', hasPhoto: true },
+    { field: 'storage', label: 'Память', placeholder: '256 ГБ, 512 ГБ, 1 ТБ…' },
+    { field: 'size', label: 'SIM', placeholder: 'SIM + eSIM, Только SIM…' },
+  ],
+  tablets: [
+    { field: 'color', label: 'Цвет', placeholder: 'Space Gray, Silver…', hasPhoto: true },
+    { field: 'storage', label: 'Память', placeholder: '128 ГБ, 256 ГБ, 512 ГБ…' },
+    { field: 'size', label: 'Связь', placeholder: 'WiFi, WiFi + Cellular…' },
+  ],
+  laptops: [
+    { field: 'color', label: 'Цвет', placeholder: 'Space Black, Silver…', hasPhoto: true },
+    { field: 'storage', label: 'Конфигурация', placeholder: '16/512 ГБ, 32/1 ТБ…' },
+    { field: 'size', label: 'Диагональ', placeholder: '14", 16"…' },
+  ],
+  watches: [
+    { field: 'color', label: 'Цвет / корпус', placeholder: 'Чёрный титан, Серебро…', hasPhoto: true },
+    { field: 'size', label: 'Размер', placeholder: '42 мм, 46 мм…' },
+  ],
+  headphones: [
+    { field: 'color', label: 'Цвет', placeholder: 'Белый, Чёрный, Голубой…', hasPhoto: true },
+  ],
+  tv: [
+    { field: 'color', label: 'Цвет', placeholder: 'Чёрный, Серебро…', hasPhoto: true },
+    { field: 'size', label: 'Диагональ', placeholder: '55", 65", 75"…' },
+  ],
+  gaming: [
+    { field: 'color', label: 'Цвет / версия', placeholder: 'Белый, Чёрный…', hasPhoto: true },
+    { field: 'storage', label: 'Комплектация', placeholder: 'Digital, Disc…' },
+  ],
+  accessories: [
+    { field: 'color', label: 'Цвет', placeholder: 'Чёрный, Белый…', hasPhoto: true },
+    { field: 'size', label: 'Размер / тип', placeholder: 'S, M, L…' },
+  ],
+}
+
+// Fallback: all 3 axes for unknown categories
+const DEFAULT_AXES: VariantAxis[] = [
+  { field: 'color', label: 'Цвет', placeholder: 'Чёрный, Белый…', hasPhoto: true },
+  { field: 'storage', label: 'Вариант 1', placeholder: 'Значение…' },
+  { field: 'size', label: 'Вариант 2', placeholder: 'Значение…' },
+]
+
 function ProductModal({
-  product, categories, onSave, onRefresh, onClose
+  product, categories, onSave, onRefresh, onClose, isUsedMode
 }: {
   product: Product | null
   categories: Category[]
   onSave: (data: Record<string, unknown>, productId?: string) => Promise<Product | null>
   onRefresh: () => void
   onClose: () => void
+  isUsedMode?: boolean
 }) {
   // ─── Form state (strings to avoid leading-zero issues) ───────────────────
   const [name, setName] = useState(product?.name || '')
@@ -1111,6 +1206,7 @@ function ProductModal({
   )
   const [model, setModel] = useState(product?.model || '')
   const [categoryId, setCategoryId] = useState(product?.category_id || '')
+  const [condition, setCondition] = useState(product?.condition || (isUsedMode ? 'used' : 'new'))
 
   const [priceStr, setPriceStr] = useState(product?.price ? String(product.price) : '')
   const [discountStr, setDiscountStr] = useState(product?.discount_price ? String(product.discount_price) : '')
@@ -1168,6 +1264,7 @@ function ProductModal({
       stock_quantity: parseInt(stockStr) || 0,
       is_active: isActive,
       is_featured: isFeatured,
+      condition,
     }
     if (description) payload.description = description.slice(0, MAX_DESC)
     if (shortDesc) payload.short_description = shortDesc
@@ -1185,14 +1282,25 @@ function ProductModal({
     setSaving(true)
     try {
       const saved = await onSave(payload, savedProductId || undefined)
-      setSaving(false)
       if (saved) {
         setSavedProductId(saved.id)
+        // Save variants if dirty
+        if (variantsDirty) {
+          await saveVariantsToBackend(saved.id)
+        }
         onRefresh()
         if (!product?.id) {
           // New product: load images section inline
+          setSaving(false)
           await loadImages(saved.id)
+        } else {
+          // Existing product: close modal after save
+          setSaving(false)
+          onClose()
+          return
         }
+      } else {
+        setSaving(false)
       }
     } catch (err) {
       setSaving(false)
@@ -1255,6 +1363,358 @@ function ProductModal({
       })
       await loadImages(savedProductId)
     } catch {}
+  }
+
+  // ─── Variants state (LOCAL-FIRST) ───────────────────────────────────────
+  // Local variant type with temp IDs for unsaved variants
+  interface LocalVariant {
+    id: string            // real UUID or temp_xxx for new ones
+    name: string
+    sku: string | null
+    price: number | null
+    discount_price: number | null
+    stock_quantity: number
+    color: string | null
+    storage: string | null
+    size: string | null
+    sort_order: number
+    is_active: boolean
+    _isNew?: boolean      // true if not yet saved to backend
+    _isDeleted?: boolean  // marked for deletion
+    _isDirty?: boolean    // locally edited
+  }
+
+  const [variants, setVariants] = useState<LocalVariant[]>([])
+  const [, setVariantsLoaded] = useState(false)
+  // Attribute constructor
+  const [attrColors, setAttrColors] = useState<string[]>([])
+  const [attrStorages, setAttrStorages] = useState<string[]>([])
+  const [attrSizes, setAttrSizes] = useState<string[]>([])
+  const [newColorInput, setNewColorInput] = useState('')
+  const [newStorageInput, setNewStorageInput] = useState('')
+  const [newSizeInput, setNewSizeInput] = useState('')
+  // Photo upload for variant colour (photos still save immediately since they're files)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [colorPhotoTarget, setColorPhotoTarget] = useState<string | null>(null)
+  const colorPhotoInputRef = useRef<HTMLInputElement>(null)
+  const colorPhotoTargetRef = useRef<string | null>(null) // ref to avoid closure stale state bug
+  // Inline edit for single variant
+  const [editingVariantId, setEditingVariantId] = useState<string | null>(null)
+  const [editPrice, setEditPrice] = useState('')
+  const [editDiscount, setEditDiscount] = useState('')
+  const [editStock, setEditStock] = useState('')
+  const [editSku, setEditSku] = useState('')
+  // Bulk selection
+  const [selectedVariantIds, setSelectedVariantIds] = useState<Set<string>>(new Set())
+  // Dirty tracking
+  const [variantsDirty, setVariantsDirty] = useState(false)
+
+  useEffect(() => {
+    if (savedProductId) loadVariants(savedProductId)
+  }, [savedProductId])
+
+  const syncAttrsFromVariants = (vs: LocalVariant[]) => {
+    const activeVs = vs.filter(v => !v._isDeleted)
+    const fromColors = [...new Set(activeVs.filter(v => v.color).map(v => v.color!))]
+    if (color.trim() && !fromColors.includes(color.trim())) {
+      fromColors.unshift(color.trim())
+    }
+    setAttrColors(fromColors)
+    setAttrStorages([...new Set(activeVs.filter(v => v.storage).map(v => v.storage!))])
+    setAttrSizes([...new Set(activeVs.filter(v => v.size).map(v => v.size!))])
+  }
+
+  const loadVariants = async (productId: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/products/${productId}/variants?only_active=false`, { headers: getAuthHeaders() })
+      if (res.ok) {
+        const data: ProductVariant[] = await res.json()
+        const local: LocalVariant[] = data.map(v => ({
+          id: v.id,
+          name: v.name,
+          sku: v.sku,
+          price: v.price,
+          discount_price: v.discount_price,
+          stock_quantity: v.stock_quantity,
+          color: v.color,
+          storage: v.storage,
+          size: v.size,
+          sort_order: v.sort_order,
+          is_active: v.is_active,
+        }))
+        setVariants(local)
+        setVariantsLoaded(true)
+        syncAttrsFromVariants(local)
+      }
+    } catch {}
+  }
+
+  // Generate matrix LOCALLY — no API call until Save
+  const generateMatrix = () => {
+    if (attrColors.length === 0 && attrStorages.length === 0 && attrSizes.length === 0) return
+
+    const axColors: (string | null)[] = attrColors.length > 0 ? attrColors : [null]
+    const axStorages: (string | null)[] = attrStorages.length > 0 ? attrStorages : [null]
+    const axSizes: (string | null)[] = attrSizes.length > 0 ? attrSizes : [null]
+
+    // Build existing combos
+    const existingCombos = new Set(
+      variants.filter(v => !v._isDeleted).map(v => `${v.color || ''}|${v.storage || ''}|${v.size || ''}`)
+    )
+
+    let sortIdx = variants.length
+    const newVars: LocalVariant[] = []
+
+    for (const clr of axColors) {
+      for (const stor of axStorages) {
+        for (const sz of axSizes) {
+          const key = `${clr || ''}|${stor || ''}|${sz || ''}`
+          if (existingCombos.has(key)) continue
+
+          const nameParts = [clr, stor, sz].filter(Boolean) as string[]
+          const autoName = nameParts.length > 0 ? nameParts.join(' / ') : name
+
+          newVars.push({
+            id: `temp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            name: autoName,
+            sku: null,
+            price: null,
+            discount_price: null,
+            stock_quantity: 0,
+            color: clr,
+            storage: stor,
+            size: sz,
+            sort_order: sortIdx++,
+            is_active: true,
+            _isNew: true,
+          })
+        }
+      }
+    }
+
+    if (newVars.length > 0) {
+      setVariants(prev => [...prev, ...newVars])
+      setVariantsDirty(true)
+    }
+  }
+
+  // Upload photo for a colour — photos save immediately (file upload)
+  const uploadColorPhoto = async (colorName: string, files: FileList | File[]) => {
+    if (!savedProductId) return
+    setUploadingPhoto(true)
+    setColorPhotoTarget(colorName)
+    try {
+      for (const file of Array.from(files)) {
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('variant_color', colorName)
+        await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: fd,
+        })
+      }
+      await loadImages(savedProductId)
+    } finally {
+      setUploadingPhoto(false)
+      setColorPhotoTarget(null)
+    }
+  }
+
+  // Delete color-specific image (immediate — it's a file)
+  const deleteColorImage = async (imageId: string) => {
+    if (!savedProductId) return
+    await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images/${imageId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    })
+    await loadImages(savedProductId)
+    onRefresh()
+  }
+
+  // Set main photo for a specific color
+  const setColorMainPhoto = async (imageId: string) => {
+    if (!savedProductId) return
+    await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images/${imageId}/set-main`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+    })
+    await loadImages(savedProductId)
+    onRefresh()
+  }
+
+  // Move image within its color group (reorder only images of same color)
+  const moveColorImage = async (colorName: string, imgIndex: number, dir: -1 | 1) => {
+    if (!savedProductId) return
+    // Get only images for this color, sorted by sort_order
+    const colorImgs = images
+      .filter(img => img.variant_color === colorName)
+      .sort((a, b) => a.sort_order - b.sort_order)
+    const target = imgIndex + dir
+    if (target < 0 || target >= colorImgs.length) return
+    // Swap
+    const newOrder = [...colorImgs]
+    ;[newOrder[imgIndex], newOrder[target]] = [newOrder[target], newOrder[imgIndex]]
+    // Update state immediately for responsive feel
+    const newImages = images.map(img => {
+      const posInNew = newOrder.findIndex(ni => ni.id === img.id)
+      if (posInNew !== -1) return { ...img, sort_order: posInNew }
+      return img
+    })
+    setImages(newImages)
+    // Send reorder to backend with just this color's IDs
+    try {
+      await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images/reorder`, {
+        method: 'PATCH',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ordered_ids: newOrder.map(i => i.id) }),
+      })
+      await loadImages(savedProductId)
+    } catch {}
+  }
+
+  // LOCAL inline save: update variant in local state only
+  const saveInlineVariant = (variantId: string) => {
+    setVariants(prev => prev.map(v => {
+      if (v.id !== variantId) return v
+      return {
+        ...v,
+        price: editPrice ? parseFloat(editPrice) || null : v.price,
+        discount_price: editDiscount ? parseFloat(editDiscount) || null : v.discount_price,
+        stock_quantity: editStock !== '' ? parseInt(editStock) || 0 : v.stock_quantity,
+        sku: editSku.trim() || v.sku,
+        _isDirty: true,
+      }
+    }))
+    setEditingVariantId(null)
+    setVariantsDirty(true)
+  }
+
+  // LOCAL toggle variant active state
+  const toggleVariantActive = (v: LocalVariant) => {
+    setVariants(prev => prev.map(vr => 
+      vr.id === v.id ? { ...vr, is_active: !vr.is_active, _isDirty: true } : vr
+    ))
+    setVariantsDirty(true)
+  }
+
+  // LOCAL delete variant (mark for deletion)
+  const deleteVariant = (variantId: string) => {
+    setVariants(prev => {
+      const v = prev.find(vr => vr.id === variantId)
+      if (!v) return prev
+      if (v._isNew) {
+        // New unsaved variant — just remove from list
+        return prev.filter(vr => vr.id !== variantId)
+      }
+      // Existing variant — mark for deletion
+      return prev.map(vr => vr.id === variantId ? { ...vr, _isDeleted: true } : vr)
+    })
+    setSelectedVariantIds(prev => { const n = new Set(prev); n.delete(variantId); return n })
+    setVariantsDirty(true)
+  }
+
+  // BULK delete selected variants
+  const bulkDeleteSelected = () => {
+    if (selectedVariantIds.size === 0) return
+    setVariants(prev => prev.map(v => {
+      if (!selectedVariantIds.has(v.id)) return v
+      if (v._isNew) return { ...v, _isDeleted: true } // will be filtered
+      return { ...v, _isDeleted: true }
+    }).filter(v => !(v._isNew && v._isDeleted)))
+    setSelectedVariantIds(new Set())
+    setVariantsDirty(true)
+  }
+
+  // BULK delete ALL variants
+  const bulkDeleteAll = () => {
+    if (!confirm('Удалить ВСЕ варианты? Это действие нельзя отменить.')) return
+    setVariants(prev => prev.map(v => {
+      if (v._isNew) return { ...v, _isDeleted: true }
+      return { ...v, _isDeleted: true }
+    }).filter(v => !(v._isNew && v._isDeleted)))
+    setSelectedVariantIds(new Set())
+    setVariantsDirty(true)
+  }
+
+  // Toggle selection
+  const toggleVariantSelection = (id: string) => {
+    setSelectedVariantIds(prev => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  }
+
+  const toggleSelectAll = () => {
+    const visible = variants.filter(v => !v._isDeleted)
+    if (selectedVariantIds.size === visible.length) {
+      setSelectedVariantIds(new Set())
+    } else {
+      setSelectedVariantIds(new Set(visible.map(v => v.id)))
+    }
+  }
+
+  // SAVE variants to backend (called from main Save button)
+  const saveVariantsToBackend = async (productId: string) => {
+    // 1. Delete marked variants (batch)
+    const toDelete = variants.filter(v => v._isDeleted && !v._isNew)
+    if (toDelete.length > 0) {
+      const idsParam = toDelete.map(v => `variant_ids=${v.id}`).join('&')
+      await fetch(`${API_BASE_URL}/api/products/${productId}/variants?${idsParam}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      })
+    }
+
+    // 2. Create new variants
+    const toCreate = variants.filter(v => v._isNew && !v._isDeleted)
+    for (const v of toCreate) {
+      await fetch(`${API_BASE_URL}/api/products/${productId}/variants`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: v.name,
+          sku: v.sku,
+          price: v.price,
+          discount_price: v.discount_price,
+          stock_quantity: v.stock_quantity,
+          color: v.color,
+          storage: v.storage,
+          size: v.size,
+          sort_order: v.sort_order,
+          is_active: v.is_active,
+        }),
+      })
+    }
+
+    // 3. Update dirty existing variants
+    const toUpdate = variants.filter(v => v._isDirty && !v._isNew && !v._isDeleted)
+    for (const v of toUpdate) {
+      await fetch(`${API_BASE_URL}/api/products/${productId}/variants/${v.id}`, {
+        method: 'PATCH',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          price: v.price,
+          discount_price: v.discount_price,
+          stock_quantity: v.stock_quantity,
+          sku: v.sku,
+          is_active: v.is_active,
+        }),
+      })
+    }
+
+    setVariantsDirty(false)
+  }
+
+  // Start inline editing for a variant
+  const startInlineEdit = (v: LocalVariant) => {
+    setEditingVariantId(v.id)
+    setEditPrice(v.price ? String(v.price) : '')
+    setEditDiscount(v.discount_price ? String(v.discount_price) : '')
+    setEditStock(String(v.stock_quantity))
+    setEditSku(v.sku || '')
   }
 
 
@@ -1425,8 +1885,8 @@ function ProductModal({
             />
           </div>
 
-          {/* Checkboxes */}
-          <div className="flex flex-wrap gap-6 rounded-xl bg-white/5 p-4">
+          {/* Checkboxes + Condition */}
+          <div className="flex flex-wrap items-center gap-6 rounded-xl bg-white/5 p-4">
             <label className="flex cursor-pointer items-center gap-2 text-white">
               <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="h-5 w-5 rounded" />
               <span>👁 Активен</span>
@@ -1435,17 +1895,40 @@ function ProductModal({
               <input type="checkbox" checked={isFeatured} onChange={e => setIsFeatured(e.target.checked)} className="h-5 w-5 rounded" />
               <span>⭐ Хит продаж</span>
             </label>
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-sm text-slate-400">Состояние:</span>
+              <select
+                value={condition}
+                onChange={e => setCondition(e.target.value)}
+                className="rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white focus:outline-none"
+              >
+                <option value="new">🆕 Новый</option>
+                <option value="used">♻️ Б/У</option>
+              </select>
+            </div>
           </div>
 
           {/* Error */}
           {saveError && <div className="rounded-xl bg-red-900/40 border border-red-500/40 p-3 text-sm text-red-300">{saveError}</div>}
 
-          {/* ── PHOTOS — inline, always shown when product saved ── */}
-          {savedProductId && (
+          {/* ── PHOTOS — generic (only when NO color variants) ── */}
+          {savedProductId && (() => {
+            // Determine if this category has color axis — if yes, photos are managed per-color below
+            const selectedCatForPhotos = categories.find(c => c.id === categoryId)
+            const catSlugForPhotos = selectedCatForPhotos?.slug || ''
+            const axesForPhotos = CATEGORY_AXES[catSlugForPhotos] || DEFAULT_AXES
+            const categoryHasColors = axesForPhotos.some(a => a.field === 'color')
+            // If category has colors AND colors have been added, don't show generic section
+            if (categoryHasColors && attrColors.length > 0) return null
+            
+            // Filter to only show generic (non-color) images
+            const genericImages = images.filter(img => !img.variant_color)
+            
+            return (
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <label className="text-sm text-slate-400">📷 Фото товара {images.length > 0 ? `(${images.length})` : ''}</label>
-                {images.length > 0 && <span className="text-xs text-slate-500">Нажмите на фото чтобы выбрать обложку</span>}
+                <label className="text-sm text-slate-400">📷 Фото товара {genericImages.length > 0 ? `(${genericImages.length})` : ''}</label>
+                {genericImages.length > 0 && <span className="text-xs text-slate-500">Нажмите на фото чтобы выбрать обложку</span>}
               </div>
 
               {/* Upload dropzone */}
@@ -1462,9 +1945,9 @@ function ProductModal({
               {/* Photo grid */}
               {loadingImages ? (
                 <div className="text-center text-sm text-slate-500">Загружаю…</div>
-              ) : images.length > 0 ? (
+              ) : genericImages.length > 0 ? (
                 <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
-                  {images.map((img, idx) => {
+                  {genericImages.map((img, idx) => {
                     const src = img.url.startsWith('/') ? `${API_BASE_URL}${img.url}` : img.url
                     return (
                       <div
@@ -1497,7 +1980,7 @@ function ProductModal({
                           <button
                             type="button"
                             onClick={e => { e.stopPropagation(); moveImage(idx, 1) }}
-                            disabled={idx === images.length - 1}
+                            disabled={idx === genericImages.length - 1}
                             className="flex-1 rounded text-xs text-white disabled:opacity-30 hover:text-yellow-300"
                           >→</button>
                         </div>
@@ -1516,10 +1999,528 @@ function ProductModal({
                 </div>
               ) : null}
             </div>
-          )}
+            )
+          })()}
 
           {/* Error */}
           {saveError && <div className="rounded-xl bg-red-900/40 border border-red-500/40 p-3 text-sm text-red-300">{saveError}</div>}
+
+          {/* ── VARIANT CONSTRUCTOR — shown when product saved ── */}
+          {savedProductId && (() => {
+            // ─── Resolve axes for current category ───
+            const selectedCat = categories.find(c => c.id === categoryId)
+            const catSlug = selectedCat?.slug || ''
+            const axes = CATEGORY_AXES[catSlug] || DEFAULT_AXES
+            const hasColorAxis = axes.some(a => a.field === 'color')
+            const hasStorageAxis = axes.some(a => a.field === 'storage')
+            const hasSizeAxis = axes.some(a => a.field === 'size')
+
+            // Axis config lookup helpers
+            const colorAxis = axes.find(a => a.field === 'color')
+
+            // ─── Swatch helper ───
+            const swatchColor = (name: string | null) => {
+              if (!name) return null
+              const map: Record<string, string> = {
+                'черный': '#1c1c1e', 'чёрный': '#1c1c1e', 'black': '#1c1c1e',
+                'белый': '#f5f5f7', 'white': '#f5f5f7',
+                'серый': '#8e8e93', 'gray': '#8e8e93', 'серебристый': '#c7c7cc', 'серебро': '#c7c7cc',
+                'синий': '#0071e3', 'blue': '#0071e3', 'голубой': '#5ac8fa',
+                'красный': '#ff3b30', 'red': '#ff3b30',
+                'зеленый': '#34c759', 'зелёный': '#34c759', 'green': '#34c759',
+                'оранжевый': '#ff9f0a', 'orange': '#ff9f0a', 'рыжий': '#e8651a',
+                'розовый': '#ff2d55', 'pink': '#ff2d55', 'лавандовый': '#c4a4e8',
+                'фиолетовый': '#bf5af2', 'purple': '#bf5af2',
+                'золотой': '#f5c518', 'gold': '#f5c518', 'золото': '#f5c518',
+                'титан': '#8e8e93', 'titanium': '#8e8e93',
+                'натуральный': '#e8d5b7', 'natural': '#e8d5b7',
+                'пустыня': '#c8a882', 'desert': '#c8a882',
+              }
+              const lower = name.toLowerCase()
+              const hit = Object.entries(map).find(([k]) => lower.includes(k))
+              return hit ? hit[1] : (/^#[0-9a-f]{3,8}$/i.test(name) ? name : null)
+            }
+
+            // How many combos would be generated
+            const totalCombos =
+              Math.max(hasColorAxis ? attrColors.length : 0, 1) *
+              Math.max(hasStorageAxis ? attrStorages.length : 0, 1) *
+              Math.max(hasSizeAxis ? attrSizes.length : 0, 1)
+            const existingCount = variants.filter(v => !v._isDeleted).length
+            const newCombos = Math.max(0, totalCombos - existingCount)
+            const visibleVariants = variants.filter(v => !v._isDeleted)
+
+            // helper to add attr tag
+            const addAttr = (
+              list: string[],
+              setList: React.Dispatch<React.SetStateAction<string[]>>,
+              input: string,
+              setInput: React.Dispatch<React.SetStateAction<string>>,
+            ) => {
+              const val = input.trim()
+              if (!val || list.includes(val)) return
+              setList([...list, val])
+              setInput('')
+            }
+
+            const removeAttr = (
+              list: string[],
+              setList: React.Dispatch<React.SetStateAction<string[]>>,
+              val: string,
+            ) => {
+              setList(list.filter(v => v !== val))
+            }
+
+            // Combo description
+            const comboDesc = axes.map(a => {
+              const count = a.field === 'color' ? attrColors.length
+                : a.field === 'storage' ? attrStorages.length
+                : attrSizes.length
+              return count > 0 ? `${count} ${a.label.toLowerCase()}` : '—'
+            }).join(' × ')
+
+            return (
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-5">
+                {/* Hidden file input for color photo (multiple) */}
+                <input
+                  ref={colorPhotoInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple
+                  className="hidden"
+                  onChange={e => {
+                    const files = e.target.files
+                    // Используем ref а не state чтобы всегда иметь актуальный цвет
+                    if (files && files.length > 0 && colorPhotoTargetRef.current) {
+                      uploadColorPhoto(colorPhotoTargetRef.current, files)
+                    }
+                    e.target.value = ''
+                  }}
+                />
+
+                {/* ─── HEADER ─── */}
+                <div>
+                  <div className="text-sm font-bold text-white">Конструктор вариантов</div>
+                  <div className="mt-0.5 text-xs text-slate-500">
+                    {selectedCat
+                      ? <>{selectedCat.name}: {axes.map(a => a.label).join(' → ')}. Добавьте значения и нажмите «Сгенерировать».{colorAxis?.hasPhoto && ' Затем загрузите фото.'}</>
+                      : 'Выберите категорию выше чтобы увидеть нужные атрибуты'
+                    }
+                  </div>
+                </div>
+
+                {/* ─── ATTRIBUTE AXES (dynamic per category) ─── */}
+                <div className="space-y-4">
+                  {axes.map((axis, axIdx) => {
+                    const list = axis.field === 'color' ? attrColors
+                      : axis.field === 'storage' ? attrStorages
+                      : attrSizes
+                    const setList = axis.field === 'color' ? setAttrColors
+                      : axis.field === 'storage' ? setAttrStorages
+                      : setAttrSizes
+                    const inputVal = axis.field === 'color' ? newColorInput
+                      : axis.field === 'storage' ? newStorageInput
+                      : newSizeInput
+                    const setInputVal = axis.field === 'color' ? setNewColorInput
+                      : axis.field === 'storage' ? setNewStorageInput
+                      : setNewSizeInput
+
+                    return (
+                      <div key={axis.field} className="rounded-xl border border-white/10 p-3.5">
+                        <div className="mb-2.5 text-xs font-bold uppercase tracking-wider text-slate-400">
+                          {axIdx + 1}. {axis.label}
+                        </div>
+                        <div className="flex flex-wrap gap-2 mb-2.5">
+                          {list.map(val => (
+                            <div key={val} className="group flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5">
+                              {/* Color swatch (only for color axis) */}
+                              {axis.field === 'color' && (() => {
+                                const sw = swatchColor(val)
+                                return sw ? (
+                                  <div className="h-4 w-4 rounded-full border border-white/20" style={{ backgroundColor: sw }} />
+                                ) : (
+                                  <div className="flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[9px] font-bold text-slate-300">
+                                    {val[0]?.toUpperCase()}
+                                  </div>
+                                )
+                              })()}
+                              <span className="text-sm font-medium text-white">{val}</span>
+                              {/* Remove */}
+                              <button
+                                type="button"
+                                onClick={() => removeAttr(list, setList, val)}
+                                className="text-red-500/60 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                              >✕</button>
+                            </div>
+                          ))}
+                          {list.length === 0 && (
+                            <span className="text-xs text-slate-600 italic py-1">нет значений</span>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={inputVal}
+                            onChange={e => setInputVal(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addAttr(list, setList, inputVal, setInputVal) } }}
+                            placeholder={axis.placeholder}
+                            className="flex-1 rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-yellow-400/50 focus:outline-none transition-colors"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => addAttr(list, setList, inputVal, setInputVal)}
+                            className="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-yellow-300 hover:bg-white/15 transition-colors"
+                          >+</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* ─── GENERATE BUTTON ─── */}
+                <div className="flex items-center gap-3 rounded-xl border border-yellow-400/20 bg-yellow-400/5 px-4 py-3">
+                  <div className="flex-1">
+                    <div className="text-sm font-semibold text-yellow-300">
+                      {totalCombos} {totalCombos === 1 ? 'комбинация' : totalCombos < 5 ? 'комбинации' : 'комбинаций'}
+                      {newCombos > 0 && (
+                        <span className="ml-1.5 text-slate-400 font-normal">
+                          ({newCombos} {newCombos === 1 ? 'новая' : 'новых'})
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-slate-500">{comboDesc}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={generateMatrix}
+                    disabled={attrColors.length === 0 && attrStorages.length === 0 && attrSizes.length === 0}
+                    className="rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-gray-900 hover:bg-yellow-300 disabled:opacity-40 transition-colors"
+                  >
+                    ⚡ Сгенерировать
+                  </button>
+                </div>
+
+                {/* ─── COLOR PHOTOS (полная галерея по каждому цвету) ─── */}
+                {hasColorAxis && colorAxis?.hasPhoto && attrColors.length > 0 && (() => {
+                  // Группируем фото по variant_color и сортируем внутри по sort_order
+                  const colorImagesMap: Record<string, ImageRecord[]> = {}
+                  for (const img of images) {
+                    if (img.variant_color) {
+                      if (!colorImagesMap[img.variant_color]) colorImagesMap[img.variant_color] = []
+                      colorImagesMap[img.variant_color].push(img)
+                    }
+                  }
+                  // Сортируем внутри каждого цвета
+                  for (const key of Object.keys(colorImagesMap)) {
+                    colorImagesMap[key].sort((a, b) => a.sort_order - b.sort_order)
+                  }
+
+                  const triggerUpload = (colorName: string) => {
+                    colorPhotoTargetRef.current = colorName
+                    setColorPhotoTarget(colorName)
+                    colorPhotoInputRef.current?.click()
+                  }
+
+                  return (
+                    <div>
+                      <div className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+                        📷 Фото по цветам
+                        <span className="ml-2 font-normal normal-case text-slate-600">
+                          ★ = главное фото цвета &nbsp;|&nbsp; ← → = порядок
+                        </span>
+                      </div>
+                      <div className="space-y-4">
+                        {attrColors.map(colorName => {
+                          const colorImgs = colorImagesMap[colorName] || []
+                          const sw = swatchColor(colorName)
+                          const isUploading = uploadingPhoto && colorPhotoTarget === colorName
+                          return (
+                            <div key={colorName} className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                              {/* Color header */}
+                              <div className="mb-2.5 flex items-center gap-2">
+                                {sw ? (
+                                  <div className="h-5 w-5 rounded-full border border-white/20 shadow-sm" style={{ backgroundColor: sw }} />
+                                ) : (
+                                  <div className="flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[10px] font-bold text-slate-300">
+                                    {colorName[0]?.toUpperCase()}
+                                  </div>
+                                )}
+                                <span className="flex-1 text-sm font-semibold text-white">{colorName}</span>
+                                <span className="text-xs text-slate-500">{colorImgs.length} фото</span>
+                                <button
+                                  type="button"
+                                  onClick={() => triggerUpload(colorName)}
+                                  className="rounded-lg bg-white/10 px-2.5 py-1 text-xs font-medium text-yellow-300 hover:bg-white/15 transition-colors"
+                                >
+                                  {isUploading ? '⏳ Загрузка…' : '+ Добавить фото'}
+                                </button>
+                              </div>
+                              {/* Photo grid with full controls */}
+                              {colorImgs.length > 0 ? (
+                                <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-5">
+                                  {colorImgs.map((img, idx) => {
+                                    const src = img.url.startsWith('/') ? `${API_BASE_URL}${img.url}` : img.url
+                                    return (
+                                      <div
+                                        key={img.id}
+                                        className={`group relative aspect-square overflow-hidden rounded-xl border transition cursor-pointer ${
+                                          img.is_main
+                                            ? 'ring-2 ring-yellow-400 ring-offset-1 ring-offset-slate-900 border-yellow-400/40'
+                                            : 'border-white/10 hover:border-white/25'
+                                        }`}
+                                        onClick={() => !img.is_main && setColorMainPhoto(img.id)}
+                                        title={img.is_main ? '★ Главное фото' : 'Нажмите чтобы сделать главным'}
+                                      >
+                                        <img src={src} alt="" className="h-full w-full object-cover" />
+
+                                        {/* ★ Main badge */}
+                                        {img.is_main && (
+                                          <div className="absolute left-1 top-1 rounded-md bg-yellow-400 px-1.5 py-0.5 text-[10px] font-bold text-gray-900 shadow">
+                                            ★ Главное
+                                          </div>
+                                        )}
+
+                                        {/* Reorder buttons */}
+                                        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between bg-black/60 px-1.5 py-1 opacity-0 group-hover:opacity-100 transition">
+                                          <button
+                                            type="button"
+                                            onClick={e => { e.stopPropagation(); moveColorImage(colorName, idx, -1) }}
+                                            disabled={idx === 0}
+                                            className="rounded px-1.5 text-xs text-white disabled:opacity-30 hover:text-yellow-300"
+                                          >←</button>
+                                          <span className="text-[10px] text-slate-400">{idx + 1}/{colorImgs.length}</span>
+                                          <button
+                                            type="button"
+                                            onClick={e => { e.stopPropagation(); moveColorImage(colorName, idx, 1) }}
+                                            disabled={idx === colorImgs.length - 1}
+                                            className="rounded px-1.5 text-xs text-white disabled:opacity-30 hover:text-yellow-300"
+                                          >→</button>
+                                        </div>
+
+                                        {/* Delete button */}
+                                        <button
+                                          type="button"
+                                          onClick={e => { e.stopPropagation(); deleteColorImage(img.id) }}
+                                          className="absolute right-1 top-1 hidden items-center justify-center rounded-full bg-black/70 p-1 text-red-400 hover:bg-red-900 group-hover:flex transition"
+                                        >
+                                          <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                                        </button>
+                                      </div>
+                                    )
+                                  })}
+                                  {/* Add more placeholder */}
+                                  <div
+                                    className="flex aspect-square cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-white/10 text-slate-500 hover:border-yellow-400/40 hover:text-yellow-400 transition-colors"
+                                    onClick={() => triggerUpload(colorName)}
+                                  >
+                                    <span className="text-xl">+</span>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div
+                                  className="flex cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-white/10 py-8 text-slate-500 hover:border-yellow-400/40 hover:text-yellow-400 transition-colors"
+                                  onClick={() => triggerUpload(colorName)}
+                                >
+                                  <div className="flex flex-col items-center gap-1.5">
+                                    <svg className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.41a2.25 2.25 0 013.182 0l2.909 2.91m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                                    </svg>
+                                    <span className="text-xs font-medium">Загрузите фото для цвета «{colorName}»</span>
+                                    <span className="text-[10px] text-slate-600">Первое фото станет главным автоматически</span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {/* ─── VARIANT MATRIX TABLE ─── */}
+                {visibleVariants.length > 0 && (
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Матрица вариантов ({visibleVariants.length})
+                        {variantsDirty && <span className="ml-2 text-yellow-400 normal-case font-normal">● несохранённые изменения</span>}
+                      </div>
+                      <div className="flex gap-2">
+                        {selectedVariantIds.size > 0 && (
+                          <button
+                            type="button"
+                            onClick={bulkDeleteSelected}
+                            className="rounded-lg bg-red-900/30 border border-red-500/20 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-900/50 transition-colors"
+                          >
+                            🗑 Удалить выбранные ({selectedVariantIds.size})
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={bulkDeleteAll}
+                          className="rounded-lg bg-red-900/20 border border-red-500/10 px-3 py-1.5 text-xs text-red-400/70 hover:bg-red-900/40 hover:text-red-400 transition-colors"
+                        >
+                          🗑 Удалить все
+                        </button>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto overflow-hidden rounded-xl border border-white/10">
+                      {/* Table header — dynamic columns */}
+                      <div className={`hidden sm:grid gap-2 bg-white/5 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500`}
+                        style={{ gridTemplateColumns: `28px auto ${axes.map(() => '1fr').join(' ')} 100px 80px 60px 80px` }}>
+                        <div className="flex justify-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedVariantIds.size === visibleVariants.length && visibleVariants.length > 0}
+                            onChange={toggleSelectAll}
+                            className="h-3.5 w-3.5 rounded accent-yellow-400 cursor-pointer"
+                          />
+                        </div>
+                        <div className="w-6"></div>
+                        {axes.map(a => <div key={a.field}>{a.label}</div>)}
+                        <div>Цена ₽</div>
+                        <div>Остаток</div>
+                        <div className="text-center">☑</div>
+                        <div></div>
+                      </div>
+                      {/* Rows */}
+                      {[...visibleVariants].sort((a, b) => {
+                        const ci = attrColors.indexOf(a.color || ''); const cj = attrColors.indexOf(b.color || '')
+                        if (ci !== cj) return (ci === -1 ? 999 : ci) - (cj === -1 ? 999 : cj)
+                        const si = attrStorages.indexOf(a.storage || ''); const sj = attrStorages.indexOf(b.storage || '')
+                        if (si !== sj) return (si === -1 ? 999 : si) - (sj === -1 ? 999 : sj)
+                        return a.sort_order - b.sort_order
+                      }).map(v => {
+                        const isEditing = editingVariantId === v.id
+                        const swatch = swatchColor(v.color)
+                        const isSelected = selectedVariantIds.has(v.id)
+                        return (
+                          <div
+                            key={v.id}
+                            className={`grid items-center gap-2 border-t border-white/5 px-4 py-2 text-sm transition-colors ${
+                              isSelected ? 'bg-yellow-400/5' : ''
+                            } ${
+                              !v.is_active ? 'bg-red-900/10 opacity-60' : 'hover:bg-white/[0.02]'
+                            } ${v._isNew ? 'border-l-2 border-l-green-400/50' : ''}`}
+                            style={{ gridTemplateColumns: `28px auto ${axes.map(() => '1fr').join(' ')} 100px 80px 60px 80px` }}
+                          >
+                            {/* Checkbox */}
+                            <div className="flex justify-center">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleVariantSelection(v.id)}
+                                className="h-3.5 w-3.5 rounded accent-yellow-400 cursor-pointer"
+                              />
+                            </div>
+                            {/* Swatch or empty */}
+                            <div className="w-6 flex justify-center">
+                              {hasColorAxis && swatch ? (
+                                <div className="h-4 w-4 rounded-full border border-white/20" style={{ backgroundColor: swatch }} />
+                              ) : hasColorAxis && v.color ? (
+                                <div className="flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[8px] font-bold text-slate-400">
+                                  {v.color[0]?.toUpperCase()}
+                                </div>
+                              ) : <div className="h-4 w-4" />}
+                            </div>
+                            {/* Dynamic axis columns */}
+                            {axes.map(a => {
+                              const val = a.field === 'color' ? v.color : a.field === 'storage' ? v.storage : v.size
+                              return (
+                                <div key={a.field} className="text-slate-300 truncate">
+                                  {a.field === 'color' ? (
+                                    <span className="text-white font-medium">
+                                      {val || '—'}
+                                      {val && images.some(img => img.variant_color === val) && <span className="ml-1 text-[10px] text-green-400" title="фото">📷</span>}
+                                    </span>
+                                  ) : (val || '—')}
+                                </div>
+                              )
+                            })}
+                            {/* Price */}
+                            <div>
+                              {isEditing ? (
+                                <input type="text" inputMode="decimal" value={editPrice}
+                                  onChange={e => setEditPrice(e.target.value.replace(/[^\d.]/g, ''))}
+                                  placeholder="—"
+                                  className="w-full rounded border border-yellow-400/30 bg-yellow-400/10 px-2 py-1 text-xs text-white focus:outline-none"
+                                  autoFocus />
+                              ) : (
+                                <span className={`text-xs font-semibold ${v.price ? 'text-yellow-400' : 'text-slate-600'}`}>
+                                  {v.price ? formatPrice(v.price) : '—'}
+                                </span>
+                              )}
+                            </div>
+                            {/* Stock */}
+                            <div>
+                              {isEditing ? (
+                                <input type="text" inputMode="numeric" value={editStock}
+                                  onChange={e => setEditStock(e.target.value.replace(/\D/g, ''))}
+                                  className="w-full rounded border border-yellow-400/30 bg-yellow-400/10 px-2 py-1 text-xs text-white focus:outline-none" />
+                              ) : (
+                                <span className={`text-xs ${v.stock_quantity > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                  {v.stock_quantity} шт.
+                                </span>
+                              )}
+                            </div>
+                            {/* Active toggle */}
+                            <div className="flex justify-center">
+                              <input
+                                type="checkbox"
+                                checked={v.is_active}
+                                onChange={() => toggleVariantActive(v)}
+                                className="h-4 w-4 rounded accent-yellow-400 cursor-pointer"
+                              />
+                            </div>
+                            {/* Actions */}
+                            <div className="flex gap-1 justify-end">
+                              {isEditing ? (
+                                <>
+                                  <button type="button"
+                                    onClick={() => saveInlineVariant(v.id)}
+                                    className="rounded bg-yellow-400 px-2 py-0.5 text-[11px] font-bold text-gray-900 hover:bg-yellow-300">
+                                    ✓
+                                  </button>
+                                  <button type="button"
+                                    onClick={() => setEditingVariantId(null)}
+                                    className="rounded bg-white/10 px-2 py-0.5 text-[11px] text-slate-400 hover:text-white">
+                                    ✕
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button type="button" onClick={() => startInlineEdit(v)}
+                                    className="rounded bg-white/5 border border-white/10 px-2 py-0.5 text-[11px] text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
+                                    ✎
+                                  </button>
+                                  <button type="button" onClick={() => deleteVariant(v.id)}
+                                    className="rounded bg-red-900/20 border border-red-500/20 px-2 py-0.5 text-[11px] text-red-400 hover:bg-red-900/40 transition-colors">
+                                    ✕
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty state */}
+                {visibleVariants.length === 0 && (
+                  <div className="rounded-xl border-2 border-dashed border-white/10 py-8 text-center">
+                    <div className="mb-1 text-2xl">📦</div>
+                    <div className="text-sm font-medium text-slate-400">Вариантов пока нет</div>
+                    <div className="mt-1 text-xs text-slate-600">
+                      Добавьте значения в оси выше, затем нажмите «Сгенерировать»
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Buttons */}
           <div className="flex gap-4 pt-2">

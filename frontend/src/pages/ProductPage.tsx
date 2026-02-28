@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
@@ -221,6 +221,7 @@ interface ProductImage {
   file_size: number
   sort_order: number
   is_main: boolean
+  variant_color?: string | null
 }
 
 interface ApiProduct {
@@ -288,7 +289,33 @@ export function ProductPage() {
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [lightboxStartIndex, setLightboxStartIndex] = useState(0)
   const [variants, setVariants] = useState<ApiVariant[]>([])
-  const [selectedVariant, setSelectedVariant] = useState<ApiVariant | null>(null)
+  // Independent selection state — each attribute is chosen separately
+  const [selectedColor, setSelectedColor] = useState<string | null>(null)
+  const [selectedStorage, setSelectedStorage] = useState<string | null>(null)
+  const [selectedSize, setSelectedSize] = useState<string | null>(null)
+
+  // Derive best-matching variant from the 3 independent selections
+  const selectedVariant = useMemo<ApiVariant | null>(() => {
+    if (variants.length === 0) return null
+    // Exact match
+    const exact = variants.find(v =>
+      (!selectedColor || v.color === selectedColor) &&
+      (!selectedStorage || v.storage === selectedStorage) &&
+      (!selectedSize || v.size === selectedSize)
+    )
+    if (exact) return exact
+    // Progressively relax — color + storage
+    if (selectedColor && selectedStorage) {
+      const m = variants.find(v => v.color === selectedColor && v.storage === selectedStorage)
+      if (m) return m
+    }
+    // Color only
+    if (selectedColor) {
+      const m = variants.find(v => v.color === selectedColor)
+      if (m) return m
+    }
+    return variants[0]
+  }, [variants, selectedColor, selectedStorage, selectedSize])
   
   // Load from API — always try slug first (reliable), then fallback to numeric id
   useEffect(() => {
@@ -321,18 +348,33 @@ export function ProductPage() {
       .then(res => res.ok ? res.json() : [])
       .then((data: ApiVariant[]) => {
         setVariants(data)
-        if (data.length > 0) setSelectedVariant(data[0])
+        if (data.length > 0) {
+          setSelectedColor(data[0].color ?? null)
+          setSelectedStorage(data[0].storage ?? null)
+          setSelectedSize(data[0].size ?? null)
+        }
       })
       .catch(() => {})
   }, [apiProduct?.id])
 
   // Derived values: use selected variant's price/stock when available
-  const effectivePrice = selectedVariant?.price ?? apiProduct?.discount_price ?? apiProduct?.price ?? 0
-  const effectiveOldPrice = selectedVariant?.price
-    ? (selectedVariant.discount_price ? selectedVariant.price : null)
-    : apiProduct?.discount_price ? apiProduct.price : null
+  // Derived values: use selected variant's price/stock when available
+  // If discount_price exists — it's the real price, price is the old/struck-through one
+  const effectivePrice = selectedVariant
+    ? (selectedVariant.discount_price ?? selectedVariant.price ?? apiProduct?.discount_price ?? apiProduct?.price ?? 0)
+    : (apiProduct?.discount_price ?? apiProduct?.price ?? 0)
+  const effectiveOldPrice = selectedVariant
+    ? (selectedVariant.discount_price && selectedVariant.price ? selectedVariant.price : null)
+    : (apiProduct?.discount_price ? apiProduct.price : null)
   const effectiveStock = selectedVariant?.stock_quantity ?? apiProduct?.stock_quantity ?? 0
-  const effectiveImage = selectedVariant?.image_url || (apiProduct && apiProduct.main_image_url) || null
+  // Image: first look for a color-specific photo, then fall back to product main photo
+  const effectiveImage = useMemo(() => {
+    if (selectedColor) {
+      const colorImg = variants.find(v => v.color === selectedColor && v.image_url)?.image_url
+      if (colorImg) return colorImg
+    }
+    return selectedVariant?.image_url || (apiProduct && apiProduct.main_image_url) || null
+  }, [selectedColor, variants, selectedVariant, apiProduct])
   
   // Get related products from the same category
   const relatedProducts = localProduct 
@@ -404,9 +446,54 @@ export function ProductPage() {
     }
 
     // Build image URL list from ProductDetailOut images array
-    const images: string[] = apiProduct.images?.length 
-      ? apiProduct.images.map(img => img.url || img.file_path)
-      : apiProduct.main_image_url ? [apiProduct.main_image_url] : []
+    // When a color is selected, show ONLY that color's photos (main first, then by sort_order)
+    const images: string[] = (() => {
+      if (!apiProduct.images?.length) {
+        return apiProduct.main_image_url ? [apiProduct.main_image_url] : []
+      }
+      const allImgs = apiProduct.images
+
+      if (selectedColor) {
+        // Show only this color's photos, sorted: is_main first, then by sort_order
+        const colorImgs = allImgs
+          .filter(img => img.variant_color === selectedColor)
+          .sort((a, b) => {
+            if (a.is_main && !b.is_main) return -1
+            if (!a.is_main && b.is_main) return 1
+            return a.sort_order - b.sort_order
+          })
+        if (colorImgs.length > 0) {
+          return colorImgs.map(img => img.url || img.file_path)
+        }
+      }
+
+      // No color selected: try to find first color with photos, or show all sorted
+      const colorsWithPhotos = [...new Set(allImgs.filter(img => img.variant_color).map(img => img.variant_color!))]
+      if (colorsWithPhotos.length > 0) {
+        // Show first available color's photos
+        const firstColor = colorsWithPhotos[0]
+        const firstColorImgs = allImgs
+          .filter(img => img.variant_color === firstColor)
+          .sort((a, b) => {
+            if (a.is_main && !b.is_main) return -1
+            if (!a.is_main && b.is_main) return 1
+            return a.sort_order - b.sort_order
+          })
+        return firstColorImgs.map(img => img.url || img.file_path)
+      }
+
+      // No color photos at all: show generic photos sorted by main first
+      const generic = allImgs
+        .filter(img => !img.variant_color)
+        .sort((a, b) => {
+          if (a.is_main && !b.is_main) return -1
+          if (!a.is_main && b.is_main) return 1
+          return a.sort_order - b.sort_order
+        })
+      return generic.length > 0
+        ? generic.map(img => img.url || img.file_path)
+        : allImgs.map(img => img.url || img.file_path)
+    })()
     
     return (
       <div className="min-h-screen bg-gray-50">
@@ -550,82 +637,163 @@ export function ProductPage() {
                   const storages = [...new Set(variants.filter(v => v.storage).map(v => v.storage!))]
                   const sizes = [...new Set(variants.filter(v => v.size).map(v => v.size!))]
 
-                  const selectVariant = (color?: string, storage?: string, size?: string) => {
-                    const match = variants.find(v =>
-                      (color === undefined || v.color === color) &&
-                      (storage === undefined || v.storage === storage) &&
-                      (size === undefined || v.size === size)
-                    )
-                    if (match) setSelectedVariant(match)
+                  // Which storages exist for the currently selected color?
+                  const availableStorages = selectedColor
+                    ? [...new Set(variants.filter(v => v.color === selectedColor && v.storage).map(v => v.storage!))]
+                    : storages
+
+                  // Which sizes exist for the currently selected color+storage?
+                  const availableSizes = [...new Set(variants.filter(v =>
+                    (!selectedColor || v.color === selectedColor) &&
+                    (!selectedStorage || v.storage === selectedStorage) &&
+                    v.size
+                  ).map(v => v.size!))]
+
+                  // Click color → auto-fix storage/size if they become incompatible
+                  const handleColorSelect = (color: string) => {
+                    setSelectedColor(color)
+                    setActiveImageIndex(0) // Reset to first image when color changes
+                    const storagesForColor = [...new Set(
+                      variants.filter(v => v.color === color && v.storage).map(v => v.storage!)
+                    )]
+                    if (storagesForColor.length > 0 && selectedStorage && !storagesForColor.includes(selectedStorage)) {
+                      setSelectedStorage(storagesForColor[0])
+                    }
+                    const sizesForColor = [...new Set(
+                      variants.filter(v => v.color === color && v.size).map(v => v.size!)
+                    )]
+                    if (sizesForColor.length > 0 && selectedSize && !sizesForColor.includes(selectedSize)) {
+                      setSelectedSize(sizesForColor[0])
+                    }
+                  }
+
+                  // CSS swatch map
+                  const cssColorMap: Record<string, string> = {
+                    'черный': '#1c1c1e', 'black': '#1c1c1e', 'чёрный': '#1c1c1e',
+                    'белый': '#f5f5f7', 'white': '#f5f5f7',
+                    'серый': '#8e8e93', 'gray': '#8e8e93', 'grey': '#8e8e93', 'серебро': '#c7c7cc',
+                    'синий': '#0071e3', 'blue': '#0071e3',
+                    'голубой': '#5ac8fa', 'cyan': '#5ac8fa',
+                    'красный': '#ff3b30', 'red': '#ff3b30',
+                    'зеленый': '#34c759', 'зелёный': '#34c759', 'green': '#34c759',
+                    'желтый': '#ffd60a', 'жёлтый': '#ffd60a', 'yellow': '#ffd60a',
+                    'оранжевый': '#ff9f0a', 'orange': '#ff9f0a', 'рыжий': '#e8651a',
+                    'розовый': '#ff2d55', 'pink': '#ff2d55',
+                    'фиолетовый': '#bf5af2', 'purple': '#bf5af2', 'лаванда': '#c4a4e8', 'лавандовый': '#c4a4e8',
+                    'золотой': '#f5c518', 'gold': '#f5c518', 'золото': '#f5c518',
+                    'титан': '#8e8e93', 'titan': '#8e8e93', 'titanium': '#8e8e93',
+                    'natural': '#e8d5b7', 'натуральный': '#e8d5b7',
+                    'desert': '#c8a882', 'пустыня': '#c8a882',
+                    'космос': '#1c1c2e', 'starlight': '#f5f5ea',
+                  }
+                  const getColorSwatch = (colorName: string): string | null => {
+                    const lower = colorName.toLowerCase()
+                    for (const [key, val] of Object.entries(cssColorMap)) {
+                      if (lower.includes(key)) return val
+                    }
+                    if (/^#[0-9a-f]{3,8}$/i.test(colorName)) return colorName
+                    return null
                   }
 
                   return (
-                    <div className="mb-4 space-y-4">
+                    <div className="mb-5 space-y-4">
+                      {/* ── Colors ── */}
                       {colors.length > 0 && (
                         <div>
-                          <p className="mb-2 text-sm text-gray-500">
-                            Цвет: <span className="font-medium text-gray-900">{selectedVariant?.color || colors[0]}</span>
+                          <p className="mb-2.5 text-[13px] text-gray-500">
+                            Цвет: <span className="font-semibold text-gray-900">{selectedColor || colors[0]}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
-                            {colors.map(c => (
-                              <button
-                                key={c}
-                                onClick={() => selectVariant(c, selectedVariant?.storage ?? undefined, selectedVariant?.size ?? undefined)}
-                                className={`rounded-lg border-2 px-4 py-2 text-sm font-medium transition-all ${
-                                  selectedVariant?.color === c
-                                    ? 'border-yellow-400 bg-yellow-50 text-gray-900'
-                                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
-                                }`}
-                              >
-                                {c}
-                              </button>
-                            ))}
+                            {colors.map(c => {
+                              const swatch = getColorSwatch(c)
+                              const isActive = selectedColor === c
+                              const isLight = swatch
+                                ? parseInt(swatch.replace('#','').slice(0,2), 16) > 200
+                                : false
+                              return swatch ? (
+                                <button
+                                  key={c}
+                                  title={c}
+                                  onClick={() => handleColorSelect(c)}
+                                  style={{ backgroundColor: swatch }}
+                                  className={`h-7 w-7 flex-shrink-0 rounded-full transition-all ${
+                                    isActive
+                                      ? 'ring-[3px] ring-offset-[3px] ring-gray-800 scale-110'
+                                      : 'ring-1 ring-transparent hover:scale-105 hover:ring-gray-300'
+                                  } ${isLight ? 'ring-1 ring-gray-300' : ''}`}
+                                />
+                              ) : (
+                                <button
+                                  key={c}
+                                  onClick={() => handleColorSelect(c)}
+                                  className={`rounded-full border px-3 py-1 text-sm transition-all ${
+                                    isActive
+                                      ? 'border-gray-900 bg-gray-900 text-white'
+                                      : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                                  }`}
+                                >
+                                  {c}
+                                </button>
+                              )
+                            })}
                           </div>
                         </div>
                       )}
 
+                      {/* ── Storage (накопитель) — disabled if not in current color ── */}
                       {storages.length > 0 && (
                         <div>
-                          <p className="mb-2 text-sm text-gray-500">
-                            Память: <span className="font-medium text-gray-900">{selectedVariant?.storage || storages[0]}</span>
-                          </p>
+                          <p className="mb-2.5 text-[13px] text-gray-500">Накопитель</p>
                           <div className="flex flex-wrap gap-2">
-                            {storages.map(s => (
-                              <button
-                                key={s}
-                                onClick={() => selectVariant(selectedVariant?.color ?? undefined, s, selectedVariant?.size ?? undefined)}
-                                className={`rounded-lg border-2 px-4 py-2 text-sm font-medium transition-all ${
-                                  selectedVariant?.storage === s
-                                    ? 'border-yellow-400 bg-yellow-50 text-gray-900'
-                                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
-                                }`}
-                              >
-                                {s}
-                              </button>
-                            ))}
+                            {storages.map(s => {
+                              const isAvailable = availableStorages.includes(s)
+                              const isActive = selectedStorage === s
+                              return (
+                                <button
+                                  key={s}
+                                  disabled={!isAvailable}
+                                  onClick={() => isAvailable && setSelectedStorage(s)}
+                                  className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-all ${
+                                    isActive && isAvailable
+                                      ? 'border-gray-900 bg-gray-900 text-white'
+                                      : isAvailable
+                                        ? 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                                        : 'cursor-not-allowed border-gray-200 bg-white text-gray-300 line-through'
+                                  }`}
+                                >
+                                  {s}
+                                </button>
+                              )
+                            })}
                           </div>
                         </div>
                       )}
 
+                      {/* ── Size / SIM — disabled if not in current color+storage ── */}
                       {sizes.length > 0 && (
                         <div>
-                          <p className="mb-2 text-sm text-gray-500">
-                            Размер: <span className="font-medium text-gray-900">{selectedVariant?.size || sizes[0]}</span>
-                          </p>
+                          <p className="mb-2.5 text-[13px] text-gray-500">Связь</p>
                           <div className="flex flex-wrap gap-2">
-                            {sizes.map(s => (
-                              <button
-                                key={s}
-                                onClick={() => selectVariant(selectedVariant?.color ?? undefined, selectedVariant?.storage ?? undefined, s)}
-                                className={`rounded-lg border-2 px-4 py-2 text-sm font-medium transition-all ${
-                                  selectedVariant?.size === s
-                                    ? 'border-yellow-400 bg-yellow-50 text-gray-900'
-                                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
-                                }`}
-                              >
-                                {s}
-                              </button>
-                            ))}
+                            {sizes.map(s => {
+                              const isAvailable = availableSizes.includes(s)
+                              const isActive = selectedSize === s
+                              return (
+                                <button
+                                  key={s}
+                                  disabled={!isAvailable}
+                                  onClick={() => isAvailable && setSelectedSize(s)}
+                                  className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-all ${
+                                    isActive && isAvailable
+                                      ? 'border-gray-900 bg-gray-900 text-white'
+                                      : isAvailable
+                                        ? 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                                        : 'cursor-not-allowed border-gray-200 bg-white text-gray-300 line-through'
+                                  }`}
+                                >
+                                  {s}
+                                </button>
+                              )
+                            })}
                           </div>
                         </div>
                       )}

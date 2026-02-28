@@ -63,3 +63,17 @@ class ProductVariantUpdate(BaseModel):
     image_url: Optional[str] = Field(None, max_length=500)
     sort_order: Optional[int] = Field(None, ge=0)
     is_active: Optional[bool] = None
+
+
+class VariantMatrixGenerate(BaseModel):
+    """Генерация матрицы вариантов из списков атрибутов.
+
+    Создаёт все комбинации (color × storage × size), пропускает уже
+    существующие. Если один из списков пуст — этот атрибут не участвует.
+    """
+
+    colors: list[str] = Field(default_factory=list, max_length=20)
+    storages: list[str] = Field(default_factory=list, max_length=20)
+    sizes: list[str] = Field(default_factory=list, max_length=20)
+    default_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    default_stock: int = Field(0, ge=0)

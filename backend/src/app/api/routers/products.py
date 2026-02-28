@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
 
 from src.app.api.admin.endpoints import oauth2_scheme
 from src.app.core.logger import get_logger
@@ -26,6 +26,7 @@ from src.app.schemas.product_variant import (
     ProductVariantCreate,
     ProductVariantOut,
     ProductVariantUpdate,
+    VariantMatrixGenerate,
 )
 
 logger = get_logger(__name__)
@@ -44,7 +45,7 @@ def _group_specs(specs: list) -> list[ProductSpecGroupOut]:
     ]
 
 
-def _build_detail(product, images, specs) -> ProductDetailOut:
+def _build_detail(product, images, specs, variants=None) -> ProductDetailOut:
     """Собирает ProductDetailOut из ORM-объектов."""
     return ProductDetailOut(
         **ProductOut.model_validate(product).model_dump(),
@@ -56,6 +57,7 @@ def _build_detail(product, images, specs) -> ProductDetailOut:
             for img in images
         ],
         specs_grouped=_group_specs(specs),
+        variants=[ProductVariantOut.model_validate(v) for v in (variants or [])],
     )
 
 
@@ -84,6 +86,7 @@ async def list_products(
     search: str | None = Query(None, min_length=2, description="Поиск по названию (ILIKE)"),
     min_price: Decimal | None = Query(None, gt=0, description="Минимальная цена"),
     max_price: Decimal | None = Query(None, gt=0, description="Максимальная цена"),
+    condition: str | None = Query(None, pattern="^(new|used)$", description="Фильтр по состоянию: new или used"),
     attrs: str | None = Query(
         None,
         description=(
@@ -143,6 +146,12 @@ async def list_products(
             total = await uow.products.count()
 
     logger.info("products_listed", count=len(items), offset=offset, limit=limit)
+
+    # Post-filter by condition if specified
+    if condition:
+        items = [p for p in items if getattr(p, 'condition', 'new') == condition]
+        total = len(items)
+
     return PaginatedResponse(
         items=items,
         total=total,
@@ -182,7 +191,7 @@ async def get_product(product_id: UUID) -> ProductDetailOut:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Товар с id={product_id} не найден",
             )
-        return _build_detail(product, product.images, product.specs)
+        return _build_detail(product, product.images, product.specs, product.variants)
 
 
 @router.get(
@@ -201,7 +210,7 @@ async def get_product_by_slug(slug: str) -> ProductDetailOut:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Товар со slug='{slug}' не найден",
             )
-        return _build_detail(product, product.images, product.specs)
+        return _build_detail(product, product.images, product.specs, product.variants)
 
 
 # ─────────────────────────────────────────────────────────────────── #
@@ -280,7 +289,7 @@ async def create_product(body: ProductCreate) -> ProductDetailOut:
         attrs_keys=list(product.attributes.keys()) if product.attributes else [],
         specs_count=len(product.specs),
     )
-    return _build_detail(product, product.images, product.specs)
+    return _build_detail(product, product.images, product.specs, product.variants)
 
 
 @router.patch(
@@ -367,7 +376,7 @@ async def update_product(product_id: UUID, body: ProductUpdate) -> ProductDetail
         product = await uow.products.get_with_specs(product_id)
 
     logger.info("product_updated", product_id=str(product_id), slug=product.slug)
-    return _build_detail(product, product.images, product.specs)
+    return _build_detail(product, product.images, product.specs, product.variants)
 
 
 @router.delete(
@@ -624,4 +633,172 @@ async def delete_product_variant(
         await uow.product_variants.session.delete(variant)
         await uow.commit()
     logger.info("variant_deleted", variant_id=str(variant_id))
+
+
+@router.post(
+    "/{product_id}/variants/{variant_id}/image",
+    status_code=status.HTTP_200_OK,
+    summary="Загрузить фото для варианта (цвета) товара",
+    responses={404: {"description": "Вариант не найден"}},
+)
+async def upload_variant_image(
+    product_id: UUID,
+    variant_id: UUID,
+    file: UploadFile = File(..., description="Фото варианта (JPEG/PNG/WebP, до 5 МБ)"),
+    _token: str = Depends(oauth2_scheme),
+) -> ProductVariantOut:
+    """Загружает фото для варианта и обновляет image_url у ВСЕХ вариантов
+    этого товара с таким же цветом (чтобы цвет всегда показывал одно фото)."""
+    async with UnitOfWork() as uow:
+        variant = await uow.product_variants.get_by_id(variant_id)
+        if not variant or variant.product_id != product_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Вариант с id={variant_id} не найден",
+            )
+
+        # Сохраняем файл
+        relative_path, _ = await static_service.save_product_image(file, product_id)
+        public_url = static_service.build_url(relative_path)
+
+        # Обновляем image_url у этого варианта и у всех вариантов того же цвета
+        all_variants = await uow.product_variants.get_by_product(product_id, only_active=False)
+        target_color = variant.color
+        for v in all_variants:
+            if target_color and v.color == target_color:
+                v.image_url = public_url
+            elif not target_color and v.id == variant_id:
+                v.image_url = public_url
+
+        await uow.commit()
+        await uow.product_variants.session.refresh(variant)
+
+    logger.info("variant_image_uploaded", variant_id=str(variant_id), url=public_url)
+    return ProductVariantOut.model_validate(variant)
+
+
+@router.post(
+    "/{product_id}/variants/generate-matrix",
+    response_model=list[ProductVariantOut],
+    status_code=status.HTTP_200_OK,
+    summary="Сгенерировать матрицу вариантов (colors × storages × sizes)",
+    responses={404: {"description": "Товар не найден"}},
+)
+async def generate_variant_matrix(
+    product_id: UUID,
+    body: VariantMatrixGenerate,
+    _token: str = Depends(oauth2_scheme),
+) -> list[ProductVariantOut]:
+    """Создаёт все комбинации из colors × storages × sizes.
+
+    Пропускает комбинации, которые уже существуют (совпадение по
+    color+storage+size). Несуществующие комбинации реактивирует
+    (is_active=True). Возвращает полный список вариантов.
+    """
+    from itertools import product as cartesian
+
+    async with UnitOfWork() as uow:
+        prod = await uow.products.get_by_id(product_id)
+        if not prod:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Товар с id={product_id} не найден",
+            )
+
+        existing = await uow.product_variants.get_by_product(
+            product_id, only_active=False
+        )
+
+        # Build set of existing combos for fast lookup
+        existing_combos: dict[tuple[str | None, str | None, str | None], Any] = {}
+        for v in existing:
+            key = (v.color, v.storage, v.size)
+            existing_combos[key] = v
+
+        # Build axes — if empty, use [None] so product still works
+        ax_colors: list[str | None] = list(body.colors) if body.colors else [None]
+        ax_storages: list[str | None] = list(body.storages) if body.storages else [None]
+        ax_sizes: list[str | None] = list(body.sizes) if body.sizes else [None]
+
+        sort_idx = len(existing)
+        created_count = 0
+
+        for color, storage, size in cartesian(ax_colors, ax_storages, ax_sizes):
+            key = (color, storage, size)
+            if key in existing_combos:
+                # Re-activate if it was hidden
+                v = existing_combos[key]
+                if not v.is_active:
+                    v.is_active = True
+                continue
+
+            # Build auto-name: "Рыжий 256 ГБ SIM+eSIM"
+            name_parts = [p for p in (color, storage, size) if p]
+            auto_name = " / ".join(name_parts) if name_parts else prod.name
+
+            await uow.product_variants.create(
+                product_id=product_id,
+                name=auto_name,
+                color=color,
+                storage=storage,
+                size=size,
+                price=body.default_price,
+                stock_quantity=body.default_stock,
+                sort_order=sort_idx,
+                is_active=True,
+            )
+            sort_idx += 1
+            created_count += 1
+
+        await uow.commit()
+
+        # Return full refreshed list
+        all_variants = await uow.product_variants.get_by_product(
+            product_id, only_active=False
+        )
+
+    logger.info(
+        "variant_matrix_generated",
+        product_id=str(product_id),
+        created=created_count,
+        total=len(all_variants),
+    )
+    return [ProductVariantOut.model_validate(v) for v in all_variants]
+
+
+@router.delete(
+    "/{product_id}/variants",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Удалить варианты товара пакетно",
+    description="Удаляет указанные варианты товара по списку ID, либо все если variant_ids пуст.",
+    responses={404: {"description": "Товар не найден"}},
+    dependencies=[Depends(oauth2_scheme)],
+)
+async def bulk_delete_product_variants(
+    product_id: UUID,
+    variant_ids: list[UUID] | None = Query(None, description="Список ID вариантов для удаления. Если пуст — удалить все."),
+) -> None:
+    async with UnitOfWork() as uow:
+        product = await uow.products.get_by_id(product_id)
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Товар с id={product_id} не найден",
+            )
+        all_variants = await uow.product_variants.get_by_product(
+            product_id, only_active=False
+        )
+        if variant_ids:
+            ids_set = set(variant_ids)
+            to_delete = [v for v in all_variants if v.id in ids_set]
+        else:
+            to_delete = list(all_variants)
+        for v in to_delete:
+            await uow.product_variants.session.delete(v)
+        await uow.commit()
+    logger.info(
+        "variants_bulk_deleted",
+        product_id=str(product_id),
+        deleted_count=len(to_delete),
+    )
 

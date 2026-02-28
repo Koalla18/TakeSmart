@@ -40,6 +40,9 @@ class ProductImage(Base):
     # Размер файла в байтах
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
 
+    # Привязка к цвету варианта (если NULL — общее фото товара)
+    variant_color: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
     # Порядок отображения (0 — главное фото)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_main: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

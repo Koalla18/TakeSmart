@@ -35,17 +35,31 @@ class ProductImageRepository(BaseRepository[ProductImage]):
         )
         return result.scalar_one_or_none()
 
-    async def set_main(self, product_id: UUID, image_id: UUID) -> None:
+    async def set_main(self, product_id: UUID, image_id: UUID, variant_color: str | None = None) -> None:
         """
-        Сбросить флаг is_main у всех изображений товара,
+        Сбросить флаг is_main у изображений того же цвета (или общих),
         затем выставить is_main=True у указанного.
+        Scope: variant_color — сбрасывает is_main только среди фото с тем же variant_color.
         """
-        # Сбрасываем все
-        await self.session.execute(
-            update(ProductImage)
-            .where(ProductImage.product_id == product_id)
-            .values(is_main=False)
-        )
+        # Сбрасываем is_main только среди фото с тем же variant_color
+        if variant_color is not None:
+            await self.session.execute(
+                update(ProductImage)
+                .where(
+                    ProductImage.product_id == product_id,
+                    ProductImage.variant_color == variant_color,
+                )
+                .values(is_main=False)
+            )
+        else:
+            await self.session.execute(
+                update(ProductImage)
+                .where(
+                    ProductImage.product_id == product_id,
+                    ProductImage.variant_color.is_(None),
+                )
+                .values(is_main=False)
+            )
         # Ставим нужное
         await self.session.execute(
             update(ProductImage)
@@ -55,6 +69,17 @@ class ProductImageRepository(BaseRepository[ProductImage]):
             )
             .values(is_main=True)
         )
+
+    async def count_by_color(self, product_id: UUID, variant_color: str) -> int:
+        """Количество изображений для конкретного цвета."""
+        result = await self.session.execute(
+            select(ProductImage)
+            .where(
+                ProductImage.product_id == product_id,
+                ProductImage.variant_color == variant_color,
+            )
+        )
+        return len(result.scalars().all())
 
     async def reorder(self, product_id: UUID, ordered_ids: list[UUID]) -> None:
         """
