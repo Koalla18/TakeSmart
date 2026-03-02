@@ -44,10 +44,14 @@ print('ALLOWED_ORIGINS:', settings.ALLOWED_ORIGINS)
 " 2>&1
 
 echo "🚀 Запускаем TakesMart API..."
+PORT="${PORT:-8000}"
+echo "📡 Порт: $PORT"
 python -u -c "
-import uvicorn, traceback, sys
+import uvicorn, traceback, sys, os
+port = int(os.environ.get('PORT', 8000))
+print(f'Binding to 0.0.0.0:{port}', flush=True)
 try:
-    uvicorn.run('src.app:app', host='0.0.0.0', port=8000, log_level='debug')
+    uvicorn.run('src.app:app', host='0.0.0.0', port=port, log_level='debug')
 except Exception as e:
     print(f'❌ CRASH: {e}', flush=True)
     traceback.print_exc()

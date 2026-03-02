@@ -15,4 +15,6 @@ RUN mkdir -p /app/static/products /app/static/categories /app/static_seed
 
 EXPOSE 8000
 
+ENV PORT=8000
+
 ENTRYPOINT ["sh", "/app/entrypoint.sh"]
