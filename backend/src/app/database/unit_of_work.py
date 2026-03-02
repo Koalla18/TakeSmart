@@ -11,6 +11,7 @@ from src.app.database.repositories.product_repository import ProductRepository
 from src.app.database.repositories.product_image_repository import ProductImageRepository
 from src.app.database.repositories.product_spec_repository import ProductSpecRepository
 from src.app.database.repositories.product_variant_repository import ProductVariantRepository
+from src.app.database.repositories.product_group_repository import ProductGroupRepository
 from src.app.database.repositories.weekly_slide_repository import WeeklySlideRepository
 from src.app.database.repositories.order_repository import OrderRepository, OrderItemRepository
 
@@ -52,6 +53,7 @@ class UnitOfWork:
         self.product_images = ProductImageRepository(self._session)
         self.product_specs = ProductSpecRepository(self._session)
         self.product_variants = ProductVariantRepository(self._session)
+        self.product_groups = ProductGroupRepository(self._session)
         self.weekly_slides = WeeklySlideRepository(self._session)
         self.orders = OrderRepository(self._session)
         self.order_items = OrderItemRepository(self._session)

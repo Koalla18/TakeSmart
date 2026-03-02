@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from src.app.database.models.order import OrderItem
     from src.app.database.models.product_image import ProductImage
     from src.app.database.models.product_variant import ProductVariant
+    from src.app.database.models.product_group import ProductGroup
 
 
 class Product(Base):
@@ -80,6 +81,11 @@ class Product(Base):
         UUID(as_uuid=True), ForeignKey("categories.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
+    # Группа товаров (объединяет карточки одного продукта в разных цветах)
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("product_groups.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
@@ -92,6 +98,7 @@ class Product(Base):
 
     # Связи
     category: Mapped[Optional["Category"]] = relationship("Category", back_populates="products")
+    group: Mapped[Optional["ProductGroup"]] = relationship("ProductGroup", back_populates="products")
     order_items: Mapped[list["OrderItem"]] = relationship("OrderItem", back_populates="product")
     images: Mapped[list["ProductImage"]] = relationship(
         "ProductImage",

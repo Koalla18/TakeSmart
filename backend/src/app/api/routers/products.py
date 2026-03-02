@@ -28,6 +28,13 @@ from src.app.schemas.product_variant import (
     ProductVariantUpdate,
     VariantMatrixGenerate,
 )
+from src.app.schemas.product_group import (
+    ProductGroupCreate,
+    ProductGroupDetailOut,
+    ProductGroupOut,
+    ProductGroupSiblingOut,
+    ProductGroupUpdate,
+)
 
 logger = get_logger(__name__)
 
@@ -45,7 +52,7 @@ def _group_specs(specs: list) -> list[ProductSpecGroupOut]:
     ]
 
 
-def _build_detail(product, images, specs, variants=None) -> ProductDetailOut:
+def _build_detail(product, images, specs, variants=None, siblings=None) -> ProductDetailOut:
     """Собирает ProductDetailOut из ORM-объектов."""
     return ProductDetailOut(
         **ProductOut.model_validate(product).model_dump(),
@@ -58,6 +65,7 @@ def _build_detail(product, images, specs, variants=None) -> ProductDetailOut:
         ],
         specs_grouped=_group_specs(specs),
         variants=[ProductVariantOut.model_validate(v) for v in (variants or [])],
+        siblings=siblings or [],
     )
 
 
@@ -191,7 +199,15 @@ async def get_product(product_id: UUID) -> ProductDetailOut:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Товар с id={product_id} не найден",
             )
-        return _build_detail(product, product.images, product.specs, product.variants)
+        siblings = []
+        if product.group_id:
+            sibling_products = await uow.product_groups.get_siblings(product.group_id)
+            siblings = [
+                ProductGroupSiblingOut.from_product(p)
+                for p in sibling_products
+                if p.id != product.id
+            ]
+        return _build_detail(product, product.images, product.specs, product.variants, siblings=siblings)
 
 
 @router.get(
@@ -210,7 +226,15 @@ async def get_product_by_slug(slug: str) -> ProductDetailOut:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Товар со slug='{slug}' не найден",
             )
-        return _build_detail(product, product.images, product.specs, product.variants)
+        siblings = []
+        if product.group_id:
+            sibling_products = await uow.product_groups.get_siblings(product.group_id)
+            siblings = [
+                ProductGroupSiblingOut.from_product(p)
+                for p in sibling_products
+                if p.id != product.id
+            ]
+        return _build_detail(product, product.images, product.specs, product.variants, siblings=siblings)
 
 
 # ─────────────────────────────────────────────────────────────────── #
@@ -349,6 +373,10 @@ async def update_product(product_id: UUID, body: ProductUpdate) -> ProductDetail
             )
 
         update_data = body.model_dump(exclude_none=True, exclude={"specs"})
+
+        # Разрешаем явно обнулить group_id (удалить из группы)
+        if "group_id" in body.model_fields_set and body.group_id is None:
+            update_data["group_id"] = None
 
         # Если меняется name — пересчитываем slug автоматически
         if body.name:

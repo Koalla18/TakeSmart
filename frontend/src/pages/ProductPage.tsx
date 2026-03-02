@@ -245,6 +245,18 @@ interface ApiProduct {
   warranty_months: number | null
   created_at: string
   updated_at: string
+  siblings?: ApiSibling[]
+}
+
+interface ApiSibling {
+  id: string
+  name: string
+  slug: string
+  color: string | null
+  main_image_url: string | null
+  price: number
+  discount_price: number | null
+  is_active: boolean
 }
 
 interface ApiVariant {
@@ -284,6 +296,7 @@ export function ProductPage() {
   const [apiProduct, setApiProduct] = useState<ApiProduct | null>(null)
   const [loading, setLoading] = useState(!localProduct)
   const [quantity, setQuantity] = useState(1)
+  const [stockWarning, setStockWarning] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'description' | 'specs' | 'reviews'>('description')
   const [activeImageIndex, setActiveImageIndex] = useState(0)
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -319,6 +332,16 @@ export function ProductPage() {
   
   // Load from API — always try slug first (reliable), then fallback to numeric id
   useEffect(() => {
+    // Reset state when navigating between sibling products
+    setActiveImageIndex(0)
+    setQuantity(1)
+    setStockWarning(null)
+    setVariants([])
+    setSelectedColor(null)
+    setSelectedStorage(null)
+    setSelectedSize(null)
+    setLoading(true)
+
     async function loadProduct() {
       try {
         // Try by slug first — this is the reliable way
@@ -429,6 +452,7 @@ export function ProductPage() {
         price: Number(effectivePrice),
         oldPrice: effectiveOldPrice != null ? Number(effectiveOldPrice) : undefined,
         inStock: effectiveStock > 0,
+        stockQuantity: effectiveStock,
         image: effectiveImage || '📦',
         description: apiProduct!.description || '',
         specs: [
@@ -631,6 +655,95 @@ export function ProductPage() {
                   )}
                 </div>
 
+                {/* ── Sibling color navigation (group-based) ── */}
+                {apiProduct.siblings && apiProduct.siblings.length > 0 && (() => {
+                  const allCards = [
+                    { id: apiProduct.id, name: apiProduct.name, slug: apiProduct.slug, color: apiProduct.color, main_image_url: apiProduct.main_image_url, price: apiProduct.price, discount_price: apiProduct.discount_price, is_active: true },
+                    ...apiProduct.siblings,
+                  ]
+
+                  const cssColorMap: Record<string, string> = {
+                    'черный': '#1c1c1e', 'black': '#1c1c1e', 'чёрный': '#1c1c1e',
+                    'белый': '#f5f5f7', 'white': '#f5f5f7',
+                    'серый': '#8e8e93', 'gray': '#8e8e93', 'grey': '#8e8e93', 'серебро': '#c7c7cc',
+                    'синий': '#0071e3', 'blue': '#0071e3',
+                    'голубой': '#5ac8fa', 'cyan': '#5ac8fa',
+                    'красный': '#ff3b30', 'red': '#ff3b30',
+                    'зеленый': '#34c759', 'зелёный': '#34c759', 'green': '#34c759',
+                    'желтый': '#ffd60a', 'жёлтый': '#ffd60a', 'yellow': '#ffd60a',
+                    'оранжевый': '#ff9f0a', 'orange': '#ff9f0a', 'рыжий': '#e8651a',
+                    'розовый': '#ff2d55', 'pink': '#ff2d55',
+                    'фиолетовый': '#bf5af2', 'purple': '#bf5af2', 'лаванда': '#c4a4e8', 'лавандовый': '#c4a4e8',
+                    'золотой': '#f5c518', 'gold': '#f5c518', 'золото': '#f5c518',
+                    'титан': '#8e8e93', 'titan': '#8e8e93', 'titanium': '#8e8e93',
+                    'natural': '#e8d5b7', 'натуральный': '#e8d5b7',
+                    'desert': '#c8a882', 'пустыня': '#c8a882',
+                    'космос': '#1c1c2e', 'starlight': '#f5f5ea',
+                  }
+                  const getColorSwatch = (colorName: string): string | null => {
+                    const lower = colorName.toLowerCase()
+                    for (const [key, val] of Object.entries(cssColorMap)) {
+                      if (lower.includes(key)) return val
+                    }
+                    if (/^#[0-9a-f]{3,8}$/i.test(colorName)) return colorName
+                    return null
+                  }
+
+                  return (
+                    <div className="mb-5">
+                      <p className="mb-2.5 text-[13px] text-gray-500">
+                        Цвет: <span className="font-semibold text-gray-900">{apiProduct.color || apiProduct.name}</span>
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {allCards.map(card => {
+                          const label = card.color || card.name
+                          const swatch = card.color ? getColorSwatch(card.color) : null
+                          const isCurrent = card.id === apiProduct.id
+                          const isLight = swatch
+                            ? parseInt(swatch.replace('#','').slice(0,2), 16) > 200
+                            : false
+
+                          if (swatch) {
+                            return isCurrent ? (
+                              <div
+                                key={card.id}
+                                title={label}
+                                style={{ backgroundColor: swatch }}
+                                className={`h-7 w-7 flex-shrink-0 rounded-full ring-[3px] ring-offset-[3px] ring-gray-800 scale-110 ${isLight ? 'ring-1 ring-gray-300' : ''}`}
+                              />
+                            ) : (
+                              <button
+                                key={card.id}
+                                title={label}
+                                onClick={() => navigate(`/product/${card.slug}`)}
+                                style={{ backgroundColor: swatch }}
+                                className={`h-7 w-7 flex-shrink-0 rounded-full ring-1 ring-transparent hover:scale-105 hover:ring-gray-300 transition-all cursor-pointer ${isLight ? 'ring-1 ring-gray-300' : ''}`}
+                              />
+                            )
+                          }
+
+                          return isCurrent ? (
+                            <span
+                              key={card.id}
+                              className="rounded-full border border-gray-900 bg-gray-900 text-white px-3 py-1 text-sm"
+                            >
+                              {label}
+                            </span>
+                          ) : (
+                            <button
+                              key={card.id}
+                              onClick={() => navigate(`/product/${card.slug}`)}
+                              className="rounded-full border border-gray-300 bg-white text-gray-700 px-3 py-1 text-sm transition-all hover:border-gray-400 cursor-pointer"
+                            >
+                              {label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })()}
+
                 {/* Variant selector */}
                 {variants.length > 0 && (() => {
                   const colors = [...new Set(variants.filter(v => v.color).map(v => v.color!))]
@@ -652,6 +765,8 @@ export function ProductPage() {
                   // Click color → auto-fix storage/size if they become incompatible
                   const handleColorSelect = (color: string) => {
                     setSelectedColor(color)
+                    setStockWarning(null)
+                    setQuantity(1)
                     setActiveImageIndex(0) // Reset to first image when color changes
                     const storagesForColor = [...new Set(
                       variants.filter(v => v.color === color && v.storage).map(v => v.storage!)
@@ -697,8 +812,8 @@ export function ProductPage() {
 
                   return (
                     <div className="mb-5 space-y-4">
-                      {/* ── Colors ── */}
-                      {colors.length > 0 && (
+                      {/* ── Colors (hide when siblings handle color switching) ── */}
+                      {colors.length > 0 && !(apiProduct.siblings && apiProduct.siblings.length > 0) && (
                         <div>
                           <p className="mb-2.5 text-[13px] text-gray-500">
                             Цвет: <span className="font-semibold text-gray-900">{selectedColor || colors[0]}</span>
@@ -752,7 +867,7 @@ export function ProductPage() {
                                 <button
                                   key={s}
                                   disabled={!isAvailable}
-                                  onClick={() => isAvailable && setSelectedStorage(s)}
+                                  onClick={() => isAvailable && (setSelectedStorage(s), setStockWarning(null), setQuantity(1))}
                                   className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-all ${
                                     isActive && isAvailable
                                       ? 'border-gray-900 bg-gray-900 text-white'
@@ -781,7 +896,7 @@ export function ProductPage() {
                                 <button
                                   key={s}
                                   disabled={!isAvailable}
-                                  onClick={() => isAvailable && setSelectedSize(s)}
+                                  onClick={() => isAvailable && (setSelectedSize(s), setStockWarning(null), setQuantity(1))}
                                   className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-all ${
                                     isActive && isAvailable
                                       ? 'border-gray-900 bg-gray-900 text-white'
@@ -832,7 +947,7 @@ export function ProductPage() {
                   <div className="flex items-center gap-3">
                     <div className="flex items-center rounded-xl border border-gray-200 bg-white">
                       <button
-                        onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                        onClick={() => { setStockWarning(null); setQuantity(q => Math.max(1, q - 1)) }}
                         className="flex h-12 w-12 items-center justify-center text-xl font-medium text-gray-500 transition-colors hover:text-gray-900"
                         disabled={quantity <= 1}
                       >
@@ -840,7 +955,14 @@ export function ProductPage() {
                       </button>
                       <span className="w-8 text-center text-lg font-semibold">{quantity}</span>
                       <button
-                        onClick={() => setQuantity(q => q + 1)}
+                        onClick={() => {
+                          if (quantity >= effectiveStock) {
+                            setStockWarning(`К сожалению, товар закончился. Вы можете заказать только ${effectiveStock} шт. или выбрать другой товар.`)
+                          } else {
+                            setStockWarning(null)
+                            setQuantity(q => q + 1)
+                          }
+                        }}
                         className="flex h-12 w-12 items-center justify-center text-xl font-medium text-gray-500 transition-colors hover:text-gray-900"
                       >
                         +
@@ -848,6 +970,11 @@ export function ProductPage() {
                     </div>
                     <span className="text-sm text-gray-400">шт.</span>
                   </div>
+                  {stockWarning && (
+                    <div className="rounded-lg bg-orange-50 border border-orange-200 px-4 py-3 text-sm text-orange-800">
+                      {stockWarning}
+                    </div>
+                  )}
 
                   {/* Buy buttons — stack on mobile, row on sm+ */}
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1133,7 +1260,7 @@ export function ProductPage() {
                 {/* Quantity */}
                 <div className="flex items-center gap-3 rounded-xl border border-gray-200 p-2">
                   <button
-                    onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                    onClick={() => { setStockWarning(null); setQuantity(q => Math.max(1, q - 1)) }}
                     className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 text-xl font-semibold text-gray-600 transition-colors hover:bg-gray-200"
                     disabled={quantity <= 1}
                   >
@@ -1141,12 +1268,25 @@ export function ProductPage() {
                   </button>
                   <span className="w-12 text-center text-lg font-semibold">{quantity}</span>
                   <button
-                    onClick={() => setQuantity(q => q + 1)}
+                    onClick={() => {
+                      const maxStock = product!.stockQuantity ?? 999
+                      if (quantity >= maxStock) {
+                        setStockWarning(`К сожалению, товар закончился. Вы можете заказать только ${maxStock} шт. или выбрать другой товар.`)
+                      } else {
+                        setStockWarning(null)
+                        setQuantity(q => q + 1)
+                      }
+                    }}
                     className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 text-xl font-semibold text-gray-600 transition-colors hover:bg-gray-200"
                   >
                     +
                   </button>
                 </div>
+                {stockWarning && (
+                  <div className="rounded-lg bg-orange-50 border border-orange-200 px-4 py-3 text-sm text-orange-800">
+                    {stockWarning}
+                  </div>
+                )}
                 
                 {/* Order button */}
                 <Button 

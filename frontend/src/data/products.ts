@@ -9,6 +9,7 @@ export interface Product {
   oldPrice?: number
   badge?: 'hit' | 'new' | 'sale'
   inStock: boolean
+  stockQuantity?: number
   image: string
   description: string
   specs: { label: string; value: string }[]
@@ -479,6 +480,7 @@ export function mapApiProduct(
     oldPrice: p.discount_price != null ? Number(p.price) : undefined,
     badge: p.is_featured ? 'hit' : undefined,
     inStock: p.stock_quantity > 0,
+    stockQuantity: p.stock_quantity,
     image: p.main_image_url || '',
     description: p.description || p.short_description || '',
     specs: [],

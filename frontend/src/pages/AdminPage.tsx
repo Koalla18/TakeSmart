@@ -70,6 +70,7 @@ interface Product {
   is_active: boolean
   is_featured: boolean
   category_id: string | null
+  group_id: string | null
   created_at: string
   updated_at: string
 }
@@ -595,6 +596,7 @@ export function AdminPage() {
             onDelete={deleteProduct}
             onToggleFeatured={toggleFeatured}
             onToggleActive={toggleActive}
+            onRefresh={loadProducts}
           />
         )}
 
@@ -612,6 +614,7 @@ export function AdminPage() {
             onDelete={deleteProduct}
             onToggleFeatured={toggleFeatured}
             onToggleActive={toggleActive}
+            onRefresh={loadProducts}
             isUsedMode
           />
         )}
@@ -799,7 +802,7 @@ export function AdminPage() {
 
 function ProductsSection({
   products, categories, categoryFilter, setCategoryFilter, searchQuery, setSearchQuery,
-  onEdit, onNew, onDelete, onToggleFeatured, onToggleActive, isUsedMode
+  onEdit, onNew, onDelete, onToggleFeatured, onToggleActive, isUsedMode, onRefresh
 }: {
   products: Product[]
   categories: Category[]
@@ -813,7 +816,80 @@ function ProductsSection({
   onToggleFeatured: (p: Product) => void
   onToggleActive: (p: Product) => void
   isUsedMode?: boolean
+  onRefresh?: () => void
 }) {
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [merging, setMerging] = useState(false)
+
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  const toggleAll = () => {
+    if (selected.size === products.length) setSelected(new Set())
+    else setSelected(new Set(products.map(p => p.id)))
+  }
+
+  const mergeSelected = async () => {
+    if (selected.size < 2) return
+    setMerging(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/product-groups/merge`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_ids: [...selected] }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        alert(`Ошибка: ${err.detail || res.status}`)
+        return
+      }
+      setSelected(new Set())
+      onRefresh?.()
+    } catch { alert('Ошибка при объединении') }
+    finally { setMerging(false) }
+  }
+
+  const unlinkSelected = async () => {
+    if (selected.size === 0) return
+    setMerging(true)
+    try {
+      await fetch(`${API_BASE_URL}/api/product-groups/unlink`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_ids: [...selected] }),
+      })
+      setSelected(new Set())
+      onRefresh?.()
+    } catch { alert('Ошибка при разъединении') }
+    finally { setMerging(false) }
+  }
+
+  // Группируем товары по group_id для визуального отображения
+  const groupColors: Record<string, string> = {}
+  const groupMembers: Record<string, string[]> = {}
+  products.forEach(p => {
+    if (p.group_id) {
+      if (!groupMembers[p.group_id]) groupMembers[p.group_id] = []
+      groupMembers[p.group_id].push(p.color || p.name)
+    }
+  })
+  const palette = ['bg-blue-500/20 text-blue-400', 'bg-purple-500/20 text-purple-400', 'bg-emerald-500/20 text-emerald-400', 'bg-orange-500/20 text-orange-400', 'bg-pink-500/20 text-pink-400', 'bg-cyan-500/20 text-cyan-400']
+  let colorIdx = 0
+  products.forEach(p => {
+    if (p.group_id && !groupColors[p.group_id]) {
+      groupColors[p.group_id] = palette[colorIdx % palette.length]
+      colorIdx++
+    }
+  })
+
+  const anySelected = selected.size > 0
+  const anySelectedHasGroup = [...selected].some(id => products.find(p => p.id === id)?.group_id)
+
   return (
     <>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
@@ -848,6 +924,37 @@ function ProductsSection({
         </button>
       </div>
 
+      {/* ── Тулбар выбранных товаров ── */}
+      {anySelected && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl bg-white/10 px-5 py-3 border border-white/10">
+          <span className="text-sm text-slate-300">Выбрано: <b className="text-white">{selected.size}</b></span>
+          {selected.size >= 2 && (
+            <button
+              onClick={mergeSelected}
+              disabled={merging}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-40"
+            >
+              🔗 Объединить в группу
+            </button>
+          )}
+          {anySelectedHasGroup && (
+            <button
+              onClick={unlinkSelected}
+              disabled={merging}
+              className="rounded-lg bg-red-600/30 px-4 py-2 text-sm font-semibold text-red-400 hover:bg-red-600/50 disabled:opacity-40"
+            >
+              ✂ Убрать из группы
+            </button>
+          )}
+          <button
+            onClick={() => setSelected(new Set())}
+            className="ml-auto rounded-lg bg-white/5 px-3 py-2 text-sm text-slate-400 hover:text-white hover:bg-white/10"
+          >
+            Снять выделение
+          </button>
+        </div>
+      )}
+
       {products.length === 0 ? (
         <div className="rounded-2xl bg-white/5 p-16 text-center">
           <div className="text-5xl mb-4">{isUsedMode ? '♻️' : '📦'}</div>
@@ -859,6 +966,14 @@ function ProductsSection({
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/10 text-left text-sm text-slate-400">
+                <th className="p-4 w-10">
+                  <input
+                    type="checkbox"
+                    checked={selected.size === products.length && products.length > 0}
+                    onChange={toggleAll}
+                    className="h-4 w-4 rounded accent-yellow-400"
+                  />
+                </th>
                 <th className="p-4">Товар</th>
                 <th className="p-4">Категория</th>
                 <th className="p-4">Цена</th>
@@ -869,8 +984,18 @@ function ProductsSection({
             <tbody>
               {products.map(product => {
                 const imgUrl = getImageUrl(product.main_image_url)
+                const isChecked = selected.has(product.id)
+                const gColor = product.group_id ? groupColors[product.group_id] : null
                 return (
-                <tr key={product.id} className="border-b border-white/5 hover:bg-white/5">
+                <tr key={product.id} className={`border-b border-white/5 hover:bg-white/5 ${isChecked ? 'bg-white/[0.03]' : ''}`}>
+                  <td className="p-4">
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => toggleSelect(product.id)}
+                      className="h-4 w-4 rounded accent-yellow-400"
+                    />
+                  </td>
                   <td className="p-4">
                     <div className="flex items-center gap-3">
                       {imgUrl ? (
@@ -884,7 +1009,17 @@ function ProductsSection({
                           {product.is_featured && <span className="text-yellow-400" title="Хит продаж">⭐</span>}
                           {!product.is_active && <span className="text-red-400 text-xs">(скрыт)</span>}
                         </div>
-                        <div className="text-sm text-slate-400">{product.brand || product.sku || '—'}</div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-sm text-slate-400">{product.brand || product.sku || '—'}</span>
+                          {gColor && product.group_id && (() => {
+                            const siblings = groupMembers[product.group_id] || []
+                            return (
+                              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${gColor}`} title={`Группа: ${siblings.join(', ')}`}>
+                                🔗 {siblings.length} {siblings.length === 1 ? 'товар' : siblings.length < 5 ? 'товара' : 'товаров'}
+                              </span>
+                            )
+                          })()}
+                        </div>
                       </div>
                     </div>
                   </td>
@@ -1141,49 +1276,38 @@ interface VariantAxis {
   field: 'color' | 'storage' | 'size'
   label: string
   placeholder: string
-  hasPhoto?: boolean // only color axis has photos
 }
 
 const CATEGORY_AXES: Record<string, VariantAxis[]> = {
   smartphones: [
-    { field: 'color', label: 'Цвет', placeholder: 'Чёрный, Рыжий, Белый…', hasPhoto: true },
     { field: 'storage', label: 'Память', placeholder: '256 ГБ, 512 ГБ, 1 ТБ…' },
     { field: 'size', label: 'SIM', placeholder: 'SIM + eSIM, Только SIM…' },
   ],
   tablets: [
-    { field: 'color', label: 'Цвет', placeholder: 'Space Gray, Silver…', hasPhoto: true },
     { field: 'storage', label: 'Память', placeholder: '128 ГБ, 256 ГБ, 512 ГБ…' },
     { field: 'size', label: 'Связь', placeholder: 'WiFi, WiFi + Cellular…' },
   ],
   laptops: [
-    { field: 'color', label: 'Цвет', placeholder: 'Space Black, Silver…', hasPhoto: true },
     { field: 'storage', label: 'Конфигурация', placeholder: '16/512 ГБ, 32/1 ТБ…' },
     { field: 'size', label: 'Диагональ', placeholder: '14", 16"…' },
   ],
   watches: [
-    { field: 'color', label: 'Цвет / корпус', placeholder: 'Чёрный титан, Серебро…', hasPhoto: true },
     { field: 'size', label: 'Размер', placeholder: '42 мм, 46 мм…' },
   ],
-  headphones: [
-    { field: 'color', label: 'Цвет', placeholder: 'Белый, Чёрный, Голубой…', hasPhoto: true },
-  ],
+  headphones: [],
   tv: [
-    { field: 'color', label: 'Цвет', placeholder: 'Чёрный, Серебро…', hasPhoto: true },
     { field: 'size', label: 'Диагональ', placeholder: '55", 65", 75"…' },
   ],
   gaming: [
-    { field: 'color', label: 'Цвет / версия', placeholder: 'Белый, Чёрный…', hasPhoto: true },
     { field: 'storage', label: 'Комплектация', placeholder: 'Digital, Disc…' },
   ],
   accessories: [
-    { field: 'color', label: 'Цвет', placeholder: 'Чёрный, Белый…', hasPhoto: true },
     { field: 'size', label: 'Размер / тип', placeholder: 'S, M, L…' },
   ],
 }
 
-// Fallback: all 3 axes for unknown categories
+// Fallback: generic axes for unknown categories
 const DEFAULT_AXES: VariantAxis[] = [
-  { field: 'color', label: 'Цвет', placeholder: 'Чёрный, Белый…', hasPhoto: true },
   { field: 'storage', label: 'Вариант 1', placeholder: 'Значение…' },
   { field: 'size', label: 'Вариант 2', placeholder: 'Значение…' },
 ]
@@ -1223,6 +1347,8 @@ function ProductModal({
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [savedProductId, setSavedProductId] = useState<string | null>(product?.id || null)
+
+
 
   // ─── Images state ─────────────────────────────────────────────────────────
   const [images, setImages] = useState<ImageRecord[]>([])
@@ -1387,17 +1513,11 @@ function ProductModal({
   const [variants, setVariants] = useState<LocalVariant[]>([])
   const [, setVariantsLoaded] = useState(false)
   // Attribute constructor
-  const [attrColors, setAttrColors] = useState<string[]>([])
   const [attrStorages, setAttrStorages] = useState<string[]>([])
   const [attrSizes, setAttrSizes] = useState<string[]>([])
-  const [newColorInput, setNewColorInput] = useState('')
   const [newStorageInput, setNewStorageInput] = useState('')
   const [newSizeInput, setNewSizeInput] = useState('')
-  // Photo upload for variant colour (photos still save immediately since they're files)
-  const [uploadingPhoto, setUploadingPhoto] = useState(false)
-  const [colorPhotoTarget, setColorPhotoTarget] = useState<string | null>(null)
-  const colorPhotoInputRef = useRef<HTMLInputElement>(null)
-  const colorPhotoTargetRef = useRef<string | null>(null) // ref to avoid closure stale state bug
+
   // Inline edit for single variant
   const [editingVariantId, setEditingVariantId] = useState<string | null>(null)
   const [editPrice, setEditPrice] = useState('')
@@ -1415,11 +1535,6 @@ function ProductModal({
 
   const syncAttrsFromVariants = (vs: LocalVariant[]) => {
     const activeVs = vs.filter(v => !v._isDeleted)
-    const fromColors = [...new Set(activeVs.filter(v => v.color).map(v => v.color!))]
-    if (color.trim() && !fromColors.includes(color.trim())) {
-      fromColors.unshift(color.trim())
-    }
-    setAttrColors(fromColors)
     setAttrStorages([...new Set(activeVs.filter(v => v.storage).map(v => v.storage!))])
     setAttrSizes([...new Set(activeVs.filter(v => v.size).map(v => v.size!))])
   }
@@ -1451,44 +1566,41 @@ function ProductModal({
 
   // Generate matrix LOCALLY — no API call until Save
   const generateMatrix = () => {
-    if (attrColors.length === 0 && attrStorages.length === 0 && attrSizes.length === 0) return
+    if (attrStorages.length === 0 && attrSizes.length === 0) return
 
-    const axColors: (string | null)[] = attrColors.length > 0 ? attrColors : [null]
     const axStorages: (string | null)[] = attrStorages.length > 0 ? attrStorages : [null]
     const axSizes: (string | null)[] = attrSizes.length > 0 ? attrSizes : [null]
 
     // Build existing combos
     const existingCombos = new Set(
-      variants.filter(v => !v._isDeleted).map(v => `${v.color || ''}|${v.storage || ''}|${v.size || ''}`)
+      variants.filter(v => !v._isDeleted).map(v => `${v.storage || ''}|${v.size || ''}`)
     )
 
     let sortIdx = variants.length
     const newVars: LocalVariant[] = []
 
-    for (const clr of axColors) {
-      for (const stor of axStorages) {
-        for (const sz of axSizes) {
-          const key = `${clr || ''}|${stor || ''}|${sz || ''}`
-          if (existingCombos.has(key)) continue
+    for (const stor of axStorages) {
+      for (const sz of axSizes) {
+        const key = `${stor || ''}|${sz || ''}`
+        if (existingCombos.has(key)) continue
 
-          const nameParts = [clr, stor, sz].filter(Boolean) as string[]
-          const autoName = nameParts.length > 0 ? nameParts.join(' / ') : name
+        const nameParts = [stor, sz].filter(Boolean) as string[]
+        const autoName = nameParts.length > 0 ? nameParts.join(' / ') : name
 
-          newVars.push({
-            id: `temp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            name: autoName,
-            sku: null,
-            price: null,
-            discount_price: null,
-            stock_quantity: 0,
-            color: clr,
-            storage: stor,
-            size: sz,
-            sort_order: sortIdx++,
-            is_active: true,
-            _isNew: true,
-          })
-        }
+        newVars.push({
+          id: `temp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          name: autoName,
+          sku: null,
+          price: null,
+          discount_price: null,
+          stock_quantity: 0,
+          color: null,
+          storage: stor,
+          size: sz,
+          sort_order: sortIdx++,
+          is_active: true,
+          _isNew: true,
+        })
       }
     }
 
@@ -1496,81 +1608,6 @@ function ProductModal({
       setVariants(prev => [...prev, ...newVars])
       setVariantsDirty(true)
     }
-  }
-
-  // Upload photo for a colour — photos save immediately (file upload)
-  const uploadColorPhoto = async (colorName: string, files: FileList | File[]) => {
-    if (!savedProductId) return
-    setUploadingPhoto(true)
-    setColorPhotoTarget(colorName)
-    try {
-      for (const file of Array.from(files)) {
-        const fd = new FormData()
-        fd.append('file', file)
-        fd.append('variant_color', colorName)
-        await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images`, {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: fd,
-        })
-      }
-      await loadImages(savedProductId)
-    } finally {
-      setUploadingPhoto(false)
-      setColorPhotoTarget(null)
-    }
-  }
-
-  // Delete color-specific image (immediate — it's a file)
-  const deleteColorImage = async (imageId: string) => {
-    if (!savedProductId) return
-    await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images/${imageId}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders(),
-    })
-    await loadImages(savedProductId)
-    onRefresh()
-  }
-
-  // Set main photo for a specific color
-  const setColorMainPhoto = async (imageId: string) => {
-    if (!savedProductId) return
-    await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images/${imageId}/set-main`, {
-      method: 'PATCH',
-      headers: getAuthHeaders(),
-    })
-    await loadImages(savedProductId)
-    onRefresh()
-  }
-
-  // Move image within its color group (reorder only images of same color)
-  const moveColorImage = async (colorName: string, imgIndex: number, dir: -1 | 1) => {
-    if (!savedProductId) return
-    // Get only images for this color, sorted by sort_order
-    const colorImgs = images
-      .filter(img => img.variant_color === colorName)
-      .sort((a, b) => a.sort_order - b.sort_order)
-    const target = imgIndex + dir
-    if (target < 0 || target >= colorImgs.length) return
-    // Swap
-    const newOrder = [...colorImgs]
-    ;[newOrder[imgIndex], newOrder[target]] = [newOrder[target], newOrder[imgIndex]]
-    // Update state immediately for responsive feel
-    const newImages = images.map(img => {
-      const posInNew = newOrder.findIndex(ni => ni.id === img.id)
-      if (posInNew !== -1) return { ...img, sort_order: posInNew }
-      return img
-    })
-    setImages(newImages)
-    // Send reorder to backend with just this color's IDs
-    try {
-      await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images/reorder`, {
-        method: 'PATCH',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ordered_ids: newOrder.map(i => i.id) }),
-      })
-      await loadImages(savedProductId)
-    } catch {}
   }
 
   // LOCAL inline save: update variant in local state only
@@ -1800,6 +1837,19 @@ function ProductModal({
             </div>
           </div>
 
+          {/* Color */}
+          <div>
+            <label className="mb-1 block text-sm text-slate-400">🎨 Цвет товара</label>
+            <input
+              type="text"
+              value={color}
+              onChange={e => setColor(e.target.value)}
+              placeholder="Чёрный титан, Белый, Голубой…"
+              className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
+            />
+            <p className="mt-1 text-xs text-slate-500">Цвет для карточки. Товары разных цветов объединяйте через галочки в списке.</p>
+          </div>
+
           {/* Price + Discount + Stock */}
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
@@ -1841,15 +1891,11 @@ function ProductModal({
             </div>
           </div>
 
-          {/* SKU + Color + Warranty */}
-          <div className="grid gap-4 sm:grid-cols-3">
+          {/* SKU + Warranty */}
+          <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm text-slate-400">Артикул (SKU)</label>
               <input type="text" value={sku} onChange={e => setSku(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none" />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm text-slate-400">Цвет</label>
-              <input type="text" value={color} onChange={e => setColor(e.target.value)} placeholder="Чёрный титан" className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none" />
             </div>
             <div>
               <label className="mb-1 block text-sm text-slate-400">Гарантия (мес.)</label>
@@ -1911,24 +1957,13 @@ function ProductModal({
           {/* Error */}
           {saveError && <div className="rounded-xl bg-red-900/40 border border-red-500/40 p-3 text-sm text-red-300">{saveError}</div>}
 
-          {/* ── PHOTOS — generic (only when NO color variants) ── */}
+          {/* ── PHOTOS ── */}
           {savedProductId && (() => {
-            // Determine if this category has color axis — if yes, photos are managed per-color below
-            const selectedCatForPhotos = categories.find(c => c.id === categoryId)
-            const catSlugForPhotos = selectedCatForPhotos?.slug || ''
-            const axesForPhotos = CATEGORY_AXES[catSlugForPhotos] || DEFAULT_AXES
-            const categoryHasColors = axesForPhotos.some(a => a.field === 'color')
-            // If category has colors AND colors have been added, don't show generic section
-            if (categoryHasColors && attrColors.length > 0) return null
-            
-            // Filter to only show generic (non-color) images
-            const genericImages = images.filter(img => !img.variant_color)
-            
             return (
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <label className="text-sm text-slate-400">📷 Фото товара {genericImages.length > 0 ? `(${genericImages.length})` : ''}</label>
-                {genericImages.length > 0 && <span className="text-xs text-slate-500">Нажмите на фото чтобы выбрать обложку</span>}
+                <label className="text-sm text-slate-400">📷 Фото товара {images.length > 0 ? `(${images.length})` : ''}</label>
+                {images.length > 0 && <span className="text-xs text-slate-500">Нажмите на фото чтобы выбрать обложку</span>}
               </div>
 
               {/* Upload dropzone */}
@@ -1945,9 +1980,9 @@ function ProductModal({
               {/* Photo grid */}
               {loadingImages ? (
                 <div className="text-center text-sm text-slate-500">Загружаю…</div>
-              ) : genericImages.length > 0 ? (
+              ) : images.length > 0 ? (
                 <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
-                  {genericImages.map((img, idx) => {
+                  {images.map((img, idx) => {
                     const src = img.url.startsWith('/') ? `${API_BASE_URL}${img.url}` : img.url
                     return (
                       <div
@@ -1980,7 +2015,7 @@ function ProductModal({
                           <button
                             type="button"
                             onClick={e => { e.stopPropagation(); moveImage(idx, 1) }}
-                            disabled={idx === genericImages.length - 1}
+                            disabled={idx === images.length - 1}
                             className="flex-1 rounded text-xs text-white disabled:opacity-30 hover:text-yellow-300"
                           >→</button>
                         </div>
@@ -2011,39 +2046,14 @@ function ProductModal({
             const selectedCat = categories.find(c => c.id === categoryId)
             const catSlug = selectedCat?.slug || ''
             const axes = CATEGORY_AXES[catSlug] || DEFAULT_AXES
-            const hasColorAxis = axes.some(a => a.field === 'color')
             const hasStorageAxis = axes.some(a => a.field === 'storage')
             const hasSizeAxis = axes.some(a => a.field === 'size')
 
-            // Axis config lookup helpers
-            const colorAxis = axes.find(a => a.field === 'color')
-
-            // ─── Swatch helper ───
-            const swatchColor = (name: string | null) => {
-              if (!name) return null
-              const map: Record<string, string> = {
-                'черный': '#1c1c1e', 'чёрный': '#1c1c1e', 'black': '#1c1c1e',
-                'белый': '#f5f5f7', 'white': '#f5f5f7',
-                'серый': '#8e8e93', 'gray': '#8e8e93', 'серебристый': '#c7c7cc', 'серебро': '#c7c7cc',
-                'синий': '#0071e3', 'blue': '#0071e3', 'голубой': '#5ac8fa',
-                'красный': '#ff3b30', 'red': '#ff3b30',
-                'зеленый': '#34c759', 'зелёный': '#34c759', 'green': '#34c759',
-                'оранжевый': '#ff9f0a', 'orange': '#ff9f0a', 'рыжий': '#e8651a',
-                'розовый': '#ff2d55', 'pink': '#ff2d55', 'лавандовый': '#c4a4e8',
-                'фиолетовый': '#bf5af2', 'purple': '#bf5af2',
-                'золотой': '#f5c518', 'gold': '#f5c518', 'золото': '#f5c518',
-                'титан': '#8e8e93', 'titanium': '#8e8e93',
-                'натуральный': '#e8d5b7', 'natural': '#e8d5b7',
-                'пустыня': '#c8a882', 'desert': '#c8a882',
-              }
-              const lower = name.toLowerCase()
-              const hit = Object.entries(map).find(([k]) => lower.includes(k))
-              return hit ? hit[1] : (/^#[0-9a-f]{3,8}$/i.test(name) ? name : null)
-            }
+            // If no axes for this category, don't show constructor
+            if (axes.length === 0) return null
 
             // How many combos would be generated
             const totalCombos =
-              Math.max(hasColorAxis ? attrColors.length : 0, 1) *
               Math.max(hasStorageAxis ? attrStorages.length : 0, 1) *
               Math.max(hasSizeAxis ? attrSizes.length : 0, 1)
             const existingCount = variants.filter(v => !v._isDeleted).length
@@ -2073,37 +2083,20 @@ function ProductModal({
 
             // Combo description
             const comboDesc = axes.map(a => {
-              const count = a.field === 'color' ? attrColors.length
-                : a.field === 'storage' ? attrStorages.length
-                : attrSizes.length
+              const count = a.field === 'storage' ? attrStorages.length : attrSizes.length
               return count > 0 ? `${count} ${a.label.toLowerCase()}` : '—'
             }).join(' × ')
 
             return (
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-5">
-                {/* Hidden file input for color photo (multiple) */}
-                <input
-                  ref={colorPhotoInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  multiple
-                  className="hidden"
-                  onChange={e => {
-                    const files = e.target.files
-                    // Используем ref а не state чтобы всегда иметь актуальный цвет
-                    if (files && files.length > 0 && colorPhotoTargetRef.current) {
-                      uploadColorPhoto(colorPhotoTargetRef.current, files)
-                    }
-                    e.target.value = ''
-                  }}
-                />
-
                 {/* ─── HEADER ─── */}
                 <div>
                   <div className="text-sm font-bold text-white">Конструктор вариантов</div>
                   <div className="mt-0.5 text-xs text-slate-500">
                     {selectedCat
-                      ? <>{selectedCat.name}: {axes.map(a => a.label).join(' → ')}. Добавьте значения и нажмите «Сгенерировать».{colorAxis?.hasPhoto && ' Затем загрузите фото.'}</>
+                      ? axes.length > 0
+                        ? <>{selectedCat.name}: {axes.map(a => a.label).join(' → ')}. Добавьте значения и нажмите «Сгенерировать».</>
+                        : <>{selectedCat.name}: у этой категории нет осей вариантов.</>
                       : 'Выберите категорию выше чтобы увидеть нужные атрибуты'
                     }
                   </div>
@@ -2112,18 +2105,10 @@ function ProductModal({
                 {/* ─── ATTRIBUTE AXES (dynamic per category) ─── */}
                 <div className="space-y-4">
                   {axes.map((axis, axIdx) => {
-                    const list = axis.field === 'color' ? attrColors
-                      : axis.field === 'storage' ? attrStorages
-                      : attrSizes
-                    const setList = axis.field === 'color' ? setAttrColors
-                      : axis.field === 'storage' ? setAttrStorages
-                      : setAttrSizes
-                    const inputVal = axis.field === 'color' ? newColorInput
-                      : axis.field === 'storage' ? newStorageInput
-                      : newSizeInput
-                    const setInputVal = axis.field === 'color' ? setNewColorInput
-                      : axis.field === 'storage' ? setNewStorageInput
-                      : setNewSizeInput
+                    const list = axis.field === 'storage' ? attrStorages : attrSizes
+                    const setList = axis.field === 'storage' ? setAttrStorages : setAttrSizes
+                    const inputVal = axis.field === 'storage' ? newStorageInput : newSizeInput
+                    const setInputVal = axis.field === 'storage' ? setNewStorageInput : setNewSizeInput
 
                     return (
                       <div key={axis.field} className="rounded-xl border border-white/10 p-3.5">
@@ -2133,17 +2118,6 @@ function ProductModal({
                         <div className="flex flex-wrap gap-2 mb-2.5">
                           {list.map(val => (
                             <div key={val} className="group flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5">
-                              {/* Color swatch (only for color axis) */}
-                              {axis.field === 'color' && (() => {
-                                const sw = swatchColor(val)
-                                return sw ? (
-                                  <div className="h-4 w-4 rounded-full border border-white/20" style={{ backgroundColor: sw }} />
-                                ) : (
-                                  <div className="flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[9px] font-bold text-slate-300">
-                                    {val[0]?.toUpperCase()}
-                                  </div>
-                                )
-                              })()}
                               <span className="text-sm font-medium text-white">{val}</span>
                               {/* Remove */}
                               <button
@@ -2193,150 +2167,12 @@ function ProductModal({
                   <button
                     type="button"
                     onClick={generateMatrix}
-                    disabled={attrColors.length === 0 && attrStorages.length === 0 && attrSizes.length === 0}
+                    disabled={attrStorages.length === 0 && attrSizes.length === 0}
                     className="rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-gray-900 hover:bg-yellow-300 disabled:opacity-40 transition-colors"
                   >
                     ⚡ Сгенерировать
                   </button>
                 </div>
-
-                {/* ─── COLOR PHOTOS (полная галерея по каждому цвету) ─── */}
-                {hasColorAxis && colorAxis?.hasPhoto && attrColors.length > 0 && (() => {
-                  // Группируем фото по variant_color и сортируем внутри по sort_order
-                  const colorImagesMap: Record<string, ImageRecord[]> = {}
-                  for (const img of images) {
-                    if (img.variant_color) {
-                      if (!colorImagesMap[img.variant_color]) colorImagesMap[img.variant_color] = []
-                      colorImagesMap[img.variant_color].push(img)
-                    }
-                  }
-                  // Сортируем внутри каждого цвета
-                  for (const key of Object.keys(colorImagesMap)) {
-                    colorImagesMap[key].sort((a, b) => a.sort_order - b.sort_order)
-                  }
-
-                  const triggerUpload = (colorName: string) => {
-                    colorPhotoTargetRef.current = colorName
-                    setColorPhotoTarget(colorName)
-                    colorPhotoInputRef.current?.click()
-                  }
-
-                  return (
-                    <div>
-                      <div className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
-                        📷 Фото по цветам
-                        <span className="ml-2 font-normal normal-case text-slate-600">
-                          ★ = главное фото цвета &nbsp;|&nbsp; ← → = порядок
-                        </span>
-                      </div>
-                      <div className="space-y-4">
-                        {attrColors.map(colorName => {
-                          const colorImgs = colorImagesMap[colorName] || []
-                          const sw = swatchColor(colorName)
-                          const isUploading = uploadingPhoto && colorPhotoTarget === colorName
-                          return (
-                            <div key={colorName} className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
-                              {/* Color header */}
-                              <div className="mb-2.5 flex items-center gap-2">
-                                {sw ? (
-                                  <div className="h-5 w-5 rounded-full border border-white/20 shadow-sm" style={{ backgroundColor: sw }} />
-                                ) : (
-                                  <div className="flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[10px] font-bold text-slate-300">
-                                    {colorName[0]?.toUpperCase()}
-                                  </div>
-                                )}
-                                <span className="flex-1 text-sm font-semibold text-white">{colorName}</span>
-                                <span className="text-xs text-slate-500">{colorImgs.length} фото</span>
-                                <button
-                                  type="button"
-                                  onClick={() => triggerUpload(colorName)}
-                                  className="rounded-lg bg-white/10 px-2.5 py-1 text-xs font-medium text-yellow-300 hover:bg-white/15 transition-colors"
-                                >
-                                  {isUploading ? '⏳ Загрузка…' : '+ Добавить фото'}
-                                </button>
-                              </div>
-                              {/* Photo grid with full controls */}
-                              {colorImgs.length > 0 ? (
-                                <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-5">
-                                  {colorImgs.map((img, idx) => {
-                                    const src = img.url.startsWith('/') ? `${API_BASE_URL}${img.url}` : img.url
-                                    return (
-                                      <div
-                                        key={img.id}
-                                        className={`group relative aspect-square overflow-hidden rounded-xl border transition cursor-pointer ${
-                                          img.is_main
-                                            ? 'ring-2 ring-yellow-400 ring-offset-1 ring-offset-slate-900 border-yellow-400/40'
-                                            : 'border-white/10 hover:border-white/25'
-                                        }`}
-                                        onClick={() => !img.is_main && setColorMainPhoto(img.id)}
-                                        title={img.is_main ? '★ Главное фото' : 'Нажмите чтобы сделать главным'}
-                                      >
-                                        <img src={src} alt="" className="h-full w-full object-cover" />
-
-                                        {/* ★ Main badge */}
-                                        {img.is_main && (
-                                          <div className="absolute left-1 top-1 rounded-md bg-yellow-400 px-1.5 py-0.5 text-[10px] font-bold text-gray-900 shadow">
-                                            ★ Главное
-                                          </div>
-                                        )}
-
-                                        {/* Reorder buttons */}
-                                        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between bg-black/60 px-1.5 py-1 opacity-0 group-hover:opacity-100 transition">
-                                          <button
-                                            type="button"
-                                            onClick={e => { e.stopPropagation(); moveColorImage(colorName, idx, -1) }}
-                                            disabled={idx === 0}
-                                            className="rounded px-1.5 text-xs text-white disabled:opacity-30 hover:text-yellow-300"
-                                          >←</button>
-                                          <span className="text-[10px] text-slate-400">{idx + 1}/{colorImgs.length}</span>
-                                          <button
-                                            type="button"
-                                            onClick={e => { e.stopPropagation(); moveColorImage(colorName, idx, 1) }}
-                                            disabled={idx === colorImgs.length - 1}
-                                            className="rounded px-1.5 text-xs text-white disabled:opacity-30 hover:text-yellow-300"
-                                          >→</button>
-                                        </div>
-
-                                        {/* Delete button */}
-                                        <button
-                                          type="button"
-                                          onClick={e => { e.stopPropagation(); deleteColorImage(img.id) }}
-                                          className="absolute right-1 top-1 hidden items-center justify-center rounded-full bg-black/70 p-1 text-red-400 hover:bg-red-900 group-hover:flex transition"
-                                        >
-                                          <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-                                        </button>
-                                      </div>
-                                    )
-                                  })}
-                                  {/* Add more placeholder */}
-                                  <div
-                                    className="flex aspect-square cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-white/10 text-slate-500 hover:border-yellow-400/40 hover:text-yellow-400 transition-colors"
-                                    onClick={() => triggerUpload(colorName)}
-                                  >
-                                    <span className="text-xl">+</span>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div
-                                  className="flex cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-white/10 py-8 text-slate-500 hover:border-yellow-400/40 hover:text-yellow-400 transition-colors"
-                                  onClick={() => triggerUpload(colorName)}
-                                >
-                                  <div className="flex flex-col items-center gap-1.5">
-                                    <svg className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.41a2.25 2.25 0 013.182 0l2.909 2.91m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-                                    </svg>
-                                    <span className="text-xs font-medium">Загрузите фото для цвета «{colorName}»</span>
-                                    <span className="text-[10px] text-slate-600">Первое фото станет главным автоматически</span>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )
-                })()}
 
                 {/* ─── VARIANT MATRIX TABLE ─── */}
                 {visibleVariants.length > 0 && (
@@ -2368,7 +2204,7 @@ function ProductModal({
                     <div className="overflow-x-auto overflow-hidden rounded-xl border border-white/10">
                       {/* Table header — dynamic columns */}
                       <div className={`hidden sm:grid gap-2 bg-white/5 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500`}
-                        style={{ gridTemplateColumns: `28px auto ${axes.map(() => '1fr').join(' ')} 100px 80px 60px 80px` }}>
+                        style={{ gridTemplateColumns: `28px ${axes.map(() => '1fr').join(' ')} 100px 80px 60px 80px` }}>
                         <div className="flex justify-center">
                           <input
                             type="checkbox"
@@ -2377,7 +2213,6 @@ function ProductModal({
                             className="h-3.5 w-3.5 rounded accent-yellow-400 cursor-pointer"
                           />
                         </div>
-                        <div className="w-6"></div>
                         {axes.map(a => <div key={a.field}>{a.label}</div>)}
                         <div>Цена ₽</div>
                         <div>Остаток</div>
@@ -2386,14 +2221,11 @@ function ProductModal({
                       </div>
                       {/* Rows */}
                       {[...visibleVariants].sort((a, b) => {
-                        const ci = attrColors.indexOf(a.color || ''); const cj = attrColors.indexOf(b.color || '')
-                        if (ci !== cj) return (ci === -1 ? 999 : ci) - (cj === -1 ? 999 : cj)
                         const si = attrStorages.indexOf(a.storage || ''); const sj = attrStorages.indexOf(b.storage || '')
                         if (si !== sj) return (si === -1 ? 999 : si) - (sj === -1 ? 999 : sj)
                         return a.sort_order - b.sort_order
                       }).map(v => {
                         const isEditing = editingVariantId === v.id
-                        const swatch = swatchColor(v.color)
                         const isSelected = selectedVariantIds.has(v.id)
                         return (
                           <div
@@ -2403,7 +2235,7 @@ function ProductModal({
                             } ${
                               !v.is_active ? 'bg-red-900/10 opacity-60' : 'hover:bg-white/[0.02]'
                             } ${v._isNew ? 'border-l-2 border-l-green-400/50' : ''}`}
-                            style={{ gridTemplateColumns: `28px auto ${axes.map(() => '1fr').join(' ')} 100px 80px 60px 80px` }}
+                            style={{ gridTemplateColumns: `28px ${axes.map(() => '1fr').join(' ')} 100px 80px 60px 80px` }}
                           >
                             {/* Checkbox */}
                             <div className="flex justify-center">
@@ -2414,27 +2246,12 @@ function ProductModal({
                                 className="h-3.5 w-3.5 rounded accent-yellow-400 cursor-pointer"
                               />
                             </div>
-                            {/* Swatch or empty */}
-                            <div className="w-6 flex justify-center">
-                              {hasColorAxis && swatch ? (
-                                <div className="h-4 w-4 rounded-full border border-white/20" style={{ backgroundColor: swatch }} />
-                              ) : hasColorAxis && v.color ? (
-                                <div className="flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[8px] font-bold text-slate-400">
-                                  {v.color[0]?.toUpperCase()}
-                                </div>
-                              ) : <div className="h-4 w-4" />}
-                            </div>
                             {/* Dynamic axis columns */}
                             {axes.map(a => {
-                              const val = a.field === 'color' ? v.color : a.field === 'storage' ? v.storage : v.size
+                              const val = a.field === 'storage' ? v.storage : v.size
                               return (
                                 <div key={a.field} className="text-slate-300 truncate">
-                                  {a.field === 'color' ? (
-                                    <span className="text-white font-medium">
-                                      {val || '—'}
-                                      {val && images.some(img => img.variant_color === val) && <span className="ml-1 text-[10px] text-green-400" title="фото">📷</span>}
-                                    </span>
-                                  ) : (val || '—')}
+                                  {val || '—'}
                                 </div>
                               )
                             })}

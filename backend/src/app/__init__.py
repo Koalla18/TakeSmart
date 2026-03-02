@@ -15,6 +15,7 @@ from src.app.api.routers import (
     product_images_router,
     categories_router,
     products_router,
+    product_groups_router,
     orders_router,
     weekly_slides_router,
 )
@@ -148,6 +149,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router,         prefix=prefix)
     app.include_router(categories_router,     prefix=prefix)
     app.include_router(products_router,       prefix=prefix)
+    app.include_router(product_groups_router,  prefix=prefix)
     app.include_router(product_images_router, prefix=prefix)
     app.include_router(orders_router,         prefix=prefix)
     app.include_router(weekly_slides_router,  prefix=prefix)

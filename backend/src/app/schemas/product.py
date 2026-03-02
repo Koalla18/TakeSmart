@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from src.app.schemas.product_image import ProductImageOut
 from src.app.schemas.product_spec import ProductSpecIn, ProductSpecGroupOut
 from src.app.schemas.product_variant import ProductVariantOut
+from src.app.schemas.product_group import ProductGroupSiblingOut
 
 
 class ProductCreate(BaseModel):
@@ -28,6 +29,7 @@ class ProductCreate(BaseModel):
     is_active: bool = Field(True)
     is_featured: bool = Field(False)
     category_id: Optional[uuid.UUID] = None
+    group_id: Optional[uuid.UUID] = Field(None, description="ID группы товаров (для объединения карточек по цветам)")
 
     # Произвольные характеристики — любые ключ-значение
     attributes: Optional[dict[str, Any]] = Field(
@@ -78,6 +80,7 @@ class ProductUpdate(BaseModel):
     is_active: Optional[bool] = None
     is_featured: Optional[bool] = None
     category_id: Optional[uuid.UUID] = None
+    group_id: Optional[uuid.UUID] = Field(None, description="ID группы товаров")
 
     # Произвольные атрибуты — передать новый dict для полной замены
     attributes: Optional[dict[str, Any]] = Field(
@@ -121,6 +124,7 @@ class ProductOut(BaseModel):
     is_active: bool
     is_featured: bool
     category_id: Optional[uuid.UUID]
+    group_id: Optional[uuid.UUID] = None
     created_at: datetime
     updated_at: datetime
 
@@ -158,4 +162,8 @@ class ProductDetailOut(ProductOut):
     variants: list[ProductVariantOut] = Field(
         default_factory=list,
         description="Варианты товара (цвет, память, тип связи и т.д.)",
+    )
+    siblings: list[ProductGroupSiblingOut] = Field(
+        default_factory=list,
+        description="Другие карточки в этой группе (для переключения цвета)",
     )

@@ -125,11 +125,13 @@ export function CartPage() {
   // Обработчик изменения количества с показом предупреждения
   const handleQuantityChange = (productId: string, newQuantity: number) => {
     setLimitWarning(null)
-    if (newQuantity > MAX_QUANTITY_PER_ITEM) {
-      setLimitWarning(`Максимум ${MAX_QUANTITY_PER_ITEM} единиц одного товара`)
+    const currentItem = items.find(i => i.product.id === productId)
+    const stockLimit = currentItem?.product.stockQuantity != null ? currentItem.product.stockQuantity : MAX_QUANTITY_PER_ITEM
+    const effectiveMax = Math.min(MAX_QUANTITY_PER_ITEM, stockLimit)
+    if (newQuantity > effectiveMax) {
+      setLimitWarning(stockLimit < MAX_QUANTITY_PER_ITEM ? `В наличии только ${stockLimit} шт.` : `Максимум ${MAX_QUANTITY_PER_ITEM} единиц одного товара`)
       return
     }
-    const currentItem = items.find(i => i.product.id === productId)
     const diff = newQuantity - (currentItem?.quantity || 0)
     if (totalQuantity + diff > MAX_TOTAL_ITEMS) {
       setLimitWarning(`Максимум ${MAX_TOTAL_ITEMS} товаров в заказе`)
@@ -262,6 +264,10 @@ export function CartPage() {
         }
       }
       if (res.status === 429) throw new Error('Слишком много попыток. Подождите несколько минут и повторите')
+      if (res.status === 409) {
+        const data = await res.json().catch(() => null)
+        throw new Error(data?.detail || 'Недостаточно товара на складе. Уменьшите количество или удалите товар из корзины.')
+      }
       throw new Error('Ошибка при оформлении заказа')
     }
 
@@ -469,8 +475,8 @@ export function CartPage() {
                             <button 
                               type="button" 
                               onClick={() => handleQuantityChange(item.product.id, item.quantity + 1)} 
-                              className={`px-2 py-1 ${item.quantity >= MAX_QUANTITY_PER_ITEM || totalQuantity >= MAX_TOTAL_ITEMS ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-gray-900'}`}
-                              disabled={item.quantity >= MAX_QUANTITY_PER_ITEM || totalQuantity >= MAX_TOTAL_ITEMS}
+                              className={`px-2 py-1 ${item.quantity >= Math.min(MAX_QUANTITY_PER_ITEM, item.product.stockQuantity ?? MAX_QUANTITY_PER_ITEM) || totalQuantity >= MAX_TOTAL_ITEMS ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-gray-900'}`}
+                              disabled={item.quantity >= Math.min(MAX_QUANTITY_PER_ITEM, item.product.stockQuantity ?? MAX_QUANTITY_PER_ITEM) || totalQuantity >= MAX_TOTAL_ITEMS}
                             >+</button>
                           </div>
                           <button type="button" onClick={() => removeItem(item.product.id)} className="text-sm text-red-500">Удалить</button>

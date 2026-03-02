@@ -16,6 +16,21 @@ class OrderRepository(BaseRepository[Order]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Order, session)
 
+    async def get_all(
+        self,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> Sequence[Order]:
+        """Получить все заказы, новые — сверху."""
+        result = await self.session.execute(
+            select(Order)
+            .order_by(Order.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return result.scalars().all()
+
     async def get_by_order_number(self, order_number: str) -> Order | None:
         """Найти заказ по номеру."""
         result = await self.session.execute(

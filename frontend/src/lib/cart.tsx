@@ -105,12 +105,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
     const existing = items.find(item => item.product.id === product.id)
     const currentTotal = items.reduce((sum, item) => sum + item.quantity, 0)
     
+    // Лимит на основе остатка на складе
+    const stockLimit = product.stockQuantity != null ? product.stockQuantity : MAX_QUANTITY_PER_ITEM
+    const effectiveMax = Math.min(MAX_QUANTITY_PER_ITEM, stockLimit)
+
     if (existing) {
       const newQty = existing.quantity + quantity
-      if (newQty > MAX_QUANTITY_PER_ITEM) return false
+      if (newQty > effectiveMax) return false
       if (currentTotal - existing.quantity + newQty > MAX_TOTAL_ITEMS) return false
     } else {
-      if (quantity > MAX_QUANTITY_PER_ITEM) return false
+      if (quantity > effectiveMax) return false
       if (currentTotal + quantity > MAX_TOTAL_ITEMS) return false
       if (items.length >= MAX_POSITIONS) return false
     }
@@ -120,11 +124,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
       if (exist) {
         return current.map(item =>
           item.product.id === product.id
-            ? { ...item, quantity: Math.min(item.quantity + quantity, MAX_QUANTITY_PER_ITEM) }
+            ? { ...item, quantity: Math.min(item.quantity + quantity, effectiveMax) }
             : item
         )
       }
-      return [...current, { product, quantity: Math.min(quantity, MAX_QUANTITY_PER_ITEM) }]
+      return [...current, { product, quantity: Math.min(quantity, effectiveMax) }]
     })
     return true
   }
@@ -140,9 +144,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
     }
     
     // Проверка лимитов
-    if (quantity > MAX_QUANTITY_PER_ITEM) return false
-    
     const currentItem = items.find(item => item.product.id === productId)
+    const stockLimit = currentItem?.product.stockQuantity != null ? currentItem.product.stockQuantity : MAX_QUANTITY_PER_ITEM
+    const effectiveMax = Math.min(MAX_QUANTITY_PER_ITEM, stockLimit)
+    if (quantity > effectiveMax) return false
+    
     const currentTotal = items.reduce((sum, item) => sum + item.quantity, 0)
     const diff = quantity - (currentItem?.quantity || 0)
     if (currentTotal + diff > MAX_TOTAL_ITEMS) return false
