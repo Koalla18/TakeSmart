@@ -21,10 +21,9 @@ FROM nginx:1.27-alpine
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Nginx config as template (${BACKEND_HOST} substituted at runtime)
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf.template
-RUN rm -f /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf.dpkg-old
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+RUN rm -f /etc/nginx/conf.d/default.conf.dpkg-old
 
 EXPOSE 80
 
-CMD ["/bin/sh", "-c", "BACKEND_HOST=${BACKEND_HOST:-backend} envsubst '${BACKEND_HOST}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+CMD ["nginx", "-g", "daemon off;"]
