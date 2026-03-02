@@ -113,18 +113,18 @@ except Exception as e:
 print(f"\n[UVICORN] Запускаем на 0.0.0.0:{PORT}", flush=True)
 print("=" * 60, flush=True)
 
-import uvicorn
-
-try:
-    uvicorn.run(
+result = subprocess.run(
+    [
+        sys.executable, "-m", "uvicorn",
         "src.app:app",
-        host="0.0.0.0",
-        port=PORT,
-        log_level="info",
-        access_log=True,
-    )
-except Exception as e:
-    import traceback
-    print(f"\n[UVICORN] ❌ Упал: {e}", flush=True)
-    traceback.print_exc()
-    sys.exit(1)
+        "--host", "0.0.0.0",
+        "--port", str(PORT),
+        "--log-level", "info",
+        "--no-access-log",
+    ],
+)
+
+print(f"\n[UVICORN] ❌ Процесс завершился с кодом {result.returncode}", flush=True)
+print("[UVICORN] Ждём 120 секунд чтобы успеть прочитать логи...", flush=True)
+time.sleep(120)
+sys.exit(result.returncode)
