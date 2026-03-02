@@ -47,7 +47,7 @@ echo "🚀 Запускаем TakesMart API..."
 python -u -c "
 import uvicorn, traceback, sys
 try:
-    uvicorn.run('src.app:app', host='0.0.0.0', port=8000, workers=1, log_level='debug')
+    uvicorn.run('src.app:app', host='0.0.0.0', port=8000, log_level='debug')
 except Exception as e:
     print(f'❌ CRASH: {e}', flush=True)
     traceback.print_exc()
