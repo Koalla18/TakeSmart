@@ -30,9 +30,13 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
 PORT = int(os.getenv("PORT", "8000"))
 
+STATIC_DIR = os.path.join(os.getcwd(), "static")
+
 print(f"[CONFIG] DB:    postgresql://{DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}", flush=True)
 print(f"[CONFIG] Redis: {REDIS_HOST}:{REDIS_PORT} (password={'yes' if REDIS_PASSWORD else 'no'})", flush=True)
 print(f"[CONFIG] Port:  {PORT}", flush=True)
+print(f"[CONFIG] STATIC_DIR: {STATIC_DIR} (exists={os.path.isdir(STATIC_DIR)})", flush=True)
+print(f"[CONFIG] CWD: {os.getcwd()}", flush=True)
 print(f"[CONFIG] ALLOWED_ORIGINS: {os.getenv('ALLOWED_ORIGINS', '—')}", flush=True)
 
 
@@ -113,18 +117,29 @@ except Exception as e:
 print(f"\n[UVICORN] Запускаем на 0.0.0.0:{PORT}", flush=True)
 print("=" * 60, flush=True)
 
-result = subprocess.run(
+proc = subprocess.Popen(
     [
         sys.executable, "-m", "uvicorn",
         "src.app:app",
         "--host", "0.0.0.0",
         "--port", str(PORT),
         "--log-level", "info",
-        "--no-access-log",
+        "--no-server-header",
     ],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+    bufsize=1,
 )
 
-print(f"\n[UVICORN] ❌ Процесс завершился с кодом {result.returncode}", flush=True)
+# Печатаем каждую строчку сразу как она появляется
+for line in proc.stdout:
+    print(line, end="", flush=True)
+
+proc.wait()
+retcode = proc.returncode
+
+print(f"\n[UVICORN] ❌ Процесс завершился с кодом {retcode}", flush=True)
 print("[UVICORN] Ждём 120 секунд чтобы успеть прочитать логи...", flush=True)
 time.sleep(120)
-sys.exit(result.returncode)
+sys.exit(retcode)
