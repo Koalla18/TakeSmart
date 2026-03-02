@@ -29,10 +29,16 @@ echo "�🔄 Применяем миграции Alembic..."
 alembic upgrade head
 echo "✅ Миграции применены"
 
+echo "� Проверяем импорт приложения..."
+python -c "
+from src.app import create_app
+print('✅ Импорт OK')
+" 2>&1
+
 echo "🚀 Запускаем TakesMart API..."
 exec uvicorn src.app:app \
     --host 0.0.0.0 \
     --port 8000 \
     --workers 1 \
-    --log-level info
+    --log-level debug
 
