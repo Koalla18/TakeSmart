@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+# NO set -e here — we need to see errors without dying immediately
 
 echo "⏳ Ожидаем PostgreSQL..."
 until python -c "
@@ -46,19 +46,8 @@ print('ALLOWED_ORIGINS:', settings.ALLOWED_ORIGINS)
 echo "🚀 Запускаем TakesMart API..."
 PORT="${PORT:-8000}"
 echo "📡 Порт: $PORT"
-python -u -c "
-import uvicorn, traceback, sys, os
-port = int(os.environ.get('PORT', 8000))
-print(f'Binding to 0.0.0.0:{port}', flush=True)
-try:
-    uvicorn.run('src.app:app', host='0.0.0.0', port=port, log_level='debug')
-except Exception as e:
-    print(f'❌ CRASH: {e}', flush=True)
-    traceback.print_exc()
-    sys.stdout.flush()
-    sys.stderr.flush()
-print('⚠️ Uvicorn завершился', flush=True)
-" 2>&1
-echo "❌ Uvicorn упал с кодом $?"
+uvicorn src.app:app --host 0.0.0.0 --port "$PORT" --log-level debug 2>&1
+EXIT_CODE=$?
+echo "❌ Uvicorn завершился с кодом: $EXIT_CODE"
 sleep 300
 
