@@ -113,21 +113,46 @@ except Exception as e:
     sys.exit(1)
 
 
-# ── 5. Запускаем Uvicorn ─────────────────────────────────────────
+# ── 5. Проверяем доступность порта ──────────────────────────────
+import socket
+print(f"\n[PORT] Проверяем доступность порта {PORT}...", flush=True)
+_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    _sock.bind(("0.0.0.0", PORT))
+    _sock.close()
+    print(f"[PORT] ✅ Порт {PORT} свободен", flush=True)
+except OSError as e:
+    _sock.close()
+    print(f"[PORT] ❌ Порт {PORT} занят: {e}", flush=True)
+    print("[PORT] Ждём 120 сек...", flush=True)
+    time.sleep(120)
+    sys.exit(1)
+
+# ── 6. Полностью сбрасываем structlog перед uvicorn ──────────────
+import logging
+
+plain_handler = logging.StreamHandler(sys.stdout)
+plain_handler.setFormatter(logging.Formatter("%(levelname)-8s %(name)s: %(message)s"))
+
+root_logger = logging.getLogger()
+root_logger.handlers.clear()
+root_logger.addHandler(plain_handler)
+root_logger.setLevel(logging.INFO)
+
+for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi", "starlette", "asyncpg"):
+    lg = logging.getLogger(name)
+    lg.handlers.clear()
+    lg.addHandler(plain_handler)
+    lg.setLevel(logging.INFO)
+    lg.propagate = False
+
+print("[LOGGING] ✅ Логгеры сброшены на plain-text", flush=True)
+
+# ── 7. Запускаем Uvicorn ─────────────────────────────────────────
 print(f"\n[UVICORN] Запускаем на 0.0.0.0:{PORT}", flush=True)
 print("=" * 60, flush=True)
 
-# Сбрасываем все логгеры на plain-text чтобы видеть вывод uvicorn
-import logging
-for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi", "starlette"):
-    log = logging.getLogger(name)
-    log.handlers.clear()
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-    log.addHandler(handler)
-    log.propagate = False
-
-# Запускаем uvicorn в-процессе — любая ошибка будет поймана и напечатана
 try:
     import uvicorn
     uvicorn.run(
@@ -136,17 +161,18 @@ try:
         port=PORT,
         log_level="info",
         access_log=False,
+        log_config=None,   # отключаем встроенный log_config uvicorn
     )
 except SystemExit as e:
-    print(f"\n[UVICORN] ❌ SystemExit: {e.code}", flush=True)
+    print(f"\n[UVICORN] ❌ SystemExit код={e.code}", flush=True)
     import traceback; traceback.print_exc()
     time.sleep(120)
     sys.exit(e.code if isinstance(e.code, int) else 1)
 except Exception as e:
-    print(f"\n[UVICORN] ❌ Исключение: {e}", flush=True)
+    print(f"\n[UVICORN] ❌ Исключение: {type(e).__name__}: {e}", flush=True)
     import traceback; traceback.print_exc()
     time.sleep(120)
     sys.exit(1)
 
-print("\n[UVICORN] ⚠️  run() завершился (нормальный выход)", flush=True)
+print("\n[UVICORN] ⚠️  run() завершился без исключения", flush=True)
 time.sleep(60)
