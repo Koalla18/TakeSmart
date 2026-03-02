@@ -11,10 +11,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .
 
 # Create static directories (files uploaded via admin panel at runtime)
-RUN mkdir -p /app/static/products /app/static/categories /app/static_seed
+RUN mkdir -p /app/static/products /app/static/categories
+
+ENV PORT=8000
+ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-ENV PORT=8000
-
-ENTRYPOINT ["sh", "/app/entrypoint.sh"]
+CMD ["python", "run.py"]
