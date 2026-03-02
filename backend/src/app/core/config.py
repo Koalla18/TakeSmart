@@ -1,5 +1,7 @@
 from pathlib import Path
+from urllib.parse import quote_plus
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Корень проекта (два уровня вверх от этого файла: core → app → src → root)
@@ -25,6 +27,13 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
     REDIS_PASSWORD: str = ""
+
+    @field_validator("REDIS_DB", mode="before")
+    @classmethod
+    def _parse_redis_db(cls, v: object) -> int:
+        if isinstance(v, str) and not v.strip().isdigit():
+            return 0
+        return int(v)
 
     # Security / JWT
     SECRET_KEY: str = "changeme-set-in-production"
@@ -61,7 +70,7 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         return (
-            f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD}"
+            f"postgresql+asyncpg://{quote_plus(self.DB_USER)}:{quote_plus(self.DB_PASSWORD)}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
         )
 
