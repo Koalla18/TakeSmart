@@ -44,8 +44,17 @@ print('ALLOWED_ORIGINS:', settings.ALLOWED_ORIGINS)
 " 2>&1
 
 echo "🚀 Запускаем TakesMart API..."
-python -c "
-import uvicorn
-uvicorn.run('src.app:app', host='0.0.0.0', port=8000, workers=1, log_level='debug')
-" 2>&1 || echo "❌ Uvicorn упал с кодом $?"
+python -u -c "
+import uvicorn, traceback, sys
+try:
+    uvicorn.run('src.app:app', host='0.0.0.0', port=8000, workers=1, log_level='debug')
+except Exception as e:
+    print(f'❌ CRASH: {e}', flush=True)
+    traceback.print_exc()
+    sys.stdout.flush()
+    sys.stderr.flush()
+print('⚠️ Uvicorn завершился', flush=True)
+" 2>&1
+echo "❌ Uvicorn упал с кодом $?"
+sleep 300
 
