@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+# set -e
 
 echo "⏳ Ожидаем PostgreSQL..."
 until python -c "
