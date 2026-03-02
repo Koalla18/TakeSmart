@@ -35,14 +35,20 @@ async def lifespan(app: FastAPI):
     (settings.STATIC_DIR / settings.CATEGORIES_IMAGES_DIR).mkdir(exist_ok=True)
     logger.info("static_dirs_ready", path=str(settings.STATIC_DIR))
 
-    await get_redis_pool()
-    logger.info("redis_connected", url=settings.redis_url)
+    try:
+        await get_redis_pool()
+        logger.info("redis_connected", url=settings.redis_url)
+    except Exception as e:
+        logger.warning("redis_connect_failed", error=str(e))
 
     logger.info("app_ready", title=settings.APP_TITLE, version=settings.APP_VERSION)
     yield
 
     logger.info("app_shutting_down")
-    await close_redis_pool()
+    try:
+        await close_redis_pool()
+    except Exception:
+        pass
     logger.info("app_stopped")
 
 
