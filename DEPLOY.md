@@ -1,193 +1,176 @@
-# 🚀 TakeSmart — Деплой на сервер
+# 🚀 TakeSmart — Деплой на Timeweb App Platform
 
-## Архитектура
+## Архитектура (2 приложения + 2 БД)
 
 ```
-Интернет (порт 80/443)
+Интернет (80/443)
        │
-    [Nginx]  ← frontend контейнер (serve SPA + reverse proxy)
-       ├── /           → React SPA (статика)
-       ├── /api/*      → backend:8000 (FastAPI)
-       └── /uploads/*  → backend:8000 (статические файлы)
-              │
-          [Backend]    ← FastAPI + Uvicorn (внутренний)
-              ├── [PostgreSQL]  (внутренний)
-              └── [Redis]       (внутренний)
+   [Frontend App]    ← Timeweb Dockerfile-приложение
+       │  Nginx: SPA + proxy /api/ → backend
+       │
+   [Backend App]     ← Timeweb Dockerfile-приложение (внутренний IP)
+       │  FastAPI + Uvicorn
+       │
+       ├── [PostgreSQL]  ← Timeweb Managed DB  (192.168.0.x)
+       └── [Redis]       ← Timeweb Managed Redis (192.168.0.x)
+```
+
+Все сервисы связаны через **внутреннюю сеть Timeweb**.
+
+---
+
+## Подготовка: 2 ветки в Git
+
+Timeweb App Platform читает **Dockerfile из корня репозитория**. Поэтому нужны 2 ветки:
+
+| Ветка | Dockerfile в корне | Что деплоит |
+|---|---|---|
+| `deploy/backend` | `Dockerfile` (из `Dockerfile.backend`) | FastAPI, порт 8000 |
+| `deploy/frontend` | `Dockerfile` (из `Dockerfile.frontend`) | Nginx + SPA, порт 80 |
+
+### Как подготовить ветки
+
+```bash
+# ── Backend ветка ──
+git checkout maks_dev
+git checkout -b deploy/backend
+cp Dockerfile.backend Dockerfile
+git add Dockerfile
+git commit -m "deploy: backend Dockerfile"
+git push origin deploy/backend
+
+# ── Frontend ветка ──
+git checkout maks_dev
+git checkout -b deploy/frontend
+cp Dockerfile.frontend Dockerfile
+git add Dockerfile
+git commit -m "deploy: frontend Dockerfile"
+git push origin deploy/frontend
 ```
 
 ---
 
-## Требования к серверу
+## Шаг 1 — Создать БД
 
-- Ubuntu 22.04 / Debian 12 / любой Linux
-- 1 ГБ RAM минимум (2 ГБ рекомендуется)
-- Docker 24+
-- Docker Compose v2
-
----
-
-## Шаг 1 — Установить Docker
-
-```bash
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-newgrp docker
-```
+1. **PostgreSQL**: Timeweb → Базы данных → Создать → PostgreSQL
+2. **Redis**: Timeweb → Базы данных → Создать → Redis
+3. Запишите IP-адреса, логины, пароли
 
 ---
 
-## Шаг 2 — Загрузить код на сервер
+## Шаг 2 — Создать Backend-приложение
 
-**Вариант А — через Git:**
-```bash
-git clone https://github.com/ВАШ-ЮЗЕ/take-smart.git /opt/takesmart
-cd /opt/takesmart
+1. **Приложения → Создать → Dockerfile**
+2. Подключите Git-репозиторий
+3. **Ветка:** `deploy/backend`
+4. **Приватная сеть:** та же, что у БД
+5. **Переменные окружения:**
+
+```
+DB_HOST=192.168.0.X            ← IP PostgreSQL
+DB_PORT=5432
+DB_USER=gen_user
+DB_PASSWORD=пароль-из-панели
+DB_NAME=default_db
+REDIS_HOST=192.168.0.X         ← IP Redis
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_PASSWORD=пароль-redis
+SECRET_KEY=...                  ← openssl rand -hex 32
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=ваш-пароль
+ALLOWED_ORIGINS=https://ваш-домен.ru
+TELEGRAM_BOT_TOKEN=             ← опционально
+TELEGRAM_CHAT_ID=               ← опционально
 ```
 
-**Вариант Б — через rsync с локального Mac:**
-```bash
-rsync -avz --exclude=node_modules --exclude=.venv --exclude='*.db' \
-  "/Users/maksimkluev/Desktop/Take smart/" \
-  user@YOUR_SERVER_IP:/opt/takesmart/
-```
+6. Запустите деплой, дождитесь.
+7. **Запишите внутренний IP** backend-приложения.
 
 ---
 
-## Шаг 3 — Настроить .env
+## Шаг 3 — Создать Frontend-приложение
 
-```bash
-cd /opt/takesmart
-cp .env.prod.example .env
-nano .env   # или: vim .env
+1. **Приложения → Создать → Dockerfile**
+2. Подключите тот же Git-репозиторий
+3. **Ветка:** `deploy/frontend`
+4. **Приватная сеть:** та же
+5. **Переменные окружения:**
+
+```
+BACKEND_HOST=192.168.0.X       ← внутренний IP backend-а из шага 2
 ```
 
-Обязательно измените:
-```dotenv
-POSTGRES_PASSWORD=ВашСильныйПароль123!
-JWT_SECRET=очень-длинная-случайная-строка-минимум-32-символа
-ADMIN_PASSWORD=ВашПарольАдмина
-ALLOWED_ORIGINS=https://ваш-домен.ru,https://www.ваш-домен.ru
-
-# Для работы фото — оставьте пустым (nginx обработает)
-VITE_API_BASE_URL=
-```
+6. Запустите деплой.
+7. Привяжите **домен** к этому приложению.
 
 ---
 
-## Шаг 4 — Задеплоить
+## Готово!
 
-```bash
-chmod +x deploy.sh
-./deploy.sh
-```
-
-После деплоя сайт будет доступен на `http://ВАШ_IP`
+- Сайт: `https://ваш-домен.ru`
+- Админка: `https://ваш-домен.ru/admin`
 
 ---
 
-## Шаг 5 — HTTPS через Certbot (опционально, но рекомендуется)
-
-Если у вас есть домен и он уже указывает на сервер:
+## Обновление кода
 
 ```bash
-# Установить certbot
-sudo apt install -y certbot
-
-# Получить сертификат (остановить nginx на время)
-docker compose stop frontend
-sudo certbot certonly --standalone -d ваш-домен.ru -d www.ваш-домен.ru
-docker compose start frontend
+# Обновить обе deploy-ветки из основной
+git checkout deploy/backend && git merge maks_dev && git push
+git checkout deploy/frontend && git merge maks_dev && git push
 ```
 
-Затем обновить `frontend/nginx.conf` для HTTPS (раскомментировать секцию ниже) и пересобрать:
-
-```nginx
-# Добавить в server block для HTTPS:
-listen 443 ssl;
-ssl_certificate     /etc/letsencrypt/live/ваш-домен.ru/fullchain.pem;
-ssl_certificate_key /etc/letsencrypt/live/ваш-домен.ru/privkey.pem;
-```
-
-И смонтировать сертификаты в docker-compose.yml:
-```yaml
-frontend:
-  volumes:
-    - /etc/letsencrypt:/etc/letsencrypt:ro
-```
-
----
-
-## Полезные команды
-
-```bash
-# Просмотр статуса
-docker compose ps
-
-# Логи в реальном времени
-docker compose logs -f
-
-# Только логи backend
-docker compose logs -f backend
-
-# Перезапуск после изменений
-./deploy.sh
-
-# Принудительная пересборка образов
-./deploy.sh --build
-
-# Остановить всё
-docker compose down
-
-# Удалить данные БД (осторожно!)
-docker compose down -v
-```
+Timeweb автоматически пересоберёт приложения (если включён автодеплой).
 
 ---
 
 ## Переменные окружения
 
-| Переменная | Описание | Пример |
-|---|---|---|
-| `POSTGRES_PASSWORD` | Пароль БД | `StrongPass123!` |
-| `JWT_SECRET` | Секрет для JWT токенов | Случайная строка 32+ символов |
-| `ADMIN_USERNAME` | Логин в админке | `admin` |
-| `ADMIN_PASSWORD` | Пароль в админке | `MyAdminPass!` |
-| `ALLOWED_ORIGINS` | Разрешённые CORS-домены | `https://takesmart.ru` |
-| `VITE_API_BASE_URL` | URL API для frontend | Пусто для prod (nginx routing) |
-| `TELEGRAM_BOT_TOKEN` | Бот для уведомлений | Опционально |
-| `TELEGRAM_CHAT_ID` | ID чата Telegram | Опционально |
+### Backend
+| Переменная | Описание |
+|---|---|
+| `DB_HOST` | IP PostgreSQL (внутренняя сеть) |
+| `DB_PORT` | `5432` |
+| `DB_USER` | Пользователь БД |
+| `DB_PASSWORD` | Пароль БД (спецсимволы OK) |
+| `DB_NAME` | Имя БД (`default_db`) |
+| `REDIS_HOST` | IP Redis (внутренняя сеть) |
+| `REDIS_PASSWORD` | Пароль Redis |
+| `SECRET_KEY` | Секрет JWT |
+| `ADMIN_USERNAME` | Логин админки |
+| `ADMIN_PASSWORD` | Пароль админки |
+| `ALLOWED_ORIGINS` | CORS (`https://домен.ru`) |
+
+### Frontend
+| Переменная | Описание |
+|---|---|
+| `BACKEND_HOST` | Внутренний IP backend-а |
 
 ---
 
-## Структура файлов деплоя
+## Файлы деплоя
 
 ```
 Take smart/
-├── docker-compose.yml        # Продакшн конфигурация
-├── docker-compose.dev.yml    # Переопределения для разработки
-├── .env                      # Ваши секреты (НЕ коммитить в git!)
-├── .env.prod.example         # Шаблон для продакшна
-├── .env.example              # Шаблон для разработки
-├── deploy.sh                 # Скрипт деплоя
+├── Dockerfile.backend        ← корневой Dockerfile для backend-ветки
+├── Dockerfile.frontend       ← корневой Dockerfile для frontend-ветки
 ├── backend/
-│   └── Dockerfile            # Python + uvicorn (с healthcheck)
-└── frontend/
-    ├── Dockerfile            # Multi-stage: build → nginx (prod)
-    ├── Dockerfile.dev        # Vite dev server (только для разработки)
-    └── nginx.conf            # Nginx: SPA + reverse proxy
+│   ├── Dockerfile            # (используется для локальной разработки)
+│   ├── entrypoint.sh         # Ожидание БД + миграции + запуск
+│   └── ...
+├── frontend/
+│   ├── Dockerfile            # (используется для локальной разработки)
+│   ├── nginx.conf            # Шаблон с ${BACKEND_HOST}
+│   └── ...
+└── docker-compose.local.yml  # Локальная разработка (полный стек)
 ```
 
 ---
 
-## Локальная разработка через Docker
+## Локальная разработка
 
 ```bash
-# Запустить все сервисы с dev-настройками
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up
-
-# Или: запускать только backend инфру через Docker,
-# а frontend локально:
-docker compose up db redis backend
-# В другом окне:
-cd frontend && npm run dev
+docker compose -f docker-compose.local.yml up -d --build
+# Сайт на http://localhost:3000
 ```

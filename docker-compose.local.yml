@@ -48,6 +48,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: 0
+      REDIS_PASSWORD: ""
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost}
     volumes:
       # Persist uploaded files (legacy)
@@ -76,6 +77,8 @@ services:
         # Empty = relative URLs → nginx proxies /api/* to backend
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     restart: unless-stopped
+    environment:
+      BACKEND_HOST: backend
     ports:
       - "127.0.0.1:3000:80"
     depends_on:
