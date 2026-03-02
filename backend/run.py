@@ -117,29 +117,36 @@ except Exception as e:
 print(f"\n[UVICORN] Запускаем на 0.0.0.0:{PORT}", flush=True)
 print("=" * 60, flush=True)
 
-proc = subprocess.Popen(
-    [
-        sys.executable, "-m", "uvicorn",
+# Сбрасываем все логгеры на plain-text чтобы видеть вывод uvicorn
+import logging
+for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi", "starlette"):
+    log = logging.getLogger(name)
+    log.handlers.clear()
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    log.addHandler(handler)
+    log.propagate = False
+
+# Запускаем uvicorn в-процессе — любая ошибка будет поймана и напечатана
+try:
+    import uvicorn
+    uvicorn.run(
         "src.app:app",
-        "--host", "0.0.0.0",
-        "--port", str(PORT),
-        "--log-level", "info",
-        "--no-server-header",
-    ],
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    text=True,
-    bufsize=1,
-)
+        host="0.0.0.0",
+        port=PORT,
+        log_level="info",
+        access_log=False,
+    )
+except SystemExit as e:
+    print(f"\n[UVICORN] ❌ SystemExit: {e.code}", flush=True)
+    import traceback; traceback.print_exc()
+    time.sleep(120)
+    sys.exit(e.code if isinstance(e.code, int) else 1)
+except Exception as e:
+    print(f"\n[UVICORN] ❌ Исключение: {e}", flush=True)
+    import traceback; traceback.print_exc()
+    time.sleep(120)
+    sys.exit(1)
 
-# Печатаем каждую строчку сразу как она появляется
-for line in proc.stdout:
-    print(line, end="", flush=True)
-
-proc.wait()
-retcode = proc.returncode
-
-print(f"\n[UVICORN] ❌ Процесс завершился с кодом {retcode}", flush=True)
-print("[UVICORN] Ждём 120 секунд чтобы успеть прочитать логи...", flush=True)
-time.sleep(120)
-sys.exit(retcode)
+print("\n[UVICORN] ⚠️  run() завершился (нормальный выход)", flush=True)
+time.sleep(60)
