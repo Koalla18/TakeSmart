@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from src.app.api.admin.endpoints import oauth2_scheme
+from src.app.api.admin.endpoints import get_current_admin
 from src.app.core.logger import get_logger
 from src.app.core.slugify import build_unique_slug
 from src.app.database.unit_of_work import UnitOfWork
@@ -109,7 +109,7 @@ async def get_category_by_slug(slug: str) -> CategoryWithChildrenOut:
         409: {"description": "Категория с таким именем уже существует"},
         422: {"description": "Ошибка валидации полей"},
     },
-    dependencies=[Depends(oauth2_scheme)],
+    dependencies=[Depends(get_current_admin)],
 )
 async def create_category(body: CategoryCreate) -> CategoryOut:
     async with UnitOfWork() as uow:
@@ -151,7 +151,7 @@ async def create_category(body: CategoryCreate) -> CategoryOut:
         409: {"description": "Имя уже занято"},
         422: {"description": "Ошибка валидации"},
     },
-    dependencies=[Depends(oauth2_scheme)],
+    dependencies=[Depends(get_current_admin)],
 )
 async def update_category(category_id: UUID, body: CategoryUpdate) -> CategoryOut:
     async with UnitOfWork() as uow:

@@ -8,7 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
 
-from src.app.api.admin.endpoints import oauth2_scheme
+from src.app.api.admin.endpoints import get_current_admin
 from src.app.core.logger import get_logger
 from src.app.core.slugify import build_unique_slug
 from src.app.core.static_service import static_service
@@ -256,7 +256,7 @@ async def get_product_by_slug(slug: str) -> ProductDetailOut:
         409: {"description": "Товар с таким SKU уже существует"},
         422: {"description": "Ошибка валидации полей"},
     },
-    dependencies=[Depends(oauth2_scheme)],
+    dependencies=[Depends(get_current_admin)],
 )
 async def create_product(body: ProductCreate) -> ProductDetailOut:
     async with UnitOfWork() as uow:
@@ -330,7 +330,7 @@ async def create_product(body: ProductCreate) -> ProductDetailOut:
         409: {"description": "SKU уже занят"},
         422: {"description": "Ошибка валидации"},
     },
-    dependencies=[Depends(oauth2_scheme)],
+    dependencies=[Depends(get_current_admin)],
 )
 async def update_product(product_id: UUID, body: ProductUpdate) -> ProductDetailOut:
     async with UnitOfWork() as uow:
@@ -468,7 +468,7 @@ async def get_product_specs(product_id: UUID) -> list[ProductSpecGroupOut]:
         "Передай пустой массив `[]` чтобы удалить все спецификации."
     ),
     responses={404: {"description": "Товар не найден"}},
-    dependencies=[Depends(oauth2_scheme)],
+    dependencies=[Depends(get_current_admin)],
 )
 async def replace_product_specs(
     product_id: UUID,
@@ -502,7 +502,7 @@ async def replace_product_specs(
     summary="Добавить характеристики к товару",
     description="Добавляет новые характеристики не удаляя существующие.",
     responses={404: {"description": "Товар не найден"}},
-    dependencies=[Depends(oauth2_scheme)],
+    dependencies=[Depends(get_current_admin)],
 )
 async def add_product_specs(
     product_id: UUID,
@@ -535,7 +535,7 @@ async def add_product_specs(
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Удалить все спецификации товара",
     responses={404: {"description": "Товар не найден"}},
-    dependencies=[Depends(oauth2_scheme)],
+    dependencies=[Depends(get_current_admin)],
 )
 async def delete_product_specs(product_id: UUID) -> None:
     async with UnitOfWork() as uow:
@@ -587,7 +587,7 @@ async def list_product_variants(
 async def create_product_variant(
     product_id: UUID,
     body: ProductVariantCreate,
-    _token: str = Depends(oauth2_scheme),
+    _token: str = Depends(get_current_admin),
 ) -> ProductVariantOut:
     async with UnitOfWork() as uow:
         product = await uow.products.get_by_id(product_id)
@@ -622,7 +622,7 @@ async def update_product_variant(
     product_id: UUID,
     variant_id: UUID,
     body: ProductVariantUpdate,
-    _token: str = Depends(oauth2_scheme),
+    _token: str = Depends(get_current_admin),
 ) -> ProductVariantOut:
     async with UnitOfWork() as uow:
         variant = await uow.product_variants.get_by_id(variant_id)
@@ -649,7 +649,7 @@ async def update_product_variant(
 async def delete_product_variant(
     product_id: UUID,
     variant_id: UUID,
-    _token: str = Depends(oauth2_scheme),
+    _token: str = Depends(get_current_admin),
 ) -> None:
     async with UnitOfWork() as uow:
         variant = await uow.product_variants.get_by_id(variant_id)
@@ -673,7 +673,7 @@ async def upload_variant_image(
     product_id: UUID,
     variant_id: UUID,
     file: UploadFile = File(..., description="Фото варианта (JPEG/PNG/WebP, до 5 МБ)"),
-    _token: str = Depends(oauth2_scheme),
+    _token: str = Depends(get_current_admin),
 ) -> ProductVariantOut:
     """Загружает фото для варианта и обновляет image_url у ВСЕХ вариантов
     этого товара с таким же цветом (чтобы цвет всегда показывал одно фото)."""
@@ -715,7 +715,7 @@ async def upload_variant_image(
 async def generate_variant_matrix(
     product_id: UUID,
     body: VariantMatrixGenerate,
-    _token: str = Depends(oauth2_scheme),
+    _token: str = Depends(get_current_admin),
 ) -> list[ProductVariantOut]:
     """Создаёт все комбинации из colors × storages × sizes.
 
@@ -800,7 +800,7 @@ async def generate_variant_matrix(
     summary="Удалить варианты товара пакетно",
     description="Удаляет указанные варианты товара по списку ID, либо все если variant_ids пуст.",
     responses={404: {"description": "Товар не найден"}},
-    dependencies=[Depends(oauth2_scheme)],
+    dependencies=[Depends(get_current_admin)],
 )
 async def bulk_delete_product_variants(
     product_id: UUID,

@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from src.app.api.admin.endpoints import oauth2_scheme
+from src.app.api.admin.endpoints import get_current_admin
 from src.app.core.logger import get_logger
 from src.app.database.unit_of_work import UnitOfWork
 from src.app.schemas.product_group import (
@@ -50,7 +50,7 @@ async def list_groups() -> list[ProductGroupOut]:
     response_model=ProductGroupOut,
     status_code=status.HTTP_201_CREATED,
     summary="Создать группу товаров",
-    dependencies=[Depends(oauth2_scheme)],
+    dependencies=[Depends(get_current_admin)],
 )
 async def create_group(body: ProductGroupCreate) -> ProductGroupOut:
     async with UnitOfWork() as uow:
@@ -94,7 +94,7 @@ async def get_group(group_id: UUID) -> ProductGroupDetailOut:
     response_model=ProductGroupOut,
     summary="Обновить группу товаров",
     responses={404: {"description": "Группа не найдена"}},
-    dependencies=[Depends(oauth2_scheme)],
+    dependencies=[Depends(get_current_admin)],
 )
 async def update_group(group_id: UUID, body: ProductGroupUpdate) -> ProductGroupOut:
     async with UnitOfWork() as uow:
@@ -128,7 +128,7 @@ async def update_group(group_id: UUID, body: ProductGroupUpdate) -> ProductGroup
     summary="Удалить группу товаров",
     description="Удаляет группу. Товары остаются, но теряют привязку к группе (group_id=NULL).",
     responses={404: {"description": "Группа не найдена"}},
-    dependencies=[Depends(oauth2_scheme)],
+    dependencies=[Depends(get_current_admin)],
 )
 async def delete_group(group_id: UUID) -> None:
     async with UnitOfWork() as uow:
@@ -153,7 +153,7 @@ async def delete_group(group_id: UUID) -> None:
         "Если один из товаров уже в группе — остальные добавляются в эту группу. "
         "Иначе создаётся новая группа."
     ),
-    dependencies=[Depends(oauth2_scheme)],
+    dependencies=[Depends(get_current_admin)],
 )
 async def merge_products(body: ProductGroupMerge) -> ProductGroupOut:
     async with UnitOfWork() as uow:
@@ -210,7 +210,7 @@ async def merge_products(body: ProductGroupMerge) -> ProductGroupOut:
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Убрать товары из группы",
     description="Отвязывает указанные товары от их группы (group_id=NULL). Если в группе не остаётся товаров — группа удаляется.",
-    dependencies=[Depends(oauth2_scheme)],
+    dependencies=[Depends(get_current_admin)],
 )
 async def unlink_products(body: ProductGroupUnlink) -> None:
     async with UnitOfWork() as uow:
