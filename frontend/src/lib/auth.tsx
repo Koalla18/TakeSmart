@@ -21,12 +21,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
-      // Backend uses OAuth2 form-data at /api/admin/token
+      // Backend uses OAuth2 form-data at /api/v1/admin/token
       const body = new URLSearchParams()
       body.append('username', username)
       body.append('password', password)
 
-      const response = await fetch(`${API_BASE_URL}/api/admin/token`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/admin/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString(),
