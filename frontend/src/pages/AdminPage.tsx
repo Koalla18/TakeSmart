@@ -332,12 +332,29 @@ export function AdminPage() {
   }
 
   const deleteCategory = async (categoryId: string) => {
-    if (!confirm('Удалить категорию?')) return
+    // Check how many products use this category
+    const productsInCategory = products.filter(p => p.category_id === categoryId)
+    const categoryName = categories.find(c => c.id === categoryId)?.name || 'Категория'
+
+    const message = productsInCategory.length > 0
+      ? `Удалить категорию «${categoryName}»?\n\n⚠️ В этой категории ${productsInCategory.length} товар(ов). Сначала переместите или удалите их, либо категория не удалится.`
+      : `Удалить категорию «${categoryName}»?`
+
+    if (!confirm(message)) return
     try {
-      await fetch(`${API_BASE_URL}/api/categories/${categoryId}`, { method: 'DELETE', headers: getAuthHeaders() })
+      const res = await fetch(`${API_BASE_URL}/api/categories/${categoryId}`, { method: 'DELETE', headers: getAuthHeaders() })
+      if (!res.ok) {
+        const err = await res.json().catch(() => null)
+        if (res.status === 409) {
+          alert(`Невозможно удалить категорию «${categoryName}»: к ней привязаны товары.\n\nСначала переместите все товары в другую категорию или удалите их.`)
+        } else {
+          alert(err?.detail || `Ошибка ${res.status}`)
+        }
+        return
+      }
       loadCategories()
       loadProducts()
-    } catch { alert('Ошибка') }
+    } catch { alert('Ошибка сети') }
   }
 
   // Weekly slides actions
