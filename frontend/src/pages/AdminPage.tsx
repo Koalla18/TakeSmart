@@ -1429,19 +1429,31 @@ function ProductModal({
       is_active: isActive,
       is_featured: isFeatured,
       condition,
+      description: description ? description.slice(0, MAX_DESC) : null,
+      short_description: shortDesc || null,
+      sku: sku.trim() || null,
+      brand: brand.trim() || null,
+      model: model.trim() || null,
+      color: color.trim() || null,
+      category_id: categoryId || null,
     }
-    if (description) payload.description = description.slice(0, MAX_DESC)
-    if (shortDesc) payload.short_description = shortDesc
-    if (discountStr) { const dp = parseFloat(discountStr); if (!isNaN(dp) && dp > 0) {
-      if (dp >= price) { setSaveError('Цена со скидкой должна быть меньше основной цены'); return }
-      payload.discount_price = dp
-    } }
-    if (sku.trim()) payload.sku = sku.trim()
-    if (brand.trim()) payload.brand = brand.trim()
-    if (model.trim()) payload.model = model.trim()
-    if (color.trim()) payload.color = color.trim()
-    if (warrantyStr) { const w = parseInt(warrantyStr); if (!isNaN(w) && w > 0) payload.warranty_months = w }
-    if (categoryId) payload.category_id = categoryId
+    if (discountStr) {
+      const dp = parseFloat(discountStr)
+      if (!isNaN(dp) && dp > 0) {
+        if (dp >= price) { setSaveError('Цена со скидкой должна быть меньше основной цены'); return }
+        payload.discount_price = dp
+      } else {
+        payload.discount_price = null
+      }
+    } else {
+      payload.discount_price = null
+    }
+    if (warrantyStr) {
+      const w = parseInt(warrantyStr)
+      payload.warranty_months = (!isNaN(w) && w > 0) ? w : null
+    } else {
+      payload.warranty_months = null
+    }
 
     setSaving(true)
     try {
