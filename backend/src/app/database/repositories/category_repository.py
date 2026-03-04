@@ -54,7 +54,6 @@ class CategoryRepository(BaseRepository[Category]):
             select(Category)
             .where(Category.parent_id.is_(None), Category.is_active.is_(True))
             .options(selectinload(Category.children))
-            .order_by(Category.sort_order, Category.name)
         )
         return result.scalars().all()
 
@@ -63,7 +62,6 @@ class CategoryRepository(BaseRepository[Category]):
         result = await self.session.execute(
             select(Category)
             .where(Category.is_active.is_(True))
-            .order_by(Category.sort_order, Category.name)
             .offset(offset)
             .limit(limit)
         )

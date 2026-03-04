@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import String, Text, Boolean, Integer, ForeignKey, func
+from sqlalchemy import String, Text, Boolean, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,7 +29,6 @@ class Category(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     image_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
 
     # Вложенные категории (Электроника → Смартфоны → iPhone)
     parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
