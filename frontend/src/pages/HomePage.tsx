@@ -344,6 +344,11 @@ export function HomePage() {
               if (slides.length === 0) return null;
 
               return (
+                <div className="relative">
+                  {/* Section Title */}
+                  <div className="mb-8 flex items-center justify-between">
+                    <div>
+                      <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">Товары недели</h2>
                       <p className="mt-2 text-gray-500">Лучшие предложения от TakeSmart</p>
                     </div>
                     <div className="flex items-center gap-4">
