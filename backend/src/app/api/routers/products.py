@@ -7,6 +7,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
+from fastapi.responses import Response
 
 from src.app.api.admin.endpoints import get_current_admin
 from src.app.core.logger import get_logger
@@ -406,6 +407,7 @@ async def update_product(product_id: UUID, body: ProductUpdate) -> ProductDetail
 @router.delete(
     "/{product_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Удалить товар",
     responses={
         404: {"description": "Товар не найден"},
@@ -529,6 +531,7 @@ async def add_product_specs(
 @router.delete(
     "/{product_id}/specs",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Удалить все спецификации товара",
     responses={404: {"description": "Товар не найден"}},
     dependencies=[Depends(get_current_admin)],
@@ -639,6 +642,7 @@ async def update_product_variant(
 @router.delete(
     "/{product_id}/variants/{variant_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Удалить вариант товара",
     responses={404: {"description": "Вариант не найден"}},
 )
@@ -793,6 +797,7 @@ async def generate_variant_matrix(
 @router.delete(
     "/{product_id}/variants",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Удалить варианты товара пакетно",
     description="Удаляет указанные варианты товара по списку ID, либо все если variant_ids пуст.",
     responses={404: {"description": "Товар не найден"}},

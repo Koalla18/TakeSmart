@@ -5,6 +5,7 @@ from uuid import UUID
 from typing import Optional
 
 from fastapi import APIRouter, Form, HTTPException, Query, UploadFile, File, status
+from fastapi.responses import Response
 
 from src.app.core.static_service import static_service
 from src.app.database.unit_of_work import UnitOfWork
@@ -91,7 +92,7 @@ async def upload_image(
     )
 
 
-@router.delete("/{image_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Удалить изображение")
+@router.delete("/{image_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, summary="Удалить изображение")
 async def delete_image(product_id: UUID, image_id: UUID) -> None:
     async with UnitOfWork() as uow:
         image = await uow.product_images.get_by_id(image_id)

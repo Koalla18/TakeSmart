@@ -3,6 +3,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, status, Depends
+from fastapi.responses import Response
 
 from src.app.core.logger import get_logger
 from src.app.core.security import get_current_admin
@@ -77,6 +78,7 @@ async def update_weekly_slide(slide_id: UUID, body: WeeklySlideUpdate) -> Weekly
 @router.delete(
     "/{slide_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Удалить слайд",
     responses={404: {"description": "Слайд не найден"}},
 )

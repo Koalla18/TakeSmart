@@ -4,6 +4,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 
 from src.app.api.admin.endpoints import get_current_admin
 from src.app.core.logger import get_logger
@@ -125,6 +126,7 @@ async def update_group(group_id: UUID, body: ProductGroupUpdate) -> ProductGroup
 @router.delete(
     "/{group_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Удалить группу товаров",
     description="Удаляет группу. Товары остаются, но теряют привязку к группе (group_id=NULL).",
     responses={404: {"description": "Группа не найдена"}},
@@ -208,6 +210,7 @@ async def merge_products(body: ProductGroupMerge) -> ProductGroupOut:
 @router.post(
     "/unlink",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Убрать товары из группы",
     description="Отвязывает указанные товары от их группы (group_id=NULL). Если в группе не остаётся товаров — группа удаляется.",
     dependencies=[Depends(get_current_admin)],

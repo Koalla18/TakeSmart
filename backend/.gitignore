@@ -16,3 +16,6 @@ uploads/*
 # Env
 .env
 
+
+# Frontend
+frontend/

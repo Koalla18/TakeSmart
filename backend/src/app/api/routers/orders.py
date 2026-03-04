@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import Response
 
 from src.app.core.logger import get_logger
 from src.app.core.telegram_service import send_order_notification
@@ -292,6 +293,7 @@ async def update_admin_note(order_id: UUID, body: OrderAdminNoteUpdate) -> Order
 @router.delete(
     "/{order_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Удалить заказ",
     responses={
         404: {"description": "Заказ не найден"},

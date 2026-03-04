@@ -3,6 +3,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 
 from src.app.api.admin.endpoints import get_current_admin
 from src.app.core.logger import get_logger
@@ -214,6 +215,7 @@ async def update_category(category_id: UUID, body: CategoryUpdate) -> CategoryOu
 @router.delete(
     "/{category_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Удалить категорию",
     responses={
         404: {"description": "Категория не найдена"},
