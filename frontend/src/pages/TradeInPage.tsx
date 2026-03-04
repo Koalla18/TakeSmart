@@ -1,6 +1,115 @@
-import { Link } from 'react-router-dom'
+import { useState } from 'react'
 import { Container, Section } from '../components/ui/Layout'
-import { Button } from '../components/ui/Button'
+
+/* ── Trade-in device catalog (frontend-only) ─────────────────────────── */
+
+interface DeviceOption {
+  label: string
+  models: { name: string; tradeValue: [number, number] }[]
+}
+
+const deviceCatalog: Record<string, DeviceOption> = {
+  iphone: {
+    label: 'iPhone',
+    models: [
+      { name: 'iPhone 16 Pro Max', tradeValue: [55000, 85000] },
+      { name: 'iPhone 16 Pro', tradeValue: [50000, 75000] },
+      { name: 'iPhone 16', tradeValue: [40000, 60000] },
+      { name: 'iPhone 15 Pro Max', tradeValue: [45000, 70000] },
+      { name: 'iPhone 15 Pro', tradeValue: [40000, 60000] },
+      { name: 'iPhone 15', tradeValue: [30000, 48000] },
+      { name: 'iPhone 14 Pro Max', tradeValue: [35000, 55000] },
+      { name: 'iPhone 14 Pro', tradeValue: [30000, 50000] },
+      { name: 'iPhone 14', tradeValue: [22000, 38000] },
+      { name: 'iPhone 13 Pro Max', tradeValue: [28000, 45000] },
+      { name: 'iPhone 13 Pro', tradeValue: [25000, 40000] },
+      { name: 'iPhone 13', tradeValue: [18000, 30000] },
+      { name: 'iPhone 12 Pro Max', tradeValue: [20000, 32000] },
+      { name: 'iPhone 12 Pro', tradeValue: [17000, 28000] },
+      { name: 'iPhone 12', tradeValue: [13000, 22000] },
+      { name: 'iPhone 11 Pro Max', tradeValue: [14000, 24000] },
+      { name: 'iPhone 11 Pro', tradeValue: [12000, 20000] },
+      { name: 'iPhone 11', tradeValue: [8000, 16000] },
+      { name: 'iPhone SE (2/3)', tradeValue: [5000, 12000] },
+    ],
+  },
+  samsung: {
+    label: 'Samsung',
+    models: [
+      { name: 'Galaxy S25 Ultra', tradeValue: [50000, 78000] },
+      { name: 'Galaxy S25+', tradeValue: [38000, 58000] },
+      { name: 'Galaxy S25', tradeValue: [30000, 48000] },
+      { name: 'Galaxy S24 Ultra', tradeValue: [42000, 65000] },
+      { name: 'Galaxy S24+', tradeValue: [30000, 48000] },
+      { name: 'Galaxy S24', tradeValue: [22000, 38000] },
+      { name: 'Galaxy S23 Ultra', tradeValue: [32000, 52000] },
+      { name: 'Galaxy S23', tradeValue: [18000, 30000] },
+      { name: 'Galaxy Z Fold 5', tradeValue: [45000, 70000] },
+      { name: 'Galaxy Z Flip 5', tradeValue: [22000, 38000] },
+    ],
+  },
+  macbook: {
+    label: 'MacBook',
+    models: [
+      { name: 'MacBook Pro 16" (M3/M4)', tradeValue: [80000, 140000] },
+      { name: 'MacBook Pro 14" (M3/M4)', tradeValue: [60000, 110000] },
+      { name: 'MacBook Air 15" (M3)', tradeValue: [45000, 75000] },
+      { name: 'MacBook Air 13" (M3)', tradeValue: [35000, 60000] },
+      { name: 'MacBook Pro 14" (M2)', tradeValue: [50000, 85000] },
+      { name: 'MacBook Air (M2)', tradeValue: [28000, 48000] },
+      { name: 'MacBook Air (M1)', tradeValue: [18000, 35000] },
+    ],
+  },
+  ipad: {
+    label: 'iPad',
+    models: [
+      { name: 'iPad Pro 13" (M4)', tradeValue: [50000, 80000] },
+      { name: 'iPad Pro 11" (M4)', tradeValue: [38000, 62000] },
+      { name: 'iPad Air (M2)', tradeValue: [25000, 42000] },
+      { name: 'iPad mini 7', tradeValue: [22000, 35000] },
+      { name: 'iPad (10-го поколения)', tradeValue: [15000, 25000] },
+      { name: 'iPad Pro (M1/M2)', tradeValue: [25000, 50000] },
+      { name: 'iPad Air (M1)', tradeValue: [18000, 30000] },
+    ],
+  },
+  xiaomi: {
+    label: 'Xiaomi',
+    models: [
+      { name: 'Xiaomi 14 Ultra', tradeValue: [30000, 50000] },
+      { name: 'Xiaomi 14 Pro', tradeValue: [25000, 42000] },
+      { name: 'Xiaomi 14', tradeValue: [18000, 32000] },
+      { name: 'Xiaomi 13 Pro', tradeValue: [18000, 30000] },
+      { name: 'Xiaomi 13', tradeValue: [12000, 22000] },
+      { name: 'Redmi Note 13 Pro+', tradeValue: [8000, 16000] },
+      { name: 'POCO F6 Pro', tradeValue: [12000, 22000] },
+    ],
+  },
+  watch: {
+    label: 'Часы',
+    models: [
+      { name: 'Apple Watch Ultra 2', tradeValue: [30000, 50000] },
+      { name: 'Apple Watch Series 9', tradeValue: [15000, 28000] },
+      { name: 'Apple Watch SE (2023)', tradeValue: [8000, 16000] },
+      { name: 'Samsung Galaxy Watch 6', tradeValue: [8000, 16000] },
+    ],
+  },
+  other: {
+    label: 'Другое',
+    models: [
+      { name: 'AirPods Pro 2', tradeValue: [5000, 12000] },
+      { name: 'AirPods Max', tradeValue: [15000, 30000] },
+      { name: 'Sony PlayStation 5', tradeValue: [18000, 32000] },
+      { name: 'Nintendo Switch OLED', tradeValue: [10000, 18000] },
+    ],
+  },
+}
+
+const conditionMultipliers: { id: string; label: string; emoji: string; desc: string; mult: number }[] = [
+  { id: 'perfect', label: 'Идеальное', emoji: '✨', desc: 'Как новое, без следов использования', mult: 1.0 },
+  { id: 'good', label: 'Хорошее', emoji: '👍', desc: 'Мелкие следы использования', mult: 0.85 },
+  { id: 'fair', label: 'Среднее', emoji: '👌', desc: 'Заметные потёртости, мелкие царапины', mult: 0.65 },
+  { id: 'poor', label: 'С дефектами', emoji: '🔧', desc: 'Серьёзные повреждения, трещины', mult: 0.4 },
+]
 
 const steps = [
   {
@@ -46,6 +155,27 @@ const steps = [
 ]
 
 export function TradeInPage() {
+  const [selectedType, setSelectedType] = useState<string | null>(null)
+  const [selectedModel, setSelectedModel] = useState<string | null>(null)
+  const [selectedCondition, setSelectedCondition] = useState<string | null>(null)
+
+  const device = selectedType ? deviceCatalog[selectedType] : null
+  const model = device?.models.find(m => m.name === selectedModel)
+  const condition = conditionMultipliers.find(c => c.id === selectedCondition)
+
+  const estimatedMin = model && condition ? Math.round(model.tradeValue[0] * condition.mult / 1000) * 1000 : 0
+  const estimatedMax = model && condition ? Math.round(model.tradeValue[1] * condition.mult / 1000) * 1000 : 0
+
+  const telegramMessage = model && condition
+    ? `Здравствуйте! Хочу оценить устройство по Trade-in:\n\n📱 ${model.name}\n📋 Состояние: ${condition.label}\n💰 Предв. оценка: ${estimatedMin.toLocaleString('ru-RU')} – ${estimatedMax.toLocaleString('ru-RU')} ₽\n\nЖду обратной связи!`
+    : 'Здравствуйте! Хочу узнать стоимость моего устройства по Trade-in.'
+  const telegramUrl = `https://t.me/takesmart_manager?text=${encodeURIComponent(telegramMessage)}`
+
+  const resetCalculator = () => {
+    setSelectedType(null)
+    setSelectedModel(null)
+    setSelectedCondition(null)
+  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -82,12 +212,16 @@ export function TradeInPage() {
               </p>
 
               <div className="flex flex-wrap gap-4 mb-12">
-                <Link 
-                  to="/catalog"
+                <a 
+                  href="#calculator"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    document.getElementById('calculator')?.scrollIntoView({ behavior: 'smooth' })
+                  }}
                   className="inline-flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 px-8 py-4 text-white font-semibold transition-all hover:shadow-lg hover:shadow-blue-500/30 text-lg"
                 >
                   Оценить устройство
-                </Link>
+                </a>
                 <a 
                   href="https://t.me/takesmart_manager"
                   target="_blank"
@@ -198,8 +332,8 @@ export function TradeInPage() {
         </Container>
       </Section>
 
-      {/* Trade-in — Contact for Evaluation */}
-      <Section className="py-24 bg-white">
+      {/* Trade-in Calculator */}
+      <Section id="calculator" className="py-24 bg-white">
         <Container>
           <div className="text-center mb-12">
             <span className="inline-block rounded-full bg-green-100 px-5 py-2 text-sm font-semibold text-green-700 mb-4">
@@ -209,29 +343,161 @@ export function TradeInPage() {
               Сколько стоит ваше устройство?
             </h2>
             <p className="text-xl text-gray-500 max-w-2xl mx-auto">
-              Отправьте фото или принесите устройство в магазин — мы оценим его за 5 минут
+              Выберите устройство и узнайте предварительную стоимость за 30 секунд
             </p>
           </div>
 
-          <div className="max-w-lg mx-auto text-center">
-            <div className="rounded-3xl bg-gray-50 border border-gray-200 p-10">
-              <div className="text-5xl mb-4">📱</div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-3">Узнайте стоимость</h3>
-              <p className="text-gray-500 mb-8">
-                Напишите нашему менеджеру — мы оценим ваше устройство и предложим лучшие условия обмена
-              </p>
-              <a
-                href="https://t.me/takesmart_manager"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 px-8 py-4 text-white font-semibold transition-all hover:shadow-lg hover:shadow-blue-500/30 text-lg"
-              >
-                Написать менеджеру
-              </a>
+          <div className="max-w-3xl mx-auto">
+            <div className="rounded-3xl bg-gray-50 border border-gray-200 overflow-hidden">
+              {/* Progress bar */}
+              <div className="flex border-b border-gray-200 bg-white">
+                {['Тип', 'Модель', 'Состояние'].map((step, i) => {
+                  const stepNum = i + 1
+                  const isActive = (stepNum === 1 && !selectedType) || 
+                                   (stepNum === 2 && selectedType && !selectedModel) ||
+                                   (stepNum === 3 && selectedModel && !selectedCondition)
+                  const isDone = (stepNum === 1 && selectedType) ||
+                                 (stepNum === 2 && selectedModel) ||
+                                 (stepNum === 3 && selectedCondition)
+                  return (
+                    <div 
+                      key={step}
+                      className={`flex-1 flex items-center justify-center gap-2 py-4 text-sm font-medium transition-colors ${
+                        isActive ? 'text-blue-600 bg-blue-50' : isDone ? 'text-green-600 bg-green-50' : 'text-gray-400'
+                      }`}
+                    >
+                      <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
+                        isDone ? 'bg-green-500 text-white' : isActive ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-500'
+                      }`}>
+                        {isDone ? '✓' : stepNum}
+                      </span>
+                      <span className="hidden sm:inline">{step}</span>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="p-6 sm:p-10">
+                {/* Step 1: device type */}
+                {!selectedType && (
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-6">Что хотите сдать?</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {Object.entries(deviceCatalog).map(([key, cat]) => (
+                        <button
+                          key={key}
+                          onClick={() => { setSelectedType(key); setSelectedModel(null); setSelectedCondition(null) }}
+                          className="group rounded-2xl border-2 border-gray-200 bg-white p-5 text-center transition-all hover:border-blue-400 hover:shadow-md active:scale-[0.97]"
+                        >
+                          <div className="text-3xl mb-2">
+                            {key === 'iphone' ? '📱' : key === 'samsung' ? '📲' : key === 'macbook' ? '💻' : key === 'ipad' ? '📟' : key === 'xiaomi' ? '📱' : key === 'watch' ? '⌚' : '🎮'}
+                          </div>
+                          <div className="font-semibold text-gray-900 group-hover:text-blue-600">{cat.label}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 2: model */}
+                {selectedType && !selectedModel && device && (
+                  <div>
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-lg font-semibold text-gray-900">Выберите модель</h3>
+                      <button onClick={() => setSelectedType(null)} className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+                        ← Назад
+                      </button>
+                    </div>
+                    <div className="grid gap-2">
+                      {device.models.map((m) => (
+                        <button
+                          key={m.name}
+                          onClick={() => { setSelectedModel(m.name); setSelectedCondition(null) }}
+                          className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-5 py-4 text-left transition-all hover:border-blue-400 hover:shadow-sm active:scale-[0.99]"
+                        >
+                          <span className="font-medium text-gray-900">{m.name}</span>
+                          <span className="text-sm text-gray-400">до {m.tradeValue[1].toLocaleString('ru-RU')} ₽</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 3: condition */}
+                {selectedModel && !selectedCondition && (
+                  <div>
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-lg font-semibold text-gray-900">Состояние устройства</h3>
+                      <button onClick={() => setSelectedModel(null)} className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+                        ← Назад
+                      </button>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {conditionMultipliers.map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => setSelectedCondition(c.id)}
+                          className="rounded-2xl border-2 border-gray-200 bg-white p-5 text-left transition-all hover:border-blue-400 hover:shadow-md active:scale-[0.98]"
+                        >
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="text-2xl">{c.emoji}</span>
+                            <span className="font-semibold text-gray-900">{c.label}</span>
+                          </div>
+                          <p className="text-sm text-gray-500">{c.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Result */}
+                {selectedCondition && model && condition && (
+                  <div className="text-center">
+                    <div className="flex items-center justify-between mb-8">
+                      <h3 className="text-lg font-semibold text-gray-900">Результат оценки</h3>
+                      <button onClick={resetCalculator} className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+                        Рассчитать заново
+                      </button>
+                    </div>
+                    
+                    <div className="rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 p-8 text-white mb-6">
+                      <div className="text-sm text-blue-200 mb-1">Предварительная оценка</div>
+                      <div className="text-lg text-blue-100 mb-3">{model.name} • {condition.label}</div>
+                      <div className="text-5xl font-bold mb-1">
+                        {estimatedMin.toLocaleString('ru-RU')} – {estimatedMax.toLocaleString('ru-RU')} ₽
+                      </div>
+                      <div className="text-sm text-blue-200 mt-3">
+                        Точная стоимость определяется после осмотра
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                      <a
+                        href={telegramUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center justify-center gap-2 rounded-full bg-blue-500 hover:bg-blue-600 px-8 py-4 text-white font-semibold transition-all hover:shadow-lg hover:shadow-blue-500/30 text-lg"
+                      >
+                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+                        </svg>
+                        Отправить заявку
+                      </a>
+                      <a
+                        href="tel:+79998021022"
+                        className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-gray-300 px-8 py-4 font-semibold text-gray-700 transition-all hover:border-gray-400 hover:bg-gray-50"
+                      >
+                        📞 Позвонить
+                      </a>
+                    </div>
+
+                    <p className="text-xs text-gray-400 mt-6">
+                      * Оценка является предварительной и может измениться после осмотра устройства специалистом
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
-            <p className="text-sm text-gray-400 mt-6">
-              * Принимаем iPhone (от 8), Samsung Galaxy (от S20), MacBook, iPad, Apple Watch и другие устройства
-            </p>
           </div>
         </Container>
       </Section>
@@ -360,13 +626,16 @@ export function TradeInPage() {
               Приходите в наш магазин или свяжитесь с нами, чтобы узнать стоимость вашего устройства
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button 
-                to="/catalog" 
-                size="lg"
-                className="bg-white text-blue-700 hover:bg-gray-100 font-semibold text-lg px-10"
+              <a 
+                href="#calculator"
+                onClick={(e) => {
+                  e.preventDefault()
+                  document.getElementById('calculator')?.scrollIntoView({ behavior: 'smooth' })
+                }}
+                className="inline-flex items-center justify-center rounded-xl bg-white px-10 py-4 text-blue-700 font-semibold text-lg hover:bg-gray-100 transition-all"
               >
-                Перейти в каталог
-              </Button>
+                Оценить устройство
+              </a>
               <a 
                 href="https://t.me/takesmart_manager"
                 target="_blank"
