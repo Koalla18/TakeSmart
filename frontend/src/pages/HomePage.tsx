@@ -107,7 +107,7 @@ export function HomePage() {
       .then((data: ApiProductOut[]) => {
         if (data.length > 0) setFeaturedProducts(data.map(p => mapApiProduct(p)))
       })
-      .catch(() => { /* keep static mocks */ })
+      .catch(() => { /* API error — section stays hidden */ })
   }, [])
 
   // Video scroll sync (Apple-style)

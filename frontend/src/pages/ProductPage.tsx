@@ -3,7 +3,7 @@ import { Link, useParams, useNavigate } from 'react-router-dom'
 import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
 import { ProductCard } from '../components/ProductCard'
-import { getProductById, products, formatPrice, getBadgeText } from '../data/products'
+import { formatPrice, getBadgeText } from '../data/products'
 import { useCart } from '../lib/cart'
 import { API_BASE_URL } from '../lib/config'
 import type { Product as CartProduct } from '../data/products'
@@ -291,7 +291,7 @@ export function ProductPage() {
   const id = params.id ?? ''
   
   // Try local data first, then API
-  const localProduct = getProductById(id)
+  const localProduct = null  // all data from API
   
   const [apiProduct, setApiProduct] = useState<ApiProduct | null>(null)
   const [loading, setLoading] = useState(!localProduct)
@@ -399,10 +399,8 @@ export function ProductPage() {
     return selectedVariant?.image_url || (apiProduct && apiProduct.main_image_url) || null
   }, [selectedColor, variants, selectedVariant, apiProduct])
   
-  // Get related products from the same category
-  const relatedProducts = localProduct 
-    ? products.filter(p => p.categorySlug === localProduct.categorySlug && p.id !== localProduct.id).slice(0, 4)
-    : []
+  // Related products — loaded from API only
+  const relatedProducts: any[] = []
   
   // Use API product if available, otherwise local
   const hasApiProduct = apiProduct !== null

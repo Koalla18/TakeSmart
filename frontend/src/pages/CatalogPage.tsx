@@ -4,9 +4,6 @@ import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
 import { ProductCard, ProductCardSkeleton } from '../components/ProductCard'
 import {
-  products as staticProducts,
-  categories as staticCategories,
-  brands as staticBrands,
   type CatalogCategory,
   type CatalogBrand,
   type ApiProductOut,
@@ -203,10 +200,10 @@ export function CatalogPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false)
   
-  // ─── Данные (API первичен, моки — запасной вариант) ─────────────────────────
-  const [displayProducts, setDisplayProducts] = useState<Product[]>(staticProducts)
-  const [displayCategories, setDisplayCategories] = useState<CatalogCategory[]>(staticCategories)
-  const [displayBrands, setDisplayBrands] = useState<CatalogBrand[]>(staticBrands)
+  // ─── Данные (загружаются из API) ──────────────────────────────────────────
+  const [displayProducts, setDisplayProducts] = useState<Product[]>([])
+  const [displayCategories, setDisplayCategories] = useState<CatalogCategory[]>([])
+  const [displayBrands, setDisplayBrands] = useState<CatalogBrand[]>([])
 
   // Filter states
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || 'all')
@@ -236,7 +233,7 @@ export function CatalogPage() {
 
         if (cancelled) return
 
-        if (prodData.items.length === 0) return // пустой каталог — оставляем моки
+        if (prodData.items.length === 0) { setIsLoading(false); return }
 
         // Строим map category_id -> { slug, name }
         const catMap = new Map<string, { slug: string; name: string }>(
@@ -271,10 +268,10 @@ export function CatalogPage() {
           .filter(c => activeSlugs.has(c.id) || c.count > 0)
 
         setDisplayProducts(mapped)
-        setDisplayCategories(apiCategories.length ? apiCategories : staticCategories)
-        setDisplayBrands(apiBrands.length ? apiBrands : staticBrands)
-      } catch {
-        // Ошибка — оставляем статичные моки
+        setDisplayCategories(apiCategories)
+        setDisplayBrands(apiBrands)
+      } catch (err) {
+        console.error('Failed to load catalog:', err)
       }
     }
 
