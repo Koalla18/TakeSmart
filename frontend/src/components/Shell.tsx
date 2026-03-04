@@ -518,7 +518,7 @@ export function Shell({ children }: PropsWithChildren) {
       
       {/* Telegram floating button */}
       <a
-        href="https://t.me/take_smartt"
+        href="https://t.me/takesmart_manager"
         target="_blank"
         rel="noopener noreferrer"
         className="fixed bottom-20 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[#0088cc] text-white shadow-lg transition-transform hover:scale-110 hover:shadow-xl sm:bottom-6"
