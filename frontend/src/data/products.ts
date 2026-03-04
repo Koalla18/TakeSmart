@@ -39,6 +39,7 @@ export interface ApiProductOut {
   price: number
   discount_price: number | null
   stock_quantity: number
+  condition: string | null
   is_active: boolean
   is_featured: boolean
   main_image_url: string | null

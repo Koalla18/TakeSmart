@@ -235,13 +235,17 @@ export function CatalogPage() {
 
         if (prodData.items.length === 0) { setIsLoading(false); return }
 
+        // Фильтруем только новые товары (не Б/У)
+        const newItems = prodData.items.filter(p => (p.condition || 'new') !== 'used')
+        if (newItems.length === 0) { setIsLoading(false); return }
+
         // Строим map category_id -> { slug, name }
         const catMap = new Map<string, { slug: string; name: string }>(
           catData.map(c => [c.id, { slug: c.slug, name: c.name }])
         )
 
         // Маппим товары
-        const mapped = prodData.items.map(p => {
+        const mapped = newItems.map(p => {
           const cat = p.category_id ? catMap.get(p.category_id) : undefined
           return mapApiProduct(p, cat?.slug ?? '', cat?.name ?? '')
         })

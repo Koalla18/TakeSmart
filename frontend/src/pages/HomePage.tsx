@@ -713,7 +713,7 @@ export function HomePage() {
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {benefits.map((benefit, i) => (
               <AnimatedSection key={i} delay={i * 100}>
-                <div className="group rounded-3xl bg-white p-8 shadow-lg transition-all duration-500 hover:shadow-2xl hover:-translate-y-2 border border-gray-100">
+                <div className="group h-full rounded-3xl bg-white p-8 shadow-lg transition-all duration-500 hover:shadow-2xl hover:-translate-y-2 border border-gray-100">
                   <div className="mb-6 inline-flex rounded-2xl bg-yellow-400 p-4 text-gray-900 transition-transform duration-500 group-hover:scale-110">
                     {benefit.icon}
                   </div>

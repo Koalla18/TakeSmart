@@ -15,6 +15,7 @@ interface ApiProduct {
   discount_price: number | null
   stock_quantity: number
   main_image_url: string | null
+  condition: string | null
   is_active: boolean
   is_featured: boolean
   description: string | null
@@ -43,14 +44,16 @@ export function UsedPage() {
 
   async function fetchUsedProducts() {
     try {
-      // Бэкенд не имеет фильтра is_used — получаем все активные товары
-      // В будущем можно добавить фильтр по категории или тег
+      // Только Б/У товары (condition=used)
       const res = await fetch(`${API_BASE_URL}/api/products?limit=200`)
       if (res.ok) {
         const data = await res.json()
         const items = data.items || data
-        console.log('Products:', items)
-        setProducts(Array.isArray(items) ? items : [])
+        // Фильтруем только Б/У товары
+        const usedOnly = (Array.isArray(items) ? items : []).filter(
+          (p: ApiProduct) => p.condition === 'used'
+        )
+        setProducts(usedOnly)
       }
     } catch (err) {
       console.error('Error fetching used products:', err)
@@ -377,9 +380,12 @@ export function UsedPage() {
               >
                 📞 +7 (999) 802-10-22
               </a>
-              <Button to="/catalog" variant="outline" size="lg" className="border-white text-white hover:bg-white hover:text-gray-900">
+              <a
+                href="/catalog"
+                className="inline-flex items-center justify-center rounded-xl border-2 border-yellow-400 px-8 py-4 text-lg font-semibold text-yellow-400 transition-all duration-200 hover:bg-yellow-400 hover:text-gray-900"
+              >
                 Весь каталог
-              </Button>
+              </a>
             </div>
           </div>
         </Container>
