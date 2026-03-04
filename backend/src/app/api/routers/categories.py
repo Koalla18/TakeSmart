@@ -186,8 +186,18 @@ async def update_category(category_id: UUID, body: CategoryUpdate) -> CategoryOu
 
         update_data = body.model_dump(exclude_unset=True)
 
-        # Если меняется name — пересчитываем slug автоматически
-        if body.name:
+        # Если slug передан явно — проверяем уникальность
+        if "slug" in update_data and update_data["slug"]:
+            existing_by_slug = await uow.categories.slug_exists(
+                update_data["slug"], exclude_id=category_id
+            )
+            if existing_by_slug:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Slug '{update_data['slug']}' уже занят",
+                )
+        elif body.name:
+            # Если меняется name без явного slug — пересчитываем slug автоматически
             update_data["slug"] = await build_unique_slug(
                 body.name,
                 uow.categories.slug_exists,

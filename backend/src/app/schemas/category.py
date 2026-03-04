@@ -13,6 +13,7 @@ class CategoryBase(BaseModel):
     image_url: Optional[str] = Field(None, max_length=500)
     is_active: bool = Field(True)
     parent_id: Optional[uuid.UUID] = Field(None, description="UUID родительской категории (не передавать или null — корневая категория)")
+    sort_order: int = Field(0, description="Порядок отображения (меньше = выше)")
 
 
 class CategoryCreate(CategoryBase):
@@ -25,10 +26,12 @@ class CategoryUpdate(BaseModel):
     Чтобы убрать родителя и сделать категорию корневой — передай parent_id: null явно.
     """
     name: Optional[str] = Field(None, min_length=2, max_length=100)
+    slug: Optional[str] = Field(None, min_length=1, max_length=120)
     description: Optional[str] = Field(None, max_length=2000)
     image_url: Optional[str] = Field(None, max_length=500)
     is_active: Optional[bool] = None
     parent_id: Optional[uuid.UUID] = None
+    sort_order: Optional[int] = None
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> "CategoryUpdate":
@@ -47,6 +50,7 @@ class CategoryOut(BaseModel):
     image_url: Optional[str]
     is_active: bool
     parent_id: Optional[uuid.UUID]
+    sort_order: int
     created_at: datetime
     updated_at: datetime
 
