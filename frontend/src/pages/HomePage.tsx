@@ -4,7 +4,6 @@ import { Container, Section } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
 import { ProductCard } from '../components/ProductCard'
 import {
-  getFeaturedProducts,
   type ApiProductOut,
   mapApiProduct,
   type Product,
@@ -96,7 +95,7 @@ const benefits = [
 ]
 
 export function HomePage() {
-  const [featuredProducts, setFeaturedProducts] = useState<Product[]>(getFeaturedProducts())
+  const [featuredProducts, setFeaturedProducts] = useState<Product[]>([])
   const videoRef = useRef<HTMLVideoElement>(null)
   const heroRef = useRef<HTMLDivElement>(null)
   const [videoProgress, setVideoProgress] = useState(0)
@@ -306,52 +305,9 @@ export function HomePage() {
         <Container>
           <AnimatedSection>
             {(() => {
+              type Slide = { badge: string; title: string; description: string; price: string; image: string; color: string; tags: string[]; isNew: boolean }
               const [currentSlide, setCurrentSlide] = useState(0);
-              
-              const defaultSlides = [
-                {
-                  badge: 'Мощь. Стиль. Pro.',
-                  title: 'iPhone 17 Pro',
-                  description: 'Оригинальная техника Apple без переплат.\nОбмен старого устройства на новое с выгодой до 50%.\nДоставка в день заказа по Москве и МО.',
-                  price: '94 000',
-                  image: '/iphone-17-pro.png',
-                  color: 'bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50',
-                  tags: ['trade-in', 'гарантия 12 месяцев*', 'новинка'],
-                  isNew: true
-                },
-                {
-                  badge: 'Лёгкость. Мощь. Air.',
-                  title: 'MacBook Air M3',
-                  description: 'Невероятно тонкий и лёгкий.\nДо 18 часов работы без подзарядки.\nЧип M3 — производительность нового уровня.',
-                  price: '119 990',
-                  image: 'https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/macbook-air-midnight-select-20220606?wid=800&hei=800&fmt=png-alpha',
-                  color: 'bg-gradient-to-br from-slate-100 via-gray-50 to-slate-50',
-                  tags: ['trade-in', 'гарантия 12 месяцев*', 'хит'],
-                  isNew: false
-                },
-                {
-                  badge: 'Звук. Без границ.',
-                  title: 'AirPods Pro 2',
-                  description: 'Активное шумоподавление нового поколения.\nАдаптивное аудио — под вас.\nДо 6 часов прослушивания.',
-                  price: '24 990',
-                  image: 'https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/airpods-pro-2-hero-select-202409?wid=800&hei=800&fmt=png-alpha',
-                  color: 'bg-gradient-to-br from-purple-50 via-white to-fuchsia-50',
-                  tags: ['trade-in', 'гарантия 12 месяцев*'],
-                  isNew: false
-                },
-                {
-                  badge: 'Создан для приключений.',
-                  title: 'Apple Watch Ultra 2',
-                  description: 'Титановый корпус 49 мм.\nСамый яркий дисплей Apple Watch.\nДо 36 часов автономной работы.',
-                  price: '79 990',
-                  image: '/watch-ultra-2.png',
-                  color: 'bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50',
-                  tags: ['trade-in', 'гарантия 12 месяцев*', 'новинка'],
-                  isNew: true
-                }
-              ];
-
-              const [slides, setSlides] = useState(defaultSlides);
+              const [slides, setSlides] = useState<Slide[]>([]);
 
               // Fetch slides from API
               useEffect(() => {
@@ -385,12 +341,9 @@ export function HomePage() {
                 return () => clearInterval(timer);
               }, [slides.length]);
               
+              if (slides.length === 0) return null;
+
               return (
-                <div className="relative">
-                  {/* Section Title */}
-                  <div className="mb-8 flex items-center justify-between">
-                    <div>
-                      <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">Товары недели</h2>
                       <p className="mt-2 text-gray-500">Лучшие предложения от TakeSmart</p>
                     </div>
                     <div className="flex items-center gap-4">
@@ -715,6 +668,7 @@ export function HomePage() {
       </Section>
 
       {/* Featured Products with Horizontal Scroll Feel */}
+      {featuredProducts.length > 0 && (
       <Section className="bg-gray-50 py-24">
         <Container>
           <AnimatedSection>
@@ -739,6 +693,7 @@ export function HomePage() {
           </div>
         </Container>
       </Section>
+      )}
 
       {/* Benefits Section - Apple Style Cards */}
       <Section className="py-24">
