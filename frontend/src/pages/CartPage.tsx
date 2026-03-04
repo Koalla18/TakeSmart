@@ -450,6 +450,16 @@ export function CartPage() {
                   ))}
                 </div>
                 
+                {/* Уведомление о б/у технике */}
+                {items.some(item => item.product.condition === 'used') && (
+                  <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
+                    <div className="font-semibold">⚠️ В вашей корзине есть б/у техника</div>
+                    <p className="mt-1 text-amber-700">
+                      Товары с пометкой «б/у» были в использовании. Перед покупкой рекомендуем уточнить состояние у менеджера.
+                    </p>
+                  </div>
+                )}
+
                 {/* Лимит предупреждение */}
                 {limitWarning && (
                   <div className="mt-4 rounded-lg bg-orange-50 p-3 text-sm text-orange-700">

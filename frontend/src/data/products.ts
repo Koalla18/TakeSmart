@@ -13,6 +13,7 @@ export interface Product {
   image: string
   description: string
   specs: { label: string; value: string }[]
+  condition?: string
 }
 
 export function formatPrice(price: number): string {

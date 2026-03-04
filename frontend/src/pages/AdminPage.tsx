@@ -374,7 +374,7 @@ export function AdminPage() {
   }
 
   // Weekly slides actions
-  const saveSlide = async (data: Record<string, unknown>, slideId?: string) => {
+  const saveSlide = async (data: Record<string, unknown>, slideId?: string): Promise<string | null> => {
     try {
       const url = slideId
         ? `${API_BASE_URL}/api/weekly-slides/${slideId}`
@@ -385,10 +385,10 @@ export function AdminPage() {
         body: JSON.stringify(data),
       })
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Ошибка') }
-      setIsSlideModalOpen(false)
-      setEditingSlide(null)
+      const saved = await res.json()
       loadSlides()
-    } catch (err) { alert(err instanceof Error ? err.message : 'Ошибка') }
+      return saved.id as string
+    } catch (err) { alert(err instanceof Error ? err.message : 'Ошибка'); return null }
   }
 
   const deleteSlide = async (slideId: string) => {
@@ -828,6 +828,7 @@ export function AdminPage() {
           slide={editingSlide}
           onSave={saveSlide}
           onClose={() => { setIsSlideModalOpen(false); setEditingSlide(null) }}
+          authFetch={authFetch}
         />
       )}
     </div>
@@ -1465,16 +1466,9 @@ function ProductModal({
           await saveVariantsToBackend(saved.id)
         }
         onRefresh()
-        if (!product?.id) {
-          // New product: load images section inline
-          setSaving(false)
-          await loadImages(saved.id)
-        } else {
-          // Existing product: close modal after save
-          setSaving(false)
-          onClose()
-          return
-        }
+        setSaving(false)
+        onClose()
+        return
       } else {
         setSaving(false)
       }
@@ -2404,11 +2398,12 @@ function ProductModal({
 // ============ SLIDE MODAL COMPONENT ============
 
 function SlideModal({
-  slide, onSave, onClose
+  slide, onSave, onClose, authFetch
 }: {
   slide: WeeklySlide | null
-  onSave: (data: Record<string, unknown>, id?: string) => void
+  onSave: (data: Record<string, unknown>, id?: string) => Promise<string | null>
   onClose: () => void
+  authFetch: AuthFetchFn
 }) {
   const [title, setTitle] = useState(slide?.title || '')
   const [badge, setBadge] = useState(slide?.badge || '')
@@ -2421,6 +2416,9 @@ function SlideModal({
   const [sortOrder, setSortOrder] = useState(String(slide?.sort_order ?? 0))
   const [isNew, setIsNew] = useState(slide?.is_new ?? false)
   const [isActive, setIsActive] = useState(slide?.is_active ?? true)
+  const [uploading, setUploading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const COLOR_PRESETS = [
     { label: 'Серый (дефолт)', value: 'bg-gradient-to-br from-gray-50 via-white to-gray-100' },
@@ -2431,7 +2429,52 @@ function SlideModal({
     { label: 'Тёмный', value: 'bg-gradient-to-br from-gray-900 via-slate-800 to-gray-900' },
   ]
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const uploadImage = async (slideId: string, file: File) => {
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await authFetch(`${API_BASE_URL}/api/weekly-slides/${slideId}/image`, {
+        method: 'POST',
+        body: fd,
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setImage(data.url)
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(`Ошибка загрузки: ${err.detail || res.status}`)
+      }
+    } catch { alert('Ошибка загрузки изображения') }
+    finally { setUploading(false) }
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (slide?.id) {
+      // Existing slide — upload directly
+      await uploadImage(slide.id, file)
+    } else {
+      // New slide — save first, then upload
+      setSaving(true)
+      const payload: Record<string, unknown> = {
+        title: title.trim() || 'Новый слайд',
+        is_active: isActive,
+        is_new: isNew,
+        sort_order: parseInt(sortOrder) || 0,
+      }
+      const savedId = await onSave(payload)
+      setSaving(false)
+      if (savedId) {
+        await uploadImage(savedId, file)
+      }
+    }
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const payload: Record<string, unknown> = {
       title: title.trim(),
@@ -2448,7 +2491,10 @@ function SlideModal({
     const tagsArr = tagsStr.split(',').map(t => t.trim()).filter(Boolean)
     if (tagsArr.length) payload.tags = tagsArr
 
-    onSave(payload, slide?.id)
+    setSaving(true)
+    await onSave(payload, slide?.id)
+    setSaving(false)
+    onClose()
   }
 
   return (
@@ -2484,16 +2530,41 @@ function SlideModal({
             <textarea rows={3} value={description} onChange={e => setDescription(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none" />
           </div>
 
-          {/* Image + Link */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm text-slate-400">URL изображения</label>
-              <input type="text" value={image} onChange={e => setImage(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none" placeholder="/static/..." />
+          {/* Image upload + Link */}
+          <div>
+            <label className="mb-1 block text-sm text-slate-400">Изображение</label>
+            <div className="space-y-2">
+              {/* File upload button */}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading || saving}
+                  className="rounded-xl bg-yellow-400 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-yellow-300 disabled:opacity-50"
+                >
+                  {uploading ? '⏳ Загрузка…' : '📁 Загрузить фото'}
+                </button>
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+                {image && (
+                  <span className="text-xs text-green-400 truncate max-w-[200px]">✓ {image.split('/').pop()}</span>
+                )}
+              </div>
+              {/* Preview */}
+              {image && (
+                <div className="flex items-center gap-3">
+                  <img src={image.startsWith('/static') || image.startsWith('/uploads') ? `${API_BASE_URL}${image}` : image} alt="preview" className="h-16 w-16 rounded-lg object-cover bg-white/10" />
+                  <button type="button" onClick={() => setImage('')} className="text-xs text-red-400 hover:text-red-300">Удалить</button>
+                </div>
+              )}
+              {/* URL fallback */}
+              <input type="text" value={image} onChange={e => setImage(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-2 text-sm text-white focus:bg-white/20 focus:outline-none" placeholder="или URL вручную: /static/..." />
             </div>
-            <div>
-              <label className="mb-1 block text-sm text-slate-400">Ссылка (link_url)</label>
-              <input type="text" value={linkUrl} onChange={e => setLinkUrl(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none" placeholder="/catalog?..." />
-            </div>
+          </div>
+
+          {/* Link */}
+          <div>
+            <label className="mb-1 block text-sm text-slate-400">Ссылка (link_url)</label>
+            <input type="text" value={linkUrl} onChange={e => setLinkUrl(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none" placeholder="/catalog?..." />
           </div>
 
           {/* Background color */}
@@ -2535,8 +2606,8 @@ function SlideModal({
           {/* Buttons */}
           <div className="flex gap-4 pt-2">
             <button type="button" onClick={onClose} className="flex-1 rounded-xl bg-white/10 py-3 text-white hover:bg-white/20">Отмена</button>
-            <button type="submit" className="flex-1 rounded-xl bg-yellow-400 py-3 font-semibold text-gray-900 hover:bg-yellow-300">
-              {slide?.id ? 'Сохранить' : 'Создать'}
+            <button type="submit" disabled={saving || uploading} className="flex-1 rounded-xl bg-yellow-400 py-3 font-semibold text-gray-900 hover:bg-yellow-300 disabled:opacity-50">
+              {saving ? '⏳ Сохранение…' : slide?.id ? 'Сохранить' : 'Создать'}
             </button>
           </div>
         </form>

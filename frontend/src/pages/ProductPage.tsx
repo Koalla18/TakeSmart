@@ -242,6 +242,7 @@ interface ApiProduct {
   model: string | null
   color: string | null
   warranty_months: number | null
+  condition: string | null
   created_at: string
   updated_at: string
   siblings?: ApiSibling[]
@@ -443,6 +444,7 @@ export function ProductPage() {
         stockQuantity: effectiveStock,
         image: effectiveImage || '📦',
         description: apiProduct!.description || '',
+        condition: apiProduct!.condition || 'new',
         specs: [
           apiProduct!.brand && { label: 'Бренд', value: apiProduct!.brand },
           apiProduct!.model && { label: 'Модель', value: apiProduct!.model },
@@ -931,17 +933,18 @@ export function ProductPage() {
                 
                 {/* Actions */}
                 <div className="mb-8 space-y-3">
-                  {/* Quantity row */}
-                  <div className="flex items-center gap-3">
+                  {/* Quantity + Buy row */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {/* Quantity selector */}
                     <div className="flex items-center rounded-xl border border-gray-200 bg-white">
                       <button
                         onClick={() => { setStockWarning(null); setQuantity(q => Math.max(1, q - 1)) }}
-                        className="flex h-12 w-12 items-center justify-center text-xl font-medium text-gray-500 transition-colors hover:text-gray-900"
+                        className="flex h-10 w-10 items-center justify-center text-lg font-medium text-gray-500 transition-colors hover:text-gray-900"
                         disabled={quantity <= 1}
                       >
                         −
                       </button>
-                      <span className="w-8 text-center text-lg font-semibold">{quantity}</span>
+                      <span className="w-6 text-center text-base font-semibold">{quantity}</span>
                       <button
                         onClick={() => {
                           if (quantity >= effectiveStock) {
@@ -951,39 +954,36 @@ export function ProductPage() {
                             setQuantity(q => q + 1)
                           }
                         }}
-                        className="flex h-12 w-12 items-center justify-center text-xl font-medium text-gray-500 transition-colors hover:text-gray-900"
+                        className="flex h-10 w-10 items-center justify-center text-lg font-medium text-gray-500 transition-colors hover:text-gray-900"
                       >
                         +
                       </button>
                     </div>
-                    <span className="text-sm text-gray-400">шт.</span>
+
+                    {/* Add to cart button */}
+                    <button
+                      onClick={handleAddToCart}
+                      disabled={effectiveStock <= 0}
+                      className="flex-1 rounded-xl bg-yellow-400 px-6 py-3 text-sm font-semibold text-gray-900 shadow-sm transition-all hover:bg-yellow-500 hover:shadow-md active:scale-[0.98] disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none sm:text-base sm:py-3.5"
+                    >
+                      Добавить в корзину
+                    </button>
+
+                    {/* Call button */}
+                    <a
+                      href="https://t.me/takesmart_manager"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 transition-all hover:bg-gray-50 active:scale-[0.98] sm:py-3.5"
+                    >
+                      📞 Позвонить
+                    </a>
                   </div>
                   {stockWarning && (
                     <div className="rounded-lg bg-orange-50 border border-orange-200 px-4 py-3 text-sm text-orange-800">
                       {stockWarning}
                     </div>
                   )}
-
-                  {/* Buy buttons — stack on mobile, row on sm+ */}
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {/* Buy now button */}
-                    <button
-                      onClick={handleAddToCart}
-                      disabled={effectiveStock <= 0}
-                      className="w-full rounded-xl bg-yellow-400 px-8 py-4 text-base font-semibold text-gray-900 shadow-sm transition-all hover:bg-yellow-500 hover:shadow-md active:scale-[0.98] disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none"
-                    >
-                      Купить сейчас
-                    </button>
-
-                    {/* Add to cart */}
-                    <button
-                      onClick={handleAddToCart}
-                      disabled={effectiveStock <= 0}
-                      className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-yellow-400 bg-white px-6 py-4 text-base font-semibold text-gray-900 transition-all hover:bg-yellow-50 active:scale-[0.98] disabled:border-gray-200 disabled:text-gray-400"
-                    >
-                      В корзину 🛒
-                    </button>
-                  </div>
                 </div>
                 
                 {/* Disclaimer */}
