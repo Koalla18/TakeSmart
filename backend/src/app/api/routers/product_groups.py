@@ -104,7 +104,7 @@ async def update_group(group_id: UUID, body: ProductGroupUpdate) -> ProductGroup
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Группа с id={group_id} не найдена",
             )
-        update_data = body.model_dump(exclude_none=True)
+        update_data = body.model_dump(exclude_unset=True)
         if not update_data:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

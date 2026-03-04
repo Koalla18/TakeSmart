@@ -372,11 +372,7 @@ async def update_product(product_id: UUID, body: ProductUpdate) -> ProductDetail
                 detail="Цена со скидкой должна быть меньше основной цены",
             )
 
-        update_data = body.model_dump(exclude_none=True, exclude={"specs"})
-
-        # Разрешаем явно обнулить group_id (удалить из группы)
-        if "group_id" in body.model_fields_set and body.group_id is None:
-            update_data["group_id"] = None
+        update_data = body.model_dump(exclude_unset=True, exclude={"specs"})
 
         # Если меняется name — пересчитываем slug автоматически
         if body.name:
