@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, UploadFile, File, status, Depends
 
 from src.app.core.logger import get_logger
+from src.app.core.security import get_current_admin
+from src.app.core.static_service import static_service
 from src.app.database.unit_of_work import UnitOfWork
 from src.app.schemas.weekly_slide import WeeklySlideCreate, WeeklySlideOut, WeeklySlideUpdate
 
@@ -86,3 +88,28 @@ async def delete_weekly_slide(slide_id: UUID) -> None:
         await uow.weekly_slides.session.delete(slide)
         await uow.commit()
     logger.info("weekly_slide_deleted", slide_id=str(slide_id))
+
+
+@router.post(
+    "/{slide_id}/image",
+    summary="Загрузить изображение для слайда",
+    responses={404: {"description": "Слайд не найден"}},
+    dependencies=[Depends(get_current_admin)],
+)
+async def upload_slide_image(
+    slide_id: UUID,
+    file: UploadFile = File(..., description="Изображение слайда (JPEG / PNG / WebP, макс. 5 МБ)"),
+) -> dict:
+    async with UnitOfWork() as uow:
+        slide = await uow.weekly_slides.get_by_id(slide_id)
+        if not slide:
+            raise HTTPException(status_code=404, detail=f"Слайд {slide_id} не найден")
+
+        relative_path, size = await static_service.save_slide_image(file, slide_id)
+        image_url = static_service.build_url(relative_path)
+
+        slide.image = image_url
+        await uow.commit()
+
+    logger.info("slide_image_uploaded", slide_id=str(slide_id), url=image_url)
+    return {"url": image_url}

@@ -75,6 +75,28 @@ class StaticFileService:
         )
         return relative_path, len(content)
 
+    async def save_slide_image(
+        self,
+        file: UploadFile,
+        slide_id: uuid.UUID,
+    ) -> tuple[str, int]:
+        logger.debug(
+            "saving_slide_image",
+            slide_id=str(slide_id),
+            filename=file.filename,
+            content_type=file.content_type,
+        )
+        content = await self._validate_and_read(file)
+        subfolder = Path(settings.SLIDES_IMAGES_DIR) / str(slide_id)
+        relative_path = await self._save(content, file.filename or "", subfolder)
+        logger.info(
+            "slide_image_saved",
+            slide_id=str(slide_id),
+            path=relative_path,
+            size_bytes=len(content),
+        )
+        return relative_path, len(content)
+
     async def delete_file(self, relative_path: str) -> bool:
         abs_path = settings.STATIC_DIR / relative_path
         if abs_path.exists() and abs_path.is_file():

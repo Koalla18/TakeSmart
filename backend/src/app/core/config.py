@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     ALLOWED_IMAGE_TYPES: list[str] = ["image/jpeg", "image/png", "image/webp"]
     PRODUCTS_IMAGES_DIR: str = "products"
     CATEGORIES_IMAGES_DIR: str = "categories"
+    SLIDES_IMAGES_DIR: str = "slides"
 
     # Telegram notifications
     TELEGRAM_BOT_TOKEN: str = ""
