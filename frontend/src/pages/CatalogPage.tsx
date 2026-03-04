@@ -438,13 +438,42 @@ export function CatalogPage() {
           </aside>
           
           {/* Main Content */}
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
+            {/* Mobile: horizontal category chips */}
+            <div className="mb-4 lg:hidden">
+              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
+                <button
+                  onClick={() => setSelectedCategory('all')}
+                  className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                    selectedCategory === 'all'
+                      ? 'bg-yellow-400 text-gray-900'
+                      : 'bg-white text-gray-700 border border-gray-200'
+                  }`}
+                >
+                  Все
+                </button>
+                {displayCategories.map((cat) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setSelectedCategory(cat.id)}
+                    className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                      selectedCategory === cat.id
+                        ? 'bg-yellow-400 text-gray-900'
+                        : 'bg-white text-gray-700 border border-gray-200'
+                    }`}
+                  >
+                    {cat.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Toolbar */}
-            <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-xl bg-white p-4">
+            <div className="mb-6 flex items-center justify-between gap-3 rounded-xl bg-white p-3 sm:p-4">
               {/* Mobile filter button */}
               <button
                 onClick={() => setShowMobileFilters(true)}
-                className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 lg:hidden"
+                className="flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-medium text-white lg:hidden"
               >
                 <FilterIcon className="h-4 w-4" />
                 Фильтры
@@ -553,20 +582,20 @@ export function CatalogPage() {
             
             {/* Products Grid */}
             {isLoading ? (
-              <div className={`grid gap-6 ${
+              <div className={`grid ${
                 viewMode === 'grid' 
-                  ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3' 
-                  : 'grid-cols-1'
+                  ? 'grid-cols-2 gap-3 sm:gap-6 xl:grid-cols-3' 
+                  : 'grid-cols-1 gap-6'
               }`}>
                 {Array.from({ length: 6 }).map((_, i) => (
                   <ProductCardSkeleton key={i} />
                 ))}
               </div>
             ) : filteredProducts.length > 0 ? (
-              <div className={`grid gap-6 ${
+              <div className={`grid ${
                 viewMode === 'grid' 
-                  ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3' 
-                  : 'grid-cols-1'
+                  ? 'grid-cols-2 gap-3 sm:gap-6 xl:grid-cols-3' 
+                  : 'grid-cols-1 gap-6'
               }`}>
                 {filteredProducts.map((product) => (
                   <ProductCard key={product.id} product={product} />
@@ -587,8 +616,8 @@ export function CatalogPage() {
             <div className="mt-12 overflow-hidden rounded-2xl bg-gradient-to-br from-gray-900 to-gray-800 p-8 text-center">
               <h2 className="mb-2 text-xl font-bold text-white">Не нашли нужный товар?</h2>
               <p className="mb-6 text-gray-400">Оставьте заявку и мы поможем подобрать то, что вам нужно</p>
-              <Button to="/cart" size="lg">
-                Оставить заявку
+              <Button href="https://t.me/takesmart_manager" size="lg">
+                Написать менеджеру
               </Button>
             </div>
           </div>

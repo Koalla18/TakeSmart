@@ -190,8 +190,8 @@ export function HomePage() {
                     Смотреть каталог
                     <ArrowRightIcon className="ml-2 h-5 w-5" />
                   </Button>
-                  <Button to="/cart" variant="outline" size="lg" className="border-white/30 text-white hover:bg-white/10 backdrop-blur-sm">
-                    Оставить заявку
+                  <Button href="https://t.me/takesmart_manager" variant="outline" size="lg" className="border-white/30 text-white hover:bg-white/10 backdrop-blur-sm">
+                    Написать менеджеру
                   </Button>
                 </div>
               </div>
@@ -920,8 +920,8 @@ export function HomePage() {
                   Оставьте заявку и получите персональную скидку 10% на первый заказ
                 </p>
                 <div className="flex flex-col justify-center gap-4 sm:flex-row">
-                  <Button to="/cart" variant="secondary" size="lg">
-                    Оставить заявку
+                  <Button href="https://t.me/takesmart_manager" variant="secondary" size="lg">
+                    Написать менеджеру
                   </Button>
                   <Button to="/catalog" variant="outline" size="lg" className="border-gray-900 text-gray-900 hover:bg-gray-900 hover:text-white">
                     Смотреть каталог

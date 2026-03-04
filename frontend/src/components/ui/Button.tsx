@@ -39,6 +39,14 @@ export function Button({
   
   const linkTo = to || href
   if (linkTo) {
+    // External links (http, https, //, tel:, mailto:, tg:) → use <a>
+    if (/^(https?:\/\/|\/\/|tel:|mailto:|tg:)/.test(linkTo)) {
+      return (
+        <a href={linkTo} className={classes} target="_blank" rel="noopener noreferrer">
+          {children}
+        </a>
+      )
+    }
     return (
       <Link to={linkTo} className={classes}>
         {children}

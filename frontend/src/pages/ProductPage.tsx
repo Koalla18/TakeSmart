@@ -1097,8 +1097,8 @@ export function ProductPage() {
                 <h2 className="mb-2 text-2xl font-bold text-gray-900">Нужна консультация?</h2>
                 <p className="text-gray-800">Наши специалисты ответят на все ваши вопросы</p>
               </div>
-              <Button to="/cart" variant="secondary" size="lg">
-                Оставить заявку
+              <Button href="https://t.me/takesmart_manager" variant="secondary" size="lg">
+                Написать менеджеру
               </Button>
             </div>
           </Container>

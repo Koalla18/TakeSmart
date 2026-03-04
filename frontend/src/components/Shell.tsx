@@ -80,7 +80,7 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                 { to: '/used', label: 'Б/У техника' },
                 { to: '/delivery', label: 'Доставка и оплата' },
                 { to: '/trade-in', label: 'Trade-in' },
-                { to: '/cart', label: 'Оставить заявку' },
+                { to: '/cart', label: 'Корзина' },
               ].map(item => (
                 <NavLink
                   key={item.to}
