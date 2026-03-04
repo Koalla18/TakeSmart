@@ -47,7 +47,6 @@ interface Category {
   image_url: string | null
   is_active: boolean
   parent_id: string | null
-  sort_order: number
   created_at: string
   updated_at: string
 }
@@ -411,37 +410,6 @@ export function AdminPage() {
     } catch { alert('Ошибка') }
   }
 
-  const moveCategoryOrder = async (category: Category, direction: -1 | 1) => {
-    const sorted = [...categories].sort((a, b) => a.sort_order - b.sort_order)
-    const currentIndex = sorted.findIndex(c => c.id === category.id)
-    const swapIndex = currentIndex + direction
-    if (swapIndex < 0 || swapIndex >= sorted.length) return
-
-    const other = sorted[swapIndex]
-    // If they have the same sort_order, assign distinct values based on position
-    const newMy = other.sort_order === category.sort_order
-      ? category.sort_order + direction
-      : other.sort_order
-    const newOther = other.sort_order === category.sort_order
-      ? category.sort_order
-      : category.sort_order
-    try {
-      await Promise.all([
-        authFetch(`${API_BASE_URL}/api/categories/${category.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sort_order: newMy }),
-        }),
-        authFetch(`${API_BASE_URL}/api/categories/${other.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sort_order: newOther }),
-        }),
-      ])
-      loadCategories()
-    } catch { alert('Ошибка перемещения') }
-  }
-
   // Filtering
   const filterProducts = (list: Product[]) => {
     return list.filter(p => {
@@ -706,7 +674,7 @@ export function AdminPage() {
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {[...categories].sort((a, b) => a.sort_order - b.sort_order).map((category, idx, sorted) => (
+                {categories.map(category => (
                   <div key={category.id} className="rounded-2xl bg-white/5 p-6">
                     <div className="mb-4 flex items-start justify-between">
                       <div className="flex items-center gap-3">
@@ -720,31 +688,16 @@ export function AdminPage() {
                           <div className="text-sm text-slate-400">/{category.slug}</div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        {!category.is_active && (
-                          <span className="rounded bg-red-900/50 px-2 py-1 text-xs text-red-400">Скрыта</span>
-                        )}
-                        <span className="rounded bg-white/10 px-2 py-1 text-xs text-slate-400">#{category.sort_order}</span>
-                      </div>
+                      {!category.is_active && (
+                        <span className="rounded bg-red-900/50 px-2 py-1 text-xs text-red-400">Скрыта</span>
+                      )}
                     </div>
                     {category.description && <p className="mb-4 text-sm text-slate-400">{category.description}</p>}
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-slate-500">
                         {products.filter(p => p.category_id === category.id).length} товаров
                       </span>
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => moveCategoryOrder(category, -1)}
-                          disabled={idx === 0}
-                          className="rounded-lg bg-white/10 px-2 py-2 text-sm text-white hover:bg-white/20 disabled:opacity-30"
-                          title="Вверх"
-                        >⬆️</button>
-                        <button
-                          onClick={() => moveCategoryOrder(category, 1)}
-                          disabled={idx === sorted.length - 1}
-                          className="rounded-lg bg-white/10 px-2 py-2 text-sm text-white hover:bg-white/20 disabled:opacity-30"
-                          title="Вниз"
-                        >⬇️</button>
+                      <div className="flex gap-2">
                         <button onClick={() => { setEditingCategory(category); setIsCategoryModalOpen(true) }} className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20">✏️</button>
                         <button onClick={() => deleteCategory(category.id)} className="rounded-lg bg-red-900/50 px-3 py-2 text-sm text-red-400 hover:bg-red-900">🗑️</button>
                       </div>
@@ -2678,7 +2631,6 @@ function CategoryModal({
     description: category?.description || '',
     image_url: category?.image_url || '',
     is_active: category?.is_active ?? true,
-    sort_order: String(category?.sort_order ?? 0),
   })
 
   const generateSlug = (name: string) => {
@@ -2698,7 +2650,6 @@ function CategoryModal({
       name: formData.name,
       slug: formData.slug,
       is_active: formData.is_active,
-      sort_order: parseInt(formData.sort_order) || 0,
     }
     if (formData.description) payload.description = formData.description
     if (formData.image_url) payload.image_url = formData.image_url
@@ -2758,19 +2709,6 @@ function CategoryModal({
               rows={2}
               className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
             />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm text-slate-400">Порядок отображения</label>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={formData.sort_order}
-              onChange={(e) => setFormData({ ...formData, sort_order: e.target.value.replace(/\D/g, '') })}
-              className="w-24 rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
-              placeholder="0"
-            />
-            <span className="ml-2 text-xs text-slate-500">Меньше = выше</span>
           </div>
 
           <label className="flex items-center gap-2 text-white cursor-pointer">
