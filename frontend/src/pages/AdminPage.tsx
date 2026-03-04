@@ -137,11 +137,29 @@ function getImageUrl(url?: string | null): string {
   return url
 }
 
+/** Module-level fetch wrapper that auto-logouts on 401/403 */
+function makeAuthFetch(logoutFn: () => void) {
+  return async (url: string, init?: RequestInit): Promise<Response> => {
+    const res = await fetch(url, {
+      ...init,
+      headers: { ...getAuthHeaders(), ...(init?.headers || {}) },
+    })
+    if (res.status === 401 || res.status === 403) {
+      logoutFn()
+      throw new Error('Сессия истекла')
+    }
+    return res
+  }
+}
+
+type AuthFetchFn = ReturnType<typeof makeAuthFetch>
+
 // ============ MAIN COMPONENT ============
 
 export function AdminPage() {
   const navigate = useNavigate()
   const { isAuthenticated, logout } = useAuth()
+  const authFetch = makeAuthFetch(logout)
   
   const [activeTab, setActiveTab] = useState<TabType>('orders')
   const [orders, setOrders] = useState<Order[]>([])
@@ -170,11 +188,9 @@ export function AdminPage() {
   // Data loading — all list endpoints return PaginatedResponse
   const loadOrders = async () => {
     try {
-      const headers = { ...getAuthHeaders(), Accept: 'application/json' }
       let url = `${API_BASE_URL}/api/orders?limit=100`
       if (statusFilter !== 'all') url += `&status=${statusFilter}`
-      const res = await fetch(url, { headers })
-      if (res.status === 401) { logout(); return }
+      const res = await authFetch(url, { headers: { Accept: 'application/json' } })
       if (!res.ok) throw new Error('Ошибка')
       const data: PaginatedResponse<Order> = await res.json()
       setOrders(data.items)
@@ -183,7 +199,7 @@ export function AdminPage() {
 
   const loadProducts = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/products?limit=500&only_active=false`, { headers: getAuthHeaders() })
+      const res = await authFetch(`${API_BASE_URL}/api/products?limit=500&only_active=false`)
       if (res.ok) {
         const data: PaginatedResponse<Product> = await res.json()
         setProducts(data.items)
@@ -193,7 +209,7 @@ export function AdminPage() {
 
   const loadCategories = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/categories?limit=100&only_active=false`, { headers: getAuthHeaders() })
+      const res = await authFetch(`${API_BASE_URL}/api/categories?limit=100&only_active=false`)
       if (res.ok) {
         const data: PaginatedResponse<Category> = await res.json()
         setCategories(data.items)
@@ -203,7 +219,7 @@ export function AdminPage() {
 
   const loadSlides = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/weekly-slides/all`, { headers: getAuthHeaders() })
+      const res = await authFetch(`${API_BASE_URL}/api/weekly-slides/all`)
       if (res.ok) setSlides(await res.json())
     } catch (err) { console.error(err) }
   }
@@ -223,7 +239,7 @@ export function AdminPage() {
   // Order actions
   const loadOrderDetail = async (orderId: string) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/orders/${orderId}`, { headers: getAuthHeaders() })
+      const res = await authFetch(`${API_BASE_URL}/api/orders/${orderId}`)
       if (res.ok) {
         const detail: OrderDetail = await res.json()
         setSelectedOrder(detail)
@@ -234,9 +250,9 @@ export function AdminPage() {
   const updateStatus = async (orderId: string, newStatus: string) => {
     setUpdatingStatus(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/orders/${orderId}/status`, {
+      const res = await authFetch(`${API_BASE_URL}/api/orders/${orderId}/status`, {
         method: 'PATCH',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
       })
       if (!res.ok) throw new Error('Ошибка')
@@ -249,7 +265,7 @@ export function AdminPage() {
   const deleteOrder = async (orderId: string) => {
     if (!confirm('Удалить заказ?')) return
     try {
-      await fetch(`${API_BASE_URL}/api/orders/${orderId}`, { method: 'DELETE', headers: getAuthHeaders() })
+      await authFetch(`${API_BASE_URL}/api/orders/${orderId}`, { method: 'DELETE' })
       setOrders(orders.filter(o => o.id !== orderId))
       setSelectedOrder(null)
     } catch { alert('Ошибка') }
@@ -261,9 +277,9 @@ export function AdminPage() {
     const url = id
       ? `${API_BASE_URL}/api/products/${id}`
       : `${API_BASE_URL}/api/products`
-    const res = await fetch(url, {
+    const res = await authFetch(url, {
       method: id ? 'PATCH' : 'POST',
-      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(productData)
     })
     if (!res.ok) {
@@ -283,16 +299,16 @@ export function AdminPage() {
   const deleteProduct = async (productId: string) => {
     if (!confirm('Удалить товар?')) return
     try {
-      await fetch(`${API_BASE_URL}/api/products/${productId}`, { method: 'DELETE', headers: getAuthHeaders() })
+      await authFetch(`${API_BASE_URL}/api/products/${productId}`, { method: 'DELETE' })
       loadProducts()
     } catch { alert('Ошибка') }
   }
 
   const toggleFeatured = async (product: Product) => {
     try {
-      await fetch(`${API_BASE_URL}/api/products/${product.id}`, {
+      await authFetch(`${API_BASE_URL}/api/products/${product.id}`, {
         method: 'PATCH',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_featured: !product.is_featured })
       })
       loadProducts()
@@ -301,9 +317,9 @@ export function AdminPage() {
 
   const toggleActive = async (product: Product) => {
     try {
-      await fetch(`${API_BASE_URL}/api/products/${product.id}`, {
+      await authFetch(`${API_BASE_URL}/api/products/${product.id}`, {
         method: 'PATCH',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: !product.is_active })
       })
       loadProducts()
@@ -316,9 +332,9 @@ export function AdminPage() {
       const url = editingCategory?.id 
         ? `${API_BASE_URL}/api/categories/${editingCategory.id}`
         : `${API_BASE_URL}/api/categories`
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method: editingCategory?.id ? 'PATCH' : 'POST',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(categoryData)
       })
       if (!res.ok) {
@@ -342,7 +358,7 @@ export function AdminPage() {
 
     if (!confirm(message)) return
     try {
-      const res = await fetch(`${API_BASE_URL}/api/categories/${categoryId}`, { method: 'DELETE', headers: getAuthHeaders() })
+      const res = await authFetch(`${API_BASE_URL}/api/categories/${categoryId}`, { method: 'DELETE' })
       if (!res.ok) {
         const err = await res.json().catch(() => null)
         if (res.status === 409) {
@@ -363,9 +379,9 @@ export function AdminPage() {
       const url = slideId
         ? `${API_BASE_URL}/api/weekly-slides/${slideId}`
         : `${API_BASE_URL}/api/weekly-slides`
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method: slideId ? 'PATCH' : 'POST',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       })
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Ошибка') }
@@ -378,16 +394,16 @@ export function AdminPage() {
   const deleteSlide = async (slideId: string) => {
     if (!confirm('Удалить слайд?')) return
     try {
-      await fetch(`${API_BASE_URL}/api/weekly-slides/${slideId}`, { method: 'DELETE', headers: getAuthHeaders() })
+      await authFetch(`${API_BASE_URL}/api/weekly-slides/${slideId}`, { method: 'DELETE' })
       loadSlides()
     } catch { alert('Ошибка') }
   }
 
   const toggleSlideActive = async (slide: WeeklySlide) => {
     try {
-      await fetch(`${API_BASE_URL}/api/weekly-slides/${slide.id}`, {
+      await authFetch(`${API_BASE_URL}/api/weekly-slides/${slide.id}`, {
         method: 'PATCH',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: !slide.is_active }),
       })
       loadSlides()
@@ -614,6 +630,7 @@ export function AdminPage() {
             onToggleFeatured={toggleFeatured}
             onToggleActive={toggleActive}
             onRefresh={loadProducts}
+            authFetch={authFetch}
           />
         )}
 
@@ -633,6 +650,7 @@ export function AdminPage() {
             onToggleActive={toggleActive}
             onRefresh={loadProducts}
             isUsedMode
+            authFetch={authFetch}
           />
         )}
 
@@ -791,6 +809,7 @@ export function AdminPage() {
           onRefresh={loadProducts}
           onClose={() => { setIsProductModalOpen(false); setEditingProduct(null); setIsUsedProductMode(false) }}
           isUsedMode={isUsedProductMode}
+          authFetch={authFetch}
         />
       )}
 
@@ -819,7 +838,7 @@ export function AdminPage() {
 
 function ProductsSection({
   products, categories, categoryFilter, setCategoryFilter, searchQuery, setSearchQuery,
-  onEdit, onNew, onDelete, onToggleFeatured, onToggleActive, isUsedMode, onRefresh
+  onEdit, onNew, onDelete, onToggleFeatured, onToggleActive, isUsedMode, onRefresh, authFetch
 }: {
   products: Product[]
   categories: Category[]
@@ -834,6 +853,7 @@ function ProductsSection({
   onToggleActive: (p: Product) => void
   isUsedMode?: boolean
   onRefresh?: () => void
+  authFetch: AuthFetchFn
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [merging, setMerging] = useState(false)
@@ -855,9 +875,9 @@ function ProductsSection({
     if (selected.size < 2) return
     setMerging(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/product-groups/merge`, {
+      const res = await authFetch(`${API_BASE_URL}/api/product-groups/merge`, {
         method: 'POST',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ product_ids: [...selected] }),
       })
       if (!res.ok) {
@@ -875,9 +895,9 @@ function ProductsSection({
     if (selected.size === 0) return
     setMerging(true)
     try {
-      await fetch(`${API_BASE_URL}/api/product-groups/unlink`, {
+      await authFetch(`${API_BASE_URL}/api/product-groups/unlink`, {
         method: 'POST',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ product_ids: [...selected] }),
       })
       setSelected(new Set())
@@ -1330,7 +1350,7 @@ const DEFAULT_AXES: VariantAxis[] = [
 ]
 
 function ProductModal({
-  product, categories, onSave, onRefresh, onClose, isUsedMode
+  product, categories, onSave, onRefresh, onClose, isUsedMode, authFetch
 }: {
   product: Product | null
   categories: Category[]
@@ -1338,6 +1358,7 @@ function ProductModal({
   onRefresh: () => void
   onClose: () => void
   isUsedMode?: boolean
+  authFetch: AuthFetchFn
 }) {
   // ─── Form state (strings to avoid leading-zero issues) ───────────────────
   const [name, setName] = useState(product?.name || '')
@@ -1381,7 +1402,7 @@ function ProductModal({
   const loadImages = async (productId: string) => {
     setLoadingImages(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/products/${productId}/images`, { headers: getAuthHeaders() })
+      const res = await authFetch(`${API_BASE_URL}/api/products/${productId}/images`)
       if (res.ok) {
         const data: ImageRecord[] = await res.json()
         setImages(data.sort((a, b) => a.sort_order - b.sort_order))
@@ -1460,9 +1481,8 @@ function ProductModal({
       try {
         const fd = new FormData()
         fd.append('file', file)
-        const res = await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images`, {
+        const res = await authFetch(`${API_BASE_URL}/api/products/${savedProductId}/images`, {
           method: 'POST',
-          headers: getAuthHeaders(),
           body: fd,
         })
         if (!res.ok) {
@@ -1479,14 +1499,14 @@ function ProductModal({
 
   const handleDeleteImage = async (imageId: string) => {
     if (!savedProductId || !confirm('Удалить изображение?')) return
-    await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images/${imageId}`, { method: 'DELETE', headers: getAuthHeaders() })
+    await authFetch(`${API_BASE_URL}/api/products/${savedProductId}/images/${imageId}`, { method: 'DELETE' })
     await loadImages(savedProductId)
     onRefresh()
   }
 
   const handleSetMain = async (imageId: string) => {
     if (!savedProductId) return
-    await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images/${imageId}/set-main`, { method: 'PATCH', headers: getAuthHeaders() })
+    await authFetch(`${API_BASE_URL}/api/products/${savedProductId}/images/${imageId}/set-main`, { method: 'PATCH' })
     await loadImages(savedProductId)
     onRefresh()
   }
@@ -1499,9 +1519,9 @@ function ProductModal({
     setImages(newOrder)
     if (!savedProductId) return
     try {
-      await fetch(`${API_BASE_URL}/api/products/${savedProductId}/images/reorder`, {
+      await authFetch(`${API_BASE_URL}/api/products/${savedProductId}/images/reorder`, {
         method: 'PATCH',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ordered_ids: newOrder.map(i => i.id) }),
       })
       await loadImages(savedProductId)
@@ -1558,7 +1578,7 @@ function ProductModal({
 
   const loadVariants = async (productId: string) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/products/${productId}/variants?only_active=false`, { headers: getAuthHeaders() })
+      const res = await authFetch(`${API_BASE_URL}/api/products/${productId}/variants?only_active=false`)
       if (res.ok) {
         const data: ProductVariant[] = await res.json()
         const local: LocalVariant[] = data.map(v => ({
@@ -1716,18 +1736,17 @@ function ProductModal({
     const toDelete = variants.filter(v => v._isDeleted && !v._isNew)
     if (toDelete.length > 0) {
       const idsParam = toDelete.map(v => `variant_ids=${v.id}`).join('&')
-      await fetch(`${API_BASE_URL}/api/products/${productId}/variants?${idsParam}`, {
+      await authFetch(`${API_BASE_URL}/api/products/${productId}/variants?${idsParam}`, {
         method: 'DELETE',
-        headers: getAuthHeaders(),
       })
     }
 
     // 2. Create new variants
     const toCreate = variants.filter(v => v._isNew && !v._isDeleted)
     for (const v of toCreate) {
-      await fetch(`${API_BASE_URL}/api/products/${productId}/variants`, {
+      await authFetch(`${API_BASE_URL}/api/products/${productId}/variants`, {
         method: 'POST',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: v.name,
           sku: v.sku,
@@ -1746,9 +1765,9 @@ function ProductModal({
     // 3. Update dirty existing variants
     const toUpdate = variants.filter(v => v._isDirty && !v._isNew && !v._isDeleted)
     for (const v of toUpdate) {
-      await fetch(`${API_BASE_URL}/api/products/${productId}/variants/${v.id}`, {
+      await authFetch(`${API_BASE_URL}/api/products/${productId}/variants/${v.id}`, {
         method: 'PATCH',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           price: v.price,
           discount_price: v.discount_price,
