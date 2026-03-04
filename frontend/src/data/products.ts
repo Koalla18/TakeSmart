@@ -15,16 +15,6 @@ export interface Product {
   specs: { label: string; value: string }[]
 }
 
-export const products: Product[] = [
-  // Mock данные удалены — товары загружаются из API
-]
-
-export const categories: { id: string; name: string; icon: string; count: number; description: string }[] = []
-// Категории загружаются из API
-
-export const brands: { id: string; name: string; logo: string }[] = []
-// Бренды формируются из реальных данных товаров
-
 export function formatPrice(price: number): string {
   return price.toLocaleString('ru-RU') + ' ₽'
 }
@@ -36,18 +26,6 @@ export function getBadgeText(badge: Product['badge']): string {
     case 'sale': return 'Скидка'
     default: return ''
   }
-}
-
-export function getProductById(id: string): Product | undefined {
-  return products.find(p => p.id === id || p.slug === id)
-}
-
-export function getProductsByCategory(categorySlug: string): Product[] {
-  return products.filter(p => p.categorySlug === categorySlug)
-}
-
-export function getFeaturedProducts(_count = 8): Product[] {
-  return [] // Загружается из /api/products/featured
 }
 
 // ─── API types (зеркало backend схем) ────────────────────────────────────────

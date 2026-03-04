@@ -1,7 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 import type { Product } from '../data/products'
-import { mapApiProduct, type ApiProductOut } from '../data/products'
-import { API_BASE_URL } from './config'
 
 export interface CartItem {
   product: Product
@@ -46,57 +44,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items))
   }, [items])
 
-  // ─── Reconcile mock items with real API products ──────────────────────────
-  // If cart was loaded from localStorage with mock numeric IDs, replace them
-  // with real products fetched from API by slug. This happens transparently.
+  // ─── Purge stale mock items (non-UUID IDs from old builds) ────────────────
   useEffect(() => {
-    const mockItems = items.filter(item => !UUID_REGEX.test(item.product.id))
-    if (mockItems.length === 0) return
-
-    Promise.allSettled(
-      mockItems.map(async (cartItem) => {
-        try {
-          const res = await fetch(`${API_BASE_URL}/api/products/slug/${cartItem.product.slug}`)
-          if (!res.ok) return null
-          const data: ApiProductOut = await res.json()
-          const realProduct = mapApiProduct(data)
-          return { oldId: cartItem.product.id, realProduct, quantity: cartItem.quantity }
-        } catch {
-          return null
-        }
-      })
-    ).then(results => {
-      const replacements = results
-        .filter(r => r.status === 'fulfilled' && r.value !== null)
-        .map(r => (r as PromiseFulfilledResult<{ oldId: string; realProduct: Product; quantity: number }>).value)
-
-      if (replacements.length === 0) return
-
-      setItems(current => {
-        let updated = [...current]
-        for (const { oldId, realProduct, quantity } of replacements) {
-          updated = updated.map(item =>
-            item.product.id === oldId
-              ? { product: realProduct, quantity }
-              : item
-          )
-        }
-        // Deduplicate: if real product was already in cart, merge quantities
-        const seen = new Map<string, CartItem>()
-        for (const item of updated) {
-          const existing = seen.get(item.product.id)
-          if (existing) {
-            seen.set(item.product.id, {
-              ...existing,
-              quantity: Math.min(existing.quantity + item.quantity, MAX_QUANTITY_PER_ITEM),
-            })
-          } else {
-            seen.set(item.product.id, item)
-          }
-        }
-        return Array.from(seen.values())
-      })
-    })
+    const hasStale = items.some(item => !UUID_REGEX.test(item.product.id))
+    if (hasStale) {
+      setItems(current => current.filter(item => UUID_REGEX.test(item.product.id)))
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // only on mount
 

@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
 import { useCart, MAX_QUANTITY_PER_ITEM, MAX_TOTAL_ITEMS } from '../lib/cart'
-import { formatPrice, mapApiProduct, type ApiProductOut } from '../data/products'
+import { formatPrice } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
 
 function isImageUrl(url?: string): boolean {
@@ -295,48 +295,6 @@ export function CartPage() {
       return
     }
 
-    // Если в корзине остались mock-товары (не-UUID id) — обновляем их из API перед отправкой
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-    const mockCarts = items.filter(item => !uuidRegex.test(item.product.id))
-    if (mockCarts.length > 0) {
-      setIsSubmitting(true)
-      setError(null)
-      try {
-        const resolved = await Promise.allSettled(
-          mockCarts.map(async ci => {
-            const res = await fetch(`${API_BASE_URL}/api/products/slug/${ci.product.slug}`)
-            if (!res.ok) throw new Error('not found')
-            const data: ApiProductOut = await res.json()
-            return { oldId: ci.product.id, realProduct: mapApiProduct(data), quantity: ci.quantity }
-          })
-        )
-        const ok = resolved
-          .filter(r => r.status === 'fulfilled')
-          .map(r => (r as PromiseFulfilledResult<{ oldId: string; realProduct: ReturnType<typeof mapApiProduct>; quantity: number }>).value)
-        const failed = mockCarts.length - ok.length
-
-        if (failed > 0) {
-          setError(`Не удалось загрузить ${failed} товар(а) из каталога. Попробуйте обновить страницу.`)
-          setIsSubmitting(false)
-          return
-        }
-
-        const replacementMap = new Map(ok.map(({ oldId, realProduct }) => [oldId, realProduct]))
-        const reconciledItems = items.map(item =>
-          replacementMap.has(item.product.id)
-            ? { product: replacementMap.get(item.product.id)!, quantity: item.quantity }
-            : item
-        )
-
-        await submitOrder(reconciledItems.map(i => ({ product_id: i.product.id, quantity: i.quantity })))
-        return
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Ошибка синхронизации корзины. Обновите страницу.')
-        setIsSubmitting(false)
-        return
-      }
-    }
-    
     // Валидация лимитов
     if (totalQuantity > MAX_TOTAL_ITEMS) {
       setError(`Максимум ${MAX_TOTAL_ITEMS} товаров в заказе`)

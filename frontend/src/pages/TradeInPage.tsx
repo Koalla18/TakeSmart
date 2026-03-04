@@ -1,66 +1,6 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Container, Section } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
-
-const tradeInDevices = [
-  {
-    name: 'iPhone 15 Pro Max',
-    image: 'https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/iphone-15-pro-max-naturaltitanium-select?wid=400&hei=400&fmt=png-alpha',
-    tradeValue: 'до 65 000 ₽',
-    newPrice: 'от 94 000 ₽',
-    category: 'iPhone'
-  },
-  {
-    name: 'iPhone 14 Pro Max',
-    image: 'https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/iphone-14-pro-max-deeppurple-select?wid=400&hei=400&fmt=png-alpha',
-    tradeValue: 'до 50 000 ₽',
-    newPrice: 'от 94 000 ₽',
-    category: 'iPhone'
-  },
-  {
-    name: 'iPhone 13 Pro',
-    image: 'https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/iphone-13-pro-max-gold-select?wid=400&hei=400&fmt=png-alpha',
-    tradeValue: 'до 35 000 ₽',
-    newPrice: 'от 94 000 ₽',
-    category: 'iPhone'
-  },
-  {
-    name: 'iPhone 15',
-    image: 'https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/iphone-15-finish-select-202309-6-1inch-black?wid=400&hei=400&fmt=png-alpha',
-    tradeValue: 'до 40 000 ₽',
-    newPrice: 'от 79 990 ₽',
-    category: 'iPhone'
-  },
-  {
-    name: 'MacBook Pro 14" M3',
-    image: 'https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/mbp14-m3-max-pro-spaceblack-select-202310?wid=400&hei=400&fmt=png-alpha',
-    tradeValue: 'до 80 000 ₽',
-    newPrice: 'от 199 990 ₽',
-    category: 'Mac'
-  },
-  {
-    name: 'MacBook Air M2',
-    image: 'https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/macbook-air-midnight-select-20220606?wid=400&hei=400&fmt=png-alpha',
-    tradeValue: 'до 45 000 ₽',
-    newPrice: 'от 119 990 ₽',
-    category: 'Mac'
-  },
-  {
-    name: 'iPad Pro M4',
-    image: 'https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/ipad-pro-model-select-gallery-1-202405?wid=400&hei=400&fmt=png-alpha',
-    tradeValue: 'до 40 000 ₽',
-    newPrice: 'от 109 990 ₽',
-    category: 'iPad'
-  },
-  {
-    name: 'Apple Watch Ultra 2',
-    image: '/watch-ultra-2.png',
-    tradeValue: 'до 35 000 ₽',
-    newPrice: 'от 79 990 ₽',
-    category: 'Watch'
-  }
-]
 
 const steps = [
   {
@@ -105,14 +45,7 @@ const steps = [
   }
 ]
 
-const categories = ['Все', 'iPhone', 'Mac', 'iPad', 'Watch']
-
 export function TradeInPage() {
-  const [selectedCategory, setSelectedCategory] = useState('Все')
-  
-  const filteredDevices = selectedCategory === 'Все' 
-    ? tradeInDevices 
-    : tradeInDevices.filter(d => d.category === selectedCategory)
 
   return (
     <div className="min-h-screen bg-white">
@@ -265,7 +198,7 @@ export function TradeInPage() {
         </Container>
       </Section>
 
-      {/* Trade-in Value Calculator */}
+      {/* Trade-in — Contact for Evaluation */}
       <Section className="py-24 bg-white">
         <Container>
           <div className="text-center mb-12">
@@ -276,60 +209,28 @@ export function TradeInPage() {
               Сколько стоит ваше устройство?
             </h2>
             <p className="text-xl text-gray-500 max-w-2xl mx-auto">
-              Выберите вашу модель и узнайте примерную стоимость Trade-in
+              Отправьте фото или принесите устройство в магазин — мы оценим его за 5 минут
             </p>
           </div>
 
-          {/* Category Filter */}
-          <div className="flex justify-center gap-2 mb-10 flex-wrap">
-            {categories.map(cat => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-5 py-2.5 rounded-full text-sm font-medium transition-all ${
-                  selectedCategory === cat
-                    ? 'bg-gray-900 text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
+          <div className="max-w-lg mx-auto text-center">
+            <div className="rounded-3xl bg-gray-50 border border-gray-200 p-10">
+              <div className="text-5xl mb-4">📱</div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-3">Узнайте стоимость</h3>
+              <p className="text-gray-500 mb-8">
+                Напишите нашему менеджеру — мы оценим ваше устройство и предложим лучшие условия обмена
+              </p>
+              <a
+                href="https://t.me/takesmart_manager"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 px-8 py-4 text-white font-semibold transition-all hover:shadow-lg hover:shadow-blue-500/30 text-lg"
               >
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          {/* Device Cards */}
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {filteredDevices.map((device, i) => (
-              <div 
-                key={i}
-                className="group rounded-3xl bg-gray-50 hover:bg-white border border-transparent hover:border-gray-200 p-6 transition-all duration-500 hover:shadow-xl"
-              >
-                <div className="flex justify-center mb-6">
-                  <img 
-                    src={device.image}
-                    alt={device.name}
-                    className="w-32 h-32 object-contain group-hover:scale-105 transition-transform duration-500"
-                  />
-                </div>
-                <h3 className="font-semibold text-gray-900 mb-3 text-center">{device.name}</h3>
-                <div className="text-center space-y-2">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-green-100 px-4 py-2">
-                    <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span className="font-bold text-green-700">{device.tradeValue}</span>
-                  </div>
-                  <p className="text-sm text-gray-500">
-                    при покупке нового {device.newPrice}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="text-center mt-10">
-            <p className="text-sm text-gray-400 mb-6">
-              * Стоимость зависит от состояния устройства. Точную оценку можно получить в магазине.
+                Написать менеджеру
+              </a>
+            </div>
+            <p className="text-sm text-gray-400 mt-6">
+              * Принимаем iPhone (от 8), Samsung Galaxy (от S20), MacBook, iPad, Apple Watch и другие устройства
             </p>
           </div>
         </Container>
