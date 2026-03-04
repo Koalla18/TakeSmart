@@ -5,8 +5,8 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, UploadFile, File, status, Depends
 from fastapi.responses import Response
 
+from src.app.api.admin.endpoints import get_current_admin
 from src.app.core.logger import get_logger
-from src.app.core.security import get_current_admin
 from src.app.core.static_service import static_service
 from src.app.database.unit_of_work import UnitOfWork
 from src.app.schemas.weekly_slide import WeeklySlideCreate, WeeklySlideOut, WeeklySlideUpdate
