@@ -116,12 +116,20 @@ class StaticFileService:
         return f"{prefix}/{entity_id}/{filename}"
 
     def _upload(self, key: str, content: bytes, content_type: str) -> None:
-        self.client.put_object(
-            Bucket=settings.S3_BUCKET_NAME,
-            Key=key,
-            Body=content,
-            ContentType=content_type,
-        )
+        try:
+            self.client.put_object(
+                Bucket=settings.S3_BUCKET_NAME,
+                Key=key,
+                Body=content,
+                ContentType=content_type,
+                ACL="public-read",
+            )
+        except Exception as exc:
+            logger.error("s3_upload_failed", key=key, error=str(exc))
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Ошибка загрузки файла в S3: {exc}",
+            )
 
     async def _validate_and_read(self, file: UploadFile) -> bytes:
         if file.content_type not in settings.ALLOWED_IMAGE_TYPES:
