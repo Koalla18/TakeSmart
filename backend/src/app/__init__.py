@@ -4,7 +4,6 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 from src.app.core.config import settings
 from src.app.core.logger import setup_logging, get_logger
@@ -30,10 +29,7 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("app_starting", env="debug" if settings.APP_DEBUG else "production")
 
-    settings.STATIC_DIR.mkdir(parents=True, exist_ok=True)
-    (settings.STATIC_DIR / settings.PRODUCTS_IMAGES_DIR).mkdir(exist_ok=True)
-    (settings.STATIC_DIR / settings.CATEGORIES_IMAGES_DIR).mkdir(exist_ok=True)
-    logger.info("static_dirs_ready", path=str(settings.STATIC_DIR))
+    logger.info("s3_storage_configured", bucket=settings.S3_BUCKET_NAME)
 
     try:
         await get_redis_pool()
@@ -137,15 +133,6 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-    )
-
-    # ------------------------------------------------------------------ #
-    #  Статика                                                             #
-    # ------------------------------------------------------------------ #
-    app.mount(
-        settings.STATIC_URL,
-        StaticFiles(directory=settings.STATIC_DIR),
-        name="static",
     )
 
     # ------------------------------------------------------------------ #

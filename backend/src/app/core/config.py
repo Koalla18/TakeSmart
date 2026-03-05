@@ -48,9 +48,13 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost"
 
-    # Static files
-    STATIC_DIR: Path = BASE_DIR / "static"
-    STATIC_URL: str = "/static"
+    # Static files / S3
+    S3_ENDPOINT_URL: str = "https://s3.twcstorage.ru"
+    S3_BUCKET_NAME: str = "90acb72e-dd6d-4433-b2b3-3105b08551ea"
+    S3_ACCESS_KEY: str = ""
+    S3_SECRET_KEY: str = ""
+    S3_REGION: str = "ru-1"
+    S3_PUBLIC_URL: str = ""  # если пусто — строится автоматически
     MAX_UPLOAD_SIZE_BYTES: int = 5 * 1024 * 1024
     ALLOWED_IMAGE_TYPES: list[str] = ["image/jpeg", "image/png", "image/webp"]
     PRODUCTS_IMAGES_DIR: str = "products"
