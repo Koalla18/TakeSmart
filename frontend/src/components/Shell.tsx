@@ -135,7 +135,7 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
               <PhoneIcon className="h-5 w-5 text-yellow-500" />
               +7 (999) 802-10-22
             </a>
-            <p className="text-sm text-gray-500">Ежедневно с 11:00 до 20:00</p>
+            <p className="text-sm text-gray-500">Ежедневно с 10:30 до 20:30</p>
           </div>
         </div>
       </div>
@@ -214,7 +214,7 @@ export function Shell({ children }: PropsWithChildren) {
             <div className="flex items-center gap-6">
               <span className="flex items-center gap-2 text-gray-400">
                 <ClockIcon className="h-4 w-4" />
-                Ежедневно: 11:00 — 20:00
+                Ежедневно: 10:30 — 20:30
               </span>
               <a
                 href="https://t.me/take_smartt"
@@ -354,7 +354,7 @@ export function Shell({ children }: PropsWithChildren) {
                 <div className="mb-5 space-y-2 text-sm text-gray-300">
                   <div className="flex items-center gap-2">
                     <ClockIcon className="h-4 w-4 flex-shrink-0 text-gray-500" />
-                    <span>Ежедневно 11:00–20:00</span>
+                    <span>Ежедневно 10:30–20:30</span>
                   </div>
                   <div className="flex items-start gap-2 text-gray-400 leading-snug">
                     <span className="mt-0.5 flex-shrink-0 text-gray-500">📍</span>

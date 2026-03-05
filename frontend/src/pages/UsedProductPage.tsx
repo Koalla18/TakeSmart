@@ -69,6 +69,7 @@ export function UsedProductPage() {
   const [quantity, setQuantity] = useState(1)
   const [activeTab, setActiveTab] = useState<'description' | 'specs'>('description')
   const [activeImageIndex, setActiveImageIndex] = useState(0)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
   
   const slug = params.slug ?? ''
   
@@ -187,7 +188,10 @@ export function UsedProductPage() {
                 </div>
                 
                 {/* Main Image */}
-                <div className="flex aspect-square items-center justify-center p-8">
+                <div
+                  className="flex aspect-square cursor-zoom-in items-center justify-center p-8"
+                  onClick={() => images[activeImageIndex] && setLightboxOpen(true)}
+                >
                   {images[activeImageIndex] ? (
                     <img 
                       src={getImageUrl(images[activeImageIndex])}
@@ -434,6 +438,49 @@ export function UsedProductPage() {
           </div>
         </Container>
       </section>
+
+      {/* Lightbox */}
+      {lightboxOpen && images[activeImageIndex] && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
+          onClick={() => setLightboxOpen(false)}
+        >
+          <button
+            className="absolute right-4 top-4 rounded-full bg-white/10 p-3 text-white transition-colors hover:bg-white/20"
+            onClick={() => setLightboxOpen(false)}
+          >
+            <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          {images.length > 1 && (
+            <>
+              <button
+                className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white transition-colors hover:bg-white/20"
+                onClick={(e) => { e.stopPropagation(); setActiveImageIndex(i => (i - 1 + images.length) % images.length) }}
+              >
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <button
+                className="absolute right-16 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white transition-colors hover:bg-white/20"
+                onClick={(e) => { e.stopPropagation(); setActiveImageIndex(i => (i + 1) % images.length) }}
+              >
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </>
+          )}
+          <img
+            src={getImageUrl(images[activeImageIndex])}
+            alt={product?.name}
+            className="max-h-full max-w-full object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   )
 }
