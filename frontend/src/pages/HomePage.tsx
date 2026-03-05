@@ -137,14 +137,14 @@ export function HomePage() {
       {/* Video Hero Section - Apple Style */}
       <section 
         ref={heroRef}
-        className="relative min-h-[130vh] bg-gradient-to-b from-black via-black to-gray-900"
+        className="relative min-h-[100vh] sm:min-h-[130vh] bg-gradient-to-b from-black via-black to-gray-900"
       >
         {/* Sticky video container */}
-        <div className="sticky top-0 h-screen overflow-hidden">
+        <div className="sticky top-0 h-[100svh] overflow-hidden">
           {/* Video background */}
           <video
             ref={videoRef}
-            className="absolute inset-0 h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full object-cover object-center"
             src="/hero-video.mp4"
             muted
             playsInline
@@ -158,7 +158,7 @@ export function HomePage() {
           />
           
           {/* Content overlay */}
-          <div className="relative z-10 flex h-full items-center justify-center">
+          <div className="relative z-10 flex h-full items-end sm:items-center justify-center pb-28 sm:pb-0">
             <Container>
               <div 
                 className="text-center transition-all duration-500"
@@ -168,24 +168,24 @@ export function HomePage() {
                 }}
               >
                 {/* Badge */}
-                <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-white/10 backdrop-blur-sm px-5 py-2.5 text-sm font-medium text-white border border-white/20">
+                <div className="mb-4 sm:mb-6 inline-flex items-center gap-2 rounded-full bg-white/10 backdrop-blur-sm px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-medium text-white border border-white/20">
                   <span className="flex h-2 w-2 rounded-full bg-yellow-400 animate-pulse" />
                   Новая коллекция 2026
                 </div>
                 
                 {/* Main heading */}
-                <h1 className="mb-6 text-5xl font-bold leading-tight text-white sm:text-6xl lg:text-8xl">
+                <h1 className="mb-4 sm:mb-6 text-4xl font-bold leading-tight text-white sm:text-6xl lg:text-8xl">
                   <span className="block drop-shadow-lg">Умная техника</span>
                   <span className="block bg-gradient-to-r from-yellow-400 to-amber-300 bg-clip-text text-transparent pb-2">
                     будущего
                   </span>
                 </h1>
                 
-                <p className="mx-auto mb-10 max-w-2xl text-lg text-gray-300 sm:text-xl">
+                <p className="mx-auto mb-6 sm:mb-10 max-w-2xl text-base sm:text-lg text-gray-300 lg:text-xl">
                   Откройте мир инновационных технологий. Смартфоны, ноутбуки и аксессуары от ведущих брендов с официальной гарантией.
                 </p>
                 
-                <div className="flex flex-col justify-center gap-4 sm:flex-row">
+                <div className="flex flex-col justify-center gap-3 sm:gap-4 sm:flex-row">
                   <Button to="/catalog" size="lg" className="shadow-2xl shadow-yellow-400/30">
                     Смотреть каталог
                     <ArrowRightIcon className="ml-2 h-5 w-5" />
@@ -409,29 +409,29 @@ export function HomePage() {
                           idx === currentSlide ? 'carousel-slide-active' : 'carousel-slide-hidden'
                         }`}
                       >
-                        <div className="grid lg:grid-cols-2 sm:min-h-[580px]">
+                        <div className="grid lg:grid-cols-2 min-h-[480px] sm:min-h-[580px]">
                           {/* Left - Content */}
-                          <div className="relative p-8 lg:p-12 flex flex-col justify-between">
-                            <div className="mb-auto">
-                              <span className="inline-block rounded-full border border-gray-300 bg-white/80 backdrop-blur px-4 py-2 text-sm text-gray-600">
+                          <div className="relative p-6 sm:p-8 lg:p-12 flex flex-col justify-between">
+                            <div className="mb-2 sm:mb-auto">
+                              <span className="inline-block rounded-full border border-gray-300 bg-white/80 backdrop-blur px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm text-gray-600">
                                 {s.badge}
                               </span>
                             </div>
                             
                             <div className="my-auto">
-                              <h2 className="text-4xl lg:text-6xl font-bold text-gray-900 mb-6 leading-[1.1]">
+                              <h2 className="text-3xl sm:text-4xl lg:text-6xl font-bold text-gray-900 mb-3 sm:mb-6 leading-[1.1]">
                                 {s.title}
                               </h2>
-                              <p className="text-gray-500 mb-8 whitespace-pre-line leading-relaxed max-w-md text-[15px]">
+                              <p className="text-gray-500 mb-4 sm:mb-8 whitespace-pre-line leading-relaxed max-w-md text-sm sm:text-[15px] line-clamp-3 sm:line-clamp-none">
                                 {s.description}
                               </p>
-                              <div className="flex items-center gap-6">
-                                <span className="text-2xl lg:text-3xl font-semibold text-gray-900">
+                              <div className="flex items-center gap-4 sm:gap-6">
+                                <span className="text-xl sm:text-2xl lg:text-3xl font-semibold text-gray-900">
                                   от {s.price} ₽
                                 </span>
                                 <Link 
                                   to="/catalog"
-                                  className="inline-flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 px-8 py-3.5 text-white font-medium transition-all hover:shadow-lg hover:shadow-blue-500/25"
+                                  className="inline-flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 px-6 py-3 sm:px-8 sm:py-3.5 text-sm sm:text-base text-white font-medium transition-all hover:shadow-lg hover:shadow-blue-500/25"
                                 >
                                   Подробнее
                                 </Link>
@@ -469,12 +469,12 @@ export function HomePage() {
                           </div>
                           
                           {/* Right - Product Image */}
-                          <div className="relative px-6 py-4 lg:p-12 flex items-center justify-center">
-                            <div className="absolute top-6 right-6 flex flex-wrap gap-2 justify-end max-w-[300px]">
+                          <div className="relative px-6 py-6 sm:py-4 lg:p-12 flex items-center justify-center min-h-[200px] sm:min-h-0">
+                            <div className="absolute top-4 right-4 sm:top-6 sm:right-6 flex flex-wrap gap-1.5 sm:gap-2 justify-end max-w-[200px] sm:max-w-[300px] z-10">
                               {s.tags.map((tag, j) => (
                                 <span 
                                   key={j}
-                                  className={`rounded-full px-4 py-2 text-sm font-medium ${
+                                  className={`rounded-full px-3 py-1 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium ${
                                     tag === 'новинка' || tag === 'хит'
                                       ? 'bg-gray-900 text-white' 
                                       : 'border border-gray-300 bg-white/80 backdrop-blur text-gray-700'
@@ -487,7 +487,7 @@ export function HomePage() {
                             <img 
                               src={s.image}
                               alt={s.title}
-                              className="relative z-0 max-w-[280px] lg:max-w-[380px] h-auto object-contain drop-shadow-2xl"
+                              className="relative z-0 max-w-[200px] sm:max-w-[280px] lg:max-w-[380px] h-auto object-contain drop-shadow-2xl"
                             />
                           </div>
                         </div>

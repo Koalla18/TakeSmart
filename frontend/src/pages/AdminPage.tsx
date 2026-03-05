@@ -2418,6 +2418,7 @@ function SlideModal({
   const [isActive, setIsActive] = useState(slide?.is_active ?? true)
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [createdSlideId, setCreatedSlideId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const COLOR_PRESETS = [
@@ -2468,6 +2469,7 @@ function SlideModal({
       const savedId = await onSave(payload)
       setSaving(false)
       if (savedId) {
+        setCreatedSlideId(savedId)
         await uploadImage(savedId, file)
       }
     }
@@ -2492,7 +2494,8 @@ function SlideModal({
     if (tagsArr.length) payload.tags = tagsArr
 
     setSaving(true)
-    await onSave(payload, slide?.id)
+    const effectiveId = slide?.id || createdSlideId || undefined
+    await onSave(payload, effectiveId)
     setSaving(false)
     onClose()
   }
