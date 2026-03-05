@@ -803,7 +803,7 @@ export function HomePage() {
               <div className="flex items-center gap-2 rounded-full bg-yellow-100 px-4 py-2">
                 <span className="text-xl font-bold text-yellow-600">5.0</span>
                 <span className="text-yellow-500">★</span>
-                <span className="text-gray-500">| 115 отзывов</span>
+                <span className="text-gray-500">| 1518 отзывов</span>
               </div>
               <div className="flex gap-6 text-sm text-gray-600">
                 <a href="https://yandex.ru/maps/org/takesmart/159717386486" target="_blank" rel="noopener noreferrer" className="hover:text-yellow-600">
