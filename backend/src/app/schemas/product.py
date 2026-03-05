@@ -133,23 +133,18 @@ class ProductOut(BaseModel):
     @field_validator("main_image_url", mode="after")
     @classmethod
     def normalize_image_url(cls, v: Optional[str]) -> Optional[str]:
-        """
-        Нормализует main_image_url перед отдачей клиенту.
-
-        В БД путь может хранится двумя способами:
-          - Голый relative path от static-директории: "products/{id}/{uuid}.jpg"
-            (так сохраняет static_service после admin-upload)
-          - URL-путь с префиксом: "/static/products/..." или "https://..."
-            (так сохраняет seeder и внешние ссылки)
-
-        Нормализация: если путь не начинается с "/" или "http" —
-        добавляем "/static/" чтобы браузер корректно разрезолвил через nginx.
-        """
+        """Нормализует main_image_url — строит полный S3-URL для голых ключей."""
         if not v:
             return v
-        if v.startswith("/") or v.startswith("http"):
+        if v.startswith("http"):
             return v
-        return f"/static/{v}"
+        # Убираем устаревший /static/ префикс если есть
+        if v.startswith("/static/"):
+            v = v[len("/static/"):]
+        elif v.startswith("/"):
+            v = v.lstrip("/")
+        from src.app.core.static_service import static_service
+        return static_service.build_url(v)
 
 
 class ProductDetailOut(ProductOut):

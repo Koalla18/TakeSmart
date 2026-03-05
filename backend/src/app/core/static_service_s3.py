@@ -95,6 +95,14 @@ class StaticFileService:
         Example: "products/abc/def.jpg"
           → "https://s3.twcstorage.ru/90acb72e-dd6d-4433-b2b3-3105b08551ea/products/abc/def.jpg"
         """
+        # Already a full URL — return as-is
+        if key.startswith("http"):
+            return key
+        # Strip legacy /static/ prefix from old DB entries
+        if key.startswith("/static/"):
+            key = key[len("/static/"):]
+        elif key.startswith("/"):
+            key = key.lstrip("/")
         if settings.S3_PUBLIC_URL:
             base = settings.S3_PUBLIC_URL.rstrip("/")
         else:
