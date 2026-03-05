@@ -59,7 +59,7 @@ class Settings(BaseSettings):
 
     # Telegram notifications
     TELEGRAM_BOT_TOKEN: str = ""
-    TELEGRAM_CHAT_ID: str = ""
+    TELEGRAM_CHAT_IDS: str = "1137708694,7823929205,826457133,1435771278"
 
     model_config = SettingsConfigDict(
         env_file=".env",

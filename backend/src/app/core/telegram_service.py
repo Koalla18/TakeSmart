@@ -45,11 +45,13 @@ async def send_order_notification(order: "Order") -> None:
     Ошибки перехватываются — они не должны падать основной запрос.
     """
     token = settings.TELEGRAM_BOT_TOKEN
-    chat_id = settings.TELEGRAM_CHAT_ID
+    chat_ids_raw = settings.TELEGRAM_CHAT_IDS
 
-    if not token or not chat_id:
+    if not token or not chat_ids_raw:
         logger.debug("telegram_not_configured", skipping=True)
         return
+
+    chat_ids = [cid.strip() for cid in chat_ids_raw.split(",") if cid.strip()]
 
     sep = "─" * 28
 
@@ -93,23 +95,25 @@ async def send_order_notification(order: "Order") -> None:
 
     # ── Отправляем запрос ────────────────────────────────────────────
     url = _TELEGRAM_API.format(token=token)
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-    }
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(url, json=payload)
-            if response.status_code != 200:
-                logger.warning(
-                    "telegram_send_failed",
-                    status=response.status_code,
-                    body=response.text[:200],
-                )
-            else:
-                logger.info("telegram_notification_sent", order=order.order_number)
+            for chat_id in chat_ids:
+                payload = {
+                    "chat_id": chat_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                }
+                response = await client.post(url, json=payload)
+                if response.status_code != 200:
+                    logger.warning(
+                        "telegram_send_failed",
+                        chat_id=chat_id,
+                        status=response.status_code,
+                        body=response.text[:200],
+                    )
+                else:
+                    logger.info("telegram_notification_sent", order=order.order_number, chat_id=chat_id)
     except Exception as exc:
         logger.error("telegram_send_error", error=str(exc))
