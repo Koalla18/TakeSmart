@@ -30,12 +30,12 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
 PORT = int(os.getenv("PORT", "8000"))
 
-S3_BUCKET = os.getenv(\"S3_BUCKET_NAME\", \"90acb72e-dd6d-4433-b2b3-3105b08551ea\")
+S3_BUCKET = os.getenv("S3_BUCKET_NAME", "90acb72e-dd6d-4433-b2b3-3105b08551ea")
 
-print(f\"[CONFIG] DB:    postgresql://{DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}\", flush=True)
-print(f\"[CONFIG] Redis: {REDIS_HOST}:{REDIS_PORT} (password={'yes' if REDIS_PASSWORD else 'no'})\", flush=True)
-print(f\"[CONFIG] Port:  {PORT}\", flush=True)
-print(f\"[CONFIG] S3 Bucket: {S3_BUCKET}\", flush=True)
+print(f"[CONFIG] DB:    postgresql://{DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}", flush=True)
+print(f"[CONFIG] Redis: {REDIS_HOST}:{REDIS_PORT} (password={'yes' if REDIS_PASSWORD else 'no'})", flush=True)
+print(f"[CONFIG] Port:  {PORT}", flush=True)
+print(f"[CONFIG] S3 Bucket: {S3_BUCKET}", flush=True)
 print(f"[CONFIG] CWD: {os.getcwd()}", flush=True)
 print(f"[CONFIG] ALLOWED_ORIGINS: {os.getenv('ALLOWED_ORIGINS', '—')}", flush=True)
 
