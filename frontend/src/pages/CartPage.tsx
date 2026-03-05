@@ -103,7 +103,7 @@ export function CartPage() {
     comment: '',
   })
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string }>({})  
-  const [paymentMethod, setPaymentMethod] = useState('card')
+  const [paymentMethod, setPaymentMethod] = useState('cash')
   const [deliveryMethod, setDeliveryMethod] = useState('pickup')
   // Структурированный адрес доставки
   const [addressFields, setAddressFields] = useState({

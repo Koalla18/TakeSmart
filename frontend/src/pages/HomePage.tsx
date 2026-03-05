@@ -137,10 +137,10 @@ export function HomePage() {
       {/* Video Hero Section - Apple Style */}
       <section 
         ref={heroRef}
-        className="relative min-h-[100vh] sm:min-h-[130vh] bg-gradient-to-b from-black via-black to-gray-900"
+        className="relative min-h-[70vh] sm:min-h-[130vh] bg-gradient-to-b from-black via-black to-gray-900"
       >
         {/* Sticky video container */}
-        <div className="sticky top-0 h-[100svh] overflow-hidden">
+        <div className="sticky top-0 h-[70svh] sm:h-[100svh] overflow-hidden">
           {/* Video background */}
           <video
             ref={videoRef}
