@@ -1289,7 +1289,7 @@ function OrderModal({
 const BRANDS = [
   'Apple', 'Samsung', 'Xiaomi', 'Sony', 'Google', 'Huawei', 'Nothing',
   'OnePlus', 'Realme', 'OPPO', 'Vivo', 'Motorola',
-  'DJI', 'GoPro',
+  'DJI', 'GoPro', 'Dyson',
   'JBL', 'Bose', 'Beats', 'Marshall', 'Sennheiser',
   'Nintendo', 'Microsoft', 'Asus', 'Lenovo', 'HP', 'Dell', 'Acer', 'LG',
 ]
