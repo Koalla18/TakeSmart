@@ -39,11 +39,21 @@ function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs
     storage = `${num} ${unit}`
   } else {
     // Bare number as storage: "iPhone 18 pro 256 sim" → "256"
-    // Match standalone number (64-9999) not adjacent to other keywords
-    const bareMatch = name.match(/\b(\d{2,4})\b(?!\s*(мм|mm|мес|шт|₽|р\b|\.))/i)
-    if (bareMatch) {
-      const n = parseInt(bareMatch[1])
-      if (n >= 32 && n <= 9999) storage = bareMatch[1]
+    // Iterate ALL numbers and pick the first one that looks like a storage size (32+)
+    const allNumbers = [...name.matchAll(/\b(\d{2,4})\b/g)]
+    for (const m of allNumbers) {
+      const n = parseInt(m[1])
+      // Typical storage values: 32, 64, 128, 256, 512, 1024, etc.
+      // Skip small numbers that are likely model numbers (e.g. "18" in "iPhone 18")
+      if (n >= 32 && n <= 9999) {
+        // Make sure it's not followed by unit-like suffixes that indicate non-storage
+        const afterIdx = (m.index ?? 0) + m[0].length
+        const after = name.slice(afterIdx, afterIdx + 5)
+        if (!/^\s*(мм|mm|мес|"|\'|шт|₽)/i.test(after)) {
+          storage = m[1]
+          break
+        }
+      }
     }
   }
 
