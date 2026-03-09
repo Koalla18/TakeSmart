@@ -727,102 +727,106 @@ export function ProductPage() {
                   )}
                 </div>
 
-                {/* ── Group navigation: color + storage + connectivity (like re-store.ru) ── */}
+                {/* ── Group navigation: switch between linked product cards ── */}
                 {apiProduct.siblings && apiProduct.siblings.length > 0 && (() => {
-                  // Build list of all products in the group (current + siblings)
+                  // All products in group: current + siblings
                   const allCards = [
                     { id: apiProduct.id, name: apiProduct.name, slug: apiProduct.slug, color: apiProduct.color, main_image_url: apiProduct.main_image_url, price: apiProduct.price, discount_price: apiProduct.discount_price, is_active: true },
                     ...apiProduct.siblings,
                   ]
 
-                  // Parse attributes for each product
-                  const cardsWithAttrs = allCards.map(c => ({
-                    ...c,
-                    attrs: parseAttrsFromProduct(c.name, c.color),
-                  }))
+                  // Parse attributes from names (storage + connectivity) 
+                  const cardsWithAttrs = allCards.map(c => {
+                    const parsed = parseAttrsFromProduct(c.name, c.color)
+                    return { ...c, storage: parsed.storage, connectivity: parsed.connectivity }
+                  })
 
-                  const currentAttrs = parseAttrsFromProduct(apiProduct.name, apiProduct.color)
+                  const currentColor = apiProduct.color || null
+                  const currentParsed = parseAttrsFromProduct(apiProduct.name, apiProduct.color)
 
-                  // Unique attribute values
-                  const uniqueColors = [...new Set(cardsWithAttrs.map(c => c.attrs.color).filter(Boolean))] as string[]
-                  const uniqueStorages = sortStorageValues([...new Set(cardsWithAttrs.map(c => c.attrs.storage).filter(Boolean))] as string[])
-                  const uniqueConn = [...new Set(cardsWithAttrs.map(c => c.attrs.connectivity).filter(Boolean))] as string[]
+                  // Unique values per dimension
+                  const uniqueColors = [...new Set(allCards.map(c => c.color).filter(Boolean))] as string[]
+                  const uniqueStorages = sortStorageValues(
+                    [...new Set(cardsWithAttrs.map(c => c.storage).filter(Boolean))] as string[]
+                  )
+                  const uniqueConn = [...new Set(cardsWithAttrs.map(c => c.connectivity).filter(Boolean))] as string[]
 
-                  // Find the best matching sibling for target attribute set
-                  const findMatch = (targetColor?: string | null, targetStorage?: string | null, targetConn?: string | null) => {
-                    const c = targetColor !== undefined ? targetColor : currentAttrs.color
-                    const s = targetStorage !== undefined ? targetStorage : currentAttrs.storage
-                    const cn = targetConn !== undefined ? targetConn : currentAttrs.connectivity
+                  // Navigate to the best-matching sibling
+                  const goTo = (
+                    wantColor?: string | null,
+                    wantStorage?: string | null,
+                    wantConn?: string | null,
+                  ) => {
+                    const c = wantColor !== undefined ? wantColor : currentColor
+                    const s = wantStorage !== undefined ? wantStorage : currentParsed.storage
+                    const cn = wantConn !== undefined ? wantConn : currentParsed.connectivity
 
-                    // Exact match
-                    let match = cardsWithAttrs.find(p =>
-                      p.attrs.color === c && p.attrs.storage === s && p.attrs.connectivity === cn
-                    )
-                    if (match) return match
-                    // Relax: color + storage
-                    match = cardsWithAttrs.find(p => p.attrs.color === c && p.attrs.storage === s)
-                    if (match) return match
-                    // Relax: color + connectivity
-                    match = cardsWithAttrs.find(p => p.attrs.color === c && p.attrs.connectivity === cn)
-                    if (match) return match
-                    // Relax: storage + connectivity
-                    match = cardsWithAttrs.find(p => p.attrs.storage === s && p.attrs.connectivity === cn)
-                    if (match) return match
-                    // Relax: just the changed attribute
-                    if (targetColor !== undefined) match = cardsWithAttrs.find(p => p.attrs.color === targetColor)
-                    else if (targetStorage !== undefined) match = cardsWithAttrs.find(p => p.attrs.storage === targetStorage)
-                    else if (targetConn !== undefined) match = cardsWithAttrs.find(p => p.attrs.connectivity === targetConn)
-                    return match || null
-                  }
-
-                  const navigateToSibling = (card: typeof cardsWithAttrs[0] | null) => {
-                    if (card && card.id !== apiProduct.id) navigate(`/product/${card.slug}`)
+                    // Try exact → progressively relax
+                    const candidates = [
+                      cardsWithAttrs.find(p => p.color === c && p.storage === s && p.connectivity === cn),
+                      cardsWithAttrs.find(p => p.color === c && p.storage === s),
+                      cardsWithAttrs.find(p => p.color === c && p.connectivity === cn),
+                      cardsWithAttrs.find(p => p.storage === s && p.connectivity === cn),
+                      wantColor !== undefined && cardsWithAttrs.find(p => p.color === wantColor),
+                      wantStorage !== undefined && cardsWithAttrs.find(p => p.storage === wantStorage),
+                      wantConn !== undefined && cardsWithAttrs.find(p => p.connectivity === wantConn),
+                    ]
+                    const match = candidates.find(Boolean)
+                    if (match && typeof match !== 'boolean' && match.id !== apiProduct.id) {
+                      navigate(`/product/${match.slug}`)
+                    }
                   }
 
                   return (
-                    <div className="mb-5 space-y-4">
-                      {/* ── Color selector ── */}
-                      {uniqueColors.length > 1 && (
+                    <div className="mb-6 space-y-5">
+                      {/* ── Color ── */}
+                      {uniqueColors.length > 0 && (
                         <div>
-                          <p className="mb-2.5 text-[13px] text-gray-500">
-                            Цвет: <span className="font-semibold text-gray-900">{currentAttrs.color || '—'}</span>
+                          <p className="mb-2 text-sm text-gray-500">
+                            Цвет: <span className="font-semibold text-gray-900">{currentColor || '—'}</span>
                           </p>
-                          <div className="flex flex-wrap gap-2">
+                          <div className="flex flex-wrap items-center gap-2.5">
                             {uniqueColors.map(color => {
-                              const isCurrent = color === currentAttrs.color
+                              const isCurrent = color === currentColor
                               const swatch = getColorSwatch(color)
                               const isLight = swatch ? parseInt(swatch.replace('#', '').slice(0, 2), 16) > 200 : false
+                              // Find sibling thumbnail for this color
+                              const sibForColor = allCards.find(c => c.color === color)
+                              const thumb = sibForColor?.main_image_url
 
-                              if (swatch) {
-                                return isCurrent ? (
-                                  <div
-                                    key={color}
-                                    title={color}
-                                    style={{ backgroundColor: swatch }}
-                                    className={`h-7 w-7 flex-shrink-0 rounded-full ring-[3px] ring-offset-[3px] ring-gray-800 scale-110 ${isLight ? 'ring-1 ring-gray-300' : ''}`}
-                                  />
-                                ) : (
-                                  <button
-                                    key={color}
-                                    title={color}
-                                    onClick={() => navigateToSibling(findMatch(color))}
-                                    style={{ backgroundColor: swatch }}
-                                    className={`h-7 w-7 flex-shrink-0 rounded-full ring-1 ring-transparent hover:scale-105 hover:ring-gray-300 transition-all cursor-pointer ${isLight ? 'ring-1 ring-gray-300' : ''}`}
-                                  />
-                                )
-                              }
-
-                              return isCurrent ? (
-                                <span key={color} className="rounded-full border border-gray-900 bg-gray-900 text-white px-3 py-1 text-sm">
-                                  {color}
-                                </span>
-                              ) : (
+                              return (
                                 <button
                                   key={color}
-                                  onClick={() => navigateToSibling(findMatch(color))}
-                                  className="rounded-full border border-gray-300 bg-white text-gray-700 px-3 py-1 text-sm transition-all hover:border-gray-400 cursor-pointer"
+                                  title={color}
+                                  onClick={() => !isCurrent && goTo(color)}
+                                  className={`group relative flex flex-col items-center gap-1 rounded-xl border-2 p-1.5 transition-all ${
+                                    isCurrent
+                                      ? 'border-gray-900 bg-gray-50 shadow-sm'
+                                      : 'border-gray-200 bg-white hover:border-gray-400 hover:shadow-sm cursor-pointer'
+                                  }`}
+                                  style={{ minWidth: 56 }}
                                 >
-                                  {color}
+                                  {/* Thumbnail or color swatch */}
+                                  {thumb && isImageUrl(thumb) ? (
+                                    <div className="h-12 w-12 overflow-hidden rounded-lg bg-gray-100">
+                                      <img src={getImageUrl(thumb)} alt={color} className="h-full w-full object-contain" />
+                                    </div>
+                                  ) : swatch ? (
+                                    <div
+                                      className={`h-12 w-12 rounded-lg ${isLight ? 'ring-1 ring-inset ring-gray-200' : ''}`}
+                                      style={{ backgroundColor: swatch }}
+                                    />
+                                  ) : (
+                                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-100 text-xs text-gray-400">
+                                      {color.slice(0, 3)}
+                                    </div>
+                                  )}
+                                  {/* Color name */}
+                                  <span className={`max-w-[70px] truncate text-[10px] leading-tight ${
+                                    isCurrent ? 'font-semibold text-gray-900' : 'text-gray-500 group-hover:text-gray-700'
+                                  }`}>
+                                    {color}
+                                  </span>
                                 </button>
                               )
                             })}
@@ -830,36 +834,31 @@ export function ProductPage() {
                         </div>
                       )}
 
-                      {/* Only show single-color label if only 1 color exists */}
-                      {uniqueColors.length === 1 && currentAttrs.color && (
-                        <p className="text-[13px] text-gray-500">
-                          Цвет: <span className="font-semibold text-gray-900">{currentAttrs.color}</span>
-                        </p>
-                      )}
-
-                      {/* ── Storage selector (Память) ── */}
+                      {/* ── Storage (Память) ── */}
                       {uniqueStorages.length > 1 && (
                         <div>
-                          <p className="mb-2.5 text-[13px] text-gray-500">
-                            Память: <span className="font-semibold text-gray-900">{currentAttrs.storage || '—'}</span>
+                          <p className="mb-2 text-sm text-gray-500">
+                            Память: <span className="font-semibold text-gray-900">{currentParsed.storage || '—'}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {uniqueStorages.map(stor => {
-                              const isCurrent = stor === currentAttrs.storage
-                              const target = findMatch(undefined, stor)
+                              const isCurrent = stor === currentParsed.storage
+                              const target = cardsWithAttrs.find(p =>
+                                p.storage === stor && (p.color === currentColor || !currentColor)
+                              ) || cardsWithAttrs.find(p => p.storage === stor)
                               const isAvailable = !!target
 
                               return (
                                 <button
                                   key={stor}
                                   disabled={!isAvailable}
-                                  onClick={() => isAvailable && navigateToSibling(target)}
-                                  className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-all ${
+                                  onClick={() => isAvailable && !isCurrent && goTo(undefined, stor)}
+                                  className={`rounded-xl border px-4 py-2 text-sm font-medium transition-all ${
                                     isCurrent
-                                      ? 'border-gray-900 bg-gray-900 text-white'
+                                      ? 'border-gray-900 bg-gray-900 text-white shadow-sm'
                                       : isAvailable
-                                        ? 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 cursor-pointer'
-                                        : 'cursor-not-allowed border-gray-200 bg-white text-gray-300 line-through'
+                                        ? 'border-gray-200 bg-white text-gray-700 hover:border-gray-400 hover:shadow-sm cursor-pointer'
+                                        : 'cursor-not-allowed border-gray-100 bg-gray-50 text-gray-300'
                                   }`}
                                 >
                                   {stor}
@@ -870,29 +869,31 @@ export function ProductPage() {
                         </div>
                       )}
 
-                      {/* ── Connectivity selector (Связь) ── */}
+                      {/* ── Connectivity (Связь / SIM) ── */}
                       {uniqueConn.length > 1 && (
                         <div>
-                          <p className="mb-2.5 text-[13px] text-gray-500">
-                            Связь: <span className="font-semibold text-gray-900">{currentAttrs.connectivity || '—'}</span>
+                          <p className="mb-2 text-sm text-gray-500">
+                            Связь: <span className="font-semibold text-gray-900">{currentParsed.connectivity || '—'}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {uniqueConn.map(conn => {
-                              const isCurrent = conn === currentAttrs.connectivity
-                              const target = findMatch(undefined, undefined, conn)
+                              const isCurrent = conn === currentParsed.connectivity
+                              const target = cardsWithAttrs.find(p =>
+                                p.connectivity === conn && (p.color === currentColor || !currentColor)
+                              ) || cardsWithAttrs.find(p => p.connectivity === conn)
                               const isAvailable = !!target
 
                               return (
                                 <button
                                   key={conn}
                                   disabled={!isAvailable}
-                                  onClick={() => isAvailable && navigateToSibling(target)}
-                                  className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-all ${
+                                  onClick={() => isAvailable && !isCurrent && goTo(undefined, undefined, conn)}
+                                  className={`rounded-xl border px-4 py-2 text-sm font-medium transition-all ${
                                     isCurrent
-                                      ? 'border-gray-900 bg-gray-900 text-white'
+                                      ? 'border-gray-900 bg-gray-900 text-white shadow-sm'
                                       : isAvailable
-                                        ? 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 cursor-pointer'
-                                        : 'cursor-not-allowed border-gray-200 bg-white text-gray-300 line-through'
+                                        ? 'border-gray-200 bg-white text-gray-700 hover:border-gray-400 hover:shadow-sm cursor-pointer'
+                                        : 'cursor-not-allowed border-gray-100 bg-gray-50 text-gray-300'
                                   }`}
                                 >
                                   {conn}

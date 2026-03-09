@@ -1416,6 +1416,7 @@ function ProductModal({
   const [images, setImages] = useState<ImageRecord[]>([])
   const [loadingImages, setLoadingImages] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [uploadForColor, setUploadForColor] = useState<string>('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Load images on mount if product already exists
@@ -1510,7 +1511,10 @@ function ProductModal({
       try {
         const fd = new FormData()
         fd.append('file', file)
-        const res = await authFetch(`${API_BASE_URL}/api/products/${savedProductId}/images`, {
+        if (uploadForColor) fd.append('variant_color', uploadForColor)
+        let url = `${API_BASE_URL}/api/products/${savedProductId}/images`
+        if (uploadForColor) url += `?variant_color=${encodeURIComponent(uploadForColor)}`
+        const res = await authFetch(url, {
           method: 'POST',
           body: fd,
         })
@@ -1524,6 +1528,18 @@ function ProductModal({
     if (fileInputRef.current) fileInputRef.current.value = ''
     await loadImages(savedProductId)
     onRefresh()
+  }
+
+  const handleSetImageColor = async (imageId: string, variantColor: string | null) => {
+    if (!savedProductId) return
+    try {
+      await authFetch(`${API_BASE_URL}/api/products/${savedProductId}/images/${imageId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ variant_color: variantColor }),
+      })
+      await loadImages(savedProductId)
+    } catch { /* silently fail — API may not support this */ }
   }
 
   const handleDeleteImage = async (imageId: string) => {
@@ -2024,6 +2040,9 @@ function ProductModal({
 
           {/* ── PHOTOS ── */}
           {savedProductId && (() => {
+            // Unique colors from images
+            const imageColors = [...new Set(images.filter(i => i.variant_color).map(i => i.variant_color!))].sort()
+
             return (
             <div>
               <div className="mb-2 flex items-center justify-between">
@@ -2031,75 +2050,158 @@ function ProductModal({
                 {images.length > 0 && <span className="text-xs text-slate-500">Нажмите на фото чтобы выбрать обложку</span>}
               </div>
 
-              {/* Upload dropzone */}
-              <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                className="mb-3 w-full rounded-xl border-2 border-dashed border-white/15 py-4 text-center text-sm text-slate-400 transition hover:border-yellow-400/60 hover:text-yellow-400 disabled:opacity-40"
-              >
-                {uploading ? '⏳ Загружаю…' : '+ Добавить фото (можно несколько сразу)'}
-              </button>
+              {/* Color-aware upload */}
+              <div className="mb-3 space-y-2">
+                {color && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500">Загрузить фото для цвета:</span>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setUploadForColor('')}
+                        className={`rounded-lg px-2.5 py-1 text-xs transition ${
+                          !uploadForColor ? 'bg-yellow-400 text-gray-900 font-semibold' : 'bg-white/10 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Общие
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUploadForColor(color)}
+                        className={`rounded-lg px-2.5 py-1 text-xs transition ${
+                          uploadForColor === color ? 'bg-yellow-400 text-gray-900 font-semibold' : 'bg-white/10 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        🎨 {color}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
-              {/* Photo grid */}
+                {/* Upload dropzone */}
+                <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="w-full rounded-xl border-2 border-dashed border-white/15 py-4 text-center text-sm text-slate-400 transition hover:border-yellow-400/60 hover:text-yellow-400 disabled:opacity-40"
+                >
+                  {uploading ? '⏳ Загружаю…' : `+ Добавить фото${uploadForColor ? ` (${uploadForColor})` : ''} (можно несколько)`}
+                </button>
+              </div>
+
+              {/* Photo grid — grouped by color */}
               {loadingImages ? (
                 <div className="text-center text-sm text-slate-500">Загружаю…</div>
               ) : images.length > 0 ? (
-                <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
-                  {images.map((img, idx) => {
-                    const src = img.url.startsWith('/') ? `${API_BASE_URL}${img.url}` : img.url
-                    return (
-                      <div
-                        key={img.id}
-                        title={img.is_main ? 'Обложка' : 'Нажмите чтобы сделать обложкой'}
-                        className={`group relative cursor-pointer rounded-xl overflow-hidden transition ${
-                          img.is_main ? 'ring-2 ring-yellow-400 ring-offset-2 ring-offset-slate-800' : 'hover:ring-1 hover:ring-white/30'
-                        }`}
-                        onClick={() => !img.is_main && handleSetMain(img.id)}
-                      >
-                        {/* Image */}
-                        <div className="aspect-square bg-white/5">
-                          <img src={src} alt="" className="h-full w-full object-cover" />
+                <div className="space-y-4">
+                  {/* Show color groups if we have colored photos */}
+                  {imageColors.length > 0 && (
+                    <>
+                      {imageColors.map(vc => {
+                        const colorImgs = images.filter(i => i.variant_color === vc)
+                        return (
+                          <div key={vc}>
+                            <div className="mb-1.5 flex items-center gap-2">
+                              <span className="text-xs font-semibold text-slate-300">🎨 {vc}</span>
+                              <span className="text-[10px] text-slate-600">({colorImgs.length} фото)</span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+                              {colorImgs.map((img, idx) => {
+                                const src = img.url.startsWith('/') ? `${API_BASE_URL}${img.url}` : img.url
+                                return renderImageCard(img, src, idx)
+                              })}
+                            </div>
+                          </div>
+                        )
+                      })}
+                      {/* Uncolored photos */}
+                      {images.filter(i => !i.variant_color).length > 0 && (
+                        <div>
+                          <div className="mb-1.5 text-xs font-semibold text-slate-300">📷 Общие фото</div>
+                          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+                            {images.filter(i => !i.variant_color).map((img, idx) => {
+                              const src = img.url.startsWith('/') ? `${API_BASE_URL}${img.url}` : img.url
+                              return renderImageCard(img, src, idx)
+                            })}
+                          </div>
                         </div>
-
-                        {/* Main badge */}
-                        {img.is_main && (
-                          <div className="absolute left-1.5 top-1.5 rounded-md bg-yellow-400 px-1.5 py-0.5 text-[10px] font-bold text-gray-900">★ Обложка</div>
-                        )}
-
-                        {/* Reorder buttons */}
-                        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-0.5 bg-black/60 px-1 py-0.5 opacity-0 transition group-hover:opacity-100">
-                          <button
-                            type="button"
-                            onClick={e => { e.stopPropagation(); moveImage(idx, -1) }}
-                            disabled={idx === 0}
-                            className="flex-1 rounded text-xs text-white disabled:opacity-30 hover:text-yellow-300"
-                          >←</button>
-                          <span className="text-[10px] text-slate-400">{idx + 1}</span>
-                          <button
-                            type="button"
-                            onClick={e => { e.stopPropagation(); moveImage(idx, 1) }}
-                            disabled={idx === images.length - 1}
-                            className="flex-1 rounded text-xs text-white disabled:opacity-30 hover:text-yellow-300"
-                          >→</button>
-                        </div>
-
-                        {/* Delete button */}
-                        <button
-                          type="button"
-                          onClick={e => { e.stopPropagation(); handleDeleteImage(img.id) }}
-                          className="absolute right-1 top-1 hidden items-center justify-center rounded-full bg-black/70 p-0.5 text-red-400 hover:bg-red-900 group-hover:flex"
-                        >
-                          <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-                        </button>
-                      </div>
-                    )
-                  })}
+                      )}
+                    </>
+                  )}
+                  {/* No color grouping — flat grid */}
+                  {imageColors.length === 0 && (
+                    <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+                      {images.map((img, idx) => {
+                        const src = img.url.startsWith('/') ? `${API_BASE_URL}${img.url}` : img.url
+                        return renderImageCard(img, src, idx)
+                      })}
+                    </div>
+                  )}
                 </div>
               ) : null}
             </div>
             )
+
+            function renderImageCard(img: ImageRecord, src: string, idx: number) {
+              return (
+                <div
+                  key={img.id}
+                  title={img.is_main ? 'Обложка' : 'Нажмите чтобы сделать обложкой'}
+                  className={`group relative cursor-pointer rounded-xl overflow-hidden transition ${
+                    img.is_main ? 'ring-2 ring-yellow-400 ring-offset-2 ring-offset-slate-800' : 'hover:ring-1 hover:ring-white/30'
+                  }`}
+                  onClick={() => !img.is_main && handleSetMain(img.id)}
+                >
+                  <div className="aspect-square bg-white/5">
+                    <img src={src} alt="" className="h-full w-full object-cover" />
+                  </div>
+                  {img.is_main && (
+                    <div className="absolute left-1.5 top-1.5 rounded-md bg-yellow-400 px-1.5 py-0.5 text-[10px] font-bold text-gray-900">★ Обложка</div>
+                  )}
+                  {img.variant_color && (
+                    <div className="absolute left-1.5 bottom-6 rounded-md bg-blue-500/80 px-1.5 py-0.5 text-[9px] font-medium text-white">
+                      🎨 {img.variant_color}
+                    </div>
+                  )}
+                  {/* Reorder */}
+                  <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-0.5 bg-black/60 px-1 py-0.5 opacity-0 transition group-hover:opacity-100">
+                    <button type="button" onClick={e => { e.stopPropagation(); moveImage(idx, -1) }} disabled={idx === 0} className="flex-1 rounded text-xs text-white disabled:opacity-30 hover:text-yellow-300">←</button>
+                    <span className="text-[10px] text-slate-400">{idx + 1}</span>
+                    <button type="button" onClick={e => { e.stopPropagation(); moveImage(idx, 1) }} disabled={idx === images.length - 1} className="flex-1 rounded text-xs text-white disabled:opacity-30 hover:text-yellow-300">→</button>
+                  </div>
+                  {/* Delete */}
+                  <button
+                    type="button"
+                    onClick={e => { e.stopPropagation(); handleDeleteImage(img.id) }}
+                    className="absolute right-1 top-1 hidden items-center justify-center rounded-full bg-black/70 p-0.5 text-red-400 hover:bg-red-900 group-hover:flex"
+                  >
+                    <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                  </button>
+                  {/* Set color button */}
+                  {color && !img.variant_color && (
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); handleSetImageColor(img.id, color) }}
+                      title={`Привязать к цвету «${color}»`}
+                      className="absolute left-1 top-1 hidden items-center justify-center rounded-full bg-blue-600/80 p-1 text-[9px] text-white hover:bg-blue-500 group-hover:flex"
+                    >
+                      🎨
+                    </button>
+                  )}
+                  {img.variant_color && (
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); handleSetImageColor(img.id, null) }}
+                      title="Отвязать от цвета"
+                      className="absolute left-1 top-1 hidden items-center justify-center rounded-full bg-red-600/80 p-1 text-[9px] text-white hover:bg-red-500 group-hover:flex"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )
+            }
           })()}
 
           {/* Error */}
@@ -2755,63 +2857,65 @@ function CategoryModal({
 }
 
 // ============ GROUP CREATION MODAL ============
-// Creates multiple linked products at once (like re-store.ru)
-// Each combination of attributes (color × storage × connectivity) = separate product card
+// Быстрое создание группы связанных товаров одним действием.
+// Каждая комбинация атрибутов → отдельная карточка товара → все объединяются в группу.
 
 interface GroupAxis {
   field: 'color' | 'storage' | 'connectivity'
   label: string
   placeholder: string
+  hint?: string
 }
 
 const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
   smartphones: [
-    { field: 'color', label: 'Цвета', placeholder: 'Cosmic Orange, Deep Blue…' },
-    { field: 'storage', label: 'Память', placeholder: '256 ГБ, 512 ГБ, 1 ТБ…' },
-    { field: 'connectivity', label: 'Связь (SIM)', placeholder: 'SIM + eSIM, eSIM…' },
+    { field: 'color', label: 'Цвета', placeholder: 'Белый', hint: 'Каждый цвет = отдельная карточка с отдельными фото' },
+    { field: 'storage', label: 'Память', placeholder: '256 ГБ', hint: 'Объём встроенной памяти' },
+    { field: 'connectivity', label: 'Связь (SIM)', placeholder: 'SIM + eSIM', hint: 'Тип SIM-карт' },
   ],
   tablets: [
-    { field: 'color', label: 'Цвета', placeholder: 'Space Gray, Silver…' },
-    { field: 'storage', label: 'Память', placeholder: '128 ГБ, 256 ГБ, 512 ГБ…' },
-    { field: 'connectivity', label: 'Связь', placeholder: 'WiFi, WiFi + Cellular…' },
+    { field: 'color', label: 'Цвета', placeholder: 'Space Gray' },
+    { field: 'storage', label: 'Память', placeholder: '256 ГБ' },
+    { field: 'connectivity', label: 'Связь', placeholder: 'WiFi + Cellular' },
   ],
   laptops: [
-    { field: 'color', label: 'Цвета', placeholder: 'Space Black, Silver…' },
-    { field: 'storage', label: 'Конфигурация', placeholder: '16/512 ГБ, 32/1 ТБ…' },
+    { field: 'color', label: 'Цвета', placeholder: 'Space Black' },
+    { field: 'storage', label: 'Конфигурация', placeholder: '16/512 ГБ' },
   ],
   watches: [
-    { field: 'color', label: 'Цвета', placeholder: 'Чёрный, Титан…' },
-    { field: 'storage', label: 'Размер', placeholder: '42 мм, 46 мм…' },
+    { field: 'color', label: 'Цвета', placeholder: 'Титан' },
+    { field: 'storage', label: 'Размер', placeholder: '42 мм' },
   ],
   headphones: [
-    { field: 'color', label: 'Цвета', placeholder: 'Чёрный, Белый…' },
+    { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
   ],
   tv: [
-    { field: 'storage', label: 'Диагональ', placeholder: '55\", 65\", 75\"…' },
+    { field: 'storage', label: 'Диагональ', placeholder: '55"' },
   ],
   gaming: [
-    { field: 'color', label: 'Цвета', placeholder: 'Чёрный, Белый…' },
-    { field: 'storage', label: 'Комплектация', placeholder: 'Digital, Disc…' },
+    { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
+    { field: 'storage', label: 'Комплектация', placeholder: 'Digital' },
   ],
   accessories: [
-    { field: 'color', label: 'Цвета', placeholder: 'Чёрный, Белый…' },
-    { field: 'storage', label: 'Размер / тип', placeholder: 'S, M, L…' },
+    { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
+    { field: 'storage', label: 'Размер / тип', placeholder: 'M' },
   ],
 }
 
 const GROUP_DEFAULT_AXES: GroupAxis[] = [
-  { field: 'color', label: 'Цвета', placeholder: 'Чёрный, Белый…' },
-  { field: 'storage', label: 'Вариант 1', placeholder: '256 ГБ, 512 ГБ…' },
-  { field: 'connectivity', label: 'Вариант 2', placeholder: 'SIM + eSIM, eSIM…' },
+  { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
+  { field: 'storage', label: 'Параметр 1', placeholder: '256 ГБ' },
+  { field: 'connectivity', label: 'Параметр 2', placeholder: 'SIM + eSIM' },
 ]
 
-interface GroupProductPreview {
+interface GroupProductRow {
   name: string
   color: string
   storage: string
   connectivity: string
   price: string
   stock: string
+  enabled: boolean
 }
 
 function GroupCreationModal({
@@ -2822,65 +2926,58 @@ function GroupCreationModal({
   onCreated: () => void
   authFetch: AuthFetchFn
 }) {
-  // Step 1: Base info
+  // Base info
   const [baseName, setBaseName] = useState('')
   const [brand, setBrand] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [basePriceStr, setBasePriceStr] = useState('')
   const [description, setDescription] = useState('')
+  const [warranty, setWarranty] = useState('')
 
-  // Step 2: Attribute values
+  // Attribute values
   const [axisValues, setAxisValues] = useState<Record<string, string[]>>({
-    color: [],
-    storage: [],
-    connectivity: [],
+    color: [], storage: [], connectivity: [],
   })
   const [newInputs, setNewInputs] = useState<Record<string, string>>({
-    color: '',
-    storage: '',
-    connectivity: '',
+    color: '', storage: '', connectivity: '',
   })
 
-  // Step 3: Individual product overrides
-  const [overrides, setOverrides] = useState<Record<string, { price: string; stock: string }>>({})
+  // Row overrides & toggles
+  const [overrides, setOverrides] = useState<Record<string, { price: string; stock: string; enabled: boolean }>>({})
 
-  // State
-  const [step, setStep] = useState<1 | 2 | 3>(1)
+  // UI
   const [creating, setCreating] = useState(false)
   const [progress, setProgress] = useState('')
+  const [createdCount, setCreatedCount] = useState(0)
 
-  // Resolve axes for selected category
+  // Category
   const selectedCat = categories.find(c => c.id === categoryId)
   const catSlug = selectedCat?.slug || ''
   const axesDef = GROUP_CATEGORY_AXES[catSlug] || GROUP_DEFAULT_AXES
 
-  // Build product matrix
-  const buildMatrix = (): GroupProductPreview[] => {
-    const colorVals = axisValues.color.length > 0 ? axisValues.color : ['']
-    const storageVals = axisValues.storage.length > 0 ? axisValues.storage : ['']
-    const connVals = axisValues.connectivity.length > 0 ? axisValues.connectivity : ['']
+  // Matrix builder
+  const buildMatrix = (): GroupProductRow[] => {
+    const colors = axisValues.color.length > 0 ? axisValues.color : ['']
+    const storages = axisValues.storage.length > 0 ? axisValues.storage : ['']
+    const conns = axisValues.connectivity.length > 0 ? axisValues.connectivity : ['']
 
-    const result: GroupProductPreview[] = []
-    for (const color of colorVals) {
-      for (const storage of storageVals) {
-        for (const conn of connVals) {
-          const nameParts = [baseName]
-          if (storage) nameParts.push(storage)
-          if (conn) nameParts.push(conn)
-          const fullName = color
-            ? `${nameParts.join(' ')}, ${color}`
-            : nameParts.join(' ')
-
-          const key = `${color}|${storage}|${conn}`
-          const override = overrides[key]
+    const result: GroupProductRow[] = []
+    for (const c of colors) {
+      for (const s of storages) {
+        for (const cn of conns) {
+          const parts = [baseName, s, cn].filter(Boolean)
+          const fullName = c ? `${parts.join(' ')}, ${c}` : parts.join(' ')
+          const key = `${c}|${s}|${cn}`
+          const ov = overrides[key]
 
           result.push({
             name: fullName,
-            color,
-            storage,
-            connectivity: conn,
-            price: override?.price || basePriceStr,
-            stock: override?.stock || '0',
+            color: c,
+            storage: s,
+            connectivity: cn,
+            price: ov?.price || basePriceStr,
+            stock: ov?.stock || '0',
+            enabled: ov?.enabled !== false,
           })
         }
       }
@@ -2889,6 +2986,7 @@ function GroupCreationModal({
   }
 
   const matrix = buildMatrix()
+  const enabledCount = matrix.filter(m => m.enabled).length
 
   const addAxisValue = (field: string) => {
     const val = newInputs[field]?.trim()
@@ -2901,24 +2999,31 @@ function GroupCreationModal({
     setAxisValues(prev => ({ ...prev, [field]: (prev[field] || []).filter(v => v !== val) }))
   }
 
-  const updateOverride = (key: string, field: 'price' | 'stock', value: string) => {
+  const updateOverride = (key: string, field: 'price' | 'stock' | 'enabled', value: string | boolean) => {
     setOverrides(prev => ({
       ...prev,
-      [key]: { price: prev[key]?.price || '', stock: prev[key]?.stock || '', [field]: value },
+      [key]: {
+        price: prev[key]?.price || '',
+        stock: prev[key]?.stock || '',
+        enabled: prev[key]?.enabled !== false,
+        [field]: value,
+      },
     }))
   }
 
-  // Create all products and group them together
+  // Create
   const handleCreate = async () => {
-    if (matrix.length === 0) return
+    const toCreate = matrix.filter(m => m.enabled)
+    if (toCreate.length === 0) return
     setCreating(true)
+    setCreatedCount(0)
 
-    const createdProductIds: string[] = []
+    const createdIds: string[] = []
 
     try {
-      for (let i = 0; i < matrix.length; i++) {
-        const item = matrix[i]
-        setProgress(`Создаю товар ${i + 1} из ${matrix.length}: ${item.name}`)
+      for (let i = 0; i < toCreate.length; i++) {
+        const item = toCreate[i]
+        setProgress(`${i + 1}/${toCreate.length} — ${item.name}`)
 
         const price = parseFloat(item.price) || 0
         if (price <= 0) continue
@@ -2933,6 +3038,7 @@ function GroupCreationModal({
           category_id: categoryId || null,
           description: description || null,
           color: item.color || null,
+          warranty_months: warranty ? parseInt(warranty) || null : null,
         }
 
         const res = await authFetch(`${API_BASE_URL}/api/products`, {
@@ -2943,304 +3049,278 @@ function GroupCreationModal({
 
         if (res.ok) {
           const saved = await res.json()
-          createdProductIds.push(saved.id)
+          createdIds.push(saved.id)
+          setCreatedCount(createdIds.length)
         } else {
           const err = await res.json().catch(() => ({}))
-          console.error(`Failed to create "${item.name}":`, err)
+          console.error(`Не удалось создать "${item.name}":`, err)
         }
       }
 
-      // Group all created products together
-      if (createdProductIds.length >= 2) {
-        setProgress('Объединяю товары в группу…')
+      if (createdIds.length >= 2) {
+        setProgress('Объединяю в группу…')
         await authFetch(`${API_BASE_URL}/api/product-groups/merge`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ product_ids: createdProductIds }),
+          body: JSON.stringify({ product_ids: createdIds }),
         })
       }
 
-      setProgress(`Готово! Создано ${createdProductIds.length} товаров.`)
-      setTimeout(() => onCreated(), 800)
+      setProgress(`Готово! Создано ${createdIds.length} товаров ✓`)
+      setTimeout(() => onCreated(), 600)
     } catch (err) {
-      alert(`Ошибка при создании: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`)
+      alert(`Ошибка: ${err instanceof Error ? err.message : 'Неизвестно'}`)
       setCreating(false)
       setProgress('')
     }
   }
 
-  const totalAxesWithValues = Object.values(axisValues).filter(v => v.length > 0).length
+  const hasAnyValues = Object.values(axisValues).some(v => v.length > 0)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl bg-slate-800 p-6" onClick={e => e.stopPropagation()}>
+      <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-slate-800" onClick={e => e.stopPropagation()}>
+
         {/* Header */}
-        <div className="mb-6 flex items-start justify-between">
+        <div className="flex items-start justify-between border-b border-white/10 px-6 py-5">
           <div>
-            <h2 className="text-2xl font-bold text-white">🔗 Создать группу товаров</h2>
+            <h2 className="text-xl font-bold text-white">Быстрое создание группы товаров</h2>
             <p className="mt-1 text-sm text-slate-400">
-              Создайте несколько связанных карточек одним действием.
-              Каждая комбинация цвета, памяти и связи — отдельная карточка товара.
+              Заполните основу → добавьте варианты → проверьте и создайте. Все карточки объединятся в группу.
             </p>
           </div>
-          <button onClick={onClose} className="text-2xl text-slate-400 hover:text-white">×</button>
+          <button onClick={onClose} className="ml-4 text-2xl text-slate-400 hover:text-white">×</button>
         </div>
 
-        {/* Step indicators */}
-        <div className="mb-6 flex gap-2">
-          {[
-            { n: 1, label: 'Основа' },
-            { n: 2, label: 'Атрибуты' },
-            { n: 3, label: 'Превью' },
-          ].map(s => (
-            <button
-              key={s.n}
-              onClick={() => setStep(s.n as 1 | 2 | 3)}
-              className={`flex-1 rounded-xl py-2.5 text-sm font-medium transition ${
-                step === s.n
-                  ? 'bg-yellow-400 text-gray-900'
-                  : step > s.n
-                    ? 'bg-green-600/20 text-green-400'
-                    : 'bg-white/10 text-slate-400'
-              }`}
-            >
-              {step > s.n ? '✓ ' : ''}{s.n}. {s.label}
-            </button>
-          ))}
-        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
 
-        {/* ── Step 1: Base info ── */}
-        {step === 1 && (
+          {/* ── Основная информация (всегда видна) ── */}
           <div className="space-y-4">
-            <div>
-              <label className="mb-1 block text-sm text-slate-400">Базовое название *</label>
-              <input
-                type="text"
-                value={baseName}
-                onChange={e => setBaseName(e.target.value)}
-                placeholder="Apple iPhone 17 Pro Max"
-                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
-              />
-              <p className="mt-1 text-xs text-slate-500">Без цвета и памяти — они добавятся автоматически</p>
-            </div>
+            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Основа</h3>
 
             <div className="grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-sm text-slate-400">Базовое название *</label>
+                <input
+                  type="text"
+                  value={baseName}
+                  onChange={e => setBaseName(e.target.value)}
+                  placeholder="Apple iPhone 17 Pro Max"
+                  className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
+                />
+                <p className="mt-1 text-xs text-slate-500">Без цвета и памяти — они добавятся из атрибутов ниже</p>
+              </div>
+
               <div>
                 <label className="mb-1 block text-sm text-slate-400">Бренд</label>
-                <select
-                  value={brand}
-                  onChange={e => setBrand(e.target.value)}
-                  className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
-                >
+                <select value={brand} onChange={e => setBrand(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none">
                   <option value="">— не указан —</option>
                   {BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm text-slate-400">Категория *</label>
-                <select
-                  value={categoryId}
-                  onChange={e => setCategoryId(e.target.value)}
-                  className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
-                >
+                <label className="mb-1 block text-sm text-slate-400">Категория</label>
+                <select value={categoryId} onChange={e => setCategoryId(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none">
                   <option value="">Без категории</option>
                   {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
                 </select>
               </div>
+
+              <div>
+                <label className="mb-1 block text-sm text-slate-400">Базовая цена *</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={basePriceStr}
+                  onChange={e => setBasePriceStr(e.target.value.replace(/[^\d.]/g, ''))}
+                  placeholder="145990"
+                  className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-slate-400">Гарантия (мес.)</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={warranty}
+                  onChange={e => setWarranty(e.target.value.replace(/\D/g, ''))}
+                  placeholder="12"
+                  className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
+                />
+              </div>
             </div>
 
             <div>
-              <label className="mb-1 block text-sm text-slate-400">Базовая цена *</label>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={basePriceStr}
-                onChange={e => setBasePriceStr(e.target.value.replace(/[^\d.]/g, ''))}
-                placeholder="145990"
-                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
-              />
-              <p className="mt-1 text-xs text-slate-500">Цена по умолчанию для всех товаров (можно будет переопределить на шаге 3)</p>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm text-slate-400">Описание (общее для всех)</label>
+              <label className="mb-1 block text-sm text-slate-400">Описание</label>
               <textarea
                 value={description}
                 onChange={e => setDescription(e.target.value)}
-                rows={3}
-                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
+                rows={2}
+                placeholder="Общее описание для всех карточек группы"
+                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
               />
             </div>
-
-            <div className="flex justify-end pt-2">
-              <button
-                onClick={() => setStep(2)}
-                disabled={!baseName.trim() || !basePriceStr}
-                className="rounded-xl bg-yellow-400 px-6 py-3 font-semibold text-gray-900 hover:bg-yellow-300 disabled:opacity-40"
-              >
-                Далее →
-              </button>
-            </div>
           </div>
-        )}
 
-        {/* ── Step 2: Attributes ── */}
-        {step === 2 && (
-          <div className="space-y-5">
-            <div className="rounded-xl bg-white/5 p-4 text-sm text-slate-400">
-              <span className="font-semibold text-white">{selectedCat?.name || 'Общие'}</span> — добавьте значения для каждого атрибута.
-              Каждая уникальная комбинация станет отдельным товаром.
-              {categoryId ? '' : ' Выберите категорию на шаге 1 для правильных атрибутов.'}
-            </div>
-
-            {axesDef.map(axisDef => {
-              const vals = axisValues[axisDef.field] || []
-              const input = newInputs[axisDef.field] || ''
-
-              return (
-                <div key={axisDef.field} className="rounded-xl border border-white/10 p-4">
-                  <div className="mb-3 text-sm font-bold text-white">{axisDef.label}</div>
-
-                  {/* Tags */}
-                  <div className="mb-3 flex flex-wrap gap-2">
-                    {vals.map(val => (
-                      <div key={val} className="group flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5">
-                        <span className="text-sm font-medium text-white">{val}</span>
-                        <button
-                          onClick={() => removeAxisValue(axisDef.field, val)}
-                          className="text-red-500/60 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                        >✕</button>
-                      </div>
-                    ))}
-                    {vals.length === 0 && (
-                      <span className="py-1 text-xs italic text-slate-600">нет значений</span>
-                    )}
-                  </div>
-
-                  {/* Input */}
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={input}
-                      onChange={e => setNewInputs(prev => ({ ...prev, [axisDef.field]: e.target.value }))}
-                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addAxisValue(axisDef.field) } }}
-                      placeholder={axisDef.placeholder}
-                      className="flex-1 rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-yellow-400/50 focus:outline-none"
-                    />
-                    <button
-                      onClick={() => addAxisValue(axisDef.field)}
-                      className="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-yellow-300 hover:bg-white/15"
-                    >+</button>
-                  </div>
-                </div>
-              )
-            })}
-
-            {/* Matrix size preview */}
-            <div className="rounded-xl border border-yellow-400/20 bg-yellow-400/5 px-4 py-3">
-              <div className="text-sm font-semibold text-yellow-300">
-                {matrix.length} {matrix.length === 1 ? 'товар' : matrix.length < 5 ? 'товара' : 'товаров'} будет создано
-              </div>
-              <div className="text-xs text-slate-500">
-                {axesDef.map(a => {
-                  const count = (axisValues[a.field] || []).length
-                  return count > 0 ? `${count} ${a.label.toLowerCase()}` : null
-                }).filter(Boolean).join(' × ') || 'Добавьте значения выше'}
-              </div>
-            </div>
-
-            <div className="flex justify-between pt-2">
-              <button onClick={() => setStep(1)} className="rounded-xl bg-white/10 px-6 py-3 text-white hover:bg-white/20">
-                ← Назад
-              </button>
-              <button
-                onClick={() => setStep(3)}
-                disabled={totalAxesWithValues === 0}
-                className="rounded-xl bg-yellow-400 px-6 py-3 font-semibold text-gray-900 hover:bg-yellow-300 disabled:opacity-40"
-              >
-                Далее →
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── Step 3: Preview & Create ── */}
-        {step === 3 && (
+          {/* ── Атрибуты (варианты) ── */}
           <div className="space-y-4">
-            <div className="text-sm text-slate-400">
-              Проверьте товары перед созданием. Можно исправить цену и количество для каждого.
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Варианты</h3>
+              {selectedCat && <span className="text-xs text-slate-500">{selectedCat.name}</span>}
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-white/10">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/10 bg-white/5 text-left text-xs text-slate-400 uppercase tracking-wider">
-                    <th className="p-3">#</th>
-                    <th className="p-3">Название товара</th>
-                    <th className="p-3 w-32">Цена ₽</th>
-                    <th className="p-3 w-24">Склад</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {matrix.map((item, i) => {
-                    const key = `${item.color}|${item.storage}|${item.connectivity}`
-                    return (
-                      <tr key={i} className="border-t border-white/5 hover:bg-white/[0.02]">
-                        <td className="p-3 text-slate-500">{i + 1}</td>
-                        <td className="p-3">
-                          <div className="font-medium text-white">{item.name}</div>
-                          <div className="text-xs text-slate-500">
-                            {[item.color, item.storage, item.connectivity].filter(Boolean).join(' • ')}
-                          </div>
-                        </td>
-                        <td className="p-3">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={overrides[key]?.price ?? ''}
-                            onChange={e => updateOverride(key, 'price', e.target.value.replace(/[^\d.]/g, ''))}
-                            placeholder={basePriceStr || '0'}
-                            className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-xs text-white placeholder-slate-500 focus:border-yellow-400/30 focus:outline-none"
-                          />
-                        </td>
-                        <td className="p-3">
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={overrides[key]?.stock ?? ''}
-                            onChange={e => updateOverride(key, 'stock', e.target.value.replace(/\D/g, ''))}
-                            placeholder="0"
-                            className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-xs text-white placeholder-slate-500 focus:border-yellow-400/30 focus:outline-none"
-                          />
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {axesDef.map(axisDef => {
+                const vals = axisValues[axisDef.field] || []
+                const input = newInputs[axisDef.field] || ''
 
-            {/* Progress */}
-            {progress && (
-              <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 p-3 text-sm text-blue-300">
-                ⏳ {progress}
+                return (
+                  <div key={axisDef.field} className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
+                    <div>
+                      <div className="text-sm font-semibold text-white">{axisDef.label}</div>
+                      {axisDef.hint && <div className="text-[11px] text-slate-500">{axisDef.hint}</div>}
+                    </div>
+
+                    {/* Tags */}
+                    <div className="flex flex-wrap gap-1.5 min-h-[32px]">
+                      {vals.map(val => (
+                        <span key={val} className="group inline-flex items-center gap-1 rounded-lg bg-yellow-400/10 border border-yellow-400/20 px-2 py-1 text-xs font-medium text-yellow-300">
+                          {val}
+                          <button onClick={() => removeAxisValue(axisDef.field, val)} className="text-yellow-400/60 hover:text-red-400 transition-colors">×</button>
+                        </span>
+                      ))}
+                      {vals.length === 0 && <span className="text-xs text-slate-600 italic">пусто</span>}
+                    </div>
+
+                    {/* Input */}
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={input}
+                        onChange={e => setNewInputs(prev => ({ ...prev, [axisDef.field]: e.target.value }))}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addAxisValue(axisDef.field) } }}
+                        placeholder={axisDef.placeholder}
+                        className="flex-1 rounded-lg bg-white/10 px-3 py-2 text-sm text-white placeholder-slate-600 focus:bg-white/15 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => addAxisValue(axisDef.field)}
+                        className="rounded-lg bg-yellow-400/20 px-3 py-2 text-sm font-bold text-yellow-300 hover:bg-yellow-400/30 transition-colors"
+                      >+</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* ── Превью таблица ── */}
+          {hasAnyValues && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
+                  Товары ({enabledCount} из {matrix.length})
+                </h3>
+                <div className="text-xs text-slate-500">
+                  {axesDef.map(a => {
+                    const count = (axisValues[a.field] || []).length
+                    return count > 0 ? `${count} ${a.label.toLowerCase()}` : null
+                  }).filter(Boolean).join(' × ')}
+                </div>
               </div>
-            )}
 
-            <div className="flex justify-between pt-2">
-              <button onClick={() => setStep(2)} disabled={creating} className="rounded-xl bg-white/10 px-6 py-3 text-white hover:bg-white/20 disabled:opacity-40">
-                ← Назад
-              </button>
+              <div className="overflow-x-auto rounded-xl border border-white/10">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10 bg-white/5 text-left text-[10px] text-slate-500 uppercase tracking-wider">
+                      <th className="p-2.5 w-8">
+                        <input type="checkbox" checked={enabledCount === matrix.length} onChange={() => {
+                          const allEnabled = enabledCount === matrix.length
+                          matrix.forEach(m => {
+                            const key = `${m.color}|${m.storage}|${m.connectivity}`
+                            updateOverride(key, 'enabled', !allEnabled)
+                          })
+                        }} className="h-3.5 w-3.5 rounded accent-yellow-400 cursor-pointer" />
+                      </th>
+                      <th className="p-2.5">Название</th>
+                      <th className="p-2.5 w-28">Цена ₽</th>
+                      <th className="p-2.5 w-20">Склад</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {matrix.map((item, i) => {
+                      const key = `${item.color}|${item.storage}|${item.connectivity}`
+                      return (
+                        <tr key={i} className={`border-t border-white/5 transition-colors ${item.enabled ? 'hover:bg-white/[0.02]' : 'opacity-40'}`}>
+                          <td className="p-2.5">
+                            <input
+                              type="checkbox"
+                              checked={item.enabled}
+                              onChange={() => updateOverride(key, 'enabled', !item.enabled)}
+                              className="h-3.5 w-3.5 rounded accent-yellow-400 cursor-pointer"
+                            />
+                          </td>
+                          <td className="p-2.5">
+                            <div className="font-medium text-white text-xs">{item.name}</div>
+                            <div className="text-[10px] text-slate-600">
+                              {[item.color, item.storage, item.connectivity].filter(Boolean).join(' · ')}
+                            </div>
+                          </td>
+                          <td className="p-2.5">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={overrides[key]?.price ?? ''}
+                              onChange={e => updateOverride(key, 'price', e.target.value.replace(/[^\d.]/g, ''))}
+                              placeholder={basePriceStr || '—'}
+                              className="w-full rounded-lg bg-white/10 px-2 py-1.5 text-xs text-white placeholder-slate-600 focus:bg-white/15 focus:outline-none"
+                            />
+                          </td>
+                          <td className="p-2.5">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={overrides[key]?.stock ?? ''}
+                              onChange={e => updateOverride(key, 'stock', e.target.value.replace(/\D/g, ''))}
+                              placeholder="0"
+                              className="w-full rounded-lg bg-white/10 px-2 py-1.5 text-xs text-white placeholder-slate-600 focus:bg-white/15 focus:outline-none"
+                            />
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer — sticky */}
+        <div className="border-t border-white/10 bg-slate-800/95 px-6 py-4">
+          {progress && (
+            <div className="mb-3 rounded-xl bg-blue-500/10 border border-blue-500/20 p-2.5 text-sm text-blue-300">
+              ⏳ {progress} {createdCount > 0 && `(${createdCount} создано)`}
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <button onClick={onClose} disabled={creating} className="rounded-xl bg-white/10 px-5 py-2.5 text-sm text-white hover:bg-white/20 disabled:opacity-40">
+              Отмена
+            </button>
+            <div className="flex items-center gap-3">
+              {enabledCount > 0 && (
+                <span className="text-sm text-slate-400">{enabledCount} {enabledCount === 1 ? 'товар' : enabledCount < 5 ? 'товара' : 'товаров'}</span>
+              )}
               <button
                 onClick={handleCreate}
-                disabled={creating || matrix.length === 0}
-                className="rounded-xl bg-green-600 px-6 py-3 font-semibold text-white hover:bg-green-500 disabled:opacity-40"
+                disabled={creating || enabledCount === 0 || !baseName.trim() || !basePriceStr}
+                className="rounded-xl bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-500 disabled:opacity-40 transition-colors"
               >
-                {creating ? '⏳ Создаю…' : `🚀 Создать ${matrix.length} товаров и объединить в группу`}
+                {creating ? `⏳ Создаю…` : `Создать ${enabledCount} товаров`}
               </button>
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   )
