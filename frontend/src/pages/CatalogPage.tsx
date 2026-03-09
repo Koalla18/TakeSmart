@@ -329,14 +329,15 @@ export function CatalogPage() {
       result = result.filter(p => p.inStock)
     }
     
-    // Search filter
+    // Smart search: every space-separated token must appear in name/brand/description
     if (searchQuery) {
-      const query = searchQuery.toLowerCase()
-      result = result.filter(p => 
-        p.name.toLowerCase().includes(query) ||
-        p.brand.toLowerCase().includes(query) ||
-        p.description.toLowerCase().includes(query)
-      )
+      const tokens = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
+      if (tokens.length) {
+        result = result.filter(p => {
+          const hay = `${p.name} ${p.brand} ${p.description}`.toLowerCase()
+          return tokens.every(t => hay.includes(t))
+        })
+      }
     }
     
     // Sort
