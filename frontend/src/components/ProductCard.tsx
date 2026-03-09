@@ -132,7 +132,7 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
   return (
     <div className="group relative">
       {/* Card */}
-      <div className="relative overflow-hidden rounded-3xl bg-white border border-gray-100 transition-all duration-500 hover:border-gray-200 hover:shadow-2xl hover:shadow-gray-200/50 hover:-translate-y-1">
+      <div className="relative flex h-full flex-col overflow-hidden rounded-3xl bg-white border border-gray-100 transition-all duration-500 hover:border-gray-200 hover:shadow-2xl hover:shadow-gray-200/50 hover:-translate-y-1">
         
         {/* Badges */}
         <div className="absolute left-4 top-4 z-20 flex flex-col gap-2">
@@ -198,7 +198,7 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
         </Link>
         
         {/* Content */}
-        <div className="p-3 sm:p-5">
+        <div className="flex flex-1 flex-col p-3 sm:p-5">
           {/* Brand & Category */}
           <div className="mb-1.5 sm:mb-2 flex items-center justify-between">
             <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-yellow-600">
@@ -217,7 +217,7 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
           </Link>
           
           {/* Price row */}
-          <div className="mb-3 sm:mb-4 flex flex-col sm:flex-row sm:items-end sm:justify-between">
+          <div className="mt-auto mb-3 sm:mb-4 flex flex-col sm:flex-row sm:items-end sm:justify-between">
             <div className="flex items-end gap-1.5 sm:gap-2">
               <span className="text-lg sm:text-2xl font-bold text-gray-900">
                 {formatPrice(product.price)}

@@ -37,18 +37,28 @@ function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs
     const num = storageMatch[1].replace(/\s/g, '')
     const unit = /ТБ|TB/i.test(storageMatch[2]) ? 'ТБ' : 'ГБ'
     storage = `${num} ${unit}`
+  } else {
+    // Bare number as storage: "iPhone 18 pro 256 sim" → "256"
+    // Match standalone number (64-9999) not adjacent to other keywords
+    const bareMatch = name.match(/\b(\d{2,4})\b(?!\s*(мм|mm|мес|шт|₽|р\b|\.))/i)
+    if (bareMatch) {
+      const n = parseInt(bareMatch[1])
+      if (n >= 32 && n <= 9999) storage = bareMatch[1]
+    }
   }
 
   // Connectivity: SIM/eSIM/WiFi patterns (order matters — most specific first)
   let connectivity: string | null = null
   const connPatterns: [RegExp, string][] = [
     [/SIM\s*\+\s*eSIM/i, 'SIM + eSIM'],
+    [/sim\s*\+\s*esim/i, 'SIM + eSIM'],
     [/nano[- ]?SIM\s*\+\s*eSIM/i, 'SIM + eSIM'],
     [/Dual\s*SIM/i, 'Dual SIM'],
     [/WiFi\s*\+\s*Cellular/i, 'WiFi + Cellular'],
     [/Wi-Fi\s*\+\s*Cellular/i, 'WiFi + Cellular'],
     [/(?:только\s+)?eSIM\b/i, 'eSIM'],
     [/(?:только\s+)?(?:Wi-Fi|WiFi)\b(?!\s*\+)/i, 'WiFi'],
+    [/\bsim\b(?!\s*\+)/i, 'SIM'],
   ]
   for (const [pattern, label] of connPatterns) {
     if (pattern.test(name)) { connectivity = label; break }
@@ -60,9 +70,13 @@ function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs
 function sortStorageValues(values: string[]): string[] {
   const toGB = (s: string): number => {
     const m = s.match(/(\d+(?:\/(\d+))?)\s*(ГБ|ТБ)/i)
-    if (!m) return 0
-    const n = m[2] ? parseInt(m[2]) : parseInt(m[1])
-    return /ТБ/i.test(m[3]) ? n * 1024 : n
+    if (m) {
+      const n = m[2] ? parseInt(m[2]) : parseInt(m[1])
+      return /ТБ/i.test(m[3]) ? n * 1024 : n
+    }
+    // Bare number (e.g. "256", "512")
+    const bare = parseInt(s)
+    return isNaN(bare) ? 0 : bare
   }
   return [...values].sort((a, b) => toGB(a) - toGB(b))
 }
@@ -1052,8 +1066,8 @@ export function ProductPage() {
                   )
                 })()}
 
-                {/* Color info (only when no variant selector) */}
-                {variants.length === 0 && apiProduct.color && (
+                {/* Color info (only when no variant selector and no group nav) */}
+                {variants.length === 0 && apiProduct.color && !(apiProduct.siblings && apiProduct.siblings.length > 0) && (
                   <div className="mb-4">
                     <span className="text-sm text-gray-500">Цвет: </span>
                     <span className="text-sm font-medium text-gray-900">{apiProduct.color}</span>
