@@ -175,6 +175,7 @@ export function AdminPage() {
   const [slides, setSlides] = useState<WeeklySlide[]>([])
   const [editingSlide, setEditingSlide] = useState<WeeklySlide | null>(null)
   const [isSlideModalOpen, setIsSlideModalOpen] = useState(false)
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [_error, setError] = useState<string | null>(null)
   const [updatingStatus, setUpdatingStatus] = useState(false)
@@ -631,6 +632,7 @@ export function AdminPage() {
             onToggleActive={toggleActive}
             onRefresh={loadProducts}
             authFetch={authFetch}
+            onCreateGroup={() => setIsGroupModalOpen(true)}
           />
         )}
 
@@ -822,6 +824,16 @@ export function AdminPage() {
         />
       )}
 
+      {/* ============ GROUP CREATION MODAL ============ */}
+      {isGroupModalOpen && (
+        <GroupCreationModal
+          categories={categories}
+          onClose={() => setIsGroupModalOpen(false)}
+          onCreated={() => { setIsGroupModalOpen(false); loadProducts() }}
+          authFetch={authFetch}
+        />
+      )}
+
       {/* ============ SLIDE MODAL ============ */}
       {isSlideModalOpen && (
         <SlideModal
@@ -839,7 +851,7 @@ export function AdminPage() {
 
 function ProductsSection({
   products, categories, categoryFilter, setCategoryFilter, searchQuery, setSearchQuery,
-  onEdit, onNew, onDelete, onToggleFeatured, onToggleActive, isUsedMode, onRefresh, authFetch
+  onEdit, onNew, onDelete, onToggleFeatured, onToggleActive, isUsedMode, onRefresh, authFetch, onCreateGroup
 }: {
   products: Product[]
   categories: Category[]
@@ -855,6 +867,7 @@ function ProductsSection({
   isUsedMode?: boolean
   onRefresh?: () => void
   authFetch: AuthFetchFn
+  onCreateGroup?: () => void
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [merging, setMerging] = useState(false)
@@ -954,12 +967,22 @@ function ProductsSection({
           />
         </div>
         
-        <button
-          onClick={onNew}
-          className="rounded-lg bg-yellow-400 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-yellow-300"
-        >
-          + {isUsedMode ? 'Добавить Б/У товар' : 'Добавить товар'}
-        </button>
+        <div className="flex gap-2">
+          {onCreateGroup && !isUsedMode && (
+            <button
+              onClick={onCreateGroup}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
+            >
+              🔗 Создать группу
+            </button>
+          )}
+          <button
+            onClick={onNew}
+            className="rounded-lg bg-yellow-400 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-yellow-300"
+          >
+            + {isUsedMode ? 'Добавить Б/У товар' : 'Добавить товар'}
+          </button>
+        </div>
       </div>
 
       {/* ── Тулбар выбранных товаров ── */}
@@ -2726,6 +2749,498 @@ function CategoryModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+// ============ GROUP CREATION MODAL ============
+// Creates multiple linked products at once (like re-store.ru)
+// Each combination of attributes (color × storage × connectivity) = separate product card
+
+interface GroupAxis {
+  field: 'color' | 'storage' | 'connectivity'
+  label: string
+  placeholder: string
+}
+
+const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
+  smartphones: [
+    { field: 'color', label: 'Цвета', placeholder: 'Cosmic Orange, Deep Blue…' },
+    { field: 'storage', label: 'Память', placeholder: '256 ГБ, 512 ГБ, 1 ТБ…' },
+    { field: 'connectivity', label: 'Связь (SIM)', placeholder: 'SIM + eSIM, eSIM…' },
+  ],
+  tablets: [
+    { field: 'color', label: 'Цвета', placeholder: 'Space Gray, Silver…' },
+    { field: 'storage', label: 'Память', placeholder: '128 ГБ, 256 ГБ, 512 ГБ…' },
+    { field: 'connectivity', label: 'Связь', placeholder: 'WiFi, WiFi + Cellular…' },
+  ],
+  laptops: [
+    { field: 'color', label: 'Цвета', placeholder: 'Space Black, Silver…' },
+    { field: 'storage', label: 'Конфигурация', placeholder: '16/512 ГБ, 32/1 ТБ…' },
+  ],
+  watches: [
+    { field: 'color', label: 'Цвета', placeholder: 'Чёрный, Титан…' },
+    { field: 'storage', label: 'Размер', placeholder: '42 мм, 46 мм…' },
+  ],
+  headphones: [
+    { field: 'color', label: 'Цвета', placeholder: 'Чёрный, Белый…' },
+  ],
+  tv: [
+    { field: 'storage', label: 'Диагональ', placeholder: '55\", 65\", 75\"…' },
+  ],
+  gaming: [
+    { field: 'color', label: 'Цвета', placeholder: 'Чёрный, Белый…' },
+    { field: 'storage', label: 'Комплектация', placeholder: 'Digital, Disc…' },
+  ],
+  accessories: [
+    { field: 'color', label: 'Цвета', placeholder: 'Чёрный, Белый…' },
+    { field: 'storage', label: 'Размер / тип', placeholder: 'S, M, L…' },
+  ],
+}
+
+const GROUP_DEFAULT_AXES: GroupAxis[] = [
+  { field: 'color', label: 'Цвета', placeholder: 'Чёрный, Белый…' },
+  { field: 'storage', label: 'Вариант 1', placeholder: '256 ГБ, 512 ГБ…' },
+  { field: 'connectivity', label: 'Вариант 2', placeholder: 'SIM + eSIM, eSIM…' },
+]
+
+interface GroupProductPreview {
+  name: string
+  color: string
+  storage: string
+  connectivity: string
+  price: string
+  stock: string
+}
+
+function GroupCreationModal({
+  categories, onClose, onCreated, authFetch
+}: {
+  categories: Category[]
+  onClose: () => void
+  onCreated: () => void
+  authFetch: AuthFetchFn
+}) {
+  // Step 1: Base info
+  const [baseName, setBaseName] = useState('')
+  const [brand, setBrand] = useState('')
+  const [categoryId, setCategoryId] = useState('')
+  const [basePriceStr, setBasePriceStr] = useState('')
+  const [description, setDescription] = useState('')
+
+  // Step 2: Attribute values
+  const [axisValues, setAxisValues] = useState<Record<string, string[]>>({
+    color: [],
+    storage: [],
+    connectivity: [],
+  })
+  const [newInputs, setNewInputs] = useState<Record<string, string>>({
+    color: '',
+    storage: '',
+    connectivity: '',
+  })
+
+  // Step 3: Individual product overrides
+  const [overrides, setOverrides] = useState<Record<string, { price: string; stock: string }>>({})
+
+  // State
+  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [creating, setCreating] = useState(false)
+  const [progress, setProgress] = useState('')
+
+  // Resolve axes for selected category
+  const selectedCat = categories.find(c => c.id === categoryId)
+  const catSlug = selectedCat?.slug || ''
+  const axesDef = GROUP_CATEGORY_AXES[catSlug] || GROUP_DEFAULT_AXES
+
+  // Build product matrix
+  const buildMatrix = (): GroupProductPreview[] => {
+    const colorVals = axisValues.color.length > 0 ? axisValues.color : ['']
+    const storageVals = axisValues.storage.length > 0 ? axisValues.storage : ['']
+    const connVals = axisValues.connectivity.length > 0 ? axisValues.connectivity : ['']
+
+    const result: GroupProductPreview[] = []
+    for (const color of colorVals) {
+      for (const storage of storageVals) {
+        for (const conn of connVals) {
+          const nameParts = [baseName]
+          if (storage) nameParts.push(storage)
+          if (conn) nameParts.push(conn)
+          const fullName = color
+            ? `${nameParts.join(' ')}, ${color}`
+            : nameParts.join(' ')
+
+          const key = `${color}|${storage}|${conn}`
+          const override = overrides[key]
+
+          result.push({
+            name: fullName,
+            color,
+            storage,
+            connectivity: conn,
+            price: override?.price || basePriceStr,
+            stock: override?.stock || '0',
+          })
+        }
+      }
+    }
+    return result
+  }
+
+  const matrix = buildMatrix()
+
+  const addAxisValue = (field: string) => {
+    const val = newInputs[field]?.trim()
+    if (!val || axisValues[field]?.includes(val)) return
+    setAxisValues(prev => ({ ...prev, [field]: [...(prev[field] || []), val] }))
+    setNewInputs(prev => ({ ...prev, [field]: '' }))
+  }
+
+  const removeAxisValue = (field: string, val: string) => {
+    setAxisValues(prev => ({ ...prev, [field]: (prev[field] || []).filter(v => v !== val) }))
+  }
+
+  const updateOverride = (key: string, field: 'price' | 'stock', value: string) => {
+    setOverrides(prev => ({
+      ...prev,
+      [key]: { price: prev[key]?.price || '', stock: prev[key]?.stock || '', [field]: value },
+    }))
+  }
+
+  // Create all products and group them together
+  const handleCreate = async () => {
+    if (matrix.length === 0) return
+    setCreating(true)
+
+    const createdProductIds: string[] = []
+
+    try {
+      for (let i = 0; i < matrix.length; i++) {
+        const item = matrix[i]
+        setProgress(`Создаю товар ${i + 1} из ${matrix.length}: ${item.name}`)
+
+        const price = parseFloat(item.price) || 0
+        if (price <= 0) continue
+
+        const payload: Record<string, unknown> = {
+          name: item.name,
+          price,
+          stock_quantity: parseInt(item.stock) || 0,
+          is_active: true,
+          condition: 'new',
+          brand: brand || null,
+          category_id: categoryId || null,
+          description: description || null,
+          color: item.color || null,
+        }
+
+        const res = await authFetch(`${API_BASE_URL}/api/products`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+
+        if (res.ok) {
+          const saved = await res.json()
+          createdProductIds.push(saved.id)
+        } else {
+          const err = await res.json().catch(() => ({}))
+          console.error(`Failed to create "${item.name}":`, err)
+        }
+      }
+
+      // Group all created products together
+      if (createdProductIds.length >= 2) {
+        setProgress('Объединяю товары в группу…')
+        await authFetch(`${API_BASE_URL}/api/product-groups/merge`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product_ids: createdProductIds }),
+        })
+      }
+
+      setProgress(`Готово! Создано ${createdProductIds.length} товаров.`)
+      setTimeout(() => onCreated(), 800)
+    } catch (err) {
+      alert(`Ошибка при создании: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`)
+      setCreating(false)
+      setProgress('')
+    }
+  }
+
+  const totalAxesWithValues = Object.values(axisValues).filter(v => v.length > 0).length
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl bg-slate-800 p-6" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="mb-6 flex items-start justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-white">🔗 Создать группу товаров</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Создайте несколько связанных карточек одним действием.
+              Каждая комбинация цвета, памяти и связи — отдельная карточка товара.
+            </p>
+          </div>
+          <button onClick={onClose} className="text-2xl text-slate-400 hover:text-white">×</button>
+        </div>
+
+        {/* Step indicators */}
+        <div className="mb-6 flex gap-2">
+          {[
+            { n: 1, label: 'Основа' },
+            { n: 2, label: 'Атрибуты' },
+            { n: 3, label: 'Превью' },
+          ].map(s => (
+            <button
+              key={s.n}
+              onClick={() => setStep(s.n as 1 | 2 | 3)}
+              className={`flex-1 rounded-xl py-2.5 text-sm font-medium transition ${
+                step === s.n
+                  ? 'bg-yellow-400 text-gray-900'
+                  : step > s.n
+                    ? 'bg-green-600/20 text-green-400'
+                    : 'bg-white/10 text-slate-400'
+              }`}
+            >
+              {step > s.n ? '✓ ' : ''}{s.n}. {s.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Step 1: Base info ── */}
+        {step === 1 && (
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1 block text-sm text-slate-400">Базовое название *</label>
+              <input
+                type="text"
+                value={baseName}
+                onChange={e => setBaseName(e.target.value)}
+                placeholder="Apple iPhone 17 Pro Max"
+                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
+              />
+              <p className="mt-1 text-xs text-slate-500">Без цвета и памяти — они добавятся автоматически</p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm text-slate-400">Бренд</label>
+                <select
+                  value={brand}
+                  onChange={e => setBrand(e.target.value)}
+                  className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
+                >
+                  <option value="">— не указан —</option>
+                  {BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-slate-400">Категория *</label>
+                <select
+                  value={categoryId}
+                  onChange={e => setCategoryId(e.target.value)}
+                  className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
+                >
+                  <option value="">Без категории</option>
+                  {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm text-slate-400">Базовая цена *</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={basePriceStr}
+                onChange={e => setBasePriceStr(e.target.value.replace(/[^\d.]/g, ''))}
+                placeholder="145990"
+                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
+              />
+              <p className="mt-1 text-xs text-slate-500">Цена по умолчанию для всех товаров (можно будет переопределить на шаге 3)</p>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm text-slate-400">Описание (общее для всех)</label>
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                rows={3}
+                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setStep(2)}
+                disabled={!baseName.trim() || !basePriceStr}
+                className="rounded-xl bg-yellow-400 px-6 py-3 font-semibold text-gray-900 hover:bg-yellow-300 disabled:opacity-40"
+              >
+                Далее →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 2: Attributes ── */}
+        {step === 2 && (
+          <div className="space-y-5">
+            <div className="rounded-xl bg-white/5 p-4 text-sm text-slate-400">
+              <span className="font-semibold text-white">{selectedCat?.name || 'Общие'}</span> — добавьте значения для каждого атрибута.
+              Каждая уникальная комбинация станет отдельным товаром.
+              {categoryId ? '' : ' Выберите категорию на шаге 1 для правильных атрибутов.'}
+            </div>
+
+            {axesDef.map(axisDef => {
+              const vals = axisValues[axisDef.field] || []
+              const input = newInputs[axisDef.field] || ''
+
+              return (
+                <div key={axisDef.field} className="rounded-xl border border-white/10 p-4">
+                  <div className="mb-3 text-sm font-bold text-white">{axisDef.label}</div>
+
+                  {/* Tags */}
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {vals.map(val => (
+                      <div key={val} className="group flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5">
+                        <span className="text-sm font-medium text-white">{val}</span>
+                        <button
+                          onClick={() => removeAxisValue(axisDef.field, val)}
+                          className="text-red-500/60 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                        >✕</button>
+                      </div>
+                    ))}
+                    {vals.length === 0 && (
+                      <span className="py-1 text-xs italic text-slate-600">нет значений</span>
+                    )}
+                  </div>
+
+                  {/* Input */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={input}
+                      onChange={e => setNewInputs(prev => ({ ...prev, [axisDef.field]: e.target.value }))}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addAxisValue(axisDef.field) } }}
+                      placeholder={axisDef.placeholder}
+                      className="flex-1 rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-yellow-400/50 focus:outline-none"
+                    />
+                    <button
+                      onClick={() => addAxisValue(axisDef.field)}
+                      className="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-yellow-300 hover:bg-white/15"
+                    >+</button>
+                  </div>
+                </div>
+              )
+            })}
+
+            {/* Matrix size preview */}
+            <div className="rounded-xl border border-yellow-400/20 bg-yellow-400/5 px-4 py-3">
+              <div className="text-sm font-semibold text-yellow-300">
+                {matrix.length} {matrix.length === 1 ? 'товар' : matrix.length < 5 ? 'товара' : 'товаров'} будет создано
+              </div>
+              <div className="text-xs text-slate-500">
+                {axesDef.map(a => {
+                  const count = (axisValues[a.field] || []).length
+                  return count > 0 ? `${count} ${a.label.toLowerCase()}` : null
+                }).filter(Boolean).join(' × ') || 'Добавьте значения выше'}
+              </div>
+            </div>
+
+            <div className="flex justify-between pt-2">
+              <button onClick={() => setStep(1)} className="rounded-xl bg-white/10 px-6 py-3 text-white hover:bg-white/20">
+                ← Назад
+              </button>
+              <button
+                onClick={() => setStep(3)}
+                disabled={totalAxesWithValues === 0}
+                className="rounded-xl bg-yellow-400 px-6 py-3 font-semibold text-gray-900 hover:bg-yellow-300 disabled:opacity-40"
+              >
+                Далее →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 3: Preview & Create ── */}
+        {step === 3 && (
+          <div className="space-y-4">
+            <div className="text-sm text-slate-400">
+              Проверьте товары перед созданием. Можно исправить цену и количество для каждого.
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-white/10">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 bg-white/5 text-left text-xs text-slate-400 uppercase tracking-wider">
+                    <th className="p-3">#</th>
+                    <th className="p-3">Название товара</th>
+                    <th className="p-3 w-32">Цена ₽</th>
+                    <th className="p-3 w-24">Склад</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {matrix.map((item, i) => {
+                    const key = `${item.color}|${item.storage}|${item.connectivity}`
+                    return (
+                      <tr key={i} className="border-t border-white/5 hover:bg-white/[0.02]">
+                        <td className="p-3 text-slate-500">{i + 1}</td>
+                        <td className="p-3">
+                          <div className="font-medium text-white">{item.name}</div>
+                          <div className="text-xs text-slate-500">
+                            {[item.color, item.storage, item.connectivity].filter(Boolean).join(' • ')}
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={overrides[key]?.price ?? ''}
+                            onChange={e => updateOverride(key, 'price', e.target.value.replace(/[^\d.]/g, ''))}
+                            placeholder={basePriceStr || '0'}
+                            className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-xs text-white placeholder-slate-500 focus:border-yellow-400/30 focus:outline-none"
+                          />
+                        </td>
+                        <td className="p-3">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={overrides[key]?.stock ?? ''}
+                            onChange={e => updateOverride(key, 'stock', e.target.value.replace(/\D/g, ''))}
+                            placeholder="0"
+                            className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-xs text-white placeholder-slate-500 focus:border-yellow-400/30 focus:outline-none"
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Progress */}
+            {progress && (
+              <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 p-3 text-sm text-blue-300">
+                ⏳ {progress}
+              </div>
+            )}
+
+            <div className="flex justify-between pt-2">
+              <button onClick={() => setStep(2)} disabled={creating} className="rounded-xl bg-white/10 px-6 py-3 text-white hover:bg-white/20 disabled:opacity-40">
+                ← Назад
+              </button>
+              <button
+                onClick={handleCreate}
+                disabled={creating || matrix.length === 0}
+                className="rounded-xl bg-green-600 px-6 py-3 font-semibold text-white hover:bg-green-500 disabled:opacity-40"
+              >
+                {creating ? '⏳ Создаю…' : `🚀 Создать ${matrix.length} товаров и объединить в группу`}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
