@@ -835,7 +835,7 @@ export function ProductPage() {
                       )}
 
                       {/* ── Storage (Память) ── */}
-                      {uniqueStorages.length > 1 && (
+                      {uniqueStorages.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
                             Память: <span className="font-semibold text-gray-900">{currentParsed.storage || '—'}</span>
@@ -870,7 +870,7 @@ export function ProductPage() {
                       )}
 
                       {/* ── Connectivity (Связь / SIM) ── */}
-                      {uniqueConn.length > 1 && (
+                      {uniqueConn.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
                             Связь: <span className="font-semibold text-gray-900">{currentParsed.connectivity || '—'}</span>
