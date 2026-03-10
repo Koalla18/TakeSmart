@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import String, Text, Boolean, ForeignKey, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.app.database.session import Base
@@ -29,6 +29,12 @@ class Category(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     image_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # Быстрые фильтры-теги для каталога: [{"label": "iPhone 17 Pro Max", "query": "17 Pro Max"}, ...]
+    quick_filters: Mapped[Any | None] = mapped_column(
+        JSONB, nullable=True, default=list,
+        comment="Массив тегов [{label, query}] для быстрых фильтров в каталоге"
+    )
 
     # Вложенные категории (Электроника → Смартфоны → iPhone)
     parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
