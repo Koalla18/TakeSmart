@@ -24,49 +24,50 @@ import {
 } from '../components/ui/Icons'
 
 // Дефолтные быстрые фильтры по slug категории  (используются если в API quick_filters = null)
-const DEFAULT_QUICK_FILTERS: Record<string, { label: string; query: string }[]> = {
+// brand — автоматически ставит фильтр бренда при клике
+const DEFAULT_QUICK_FILTERS: Record<string, { label: string; query: string; brand?: string }[]> = {
   smartphones: [
-    { label: 'iPhone 17 Pro Max', query: '17 Pro Max' },
-    { label: 'iPhone 17 Pro', query: '17 Pro' },
-    { label: 'iPhone 17', query: 'iPhone 17' },
-    { label: 'iPhone 16', query: 'iPhone 16' },
-    { label: 'Galaxy S26 Ultra', query: 'S26 Ultra' },
-    { label: 'Galaxy S26+', query: 'S26 Plus' },
-    { label: 'Galaxy S26', query: 'Galaxy S26' },
-    { label: 'Galaxy S25 Ultra', query: 'S25 Ultra' },
-    { label: 'Galaxy S25', query: 'Galaxy S25' },
-    { label: 'Xiaomi 15', query: 'Xiaomi 15' },
+    { label: 'iPhone 17 Pro Max', query: 'iPhone 17 Pro Max', brand: 'apple' },
+    { label: 'iPhone 17 Pro', query: 'iPhone 17 Pro', brand: 'apple' },
+    { label: 'iPhone 17', query: 'iPhone 17', brand: 'apple' },
+    { label: 'iPhone 16', query: 'iPhone 16', brand: 'apple' },
+    { label: 'Galaxy S26 Ultra', query: 'Galaxy S26 Ultra', brand: 'samsung' },
+    { label: 'Galaxy S26+', query: 'Galaxy S26 Plus', brand: 'samsung' },
+    { label: 'Galaxy S26', query: 'Galaxy S26', brand: 'samsung' },
+    { label: 'Galaxy S25 Ultra', query: 'Galaxy S25 Ultra', brand: 'samsung' },
+    { label: 'Galaxy S25', query: 'Galaxy S25', brand: 'samsung' },
+    { label: 'Xiaomi 15', query: 'Xiaomi 15', brand: 'xiaomi' },
   ],
   laptops: [
-    { label: 'MacBook Air 13" M4', query: 'MacBook Air 13' },
-    { label: 'MacBook Air 15"', query: 'MacBook Air 15' },
-    { label: 'MacBook Pro', query: 'MacBook Pro' },
+    { label: 'MacBook Air 13"', query: 'MacBook Air 13', brand: 'apple' },
+    { label: 'MacBook Air 15"', query: 'MacBook Air 15', brand: 'apple' },
+    { label: 'MacBook Pro', query: 'MacBook Pro', brand: 'apple' },
   ],
   tablets: [
-    { label: 'iPad 11" (2025)', query: 'iPad 11' },
-    { label: 'iPad Air M3', query: 'iPad Air' },
-    { label: 'iPad Pro M5', query: 'iPad Pro' },
+    { label: 'iPad 11" (2025)', query: 'iPad 11', brand: 'apple' },
+    { label: 'iPad Air M3', query: 'iPad Air', brand: 'apple' },
+    { label: 'iPad Pro M5', query: 'iPad Pro', brand: 'apple' },
   ],
   headphones: [
-    { label: 'AirPods Pro 3', query: 'AirPods Pro 3' },
-    { label: 'AirPods Pro 2', query: 'AirPods Pro 2' },
-    { label: 'AirPods 4', query: 'AirPods 4' },
-    { label: 'AirPods Max', query: 'AirPods Max' },
-    { label: 'Marshall Major V', query: 'Marshall Major' },
+    { label: 'AirPods Pro 3', query: 'AirPods Pro 3', brand: 'apple' },
+    { label: 'AirPods Pro 2', query: 'AirPods Pro 2', brand: 'apple' },
+    { label: 'AirPods 4', query: 'AirPods 4', brand: 'apple' },
+    { label: 'AirPods Max', query: 'AirPods Max', brand: 'apple' },
+    { label: 'Marshall Major V', query: 'Marshall Major', brand: 'marshall' },
   ],
   'krasota-i-ukhod': [
-    { label: 'Dyson Airwrap', query: 'Airwrap' },
-    { label: 'Dyson Airstrait', query: 'Airstrait' },
-    { label: 'Dyson Supersonic', query: 'Supersonic' },
+    { label: 'Airwrap', query: 'Airwrap' },
+    { label: 'Airstrait', query: 'Airstrait' },
+    { label: 'Supersonic', query: 'Supersonic' },
   ],
   'dlia-doma': [
-    { label: 'Пылесосы Dyson', query: 'пылесос' },
+    { label: 'Пылесосы', query: 'пылесос' },
     { label: 'Роботы-пылесосы', query: 'робот' },
     { label: 'Очистители воздуха', query: 'очистител' },
   ],
   accessories: [
     { label: 'Чехлы Pitaka', query: 'Pitaka' },
-    { label: 'Apple Pencil', query: 'Apple Pencil' },
+    { label: 'Apple Pencil', query: 'Apple Pencil', brand: 'apple' },
     { label: 'Зарядки', query: 'заряд' },
   ],
 }
@@ -416,14 +417,33 @@ export function CatalogPage() {
       result = result.filter(p => p.inStock)
     }
     
-    // Smart search: every space-separated token must appear in name/brand/description
+    // Smart search
     if (searchQuery) {
-      const tokens = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
-      if (tokens.length) {
+      const q = searchQuery.toLowerCase()
+      // If query matches a quick filter tag — use exact substring match
+      // and exclude products that match MORE specific sibling filters
+      const isQuickFilter = currentCategory?.quickFilters.some(qf => qf.query === searchQuery)
+      if (isQuickFilter) {
+        // Find sibling filters that are more specific (contain this query as prefix)
+        const moreSpecific = (currentCategory?.quickFilters ?? [])
+          .filter(qf => qf.query !== searchQuery && qf.query.toLowerCase().startsWith(q))
+          .map(qf => qf.query.toLowerCase())
         result = result.filter(p => {
           const hay = `${p.name} ${p.brand} ${p.description}`.toLowerCase()
-          return tokens.every(t => hay.includes(t))
+          if (!hay.includes(q)) return false
+          // Exclude if it matches a more specific sibling tag
+          if (moreSpecific.some(s => hay.includes(s))) return false
+          return true
         })
+      } else {
+        // Manual search — token-based (every word must appear)
+        const tokens = q.split(/\s+/).filter(Boolean)
+        if (tokens.length) {
+          result = result.filter(p => {
+            const hay = `${p.name} ${p.brand} ${p.description}`.toLowerCase()
+            return tokens.every(t => hay.includes(t))
+          })
+        }
       }
     }
     
@@ -565,28 +585,40 @@ export function CatalogPage() {
               <div className="mb-4">
                 <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
                   <button
-                    onClick={() => setSearchQuery('')}
+                    onClick={() => { setSearchQuery(''); setSelectedBrand('all') }}
                     className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-all ${
-                      !searchQuery
+                      !searchQuery && selectedBrand === 'all'
                         ? 'bg-gray-900 text-white shadow-sm'
                         : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
                     }`}
                   >
                     Все модели
                   </button>
-                  {currentCategory.quickFilters.map((qf) => (
-                    <button
-                      key={qf.query}
-                      onClick={() => setSearchQuery(searchQuery === qf.query ? '' : qf.query)}
-                      className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-all ${
-                        searchQuery === qf.query
-                          ? 'bg-gray-900 text-white shadow-sm'
-                          : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      {qf.label}
-                    </button>
-                  ))}
+                  {currentCategory.quickFilters.map((qf) => {
+                    const isActive = searchQuery === qf.query && (!qf.brand || selectedBrand === qf.brand)
+                    return (
+                      <button
+                        key={qf.label}
+                        onClick={() => {
+                          if (isActive) {
+                            setSearchQuery('')
+                            setSelectedBrand('all')
+                          } else {
+                            setSearchQuery(qf.query)
+                            if (qf.brand) setSelectedBrand(qf.brand)
+                            else setSelectedBrand('all')
+                          }
+                        }}
+                        className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-all ${
+                          isActive
+                            ? 'bg-gray-900 text-white shadow-sm'
+                            : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        {qf.label}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             )}

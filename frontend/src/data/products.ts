@@ -73,6 +73,7 @@ export interface ApiProductVariant {
 export interface QuickFilter {
   label: string
   query: string
+  brand?: string
 }
 
 export interface ApiCategoryOut {
