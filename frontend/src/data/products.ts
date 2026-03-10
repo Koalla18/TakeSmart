@@ -70,6 +70,11 @@ export interface ApiProductVariant {
   is_active: boolean
 }
 
+export interface QuickFilter {
+  label: string
+  query: string
+}
+
 export interface ApiCategoryOut {
   id: string
   name: string
@@ -78,6 +83,7 @@ export interface ApiCategoryOut {
   image_url: string | null
   is_active: boolean
   parent_id: string | null
+  quick_filters: QuickFilter[] | null
   created_at: string
   updated_at: string
 }
@@ -97,6 +103,7 @@ export interface CatalogCategory {
   icon: string
   count: number
   description: string
+  quickFilters: QuickFilter[]
 }
 
 /** Бренд в формате, совместимом с CatalogPage / FilterSidebar */
@@ -148,5 +155,6 @@ export function mapApiCategory(c: ApiCategoryOut): CatalogCategory {
     icon,
     count: 0,
     description: c.description || '',
+    quickFilters: c.quick_filters ?? [],
   }
 }

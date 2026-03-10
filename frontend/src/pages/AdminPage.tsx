@@ -47,6 +47,7 @@ interface Category {
   image_url: string | null
   is_active: boolean
   parent_id: string | null
+  quick_filters: { label: string; query: string }[] | null
   created_at: string
   updated_at: string
 }
@@ -711,6 +712,16 @@ export function AdminPage() {
                           <div className="text-sm text-slate-500">/{category.slug}</div>
                           {category.description && (
                             <p className="mt-1 text-xs text-slate-400 line-clamp-1">{category.description}</p>
+                          )}
+                          {category.quick_filters && category.quick_filters.length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {category.quick_filters.slice(0, 4).map((qf, i) => (
+                                <span key={i} className="rounded-full bg-yellow-400/10 px-2 py-0.5 text-[10px] font-medium text-yellow-400">{qf.label}</span>
+                              ))}
+                              {category.quick_filters.length > 4 && (
+                                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-400">+{category.quick_filters.length - 4}</span>
+                              )}
+                            </div>
                           )}
                         </div>
 
@@ -2819,6 +2830,11 @@ function CategoryModal({
     image_url: category?.image_url || '',
     is_active: category?.is_active ?? true,
   })
+  const [quickFilters, setQuickFilters] = useState<{ label: string; query: string }[]>(
+    category?.quick_filters ?? []
+  )
+  const [newFilterLabel, setNewFilterLabel] = useState('')
+  const [newFilterQuery, setNewFilterQuery] = useState('')
 
   const generateSlug = (name: string) => {
     const map: Record<string, string> = {
@@ -2831,12 +2847,34 @@ function CategoryModal({
       .replace(/[а-яё]/g, (char) => map[char] || char)
   }
 
+  const addFilter = () => {
+    const label = newFilterLabel.trim()
+    if (!label) return
+    const query = newFilterQuery.trim() || label
+    setQuickFilters(prev => [...prev, { label, query }])
+    setNewFilterLabel('')
+    setNewFilterQuery('')
+  }
+
+  const removeFilter = (index: number) => {
+    setQuickFilters(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const moveFilter = (index: number, direction: -1 | 1) => {
+    const newIndex = index + direction
+    if (newIndex < 0 || newIndex >= quickFilters.length) return
+    const arr = [...quickFilters]
+    ;[arr[index], arr[newIndex]] = [arr[newIndex], arr[index]]
+    setQuickFilters(arr)
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const payload: Record<string, unknown> = {
       name: formData.name,
       slug: formData.slug,
       is_active: formData.is_active,
+      quick_filters: quickFilters.length > 0 ? quickFilters : null,
     }
     if (formData.description) payload.description = formData.description
     if (formData.image_url) payload.image_url = formData.image_url
@@ -2845,7 +2883,7 @@ function CategoryModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-3xl bg-slate-800 p-6 sm:p-8" onClick={e => e.stopPropagation()}>
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl bg-slate-800 p-6 sm:p-8" onClick={e => e.stopPropagation()}>
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-white">{category ? '✏️ Редактировать' : '📂 Новая'} категория</h2>
@@ -2924,6 +2962,50 @@ function CategoryModal({
               <div className="text-xs text-slate-400">Категория видна на сайте</div>
             </div>
           </label>
+
+          {/* Quick Filters */}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-400 uppercase tracking-wider">Быстрые фильтры (теги)</label>
+            <p className="mb-2 text-xs text-slate-500">Теги для быстрой фильтрации в каталоге (напр. «iPhone 17 Pro Max», «Galaxy S26 Ultra»)</p>
+            
+            {quickFilters.length > 0 && (
+              <div className="mb-3 space-y-1.5">
+                {quickFilters.map((qf, i) => (
+                  <div key={i} className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
+                    <span className="flex-1 text-sm text-white truncate">{qf.label}</span>
+                    {qf.label !== qf.query && (
+                      <span className="text-xs text-slate-500 truncate max-w-[120px]">→ {qf.query}</span>
+                    )}
+                    <div className="flex items-center gap-1 ml-auto flex-shrink-0">
+                      <button type="button" onClick={() => moveFilter(i, -1)} disabled={i === 0} className="text-slate-500 hover:text-white disabled:opacity-30 text-xs px-1">↑</button>
+                      <button type="button" onClick={() => moveFilter(i, 1)} disabled={i === quickFilters.length - 1} className="text-slate-500 hover:text-white disabled:opacity-30 text-xs px-1">↓</button>
+                      <button type="button" onClick={() => removeFilter(i)} className="text-red-400 hover:text-red-300 text-sm px-1">×</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newFilterLabel}
+                onChange={(e) => setNewFilterLabel(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addFilter() } }}
+                placeholder="Название тега"
+                className="flex-1 rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none focus:ring-1 focus:ring-yellow-400/50"
+              />
+              <input
+                type="text"
+                value={newFilterQuery}
+                onChange={(e) => setNewFilterQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addFilter() } }}
+                placeholder="Поиск (опц.)"
+                className="w-28 rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none focus:ring-1 focus:ring-yellow-400/50"
+              />
+              <button type="button" onClick={addFilter} className="rounded-xl bg-yellow-400/20 px-4 py-2.5 text-sm font-medium text-yellow-400 hover:bg-yellow-400/30 transition-colors flex-shrink-0">+</button>
+            </div>
+          </div>
 
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 rounded-xl bg-white/10 py-3 font-medium text-white hover:bg-white/20 transition-colors">Отмена</button>

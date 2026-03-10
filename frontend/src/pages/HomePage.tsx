@@ -476,28 +476,6 @@ export function HomePage() {
         </Container>
       </section>
       
-      {/* Stats Section */}
-      <section className="py-16">
-        <Container>
-          <AnimatedSection>
-            <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-              {[
-                { value: '10+', label: 'лет на рынке', color: 'text-yellow-500', icon: '🏆' },
-                { value: '50K+', label: 'довольных клиентов', color: 'text-green-500', icon: '👥' },
-                { value: '1000+', label: 'товаров в каталоге', color: 'text-blue-500', icon: '📦' },
-                { value: '99%', label: 'положительных отзывов', color: 'text-purple-500', icon: '⭐' },
-              ].map((stat, i) => (
-                <div key={i} className="text-center rounded-2xl bg-white p-6 shadow-lg">
-                  <div className="text-4xl mb-2">{stat.icon}</div>
-                  <div className={`text-4xl font-bold ${stat.color}`}>{stat.value}</div>
-                  <div className="mt-2 text-gray-500">{stat.label}</div>
-                </div>
-              ))}
-            </div>
-          </AnimatedSection>
-        </Container>
-      </section>
-
       {/* Featured Product Hero - HeyApple Style Carousel */}
       <Section className="py-8 lg:py-16 overflow-hidden bg-gray-50">
         <Container>
@@ -569,6 +547,28 @@ export function HomePage() {
           </AnimatedSection>
         </Container>
       </Section>
+
+      {/* Stats Section */}
+      <section className="py-16">
+        <Container>
+          <AnimatedSection>
+            <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { value: '10+', label: 'лет на рынке', color: 'text-yellow-500', icon: '🏆' },
+                { value: '50K+', label: 'довольных клиентов', color: 'text-green-500', icon: '👥' },
+                { value: '1000+', label: 'товаров в каталоге', color: 'text-blue-500', icon: '📦' },
+                { value: '99%', label: 'положительных отзывов', color: 'text-purple-500', icon: '⭐' },
+              ].map((stat, i) => (
+                <div key={i} className="text-center rounded-2xl bg-white p-6 shadow-lg">
+                  <div className="text-4xl mb-2">{stat.icon}</div>
+                  <div className={`text-4xl font-bold ${stat.color}`}>{stat.value}</div>
+                  <div className="mt-2 text-gray-500">{stat.label}</div>
+                </div>
+              ))}
+            </div>
+          </AnimatedSection>
+        </Container>
+      </section>
 
       {/* Featured Products with Horizontal Scroll Feel */}
       {featuredProducts.length > 0 && (

@@ -505,6 +505,37 @@ export function CatalogPage() {
               </div>
             </div>
 
+            {/* Quick filter tags */}
+            {currentCategory && currentCategory.quickFilters.length > 0 && (
+              <div className="mb-4">
+                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-all ${
+                      !searchQuery
+                        ? 'bg-gray-900 text-white shadow-sm'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    Все модели
+                  </button>
+                  {currentCategory.quickFilters.map((qf) => (
+                    <button
+                      key={qf.query}
+                      onClick={() => setSearchQuery(searchQuery === qf.query ? '' : qf.query)}
+                      className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-all ${
+                        searchQuery === qf.query
+                          ? 'bg-gray-900 text-white shadow-sm'
+                          : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      {qf.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Toolbar */}
             <div className="mb-6 flex items-center justify-between gap-3 rounded-xl bg-white p-3 sm:p-4">
               {/* Mobile filter button */}
