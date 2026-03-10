@@ -24,3 +24,10 @@ build/
 *.bak
 *.tmp
 .cache/
+
+# Backend (on maks_dev — frontend only)
+backend/
+Dockerfile
+__pycache__/
+*.pyc
+.venv/
