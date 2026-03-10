@@ -23,6 +23,54 @@ import {
   SearchIcon 
 } from '../components/ui/Icons'
 
+// Дефолтные быстрые фильтры по slug категории  (используются если в API quick_filters = null)
+const DEFAULT_QUICK_FILTERS: Record<string, { label: string; query: string }[]> = {
+  smartphones: [
+    { label: 'iPhone 17 Pro Max', query: '17 Pro Max' },
+    { label: 'iPhone 17 Pro', query: '17 Pro' },
+    { label: 'iPhone 17', query: 'iPhone 17' },
+    { label: 'iPhone 16', query: 'iPhone 16' },
+    { label: 'Galaxy S26 Ultra', query: 'S26 Ultra' },
+    { label: 'Galaxy S26+', query: 'S26 Plus' },
+    { label: 'Galaxy S26', query: 'Galaxy S26' },
+    { label: 'Galaxy S25 Ultra', query: 'S25 Ultra' },
+    { label: 'Galaxy S25', query: 'Galaxy S25' },
+    { label: 'Xiaomi 15', query: 'Xiaomi 15' },
+  ],
+  laptops: [
+    { label: 'MacBook Air 13" M4', query: 'MacBook Air 13' },
+    { label: 'MacBook Air 15"', query: 'MacBook Air 15' },
+    { label: 'MacBook Pro', query: 'MacBook Pro' },
+  ],
+  tablets: [
+    { label: 'iPad 11" (2025)', query: 'iPad 11' },
+    { label: 'iPad Air M3', query: 'iPad Air' },
+    { label: 'iPad Pro M5', query: 'iPad Pro' },
+  ],
+  headphones: [
+    { label: 'AirPods Pro 3', query: 'AirPods Pro 3' },
+    { label: 'AirPods Pro 2', query: 'AirPods Pro 2' },
+    { label: 'AirPods 4', query: 'AirPods 4' },
+    { label: 'AirPods Max', query: 'AirPods Max' },
+    { label: 'Marshall Major V', query: 'Marshall Major' },
+  ],
+  'krasota-i-ukhod': [
+    { label: 'Dyson Airwrap', query: 'Airwrap' },
+    { label: 'Dyson Airstrait', query: 'Airstrait' },
+    { label: 'Dyson Supersonic', query: 'Supersonic' },
+  ],
+  'dlia-doma': [
+    { label: 'Пылесосы Dyson', query: 'пылесос' },
+    { label: 'Роботы-пылесосы', query: 'робот' },
+    { label: 'Очистители воздуха', query: 'очистител' },
+  ],
+  accessories: [
+    { label: 'Чехлы Pitaka', query: 'Pitaka' },
+    { label: 'Apple Pencil', query: 'Apple Pencil' },
+    { label: 'Зарядки', query: 'заряд' },
+  ],
+}
+
 type SortOption = 'popular' | 'price-asc' | 'price-desc' | 'name' | 'new'
 
 const sortOptions: { value: SortOption; label: string }[] = [
@@ -268,7 +316,14 @@ export function CatalogPage() {
         const activeSlugs = new Set(mapped.map(p => p.categorySlug).filter(Boolean))
         const apiCategories: CatalogCategory[] = catData
           .filter(c => c.is_active)
-          .map(c => ({ ...mapApiCategory(c), count: mapped.filter(p => p.categorySlug === c.slug).length }))
+          .map(c => {
+            const base = mapApiCategory(c)
+            return {
+              ...base,
+              count: mapped.filter(p => p.categorySlug === c.slug).length,
+              quickFilters: base.quickFilters.length > 0 ? base.quickFilters : (DEFAULT_QUICK_FILTERS[c.slug] ?? []),
+            }
+          })
           .filter(c => activeSlugs.has(c.id) || c.count > 0)
 
         setDisplayProducts(mapped)
