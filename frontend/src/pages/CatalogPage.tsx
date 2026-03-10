@@ -564,8 +564,8 @@ export function CatalogPage() {
                 
                 {sortDropdownOpen && (
                   <>
-                    <div className="fixed inset-0 z-10" onClick={() => setSortDropdownOpen(false)} />
-                    <div className="absolute left-0 top-full z-20 mt-2 w-48 rounded-xl border border-gray-100 bg-white py-2 shadow-lg">
+                    <div className="fixed inset-0 z-40" onClick={() => setSortDropdownOpen(false)} />
+                    <div className="absolute left-0 top-full z-50 mt-2 w-48 rounded-xl border border-gray-100 bg-white py-2 shadow-lg">
                       {sortOptions.map((option) => (
                         <button
                           key={option.value}
