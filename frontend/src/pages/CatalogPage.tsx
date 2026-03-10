@@ -395,6 +395,8 @@ export function CatalogPage() {
     setSearchParams(params, { replace: true })
   }, [selectedCategory, selectedBrand, searchQuery, setSearchParams])
   
+  const currentCategory = displayCategories.find(c => c.id === selectedCategory)
+
   // Filter and sort products
   const filteredProducts = useMemo(() => {
     let result = [...displayProducts]
@@ -476,7 +478,6 @@ export function CatalogPage() {
     setSearchQuery('')
   }
   
-  const currentCategory = displayCategories.find(c => c.id === selectedCategory)
   const activeFiltersCount = [
     selectedCategory !== 'all',
     selectedBrand !== 'all',
