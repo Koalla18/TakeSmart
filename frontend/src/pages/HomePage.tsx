@@ -534,6 +534,7 @@ export function HomePage() {
               { name: 'Ноутбуки, компьютеры', image: '/categories/laptops.png',           link: '/catalog?category=laptops',                  bg: 'bg-purple-50', hover: 'hover:bg-purple-100' },
               { name: 'Планшеты',             image: '/categories/tablets.png',            link: '/catalog?category=tablets',                  bg: 'bg-yellow-50', hover: 'hover:bg-yellow-100' },
               { name: 'Умные часы',           image: '/categories/watches.jpg',            link: '/catalog?category=watches',                  bg: 'bg-orange-50', hover: 'hover:bg-orange-100' },
+              { name: 'Наушники, колонки',     image: '/categories/headphones.png',         link: '/catalog?category=headphones',               bg: 'bg-sky-50',    hover: 'hover:bg-sky-100' },
               { name: 'Аксессуары',           image: '/categories/accessories.png',        link: '/catalog?category=accessories',              bg: 'bg-pink-50',   hover: 'hover:bg-pink-100' },
               { name: 'Игровые приставки',    image: '/categories/gaming.png',             link: '/catalog?category=gaming',                   bg: 'bg-indigo-50', hover: 'hover:bg-indigo-100' },
               { name: 'Все для дома',         image: '/categories/home.png',               link: '/catalog?category=home',                     bg: 'bg-teal-50',   hover: 'hover:bg-teal-100' },
