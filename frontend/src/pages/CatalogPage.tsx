@@ -595,7 +595,9 @@ export function CatalogPage() {
                   >
                     Все модели
                   </button>
-                  {currentCategory.quickFilters.map((qf) => {
+                  {currentCategory.quickFilters.filter(qf =>
+                    selectedBrand === 'all' || !qf.brand || qf.brand === selectedBrand
+                  ).map((qf) => {
                     const isActive = searchQuery === qf.query && (!qf.brand || selectedBrand === qf.brand)
                     return (
                       <button
