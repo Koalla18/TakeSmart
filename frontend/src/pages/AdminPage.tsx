@@ -1419,11 +1419,12 @@ const CATEGORY_AXES: Record<string, VariantAxis[]> = {
     { field: 'size', label: 'Связь', placeholder: 'WiFi, WiFi + Cellular…' },
   ],
   laptops: [
-    { field: 'storage', label: 'Конфигурация', placeholder: '16/512 ГБ, 32/1 ТБ…' },
-    { field: 'size', label: 'Диагональ', placeholder: '14", 16"…' },
+    { field: 'storage', label: 'Память (SSD)', placeholder: '512 ГБ, 1 ТБ…' },
+    { field: 'size', label: 'ОЗУ', placeholder: '8 ГБ, 16 ГБ, 32 ГБ…' },
   ],
   watches: [
-    { field: 'size', label: 'Размер', placeholder: '42 мм, 46 мм…' },
+    { field: 'storage', label: 'Размер ремешка', placeholder: 'S/M, M/L…' },
+    { field: 'size', label: 'Размер циферблата', placeholder: '42 мм, 46 мм…' },
   ],
   headphones: [],
   tv: [
@@ -1431,6 +1432,7 @@ const CATEGORY_AXES: Record<string, VariantAxis[]> = {
   ],
   gaming: [
     { field: 'storage', label: 'Комплектация', placeholder: 'Digital, Disc…' },
+    { field: 'size', label: 'Память', placeholder: '512 ГБ, 1 ТБ…' },
   ],
   accessories: [
     { field: 'size', label: 'Размер / тип', placeholder: 'S, M, L…' },
@@ -3044,11 +3046,13 @@ const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
   ],
   laptops: [
     { field: 'color', label: 'Цвета', placeholder: 'Space Black' },
-    { field: 'storage', label: 'Конфигурация', placeholder: '16/512 ГБ' },
+    { field: 'storage', label: 'Память (SSD)', placeholder: '512 ГБ', hint: 'Объём встроенного накопителя' },
+    { field: 'connectivity', label: 'ОЗУ', placeholder: '16 ГБ', hint: 'Объём оперативной памяти' },
   ],
   watches: [
     { field: 'color', label: 'Цвета', placeholder: 'Титан' },
-    { field: 'storage', label: 'Размер', placeholder: '42 мм' },
+    { field: 'storage', label: 'Размер ремешка', placeholder: 'S/M' },
+    { field: 'connectivity', label: 'Размер циферблата', placeholder: '42 мм' },
   ],
   headphones: [
     { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
@@ -3059,6 +3063,7 @@ const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
   gaming: [
     { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
     { field: 'storage', label: 'Комплектация', placeholder: 'Digital' },
+    { field: 'connectivity', label: 'Память', placeholder: '512 ГБ', hint: 'Объём встроенного накопителя' },
   ],
   accessories: [
     { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
