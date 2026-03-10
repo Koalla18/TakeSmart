@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { Container, Section } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
@@ -70,6 +70,198 @@ function AnimatedSection({
   )
 }
 
+// Weekly Slides Carousel — extracted as proper component for correct hooks usage
+interface Slide {
+  badge: string
+  title: string
+  description: string
+  price: string
+  image: string
+  color: string
+  tags: string[]
+  isNew: boolean
+}
+
+function WeeklySlides() {
+  const [currentSlide, setCurrentSlide] = useState(0)
+  const [slides, setSlides] = useState<Slide[]>([])
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/weekly-slides`)
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then((data: any[]) => {
+        if (data.length > 0) {
+          setSlides(data.map(s => ({
+            badge: s.badge || '',
+            title: s.title,
+            description: s.description || '',
+            price: s.price,
+            image: s.image || '',
+            color: s.color || 'bg-gradient-to-br from-gray-50 via-white to-gray-100',
+            tags: s.tags || [],
+            isNew: s.is_new || false,
+          })))
+        }
+      })
+      .catch(() => { /* API offline — section stays hidden */ })
+  }, [])
+
+  const nextSlide = useCallback(() => setCurrentSlide(prev => (prev + 1) % slides.length), [slides.length])
+  const prevSlide = useCallback(() => setCurrentSlide(prev => (prev - 1 + slides.length) % slides.length), [slides.length])
+
+  useEffect(() => {
+    if (slides.length === 0) return
+    const timer = setInterval(nextSlide, 6000)
+    return () => clearInterval(timer)
+  }, [slides.length, nextSlide])
+
+  if (slides.length === 0) return null
+
+  return (
+    <div className="relative">
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">Товары недели</h2>
+          <p className="mt-2 text-gray-500">Лучшие предложения от TakeSmart</p>
+        </div>
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-gray-400 font-medium hidden sm:block">
+            {String(currentSlide + 1).padStart(2, '0')} / {String(slides.length).padStart(2, '0')}
+          </span>
+          <div className="flex gap-3">
+            <button
+              onClick={prevSlide}
+              className="w-12 h-12 rounded-2xl bg-white/90 backdrop-blur border border-gray-200 flex items-center justify-center hover:bg-gray-900 hover:border-gray-900 transition-all duration-300 group shadow-sm"
+            >
+              <svg className="w-5 h-5 text-gray-700 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <button
+              onClick={nextSlide}
+              className="w-12 h-12 rounded-2xl bg-white/90 backdrop-blur border border-gray-200 flex items-center justify-center hover:bg-gray-900 hover:border-gray-900 transition-all duration-300 group shadow-sm"
+            >
+              <svg className="w-5 h-5 text-gray-700 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="relative rounded-[2rem] overflow-hidden">
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none hidden lg:block">
+          <div className="relative w-28 h-28">
+            <div className="absolute inset-0 rounded-full border border-gray-200/60 bg-white/80 backdrop-blur-md shadow-lg" />
+            <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full animate-spin-slow">
+              <defs>
+                <path id="circlePath" d="M 50, 50 m -38, 0 a 38,38 0 1,1 76,0 a 38,38 0 1,1 -76,0"/>
+              </defs>
+              <text className="fill-gray-500" style={{ fontSize: '9.5px', letterSpacing: '3px', textTransform: 'uppercase' }}>
+                <textPath href="#circlePath">
+                  • товар недели • товар недели 
+                </textPath>
+              </text>
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-3.5 h-3.5 rounded-full bg-gray-900" />
+            </div>
+          </div>
+        </div>
+
+        {slides.map((s, idx) => (
+          <div
+            key={idx}
+            aria-hidden={idx !== currentSlide}
+            className={`${idx === 0 ? '' : 'absolute inset-0'} ${s.color} carousel-slide ${
+              idx === currentSlide ? 'carousel-slide-active' : 'carousel-slide-hidden'
+            }`}
+          >
+            <div className="grid lg:grid-cols-2 min-h-[480px] sm:min-h-[580px]">
+              <div className="relative p-6 sm:p-8 lg:p-12 flex flex-col justify-between">
+                <div className="mb-2 sm:mb-auto">
+                  <span className="inline-block rounded-full border border-gray-300 bg-white/80 backdrop-blur px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm text-gray-600">
+                    {s.badge}
+                  </span>
+                </div>
+                <div className="my-auto">
+                  <h2 className="text-3xl sm:text-4xl lg:text-6xl font-bold text-gray-900 mb-3 sm:mb-6 leading-[1.1]">
+                    {s.title}
+                  </h2>
+                  <p className="text-gray-500 mb-4 sm:mb-8 whitespace-pre-line leading-relaxed max-w-md text-sm sm:text-[15px] line-clamp-3 sm:line-clamp-none">
+                    {s.description}
+                  </p>
+                  <div className="flex items-center gap-4 sm:gap-6">
+                    <span className="text-xl sm:text-2xl lg:text-3xl font-semibold text-gray-900">от {s.price} ₽</span>
+                    <Link to="/catalog" className="inline-flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 px-6 py-3 sm:px-8 sm:py-3.5 text-sm sm:text-base text-white font-medium transition-all hover:shadow-lg hover:shadow-blue-500/25">
+                      Подробнее
+                    </Link>
+                  </div>
+                </div>
+                <div className="hidden sm:grid grid-cols-2 gap-4 mt-8">
+                  <Link to="/delivery" className="bg-white rounded-2xl p-5 border border-gray-100 hover:shadow-lg hover:border-gray-200 transition-all group">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-semibold text-gray-900">Доставка и оплата</h4>
+                      <div className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center group-hover:bg-gray-900 group-hover:border-gray-900 transition-all">
+                        <svg className="w-4 h-4 text-gray-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 17L17 7M17 7H7M17 7V17" />
+                        </svg>
+                      </div>
+                    </div>
+                    <div className="border-t border-gray-100 pt-3">
+                      <p className="text-sm text-gray-500">Выбирайте подходящий вариант именно для вас.</p>
+                    </div>
+                  </Link>
+                  <Link to="/trade-in" className="bg-white rounded-2xl p-5 border border-gray-100 hover:shadow-lg hover:border-gray-200 transition-all group">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-semibold text-gray-900">Trade-in</h4>
+                      <div className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center group-hover:bg-gray-900 group-hover:border-gray-900 transition-all">
+                        <svg className="w-4 h-4 text-gray-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 17L17 7M17 7H7M17 7V17" />
+                        </svg>
+                      </div>
+                    </div>
+                    <div className="border-t border-gray-100 pt-3">
+                      <p className="text-sm text-gray-500">Обменяйте своё старое устройство на новое и получите скидку.</p>
+                    </div>
+                  </Link>
+                </div>
+              </div>
+              <div className="relative px-6 py-6 sm:py-4 lg:p-12 flex items-center justify-center min-h-[200px] sm:min-h-0">
+                <div className="absolute top-4 right-4 sm:top-6 sm:right-6 flex flex-wrap gap-1.5 sm:gap-2 justify-end max-w-[200px] sm:max-w-[300px] z-10">
+                  {s.tags.map((tag, j) => (
+                    <span
+                      key={j}
+                      className={`rounded-full px-3 py-1 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium ${
+                        tag === 'новинка' || tag === 'хит' ? 'bg-gray-900 text-white' : 'border border-gray-300 bg-white/80 backdrop-blur text-gray-700'
+                      }`}
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+                <img src={s.image} alt={s.title} loading="lazy" className="relative z-0 max-w-[200px] sm:max-w-[280px] lg:max-w-[380px] h-auto object-contain drop-shadow-2xl" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex justify-center gap-2 mt-6">
+        {slides.map((_, i) => (
+          <button
+            key={i}
+            onClick={() => setCurrentSlide(i)}
+            className={`h-1.5 rounded-full transition-all duration-500 ${
+              i === currentSlide ? 'w-10 bg-gray-900' : 'w-4 bg-gray-300 hover:bg-gray-400'
+            }`}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 const benefits = [
   { 
     icon: <ShieldIcon className="h-8 w-8" />, 
@@ -109,26 +301,33 @@ export function HomePage() {
       .catch(() => { /* API error — section stays hidden */ })
   }, [])
 
-  // Video scroll sync (Apple-style)
+  // Video scroll sync (Apple-style) — throttled with rAF
   useEffect(() => {
     const video = videoRef.current
     const hero = heroRef.current
     if (!video || !hero) return
 
+    let rafId = 0
     const handleScroll = () => {
-      const rect = hero.getBoundingClientRect()
-      const heroHeight = hero.offsetHeight
-      const scrolled = Math.max(0, -rect.top)
-      const progress = Math.min(1, scrolled / heroHeight)
-      setVideoProgress(progress)
-      
-      if (video.duration) {
-        video.currentTime = progress * video.duration
-      }
+      cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(() => {
+        const rect = hero.getBoundingClientRect()
+        const heroHeight = hero.offsetHeight
+        const scrolled = Math.max(0, -rect.top)
+        const progress = Math.min(1, scrolled / heroHeight)
+        setVideoProgress(progress)
+        
+        if (video.duration) {
+          video.currentTime = progress * video.duration
+        }
+      })
     }
 
     window.addEventListener('scroll', handleScroll, { passive: true })
-    return () => window.removeEventListener('scroll', handleScroll)
+    return () => {
+      cancelAnimationFrame(rafId)
+      window.removeEventListener('scroll', handleScroll)
+    }
   }, [])
 
   return (
@@ -303,212 +502,7 @@ export function HomePage() {
       <Section className="py-8 lg:py-16 overflow-hidden bg-gray-50">
         <Container>
           <AnimatedSection>
-            {(() => {
-              type Slide = { badge: string; title: string; description: string; price: string; image: string; color: string; tags: string[]; isNew: boolean }
-              const [currentSlide, setCurrentSlide] = useState(0);
-              const [slides, setSlides] = useState<Slide[]>([]);
-
-              // Fetch slides from API
-              useEffect(() => {
-                fetch(`${API_BASE_URL}/api/weekly-slides`)
-                  .then(res => res.ok ? res.json() : Promise.reject())
-                  .then((data: any[]) => {
-                    if (data.length > 0) {
-                      setSlides(data.map(s => ({
-                        badge: s.badge || '',
-                        title: s.title,
-                        description: s.description || '',
-                        price: s.price,
-                        image: s.image || '',
-                        color: s.color || 'bg-gradient-to-br from-gray-50 via-white to-gray-100',
-                        tags: s.tags || [],
-                        isNew: s.is_new || false,
-                      })));
-                    }
-                  })
-                  .catch(() => { /* use defaults */ });
-              }, []);
-              
-              const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % slides.length);
-              const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + slides.length) % slides.length);
-              
-              // Auto-slide every 6 seconds
-              useEffect(() => {
-                const timer = setInterval(() => {
-                  setCurrentSlide((prev) => (prev + 1) % slides.length);
-                }, 6000);
-                return () => clearInterval(timer);
-              }, [slides.length]);
-              
-              if (slides.length === 0) return null;
-
-              return (
-                <div className="relative">
-                  {/* Section Title */}
-                  <div className="mb-8 flex items-center justify-between">
-                    <div>
-                      <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">Товары недели</h2>
-                      <p className="mt-2 text-gray-500">Лучшие предложения от TakeSmart</p>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      {/* Slide counter */}
-                      <span className="text-sm text-gray-400 font-medium hidden sm:block">
-                        {String(currentSlide + 1).padStart(2, '0')} / {String(slides.length).padStart(2, '0')}
-                      </span>
-                      {/* Navigation Arrows */}
-                      <div className="flex gap-3">
-                        <button 
-                          onClick={prevSlide}
-                          className="w-12 h-12 rounded-2xl bg-white/90 backdrop-blur border border-gray-200 flex items-center justify-center hover:bg-gray-900 hover:border-gray-900 transition-all duration-300 group shadow-sm"
-                        >
-                          <svg className="w-5 h-5 text-gray-700 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
-                          </svg>
-                        </button>
-                        <button 
-                          onClick={nextSlide}
-                          className="w-12 h-12 rounded-2xl bg-white/90 backdrop-blur border border-gray-200 flex items-center justify-center hover:bg-gray-900 hover:border-gray-900 transition-all duration-300 group shadow-sm"
-                        >
-                          <svg className="w-5 h-5 text-gray-700 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Main Card — crossfade */}
-                  <div className="relative rounded-[2rem] overflow-hidden">
-                    {/* "Товар недели" rotating badge */}
-                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none hidden lg:block">
-                      <div className="relative w-28 h-28">
-                        <div className="absolute inset-0 rounded-full border border-gray-200/60 bg-white/80 backdrop-blur-md shadow-lg" />
-                        <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full animate-spin-slow">
-                          <defs>
-                            <path id="circlePath" d="M 50, 50 m -38, 0 a 38,38 0 1,1 76,0 a 38,38 0 1,1 -76,0"/>
-                          </defs>
-                          <text className="fill-gray-500" style={{ fontSize: '9.5px', letterSpacing: '3px', textTransform: 'uppercase' }}>
-                            <textPath href="#circlePath">
-                              • товар недели • товар недели 
-                            </textPath>
-                          </text>
-                        </svg>
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="w-3.5 h-3.5 rounded-full bg-gray-900" />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Stacked slides — smooth crossfade */}
-                    {slides.map((s, idx) => (
-                      <div
-                        key={idx}
-                        aria-hidden={idx !== currentSlide}
-                        className={`${idx === 0 ? '' : 'absolute inset-0'} ${s.color} carousel-slide ${
-                          idx === currentSlide ? 'carousel-slide-active' : 'carousel-slide-hidden'
-                        }`}
-                      >
-                        <div className="grid lg:grid-cols-2 min-h-[480px] sm:min-h-[580px]">
-                          {/* Left - Content */}
-                          <div className="relative p-6 sm:p-8 lg:p-12 flex flex-col justify-between">
-                            <div className="mb-2 sm:mb-auto">
-                              <span className="inline-block rounded-full border border-gray-300 bg-white/80 backdrop-blur px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm text-gray-600">
-                                {s.badge}
-                              </span>
-                            </div>
-                            
-                            <div className="my-auto">
-                              <h2 className="text-3xl sm:text-4xl lg:text-6xl font-bold text-gray-900 mb-3 sm:mb-6 leading-[1.1]">
-                                {s.title}
-                              </h2>
-                              <p className="text-gray-500 mb-4 sm:mb-8 whitespace-pre-line leading-relaxed max-w-md text-sm sm:text-[15px] line-clamp-3 sm:line-clamp-none">
-                                {s.description}
-                              </p>
-                              <div className="flex items-center gap-4 sm:gap-6">
-                                <span className="text-xl sm:text-2xl lg:text-3xl font-semibold text-gray-900">
-                                  от {s.price} ₽
-                                </span>
-                                <Link 
-                                  to="/catalog"
-                                  className="inline-flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 px-6 py-3 sm:px-8 sm:py-3.5 text-sm sm:text-base text-white font-medium transition-all hover:shadow-lg hover:shadow-blue-500/25"
-                                >
-                                  Подробнее
-                                </Link>
-                              </div>
-                            </div>
-                            
-                            <div className="hidden sm:grid grid-cols-2 gap-4 mt-8">
-                              <Link to="/delivery" className="bg-white rounded-2xl p-5 border border-gray-100 hover:shadow-lg hover:border-gray-200 transition-all group">
-                                <div className="flex items-center justify-between mb-3">
-                                  <h4 className="font-semibold text-gray-900">Доставка и оплата</h4>
-                                  <div className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center group-hover:bg-gray-900 group-hover:border-gray-900 transition-all">
-                                    <svg className="w-4 h-4 text-gray-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 17L17 7M17 7H7M17 7V17" />
-                                    </svg>
-                                  </div>
-                                </div>
-                                <div className="border-t border-gray-100 pt-3">
-                                  <p className="text-sm text-gray-500">Выбирайте подходящий вариант именно для вас.</p>
-                                </div>
-                              </Link>
-                              <Link to="/trade-in" className="bg-white rounded-2xl p-5 border border-gray-100 hover:shadow-lg hover:border-gray-200 transition-all group">
-                                <div className="flex items-center justify-between mb-3">
-                                  <h4 className="font-semibold text-gray-900">Trade-in</h4>
-                                  <div className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center group-hover:bg-gray-900 group-hover:border-gray-900 transition-all">
-                                    <svg className="w-4 h-4 text-gray-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 17L17 7M17 7H7M17 7V17" />
-                                    </svg>
-                                  </div>
-                                </div>
-                                <div className="border-t border-gray-100 pt-3">
-                                  <p className="text-sm text-gray-500">Обменяйте своё старое устройство на новое и получите скидку.</p>
-                                </div>
-                              </Link>
-                            </div>
-                          </div>
-                          
-                          {/* Right - Product Image */}
-                          <div className="relative px-6 py-6 sm:py-4 lg:p-12 flex items-center justify-center min-h-[200px] sm:min-h-0">
-                            <div className="absolute top-4 right-4 sm:top-6 sm:right-6 flex flex-wrap gap-1.5 sm:gap-2 justify-end max-w-[200px] sm:max-w-[300px] z-10">
-                              {s.tags.map((tag, j) => (
-                                <span 
-                                  key={j}
-                                  className={`rounded-full px-3 py-1 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium ${
-                                    tag === 'новинка' || tag === 'хит'
-                                      ? 'bg-gray-900 text-white' 
-                                      : 'border border-gray-300 bg-white/80 backdrop-blur text-gray-700'
-                                  }`}
-                                >
-                                  {tag}
-                                </span>
-                              ))}
-                            </div>
-                            <img 
-                              src={s.image}
-                              alt={s.title}
-                              className="relative z-0 max-w-[200px] sm:max-w-[280px] lg:max-w-[380px] h-auto object-contain drop-shadow-2xl"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  
-                  {/* Slide Indicators */}
-                  <div className="flex justify-center gap-2 mt-6">
-                    {slides.map((_, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setCurrentSlide(i)}
-                        className={`h-1.5 rounded-full transition-all duration-500 ${
-                          i === currentSlide ? 'w-10 bg-gray-900' : 'w-4 bg-gray-300 hover:bg-gray-400'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
+            <WeeklySlides />
           </AnimatedSection>
         </Container>
       </Section>
@@ -550,6 +544,7 @@ export function HomePage() {
                     <img
                       src={cat.image}
                       alt={cat.name}
+                      loading="lazy"
                       className="w-full h-full object-contain drop-shadow-sm transition-transform duration-500 group-hover:scale-105"
                     />
                   </div>
@@ -685,6 +680,7 @@ export function HomePage() {
                   width="100%"
                   height="100%"
                   frameBorder="0"
+                  loading="lazy"
                   className="min-h-[400px] rounded-2xl"
                   title="TakeSmart на карте"
                 />

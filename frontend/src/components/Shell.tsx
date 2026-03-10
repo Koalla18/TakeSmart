@@ -5,6 +5,7 @@ import { Logo } from './Logo'
 import { PhoneIcon, MailIcon, ClockIcon, MenuIcon, CloseIcon, TelegramIcon, ChevronRightIcon } from './ui/Icons'
 import { Container } from './ui/Layout'
 import { useCart } from '../lib/cart'
+import { GlobalSearch, MobileSearchButton } from './GlobalSearch'
 
 function NavItem({ to, label, onClick }: { to: string; label: string; onClick?: () => void }) {
   return (
@@ -252,16 +253,16 @@ export function Shell({ children }: PropsWithChildren) {
               <NavItem to="/trade-in" label="Trade-in" />
               <NavItem to="/cart" label="Заявка" />
             </nav>
+
+            {/* Desktop search */}
+            <div className="hidden lg:block w-64 xl:w-80">
+              <GlobalSearch />
+            </div>
             
             {/* Actions */}
             <div className="flex items-center gap-3">
-              <a
-                href="tel:+79998021022"
-                className="hidden items-center gap-2 text-sm font-medium text-gray-900 transition-colors hover:text-yellow-500 lg:flex"
-              >
-                <PhoneIcon className="h-5 w-5 text-yellow-500" />
-                +7 (999) 802-10-22
-              </a>
+              {/* Mobile search button */}
+              <MobileSearchButton />
               
               <Link
                 to="/cart"
