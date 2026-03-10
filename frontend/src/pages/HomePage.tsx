@@ -527,33 +527,32 @@ export function HomePage() {
             </div>
           </AnimatedSection>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
             {[
-              { name: 'Смартфоны Apple',        image: '/categories/apple-phones.png',    link: '/catalog?category=smartphones&brand=apple' },
-              { name: 'Смартфоны на Android',    image: '/categories/android-phones.png',  link: '/catalog?category=smartphones' },
-              { name: 'Ноутбуки, компьютеры',    image: '/categories/laptops.png',          link: '/catalog?category=laptops' },
-              { name: 'Планшеты',                image: '/categories/tablets.png',           link: '/catalog?category=tablets' },
-              { name: 'Умные часы',              image: '/categories/watches.png',           link: '/catalog?category=watches' },
-              { name: 'Наушники, колонки',       image: '/categories/headphones.png',        link: '/catalog?category=headphones' },
-              { name: 'Аксессуары',              image: '/categories/accessories.png',       link: '/catalog?category=accessories' },
-              { name: 'Игровые приставки',       image: '/categories/gaming.png',            link: '/catalog?category=gaming' },
-              { name: 'Все для дома',            image: '/categories/home.png',              link: '/catalog?category=home' },
-              { name: 'Активный отдых',          image: '/categories/outdoor.png',           link: '/catalog?category=outdoor' },
-              { name: 'Красота и уход',          image: '/categories/beauty.png',            link: '/catalog?category=beauty' },
+              { name: 'Смартфоны Apple',      image: '/categories/apple-iphones.png',    link: '/catalog?category=smartphones&brand=apple', bg: 'bg-blue-50',   hover: 'hover:bg-blue-100' },
+              { name: 'Смартфоны на Android', image: '/categories/android-phones.png',   link: '/catalog?category=smartphones',              bg: 'bg-green-50',  hover: 'hover:bg-green-100' },
+              { name: 'Ноутбуки, компьютеры', image: '/categories/laptops.png',           link: '/catalog?category=laptops',                  bg: 'bg-purple-50', hover: 'hover:bg-purple-100' },
+              { name: 'Планшеты',             image: '/categories/tablets.png',            link: '/catalog?category=tablets',                  bg: 'bg-yellow-50', hover: 'hover:bg-yellow-100' },
+              { name: 'Умные часы',           image: '/categories/watches.jpg',            link: '/catalog?category=watches',                  bg: 'bg-orange-50', hover: 'hover:bg-orange-100' },
+              { name: 'Аксессуары',           image: '/categories/accessories.png',        link: '/catalog?category=accessories',              bg: 'bg-pink-50',   hover: 'hover:bg-pink-100' },
+              { name: 'Игровые приставки',    image: '/categories/gaming.png',             link: '/catalog?category=gaming',                   bg: 'bg-indigo-50', hover: 'hover:bg-indigo-100' },
+              { name: 'Все для дома',         image: '/categories/home.png',               link: '/catalog?category=home',                     bg: 'bg-teal-50',   hover: 'hover:bg-teal-100' },
+              { name: 'Активный отдых',       image: '/categories/outdoor.png',            link: '/catalog?category=outdoor',                  bg: 'bg-lime-50',   hover: 'hover:bg-lime-100' },
+              { name: 'Красота и уход',       image: '/categories/beauty.png',             link: '/catalog?category=beauty',                   bg: 'bg-rose-50',   hover: 'hover:bg-rose-100' },
             ].map((cat, i) => (
               <AnimatedSection key={cat.name} delay={i * 60}>
                 <Link
                   to={cat.link}
-                  className="group flex flex-col items-center rounded-2xl sm:rounded-3xl bg-gray-50 hover:bg-gray-100 p-4 sm:p-6 transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
+                  className={`group flex flex-col items-center rounded-2xl sm:rounded-3xl ${cat.bg} ${cat.hover} p-4 sm:p-6 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5`}
                 >
-                  <div className="relative w-full aspect-square flex items-center justify-center mb-3 sm:mb-4 overflow-hidden">
+                  <div className="w-full aspect-square flex items-center justify-center mb-3 overflow-hidden">
                     <img
                       src={cat.image}
                       alt={cat.name}
-                      className="max-h-full max-w-[85%] object-contain drop-shadow-md transition-transform duration-500 group-hover:scale-110"
+                      className="w-full h-full object-contain drop-shadow-sm transition-transform duration-500 group-hover:scale-105"
                     />
                   </div>
-                  <span className="text-xs sm:text-sm font-bold text-gray-900 uppercase tracking-wide text-center leading-tight">
+                  <span className="text-[11px] sm:text-xs font-bold text-gray-800 uppercase tracking-wider text-center leading-tight">
                     {cat.name}
                   </span>
                 </Link>
