@@ -273,6 +273,36 @@ export function CatalogPage() {
 
         setDisplayProducts(mapped)
         setDisplayCategories(apiCategories)
+
+        // Resolve category from URL: if ?category=X doesn't match any slug,
+        // try to find by alias or by partial name match and redirect
+        const urlCat = searchParams.get('category')
+        if (urlCat && urlCat !== 'all') {
+          const knownSlugs = new Set(apiCategories.map(c => c.id))
+          if (!knownSlugs.has(urlCat)) {
+            // Alias map: homepage English slug → potential keywords to search in DB slug/name
+            const ALIASES: Record<string, string[]> = {
+              smartphones: ['смартфон', 'phone', 'телефон'],
+              laptops: ['ноутбук', 'laptop', 'компьютер'],
+              tablets: ['планшет', 'tablet', 'ipad'],
+              watches: ['часы', 'watch', 'band'],
+              headphones: ['наушник', 'headphone', 'колонк', 'audio'],
+              accessories: ['аксессуар', 'accessor', 'чехол'],
+              gaming: ['игр', 'gaming', 'console', 'приставк'],
+              home: ['дом', 'home', 'бытов'],
+              outdoor: ['отдых', 'outdoor', 'спорт', 'активн'],
+              beauty: ['красот', 'beauty', 'уход', 'dyson'],
+              tv: ['тв', 'tv', 'аудио', 'телевизор'],
+            }
+            const keywords = ALIASES[urlCat] || [urlCat]
+            const match = apiCategories.find(c =>
+              keywords.some(kw => c.id.includes(kw) || c.name.toLowerCase().includes(kw))
+            )
+            if (match) {
+              setSelectedCategory(match.id)
+            }
+          }
+        }
         setDisplayBrands(apiBrands)
       } catch (err) {
         console.error('Failed to load catalog:', err)
