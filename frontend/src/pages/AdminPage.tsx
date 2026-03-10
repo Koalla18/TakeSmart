@@ -659,56 +659,91 @@ export function AdminPage() {
         {/* ============ CATEGORIES TAB ============ */}
         {activeTab === 'categories' && (
           <>
-            <div className="mb-6 flex justify-between">
-              <div className="text-slate-400">{categories.length} категорий</div>
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white">📂 Категории</h2>
+                <p className="text-sm text-slate-400">{categories.length} категорий • управление каталогом</p>
+              </div>
               <button
                 onClick={() => { setEditingCategory(null); setIsCategoryModalOpen(true) }}
-                className="rounded-lg bg-yellow-400 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-yellow-300"
+                className="rounded-xl bg-yellow-400 px-5 py-3 font-semibold text-gray-900 hover:bg-yellow-300 transition-colors"
               >
-                + Добавить категорию
+                + Новая категория
               </button>
             </div>
 
             {categories.length === 0 ? (
               <div className="rounded-2xl bg-white/5 p-16 text-center">
-                <div className="text-5xl mb-4">📁</div>
-                <div className="text-xl font-semibold text-white mb-4">Категорий нет</div>
+                <div className="text-6xl mb-4">📁</div>
+                <div className="text-xl font-semibold text-white mb-2">Категорий пока нет</div>
+                <p className="text-slate-400 mb-6">Создайте первую категорию для организации товаров</p>
+                <button
+                  onClick={() => { setEditingCategory(null); setIsCategoryModalOpen(true) }}
+                  className="rounded-xl bg-yellow-400 px-6 py-3 font-semibold text-gray-900 hover:bg-yellow-300"
+                >
+                  + Создать категорию
+                </button>
               </div>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {categories.map(category => (
-                  <div key={category.id} className="rounded-2xl bg-white/5 p-6">
-                    <div className="mb-4 flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 text-2xl overflow-hidden">
+              <div className="space-y-3">
+                {categories.map(category => {
+                  const productCount = products.filter(p => p.category_id === category.id).length
+                  return (
+                    <div key={category.id} className="group rounded-2xl bg-white/5 hover:bg-white/[0.08] transition-colors overflow-hidden">
+                      <div className="flex items-center gap-4 p-4">
+                        {/* Image */}
+                        <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-white/10 overflow-hidden">
                           {category.image_url ? (
                             <img src={getImageUrl(category.image_url)} alt="" className="h-full w-full object-cover" />
-                          ) : '📁'}
+                          ) : (
+                            <span className="text-3xl">📁</span>
+                          )}
                         </div>
-                        <div>
-                          <div className="font-semibold text-white">{category.name}</div>
-                          <div className="text-sm text-slate-400">/{category.slug}</div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <div className="font-semibold text-white truncate">{category.name}</div>
+                            {!category.is_active && (
+                              <span className="flex-shrink-0 rounded-full bg-red-900/50 px-2 py-0.5 text-[10px] font-bold text-red-400 uppercase">Скрыта</span>
+                            )}
+                          </div>
+                          <div className="text-sm text-slate-500">/{category.slug}</div>
+                          {category.description && (
+                            <p className="mt-1 text-xs text-slate-400 line-clamp-1">{category.description}</p>
+                          )}
+                        </div>
+
+                        {/* Product count */}
+                        <div className="flex-shrink-0 text-center px-3">
+                          <div className="text-lg font-bold text-white">{productCount}</div>
+                          <div className="text-[10px] text-slate-500 uppercase">товаров</div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex-shrink-0 flex gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => { setEditingCategory(category); setIsCategoryModalOpen(true) }}
+                            className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20 transition-colors"
+                            title="Редактировать"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => deleteCategory(category.id)}
+                            className="rounded-xl bg-red-900/30 px-3 py-2 text-sm text-red-400 hover:bg-red-900/60 transition-colors"
+                            title="Удалить"
+                          >
+                            🗑
+                          </button>
                         </div>
                       </div>
-                      {!category.is_active && (
-                        <span className="rounded bg-red-900/50 px-2 py-1 text-xs text-red-400">Скрыта</span>
-                      )}
                     </div>
-                    {category.description && <p className="mb-4 text-sm text-slate-400">{category.description}</p>}
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-slate-500">
-                        {products.filter(p => p.category_id === category.id).length} товаров
-                      </span>
-                      <div className="flex gap-2">
-                        <button onClick={() => { setEditingCategory(category); setIsCategoryModalOpen(true) }} className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20">✏️</button>
-                        <button onClick={() => deleteCategory(category.id)} className="rounded-lg bg-red-900/50 px-3 py-2 text-sm text-red-400 hover:bg-red-900">🗑️</button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
-          </>  
+          </>
         )}
 
         {/* ============ SLIDES TAB ============ */}
@@ -2810,67 +2845,89 @@ function CategoryModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-3xl bg-slate-800 p-6" onClick={e => e.stopPropagation()}>
-        <div className="mb-6 flex items-start justify-between">
-          <h2 className="text-2xl font-bold text-white">{category ? 'Редактировать' : 'Новая'} категория</h2>
-          <button onClick={onClose} className="text-2xl text-slate-400 hover:text-white">×</button>
+      <div className="w-full max-w-lg rounded-3xl bg-slate-800 p-6 sm:p-8" onClick={e => e.stopPropagation()}>
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-white">{category ? '✏️ Редактировать' : '📂 Новая'} категория</h2>
+            <p className="text-sm text-slate-400 mt-1">{category ? 'Измените данные категории' : 'Заполните информацию о категории'}</p>
+          </div>
+          <button onClick={onClose} className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-slate-400 hover:bg-white/20 hover:text-white transition-colors">×</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm text-slate-400">Название *</label>
-            <input
-              type="text"
-              required
-              value={formData.name}
-              onChange={(e) => {
-                setFormData({ ...formData, name: e.target.value })
-                if (!category) setFormData(prev => ({ ...prev, slug: generateSlug(e.target.value) }))
-              }}
-              className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
-            />
+          {/* Preview */}
+          {formData.image_url && (
+            <div className="flex justify-center rounded-2xl bg-white/5 p-4">
+              <img src={formData.image_url} alt="" className="h-20 w-20 rounded-xl object-cover" onError={(e) => { (e.target as HTMLElement).style.display = 'none' }} />
+            </div>
+          )}
+
+          {/* Name + Slug row */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-slate-400 uppercase tracking-wider">Название *</label>
+              <input
+                type="text"
+                required
+                value={formData.name}
+                onChange={(e) => {
+                  const name = e.target.value
+                  setFormData(prev => ({
+                    ...prev,
+                    name,
+                    ...(!category ? { slug: generateSlug(name) } : {}),
+                  }))
+                }}
+                placeholder="Смартфоны"
+                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none focus:ring-1 focus:ring-yellow-400/50"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-slate-400 uppercase tracking-wider">Slug *</label>
+              <input
+                type="text"
+                required
+                value={formData.slug}
+                onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
+                placeholder="smartphones"
+                className="w-full rounded-xl bg-white/10 px-4 py-3 text-white font-mono text-sm placeholder-slate-500 focus:bg-white/15 focus:outline-none focus:ring-1 focus:ring-yellow-400/50"
+              />
+            </div>
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-slate-400">Slug *</label>
-            <input
-              type="text"
-              required
-              value={formData.slug}
-              onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-              className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm text-slate-400">URL изображения</label>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-400 uppercase tracking-wider">URL изображения</label>
             <input
               type="text"
               value={formData.image_url}
               onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-              placeholder="https://..."
-              className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
+              placeholder="https://example.com/image.png"
+              className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none focus:ring-1 focus:ring-yellow-400/50"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-slate-400">Описание</label>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-400 uppercase tracking-wider">Описание</label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               rows={2}
-              className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
+              placeholder="Краткое описание категории..."
+              className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none focus:ring-1 focus:ring-yellow-400/50 resize-none"
             />
           </div>
 
-          <label className="flex items-center gap-2 text-white cursor-pointer">
-            <input type="checkbox" checked={formData.is_active} onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })} className="h-5 w-5 rounded" />
-            Активна (видна на сайте)
+          <label className="flex items-center gap-3 rounded-xl bg-white/5 p-3 cursor-pointer hover:bg-white/10 transition-colors">
+            <input type="checkbox" checked={formData.is_active} onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })} className="h-5 w-5 rounded accent-yellow-400" />
+            <div>
+              <div className="text-sm font-medium text-white">Активна</div>
+              <div className="text-xs text-slate-400">Категория видна на сайте</div>
+            </div>
           </label>
 
-          <div className="flex gap-4 pt-4">
-            <button type="button" onClick={onClose} className="flex-1 rounded-xl bg-white/10 py-3 text-white hover:bg-white/20">Отмена</button>
-            <button type="submit" className="flex-1 rounded-xl bg-yellow-400 py-3 font-semibold text-gray-900 hover:bg-yellow-300">
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 rounded-xl bg-white/10 py-3 font-medium text-white hover:bg-white/20 transition-colors">Отмена</button>
+            <button type="submit" className="flex-1 rounded-xl bg-yellow-400 py-3 font-bold text-gray-900 hover:bg-yellow-300 transition-colors">
               {category ? 'Сохранить' : 'Создать'}
             </button>
           </div>

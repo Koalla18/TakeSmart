@@ -283,13 +283,15 @@ export function CatalogPage() {
     return () => { cancelled = true }
   }, [])
 
-  // Sync filters from URL (e.g. when navigating from footer links)
+  // Sync filters from URL (e.g. when navigating from homepage category links)
   useEffect(() => {
     const cat = searchParams.get('category') || 'all'
+    const brand = searchParams.get('brand') || 'all'
     const q = searchParams.get('q') || ''
     setSelectedCategory(cat)
+    setSelectedBrand(brand)
     setSearchQuery(q)
-  }, [searchParams.get('category'), searchParams.get('q')])
+  }, [searchParams.get('category'), searchParams.get('brand'), searchParams.get('q')])
   
   // Simulate loading
   useEffect(() => {
