@@ -14,8 +14,7 @@ import {
   TruckIcon, 
   CardIcon, 
   PhoneIcon, 
-  ArrowRightIcon, 
-  SmartphoneIcon
+  ArrowRightIcon,
 } from '../components/ui/Icons'
 
 // Scroll animation hook
@@ -514,157 +513,61 @@ export function HomePage() {
         </Container>
       </Section>
 
-      {/* Premium Categories Showcase */}
-      <Section className="py-24 bg-gradient-to-b from-white to-gray-50">
+      {/* Categories Grid — как на скриншоте */}
+      <Section className="py-16 sm:py-24 bg-white">
         <Container>
           <AnimatedSection>
-            <div className="mb-16 text-center">
-              <span className="inline-block mb-4 rounded-full bg-yellow-100 px-4 py-2 text-sm font-semibold text-yellow-700">
-                🛍️ Каталог
-              </span>
-              <h2 className="mb-4 text-5xl font-bold text-gray-900">
-                Найдите свой <span className="text-yellow-500">идеальный</span> гаджет
+            <div className="mb-10 sm:mb-14 text-center">
+              <h2 className="mb-3 text-3xl sm:text-5xl font-bold text-gray-900">
+                Каталог товаров
               </h2>
-              <p className="mx-auto max-w-2xl text-xl text-gray-500">
-                Выберите категорию и откройте мир технологий с Take Smart
+              <p className="mx-auto max-w-2xl text-lg text-gray-500">
+                Выберите категорию и найдите то, что вам нужно
               </p>
             </div>
           </AnimatedSection>
-          
-          {/* Bento Grid Layout */}
-          <div className="grid gap-4 lg:gap-6 auto-rows-[180px] lg:auto-rows-[200px] grid-cols-2 lg:grid-cols-4">
-            {/* Large Featured - Smartphones */}
-            <AnimatedSection delay={0} className="col-span-2 row-span-2">
-              <Link
-                to="/catalog?category=smartphones"
-                className="group relative flex h-full flex-col justify-between overflow-hidden rounded-3xl bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-8 transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl"
-              >
-                <div className="relative z-10">
-                  <div className="mb-4 inline-flex rounded-2xl bg-yellow-400 p-3">
-                    <SmartphoneIcon className="h-6 w-6 text-gray-900" />
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5">
+            {[
+              { name: 'Смартфоны Apple',        image: '/categories/apple-phones.png',    link: '/catalog?category=smartphones&brand=apple' },
+              { name: 'Смартфоны на Android',    image: '/categories/android-phones.png',  link: '/catalog?category=smartphones' },
+              { name: 'Ноутбуки, компьютеры',    image: '/categories/laptops.png',          link: '/catalog?category=laptops' },
+              { name: 'Планшеты',                image: '/categories/tablets.png',           link: '/catalog?category=tablets' },
+              { name: 'Умные часы',              image: '/categories/watches.png',           link: '/catalog?category=watches' },
+              { name: 'Наушники, колонки',       image: '/categories/headphones.png',        link: '/catalog?category=headphones' },
+              { name: 'Аксессуары',              image: '/categories/accessories.png',       link: '/catalog?category=accessories' },
+              { name: 'Игровые приставки',       image: '/categories/gaming.png',            link: '/catalog?category=gaming' },
+              { name: 'Все для дома',            image: '/categories/home.png',              link: '/catalog?category=home' },
+              { name: 'Активный отдых',          image: '/categories/outdoor.png',           link: '/catalog?category=outdoor' },
+              { name: 'Красота и уход',          image: '/categories/beauty.png',            link: '/catalog?category=beauty' },
+            ].map((cat, i) => (
+              <AnimatedSection key={cat.name} delay={i * 60}>
+                <Link
+                  to={cat.link}
+                  className="group flex flex-col items-center rounded-2xl sm:rounded-3xl bg-gray-50 hover:bg-gray-100 p-4 sm:p-6 transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
+                >
+                  <div className="relative w-full aspect-square flex items-center justify-center mb-3 sm:mb-4 overflow-hidden">
+                    <img
+                      src={cat.image}
+                      alt={cat.name}
+                      className="max-h-full max-w-[85%] object-contain drop-shadow-md transition-transform duration-500 group-hover:scale-110"
+                    />
                   </div>
-                  <h3 className="text-3xl font-bold text-white mb-2">Смартфоны</h3>
-                  <p className="text-gray-400 max-w-xs">iPhone, Samsung Galaxy, Xiaomi и другие флагманы</p>
-                </div>
-                <div className="flex items-center gap-2 text-yellow-400 font-semibold">
-                  <span>Смотреть все</span>
-                  <ArrowRightIcon className="h-5 w-5 transition-transform group-hover:translate-x-2" />
-                </div>
-                <div className="absolute -right-8 -bottom-8 text-[12rem] opacity-10 transition-all duration-500 group-hover:opacity-20 group-hover:scale-110">
-                  📱
-                </div>
-                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-              </Link>
-            </AnimatedSection>
-            
-            {/* Laptops */}
-            <AnimatedSection delay={100}>
-              <Link
-                to="/catalog?category=laptops"
-                className="group relative flex h-full flex-col justify-between overflow-hidden rounded-3xl bg-gradient-to-br from-blue-500 to-purple-600 p-6 transition-all duration-500 hover:scale-[1.02] hover:shadow-xl"
-              >
-                <div className="text-5xl">💻</div>
-                <div>
-                  <h3 className="text-xl font-bold text-white">Ноутбуки</h3>
-                  <p className="text-white/70 text-sm">MacBook, Ultrabook</p>
-                </div>
-              </Link>
-            </AnimatedSection>
-            
-            {/* Tablets */}
-            <AnimatedSection delay={150}>
-              <Link
-                to="/catalog?category=tablets"
-                className="group relative flex h-full flex-col justify-between overflow-hidden rounded-3xl bg-gradient-to-br from-green-400 to-emerald-600 p-6 transition-all duration-500 hover:scale-[1.02] hover:shadow-xl"
-              >
-                <div className="text-5xl">📱</div>
-                <div>
-                  <h3 className="text-xl font-bold text-white">Планшеты</h3>
-                  <p className="text-white/70 text-sm">iPad, Galaxy Tab</p>
-                </div>
-              </Link>
-            </AnimatedSection>
-            
-            {/* Headphones */}
-            <AnimatedSection delay={200}>
-              <Link
-                to="/catalog?category=headphones"
-                className="group relative flex h-full flex-col justify-between overflow-hidden rounded-3xl bg-gradient-to-br from-pink-500 to-rose-600 p-6 transition-all duration-500 hover:scale-[1.02] hover:shadow-xl"
-              >
-                <div className="text-5xl">🎧</div>
-                <div>
-                  <h3 className="text-xl font-bold text-white">Наушники</h3>
-                  <p className="text-white/70 text-sm">AirPods, Sony</p>
-                </div>
-              </Link>
-            </AnimatedSection>
-            
-            {/* Watches */}
-            <AnimatedSection delay={250}>
-              <Link
-                to="/catalog?category=watches"
-                className="group relative flex h-full flex-col justify-between overflow-hidden rounded-3xl bg-gradient-to-br from-orange-400 to-amber-600 p-6 transition-all duration-500 hover:scale-[1.02] hover:shadow-xl"
-              >
-                <div className="text-5xl">⌚</div>
-                <div>
-                  <h3 className="text-xl font-bold text-white">Часы</h3>
-                  <p className="text-white/70 text-sm">Apple Watch</p>
-                </div>
-              </Link>
-            </AnimatedSection>
-            
-            {/* Gaming - Wide */}
-            <AnimatedSection delay={300} className="col-span-2">
-              <Link
-                to="/catalog?category=gaming"
-                className="group relative flex h-full items-center gap-6 overflow-hidden rounded-3xl bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 p-6 transition-all duration-500 hover:scale-[1.02] hover:shadow-xl"
-              >
-                <div className="text-7xl">🎮</div>
-                <div>
-                  <h3 className="text-2xl font-bold text-white mb-1">Игровые консоли</h3>
-                  <p className="text-white/70">PlayStation 5, Nintendo Switch, Xbox</p>
-                </div>
-                <ArrowRightIcon className="ml-auto h-8 w-8 text-white/50 transition-transform group-hover:translate-x-2 group-hover:text-white" />
-              </Link>
-            </AnimatedSection>
-            
-            {/* Accessories */}
-            <AnimatedSection delay={350}>
-              <Link
-                to="/catalog?category=accessories"
-                className="group relative flex h-full flex-col justify-between overflow-hidden rounded-3xl bg-gradient-to-br from-cyan-400 to-sky-600 p-6 transition-all duration-500 hover:scale-[1.02] hover:shadow-xl"
-              >
-                <div className="text-5xl">🔌</div>
-                <div>
-                  <h3 className="text-xl font-bold text-white">Аксессуары</h3>
-                  <p className="text-white/70 text-sm">Чехлы, зарядки</p>
-                </div>
-              </Link>
-            </AnimatedSection>
-            
-            {/* TV */}
-            <AnimatedSection delay={400}>
-              <Link
-                to="/catalog?category=tv"
-                className="group relative flex h-full flex-col justify-between overflow-hidden rounded-3xl bg-gradient-to-br from-slate-600 to-slate-800 p-6 transition-all duration-500 hover:scale-[1.02] hover:shadow-xl"
-              >
-                <div className="text-5xl">📺</div>
-                <div>
-                  <h3 className="text-xl font-bold text-white">ТВ и аудио</h3>
-                  <p className="text-white/70 text-sm">Samsung, LG, Sony</p>
-                </div>
-              </Link>
-            </AnimatedSection>
+                  <span className="text-xs sm:text-sm font-bold text-gray-900 uppercase tracking-wide text-center leading-tight">
+                    {cat.name}
+                  </span>
+                </Link>
+              </AnimatedSection>
+            ))}
           </div>
-          
-          {/* CTA */}
-          <AnimatedSection delay={500}>
-            <div className="mt-12 text-center">
-              <Link 
+
+          <AnimatedSection delay={700}>
+            <div className="mt-10 sm:mt-14 text-center">
+              <Link
                 to="/catalog"
                 className="inline-flex items-center gap-3 rounded-full bg-gray-900 px-8 py-4 text-lg font-semibold text-white transition-all hover:bg-yellow-400 hover:text-gray-900 hover:scale-105"
               >
-                Посмотреть весь каталог
+                Весь каталог
                 <ArrowRightIcon className="h-5 w-5" />
               </Link>
             </div>
