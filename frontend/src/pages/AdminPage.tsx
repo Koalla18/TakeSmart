@@ -3039,6 +3039,11 @@ const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
     { field: 'storage', label: 'Память', placeholder: '256 ГБ', hint: 'Объём встроенной памяти' },
     { field: 'connectivity', label: 'Связь (SIM)', placeholder: 'SIM + eSIM', hint: 'Тип SIM-карт' },
   ],
+  'smartphones:samsung': [
+    { field: 'color', label: 'Цвета', placeholder: 'Серый титан', hint: 'Каждый цвет = отдельная карточка товара' },
+    { field: 'storage', label: 'Память', placeholder: '256 ГБ', hint: 'Объём встроенной памяти' },
+    { field: 'connectivity', label: 'ОЗУ', placeholder: '12 ГБ', hint: 'Объём оперативной памяти' },
+  ],
   tablets: [
     { field: 'color', label: 'Цвета', placeholder: 'Space Gray' },
     { field: 'storage', label: 'Память', placeholder: '256 ГБ' },
@@ -3134,7 +3139,10 @@ function GroupCreationModal({
   // Category
   const selectedCat = categories.find(c => c.id === categoryId)
   const catSlug = selectedCat?.slug || ''
-  const axesDef = GROUP_CATEGORY_AXES[catSlug] || GROUP_DEFAULT_AXES
+  const axisKey = brand && GROUP_CATEGORY_AXES[`${catSlug}:${brand.toLowerCase()}`]
+    ? `${catSlug}:${brand.toLowerCase()}`
+    : catSlug
+  const axesDef = GROUP_CATEGORY_AXES[axisKey] || GROUP_DEFAULT_AXES
 
   // Matrix
   const buildMatrix = (): GroupProductRow[] => {
