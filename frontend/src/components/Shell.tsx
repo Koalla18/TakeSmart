@@ -258,7 +258,6 @@ export function Shell({ children }: PropsWithChildren) {
             <nav className="hidden items-center gap-6 lg:flex">
               <NavItem to="/" label="Главная" />
               <NavItem to="/catalog" label="Каталог" />
-              <NavItem to="/used" label="Б/У" />
               <NavItem to="/delivery" label="Доставка" />
               <NavItem to="/trade-in" label="Trade-in" />
               <NavItem to="/cart" label="Заявка" />

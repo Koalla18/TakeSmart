@@ -1221,10 +1221,7 @@ export function ProductPage() {
                   )}
                 </div>
                 
-                {/* Description */}
-                {apiProduct.description && (
-                  <p className="mb-6 text-gray-600">{apiProduct.description}</p>
-                )}
+                {/* Description removed from right column — shown in tab below */}
                 
                 {/* Actions */}
                 <div className="mb-8 space-y-3">
