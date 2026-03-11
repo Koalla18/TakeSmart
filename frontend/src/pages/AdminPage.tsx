@@ -1136,7 +1136,12 @@ function ProductsSection({
                       )}
                       <div>
                         <div className="font-semibold text-white flex items-center gap-2">
-                          {product.name}
+                          {(() => {
+                            const m = product.name.match(/\(([A-Z][A-Z0-9]{3,})\)$/)
+                            return m
+                              ? <>{product.name.replace(/\s*\([A-Z][A-Z0-9]{3,}\)$/, '')} <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-xs text-slate-400">{m[1]}</span></>
+                              : <>{product.name}</>         
+                          })()}
                           {product.is_featured && <span className="text-yellow-400" title="Хит продаж">⭐</span>}
                           {!product.is_active && <span className="text-red-400 text-xs">(скрыт)</span>}
                         </div>

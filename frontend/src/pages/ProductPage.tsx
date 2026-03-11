@@ -736,7 +736,13 @@ export function ProductPage() {
                 
                 {/* Name */}
                 <h1 className="mb-4 text-2xl font-bold text-gray-900 sm:text-3xl lg:text-4xl">
-                  {apiProduct.name}
+                  {apiProduct.name.replace(/\s*\([A-Z][A-Z0-9]{3,}\)$/, '')}
+                  {(() => {
+                    const m = apiProduct.name.match(/\(([A-Z][A-Z0-9]{3,})\)$/)
+                    return m ? (
+                      <span className="ml-3 align-middle inline-block rounded-lg bg-gray-100 px-2.5 py-1 text-sm font-mono font-normal text-gray-400">{m[1]}</span>
+                    ) : null
+                  })()}
                 </h1>
                 
                 {/* Stock status */}

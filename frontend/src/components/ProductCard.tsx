@@ -212,9 +212,17 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
           {/* Name */}
           <Link to={`/product/${product.slug}`}>
             <h3 className="mb-2 sm:mb-3 line-clamp-2 text-sm sm:text-base font-semibold text-gray-900 transition-colors hover:text-yellow-600">
-              {product.name}
+              {product.name.replace(/\s*\([A-Z][A-Z0-9]{3,}\)$/, '')}
             </h3>
           </Link>
+          {(() => {
+            const m = product.name.match(/\(([A-Z][A-Z0-9]{3,})\)$/)
+            return m ? (
+              <div className="-mt-1 mb-2">
+                <span className="inline-block rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-mono text-gray-400">{m[1]}</span>
+              </div>
+            ) : null
+          })()}
           
           {/* Price row */}
           <div className="mt-auto mb-3 sm:mb-4 flex flex-col sm:flex-row sm:items-end sm:justify-between">
