@@ -3058,6 +3058,7 @@ const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
     { field: 'color', label: 'Цвета', placeholder: 'Серый титан', hint: 'Каждый цвет = отдельная карточка товара' },
     { field: 'connectivity', label: 'ОЗУ', placeholder: '12 ГБ', hint: 'Объём оперативной памяти' },
     { field: 'storage', label: 'Память', placeholder: '256 ГБ', hint: 'Объём встроенной памяти' },
+    { field: 'processor', label: 'SIM', placeholder: 'SIM + eSIM', hint: 'Тип SIM-карт' },
   ],
   tablets: [
     { field: 'color', label: 'Цвета', placeholder: 'Space Gray' },
@@ -3184,10 +3185,10 @@ function GroupCreationModal({
               const specs = specParts.length > 0 ? ` (${specParts.join(', ')})` : ''
               fullName = c ? `${baseName}${specs}, ${c}` : `${baseName}${specs}`
             } else if (isSamsungPhone) {
-              // Format: {baseName} {ram}/{storage} {color}  e.g. Samsung S25 Ultra 12ГБ/256ГБ чёрный
+              // Format: Samsung S25 Ultra 12ГБ/256ГБ SIM + eSIM, чёрный
               const spec = [cn, s].filter(Boolean).join('/')
-              const parts = [baseName, spec].filter(Boolean)
-              fullName = c ? `${parts.join(' ')} ${c}` : parts.join(' ')
+              const parts = [baseName, spec, proc].filter(Boolean)
+              fullName = c ? `${parts.join(' ')}, ${c}` : parts.join(' ')
             } else {
               const parts = [baseName, proc, s, cn].filter(Boolean)
               fullName = c ? `${parts.join(' ')}, ${c}` : parts.join(' ')
