@@ -413,6 +413,25 @@ export function ProductPage() {
   const [selectedStorage, setSelectedStorage] = useState<string | null>(null)
   const [selectedSize, setSelectedSize] = useState<string | null>(null)
 
+  // Touch swipe tracking
+  const touchStartX = useRef(0)
+  const touchStartY = useRef(0)
+  const didSwipe = useRef(false)
+  // Mirror of the images array for use inside event listeners
+  const imagesRef = useRef<string[]>([])
+
+  // Keyboard arrow navigation
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      const imgs = imagesRef.current
+      if (imgs.length <= 1) return
+      if (e.key === 'ArrowLeft') setActiveImageIndex(i => (i - 1 + imgs.length) % imgs.length)
+      else if (e.key === 'ArrowRight') setActiveImageIndex(i => (i + 1) % imgs.length)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [])
+
   // Derive best-matching variant from the 3 independent selections
   const selectedVariant = useMemo<ApiVariant | null>(() => {
     if (variants.length === 0) return null
@@ -614,6 +633,9 @@ export function ProductPage() {
         ? generic.map(img => img.url || img.file_path)
         : allImgs.map(img => img.url || img.file_path)
     })()
+
+    // Keep ref in sync so keyboard/swipe handlers always see current images
+    imagesRef.current = images
     
     return (
       <div className="min-h-screen bg-gray-50">
@@ -644,7 +666,7 @@ export function ProductPage() {
                   Назад
                 </button>
                 
-                <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-gray-50 to-gray-100">
+                <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-gray-50 to-gray-100 group">
                   {/* Badge */}
                   {apiProduct.is_featured && (
                     <div className="absolute left-4 top-4 z-10">
@@ -661,10 +683,26 @@ export function ProductPage() {
                     </div>
                   )}
                   
-                  {/* Main Image */}
+                  {/* Main Image with swipe support */}
                   <div
-                    className="flex aspect-square cursor-pointer items-center justify-center p-8"
+                    className="flex aspect-square cursor-pointer items-center justify-center p-8 select-none"
+                    onTouchStart={(e) => {
+                      touchStartX.current = e.touches[0].clientX
+                      touchStartY.current = e.touches[0].clientY
+                      didSwipe.current = false
+                    }}
+                    onTouchEnd={(e) => {
+                      const deltaX = e.changedTouches[0].clientX - touchStartX.current
+                      const deltaY = e.changedTouches[0].clientY - touchStartY.current
+                      const imgs = imagesRef.current
+                      if (imgs.length > 1 && Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 40) {
+                        didSwipe.current = true
+                        if (deltaX < 0) setActiveImageIndex(i => (i + 1) % imgs.length)
+                        else setActiveImageIndex(i => (i - 1 + imgs.length) % imgs.length)
+                      }
+                    }}
                     onClick={() => {
+                      if (didSwipe.current) return
                       if (isImageUrl(images[activeImageIndex])) {
                         setLightboxStartIndex(activeImageIndex)
                         setLightboxOpen(true)
@@ -673,6 +711,7 @@ export function ProductPage() {
                   >
                     {isImageUrl(images[activeImageIndex]) ? (
                       <img 
+                        key={activeImageIndex}
                         src={getImageUrl(images[activeImageIndex])}
                         alt={apiProduct.name}
                         className="max-h-full max-w-full object-contain transition-transform hover:scale-105"
@@ -683,6 +722,30 @@ export function ProductPage() {
                       </span>
                     )}
                   </div>
+
+                  {/* Prev / Next arrow buttons — desktop hover */}
+                  {images.length > 1 && (
+                    <>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setActiveImageIndex(i => (i - 1 + images.length) % images.length) }}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/80 shadow-md backdrop-blur transition-all duration-200 opacity-0 group-hover:opacity-100 hover:bg-white hover:shadow-lg"
+                        aria-label="Предыдущее фото"
+                      >
+                        <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setActiveImageIndex(i => (i + 1) % images.length) }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/80 shadow-md backdrop-blur transition-all duration-200 opacity-0 group-hover:opacity-100 hover:bg-white hover:shadow-lg"
+                        aria-label="Следующее фото"
+                      >
+                        <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    </>
+                  )}
                   
                   {/* Favorite button */}
                   <button className="absolute right-4 top-4 rounded-full bg-white p-3 shadow-lg transition-colors hover:bg-yellow-50">
@@ -713,7 +776,9 @@ export function ProductPage() {
 
                 {/* Zoom hint */}
                 {isImageUrl(images[activeImageIndex]) && (
-                  <p className="mt-2 text-center text-xs text-gray-400">Нажмите на фото для увеличения</p>
+                  <p className="mt-2 text-center text-xs text-gray-400">
+                    {images.length > 1 ? 'Листайте пальцем или стрелками · нажмите для увеличения' : 'Нажмите на фото для увеличения'}
+                  </p>
                 )}
 
                 {/* Lightbox */}

@@ -80,6 +80,7 @@ interface Slide {
   color: string
   tags: string[]
   isNew: boolean
+  link_url: string
 }
 
 function WeeklySlides() {
@@ -100,6 +101,7 @@ function WeeklySlides() {
             color: s.color || 'bg-gradient-to-br from-gray-50 via-white to-gray-100',
             tags: s.tags || [],
             isNew: s.is_new || false,
+            link_url: s.link_url || '',
           })))
         }
       })
@@ -193,7 +195,7 @@ function WeeklySlides() {
                   </p>
                   <div className="flex items-center gap-4 sm:gap-6">
                     <span className="text-xl sm:text-2xl lg:text-3xl font-semibold text-gray-900">от {s.price} ₽</span>
-                    <Link to="/catalog" className="inline-flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 px-6 py-3 sm:px-8 sm:py-3.5 text-sm sm:text-base text-white font-medium transition-all hover:shadow-lg hover:shadow-blue-500/25">
+                    <Link to={s.link_url || '/catalog'} className="inline-flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 px-6 py-3 sm:px-8 sm:py-3.5 text-sm sm:text-base text-white font-medium transition-all hover:shadow-lg hover:shadow-blue-500/25">
                       Подробнее
                     </Link>
                   </div>
