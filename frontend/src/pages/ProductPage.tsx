@@ -693,7 +693,7 @@ export function ProductPage() {
                 
                 <div
                   ref={galleryRef}
-                  className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-gray-50 to-gray-100 group"
+                  className="relative overflow-hidden rounded-3xl bg-white group"
                 >
                   {/* Badge */}
                   {apiProduct.is_featured && (
@@ -1266,9 +1266,7 @@ export function ProductPage() {
 
                     {/* Call button */}
                     <a
-                      href="https://t.me/takesmart_manager"
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      href="tel:+79998021022"
                       className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 transition-all hover:bg-gray-50 active:scale-[0.98] sm:py-3.5"
                     >
                       📞 Позвонить

@@ -62,10 +62,6 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
               {product.name}
             </h3>
             
-            <p className="text-gray-400 mb-6 text-lg line-clamp-2">
-              {product.description}
-            </p>
-            
             <div className="flex items-end gap-4 mb-8">
               <span className="text-4xl font-bold text-white">
                 {formatPrice(product.price)}

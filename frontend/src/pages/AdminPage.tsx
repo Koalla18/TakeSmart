@@ -508,7 +508,6 @@ export function AdminPage() {
           {[
             { id: 'orders' as TabType, label: '📋 Заказы', count: orders.length },
             { id: 'products' as TabType, label: '📦 Товары', count: products.filter(p => (p.condition || 'new') === 'new').length },
-            { id: 'used' as TabType, label: '♻️ Б/У', count: products.filter(p => p.condition === 'used').length },
             { id: 'categories' as TabType, label: '📁 Категории', count: categories.length },
             { id: 'slides' as TabType, label: '🏞 Слайды недели', count: slides.length },
           ].map(tab => (
@@ -522,6 +521,16 @@ export function AdminPage() {
               {tab.label} {tab.count !== undefined && `(${tab.count})`}
             </button>
           ))}
+          {/* Б/У — скрыто, недоступно */}
+          <div className="group relative rounded-xl px-5 py-3 text-sm font-medium bg-white/5 text-white/30 cursor-not-allowed select-none">
+            <span>♻️ Б/У</span>
+            <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-200 bg-white/5 backdrop-blur-sm flex items-center justify-center gap-1.5">
+              <svg className="h-3.5 w-3.5 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              <span className="text-white/50 text-xs">Скоро</span>
+            </div>
+          </div>
         </div>
 
         {/* ============ ORDERS TAB ============ */}
@@ -1387,9 +1396,10 @@ function OrderModal({
 const BRANDS = [
   'Apple', 'Samsung', 'Xiaomi', 'Sony', 'Google', 'Huawei', 'Nothing',
   'OnePlus', 'Realme', 'OPPO', 'Vivo', 'Motorola',
-  'DJI', 'GoPro', 'Dyson','Pitaka',
+  'DJI', 'GoPro', 'Dyson', 'Pitaka',
   'JBL', 'Bose', 'Beats', 'Marshall', 'Sennheiser',
   'Nintendo', 'Microsoft', 'Asus', 'Lenovo', 'HP', 'Dell', 'Acer', 'LG',
+  'Яндекс', 'Canon',
 ]
 
 const MAX_DESC = 3000
@@ -3046,8 +3056,8 @@ const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
   ],
   'smartphones:samsung': [
     { field: 'color', label: 'Цвета', placeholder: 'Серый титан', hint: 'Каждый цвет = отдельная карточка товара' },
-    { field: 'storage', label: 'Память', placeholder: '256 ГБ', hint: 'Объём встроенной памяти' },
     { field: 'connectivity', label: 'ОЗУ', placeholder: '12 ГБ', hint: 'Объём оперативной памяти' },
+    { field: 'storage', label: 'Память', placeholder: '256 ГБ', hint: 'Объём встроенной памяти' },
   ],
   tablets: [
     { field: 'color', label: 'Цвета', placeholder: 'Space Gray' },
@@ -3160,6 +3170,7 @@ function GroupCreationModal({
     const conns = axisValues.connectivity.length > 0 ? axisValues.connectivity : ['']
     const processors = axisValues.processor.length > 0 ? axisValues.processor : ['']
     const isLaptop = catSlug === 'laptops'
+    const isSamsungPhone = catSlug === 'smartphones' && brand?.toLowerCase() === 'samsung'
 
     const result: GroupProductRow[] = []
     for (const c of colors) {
@@ -3172,6 +3183,11 @@ function GroupCreationModal({
               const specParts = [proc, cn, s ? `${s} SSD` : ''].filter(Boolean)
               const specs = specParts.length > 0 ? ` (${specParts.join(', ')})` : ''
               fullName = c ? `${baseName}${specs}, ${c}` : `${baseName}${specs}`
+            } else if (isSamsungPhone) {
+              // Format: {baseName} {ram}/{storage} {color}  e.g. Samsung S25 Ultra 12ГБ/256ГБ чёрный
+              const spec = [cn, s].filter(Boolean).join('/')
+              const parts = [baseName, spec].filter(Boolean)
+              fullName = c ? `${parts.join(' ')} ${c}` : parts.join(' ')
             } else {
               const parts = [baseName, proc, s, cn].filter(Boolean)
               fullName = c ? `${parts.join(' ')}, ${c}` : parts.join(' ')
