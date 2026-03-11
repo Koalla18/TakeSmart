@@ -30,7 +30,24 @@ interface ParsedAttrs {
  *   "MacBook Pro 14 M4 Pro 16/512 ГБ, Space Black"
  */
 function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs {
-  // Storage: "256 ГБ", "512GB", "16/512 ГБ", "1 ТБ"
+  // ── Laptop: name contains "N ГБ SSD" or "N ТБ SSD" (built by admin group creator) ──
+  const ssdMatch = name.match(/(\d+)\s*(ГБ|GB|ТБ|TB)\s+SSD/i)
+  if (ssdMatch) {
+    const ssdUnit = /ТБ|TB/i.test(ssdMatch[2]) ? 'ТБ' : 'ГБ'
+    const storage = `${ssdMatch[1]} ${ssdUnit}`
+    // RAM is the last ГБ/ТБ number BEFORE the SSD match
+    const beforeSsd = name.slice(0, ssdMatch.index ?? 0)
+    const allRamMatches = [...beforeSsd.matchAll(/(\d+)\s*(ГБ|GB|ТБ|TB)/gi)]
+    let connectivity: string | null = null
+    if (allRamMatches.length > 0) {
+      const last = allRamMatches[allRamMatches.length - 1]
+      const unit = /ТБ|TB/i.test(last[2]) ? 'ТБ' : 'ГБ'
+      connectivity = `${last[1]} ${unit}`
+    }
+    return { storage, connectivity, color: color || null }
+  }
+
+  // ── Regular (non-laptop) parsing ──
   let storage: string | null = null
   const storageMatch = name.match(/(\d+(?:\s*\/\s*\d+)?)\s*(ГБ|GB|ТБ|TB)/i)
   if (storageMatch) {
@@ -893,6 +910,9 @@ export function ProductPage() {
                   const currentColor = apiProduct.color || null
                   const currentParsed = parseAttrsFromProduct(apiProduct.name, apiProduct.color)
 
+                  // Detect laptop group: any card name contains "N ГБ SSD"
+                  const isLaptopGroup = allCards.some(c => /\d+\s*(?:ГБ|GB|ТБ|TB)\s+SSD/i.test(c.name))
+
                   // Unique values per dimension
                   const uniqueColors = [...new Set(allCards.map(c => c.color).filter(Boolean))] as string[]
                   const uniqueStorages = sortStorageValues(
@@ -983,11 +1003,48 @@ export function ProductPage() {
                         </div>
                       )}
 
-                      {/* ── Storage (Память) ── */}
+                      {/* ── For laptops: ОЗУ first (connectivity), then Память SSD (storage) ── */}
+                      {/* ── For others:  Память (storage), then Связь (connectivity) ── */}
+
+                      {/* ── ОЗУ row — laptops only ── */}
+                      {isLaptopGroup && uniqueConn.length > 0 && (
+                        <div>
+                          <p className="mb-2 text-sm text-gray-500">
+                            ОЗУ: <span className="font-semibold text-gray-900">{currentParsed.connectivity || '—'}</span>
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {uniqueConn.map(conn => {
+                              const isCurrent = conn === currentParsed.connectivity
+                              const target = cardsWithAttrs.find(p =>
+                                p.connectivity === conn && (p.color === currentColor || !currentColor)
+                              ) || cardsWithAttrs.find(p => p.connectivity === conn)
+                              const isAvailable = !!target
+                              return (
+                                <button
+                                  key={conn}
+                                  disabled={!isAvailable}
+                                  onClick={() => isAvailable && !isCurrent && goTo(undefined, undefined, conn)}
+                                  className={`rounded-xl border px-4 py-2 text-sm font-medium transition-all ${
+                                    isCurrent
+                                      ? 'border-gray-900 bg-gray-900 text-white shadow-sm'
+                                      : isAvailable
+                                        ? 'border-gray-200 bg-white text-gray-700 hover:border-gray-400 hover:shadow-sm cursor-pointer'
+                                        : 'cursor-not-allowed border-gray-100 bg-gray-50 text-gray-300'
+                                  }`}
+                                >
+                                  {conn}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ── Storage / Память SSD ── */}
                       {uniqueStorages.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
-                            Память: <span className="font-semibold text-gray-900">{currentParsed.storage || '—'}</span>
+                            {isLaptopGroup ? 'Память SSD' : 'Память'}: <span className="font-semibold text-gray-900">{currentParsed.storage || '—'}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {uniqueStorages.map(stor => {
@@ -996,7 +1053,6 @@ export function ProductPage() {
                                 p.storage === stor && (p.color === currentColor || !currentColor)
                               ) || cardsWithAttrs.find(p => p.storage === stor)
                               const isAvailable = !!target
-
                               return (
                                 <button
                                   key={stor}
@@ -1018,8 +1074,8 @@ export function ProductPage() {
                         </div>
                       )}
 
-                      {/* ── Connectivity (Связь / SIM) ── */}
-                      {uniqueConn.length > 0 && (
+                      {/* ── Connectivity (Связь / SIM) — non-laptop only ── */}
+                      {!isLaptopGroup && uniqueConn.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
                             Связь: <span className="font-semibold text-gray-900">{currentParsed.connectivity || '—'}</span>
