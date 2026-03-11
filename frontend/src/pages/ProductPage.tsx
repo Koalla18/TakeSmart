@@ -419,6 +419,9 @@ export function ProductPage() {
   const didSwipe = useRef(false)
   // Mirror of the images array for use inside event listeners
   const imagesRef = useRef<string[]>([])
+  // Ref for the gallery container (needed for non-passive wheel listener)
+  const galleryRef = useRef<HTMLDivElement>(null)
+  const wheelDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Keyboard arrow navigation
   useEffect(() => {
@@ -431,6 +434,28 @@ export function ProductPage() {
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
   }, [])
+
+  // Trackpad horizontal swipe (wheel events with deltaX)
+  useEffect(() => {
+    const el = galleryRef.current
+    if (!el) return
+    const handleWheel = (e: WheelEvent) => {
+      const imgs = imagesRef.current
+      if (imgs.length <= 1) return
+      // Only handle predominantly horizontal scroll
+      if (Math.abs(e.deltaX) < Math.abs(e.deltaY) * 0.6) return
+      e.preventDefault()
+      if (wheelDebounce.current) return
+      if (e.deltaX > 15) {
+        setActiveImageIndex(i => (i + 1) % imgs.length)
+      } else if (e.deltaX < -15) {
+        setActiveImageIndex(i => (i - 1 + imgs.length) % imgs.length)
+      }
+      wheelDebounce.current = setTimeout(() => { wheelDebounce.current = null }, 550)
+    }
+    el.addEventListener('wheel', handleWheel, { passive: false })
+    return () => el.removeEventListener('wheel', handleWheel)
+  }, [apiProduct?.id]) // re-attach once the gallery div is in the DOM (after product loads)
 
   // Derive best-matching variant from the 3 independent selections
   const selectedVariant = useMemo<ApiVariant | null>(() => {
@@ -666,7 +691,10 @@ export function ProductPage() {
                   Назад
                 </button>
                 
-                <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-gray-50 to-gray-100 group">
+                <div
+                  ref={galleryRef}
+                  className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-gray-50 to-gray-100 group"
+                >
                   {/* Badge */}
                   {apiProduct.is_featured && (
                     <div className="absolute left-4 top-4 z-10">
@@ -682,10 +710,14 @@ export function ProductPage() {
                       </span>
                     </div>
                   )}
-                  
-                  {/* Main Image with swipe support */}
+
+                  {/* Sliding strip */}
                   <div
-                    className="flex aspect-square cursor-pointer items-center justify-center p-8 select-none"
+                    className="flex aspect-square select-none"
+                    style={{
+                      transform: `translateX(-${activeImageIndex * 100}%)`,
+                      transition: 'transform 0.42s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+                    }}
                     onTouchStart={(e) => {
                       touchStartX.current = e.touches[0].clientX
                       touchStartY.current = e.touches[0].clientY
@@ -701,34 +733,56 @@ export function ProductPage() {
                         else setActiveImageIndex(i => (i - 1 + imgs.length) % imgs.length)
                       }
                     }}
-                    onClick={() => {
-                      if (didSwipe.current) return
-                      if (isImageUrl(images[activeImageIndex])) {
-                        setLightboxStartIndex(activeImageIndex)
-                        setLightboxOpen(true)
-                      }
-                    }}
                   >
-                    {isImageUrl(images[activeImageIndex]) ? (
-                      <img 
-                        key={activeImageIndex}
-                        src={getImageUrl(images[activeImageIndex])}
-                        alt={apiProduct.name}
-                        className="max-h-full max-w-full object-contain transition-transform hover:scale-105"
-                      />
-                    ) : (
-                      <span className="text-[12rem] transition-transform hover:scale-105">
-                        {images[activeImageIndex] || '📦'}
-                      </span>
-                    )}
+                    {images.map((img, i) => (
+                      <div
+                        key={i}
+                        className="min-w-full flex items-center justify-center p-8 cursor-pointer"
+                        onClick={() => {
+                          if (didSwipe.current) return
+                          if (isImageUrl(img)) {
+                            setLightboxStartIndex(i)
+                            setLightboxOpen(true)
+                          }
+                        }}
+                      >
+                        {isImageUrl(img) ? (
+                          <img
+                            src={getImageUrl(img)}
+                            alt={apiProduct.name}
+                            className="max-h-full max-w-full object-contain"
+                            draggable={false}
+                          />
+                        ) : (
+                          <span className="text-[12rem]">{img || '📦'}</span>
+                        )}
+                      </div>
+                    ))}
                   </div>
 
-                  {/* Prev / Next arrow buttons — desktop hover */}
+                  {/* Dot indicators */}
+                  {images.length > 1 && (
+                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
+                      {images.map((_, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setActiveImageIndex(i)}
+                          className={`rounded-full transition-all duration-300 ${
+                            i === activeImageIndex
+                              ? 'w-5 h-1.5 bg-gray-800'
+                              : 'w-1.5 h-1.5 bg-gray-400/60 hover:bg-gray-500'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Prev / Next arrow buttons — slide in from sides on hover */}
                   {images.length > 1 && (
                     <>
                       <button
                         onClick={(e) => { e.stopPropagation(); setActiveImageIndex(i => (i - 1 + images.length) % images.length) }}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/80 shadow-md backdrop-blur transition-all duration-200 opacity-0 group-hover:opacity-100 hover:bg-white hover:shadow-lg"
+                        className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 shadow-md backdrop-blur-sm transition-all duration-250 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 hover:bg-white hover:shadow-lg"
                         aria-label="Предыдущее фото"
                       >
                         <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -737,7 +791,7 @@ export function ProductPage() {
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); setActiveImageIndex(i => (i + 1) % images.length) }}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/80 shadow-md backdrop-blur transition-all duration-200 opacity-0 group-hover:opacity-100 hover:bg-white hover:shadow-lg"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 shadow-md backdrop-blur-sm transition-all duration-250 opacity-0 translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 hover:bg-white hover:shadow-lg"
                         aria-label="Следующее фото"
                       >
                         <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -746,7 +800,7 @@ export function ProductPage() {
                       </button>
                     </>
                   )}
-                  
+
                   {/* Favorite button */}
                   <button className="absolute right-4 top-4 rounded-full bg-white p-3 shadow-lg transition-colors hover:bg-yellow-50">
                     <HeartIcon className="h-6 w-6 text-gray-400 hover:text-red-500" />
