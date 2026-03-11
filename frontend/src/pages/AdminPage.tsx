@@ -3032,7 +3032,7 @@ function CategoryModal({
 // Шаг 2: Сразу после создания — загружай фото на каждый цвет/товар из той же модалки.
 
 interface GroupAxis {
-  field: 'color' | 'storage' | 'connectivity'
+  field: 'color' | 'storage' | 'connectivity' | 'processor'
   label: string
   placeholder: string
   hint?: string
@@ -3055,9 +3055,10 @@ const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
     { field: 'connectivity', label: 'Связь', placeholder: 'WiFi + Cellular' },
   ],
   laptops: [
-    { field: 'color', label: 'Цвета', placeholder: 'Space Black' },
-    { field: 'storage', label: 'Память (SSD)', placeholder: '512 ГБ', hint: 'Объём встроенного накопителя' },
-    { field: 'connectivity', label: 'ОЗУ', placeholder: '16 ГБ', hint: 'Объём оперативной памяти' },
+    { field: 'color', label: 'Цвет', placeholder: 'серебристый', hint: 'Каждый цвет = отдельная карточка' },
+    { field: 'processor', label: 'Процессор', placeholder: 'M4 Pro, 14C CPU, 20C GPU', hint: 'Модель чипа + ядра, например: M4 Pro, 14C CPU, 20C GPU' },
+    { field: 'connectivity', label: 'ОЗУ', placeholder: '24 ГБ', hint: 'Объём оперативной памяти' },
+    { field: 'storage', label: 'Память SSD', placeholder: '512 ГБ', hint: 'Объём накопителя' },
   ],
   watches: [
     { field: 'color', label: 'Цвета', placeholder: 'Титан' },
@@ -3092,6 +3093,7 @@ interface GroupProductRow {
   color: string
   storage: string
   connectivity: string
+  processor: string
   price: string
   stock: string
   enabled: boolean
@@ -3124,10 +3126,10 @@ function GroupCreationModal({
   const [warranty, setWarranty] = useState('')
 
   const [axisValues, setAxisValues] = useState<Record<string, string[]>>({
-    color: [], storage: [], connectivity: [],
+    color: [], storage: [], connectivity: [], processor: [],
   })
   const [newInputs, setNewInputs] = useState<Record<string, string>>({
-    color: '', storage: '', connectivity: '',
+    color: '', storage: '', connectivity: '', processor: '',
   })
   const [overrides, setOverrides] = useState<Record<string, { price: string; stock: string; enabled: boolean }>>({})
 
@@ -3156,20 +3158,32 @@ function GroupCreationModal({
     const colors = axisValues.color.length > 0 ? axisValues.color : ['']
     const storages = axisValues.storage.length > 0 ? axisValues.storage : ['']
     const conns = axisValues.connectivity.length > 0 ? axisValues.connectivity : ['']
+    const processors = axisValues.processor.length > 0 ? axisValues.processor : ['']
+    const isLaptop = catSlug === 'laptops'
 
     const result: GroupProductRow[] = []
     for (const c of colors) {
-      for (const s of storages) {
+      for (const proc of processors) {
         for (const cn of conns) {
-          const parts = [baseName, s, cn].filter(Boolean)
-          const fullName = c ? `${parts.join(' ')}, ${c}` : parts.join(' ')
-          const key = `${c}|${s}|${cn}`
-          const ov = overrides[key]
-          result.push({
-            name: fullName, color: c, storage: s, connectivity: cn,
-            price: ov?.price || basePriceStr, stock: ov?.stock || '0',
-            enabled: ov?.enabled !== false,
-          })
+          for (const s of storages) {
+            let fullName: string
+            if (isLaptop) {
+              // Format: {baseName} ({processor}, {ram}, {storage} SSD), {color}
+              const specParts = [proc, cn, s ? `${s} SSD` : ''].filter(Boolean)
+              const specs = specParts.length > 0 ? ` (${specParts.join(', ')})` : ''
+              fullName = c ? `${baseName}${specs}, ${c}` : `${baseName}${specs}`
+            } else {
+              const parts = [baseName, proc, s, cn].filter(Boolean)
+              fullName = c ? `${parts.join(' ')}, ${c}` : parts.join(' ')
+            }
+            const key = `${c}|${proc}|${s}|${cn}`
+            const ov = overrides[key]
+            result.push({
+              name: fullName, color: c, storage: s, connectivity: cn, processor: proc,
+              price: ov?.price || basePriceStr, stock: ov?.stock || '0',
+              enabled: ov?.enabled !== false,
+            })
+          }
         }
       }
     }
@@ -3485,7 +3499,7 @@ function GroupCreationModal({
                             <input type="checkbox" checked={enabledCount === matrix.length} onChange={() => {
                               const allEnabled = enabledCount === matrix.length
                               matrix.forEach(m => {
-                                const key = `${m.color}|${m.storage}|${m.connectivity}`
+                                const key = `${m.color}|${m.processor}|${m.storage}|${m.connectivity}`
                                 updateOverride(key, 'enabled', !allEnabled)
                               })
                             }} className="h-3.5 w-3.5 rounded accent-yellow-400 cursor-pointer" />
@@ -3497,7 +3511,7 @@ function GroupCreationModal({
                       </thead>
                       <tbody>
                         {matrix.map((item, i) => {
-                          const key = `${item.color}|${item.storage}|${item.connectivity}`
+                          const key = `${item.color}|${item.processor}|${item.storage}|${item.connectivity}`
                           return (
                             <tr key={i} className={`border-t border-white/5 ${item.enabled ? 'hover:bg-white/[0.02]' : 'opacity-35'}`}>
                               <td className="p-2">
@@ -3507,7 +3521,7 @@ function GroupCreationModal({
                               </td>
                               <td className="p-2">
                                 <div className="font-medium text-white text-xs">{item.name}</div>
-                                <div className="text-[10px] text-slate-600">{[item.color, item.storage, item.connectivity].filter(Boolean).join(' · ')}</div>
+                                <div className="text-[10px] text-slate-600">{[item.color, item.processor, item.connectivity, item.storage].filter(Boolean).join(' · ')}</div>
                               </td>
                               <td className="p-2">
                                 <input type="text" inputMode="decimal"
