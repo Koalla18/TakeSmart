@@ -3135,6 +3135,8 @@ function GroupCreationModal({
   const [activeProductIdx, setActiveProductIdx] = useState(0)
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [modelCodes, setModelCodes] = useState<Record<string, string>>({})
+  const [savingCode, setSavingCode] = useState<string | null>(null)
 
   // Category
   const selectedCat = categories.find(c => c.id === categoryId)
@@ -3325,7 +3327,12 @@ function GroupCreationModal({
   }, {})
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => {
+      const msg = step === 'configure'
+        ? 'Вы уверены, что хотите выйти? Введённые данные не сохранятся.'
+        : 'Выйти? Товары уже созданы, фото можно добавить позже через редактирование.'
+      if (window.confirm(msg)) onClose()
+    }}>
       <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-slate-800" onClick={e => e.stopPropagation()}>
 
         {/* Header */}
@@ -3345,7 +3352,17 @@ function GroupCreationModal({
               }`}>2</div>
             </div>
           </div>
-          <button onClick={onClose} className="text-xl text-slate-400 hover:text-white">×</button>
+          <button
+            onClick={() => {
+              if (step === 'configure') {
+                if (!window.confirm('Вы уверены, что хотите выйти? Введённые данные не сохранятся.')) return
+              } else {
+                if (!window.confirm('Выйти? Товары уже созданы, фото можно добавить позже через редактирование.')) return
+              }
+              onClose()
+            }}
+            className="text-xl text-slate-400 hover:text-white"
+          >×</button>
         </div>
 
         {/* ═══════════════════ STEP 1: CONFIGURE ═══════════════════ */}
@@ -3519,7 +3536,7 @@ function GroupCreationModal({
                 </div>
               )}
               <div className="flex items-center justify-between">
-                <button onClick={onClose} disabled={creating} className="rounded-xl bg-white/10 px-5 py-2.5 text-sm text-white hover:bg-white/20 disabled:opacity-40">Отмена</button>
+                <button onClick={() => { if (window.confirm('Вы уверены, что хотите выйти? Введённые данные не сохранятся.')) onClose() }} disabled={creating} className="rounded-xl bg-white/10 px-5 py-2.5 text-sm text-white hover:bg-white/20 disabled:opacity-40">Отмена</button>
                 <button onClick={handleCreate}
                   disabled={creating || enabledCount === 0 || !baseName.trim() || !basePriceStr}
                   className="rounded-xl bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-500 disabled:opacity-40 transition-colors">
@@ -3603,6 +3620,51 @@ function GroupCreationModal({
                         </button>
                       </div>
                     </div>
+
+                    {/* Model code field (laptops) */}
+                    {selectedCat?.slug === 'laptops' && (
+                      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-2">
+                        <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Код модели (SKU)</div>
+                        <div className="text-[10px] text-slate-600">Apple article, например MX2F3 — добавится в скобках в конце названия</div>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={modelCodes[activeProduct.id] ?? ''}
+                            onChange={e => setModelCodes(prev => ({ ...prev, [activeProduct.id]: e.target.value }))}
+                            placeholder="MX2F3"
+                            className="flex-1 rounded-lg bg-white/10 px-3 py-2 text-sm text-white placeholder-slate-600 focus:bg-white/15 focus:outline-none"
+                          />
+                          <button
+                            disabled={savingCode === activeProduct.id}
+                            onClick={async () => {
+                              const code = (modelCodes[activeProduct.id] || '').trim()
+                              if (!code) return
+                              setSavingCode(activeProduct.id)
+                              // Build new name: strip old code if present, append new
+                              const baseName = activeProduct.name.replace(/\s*\([A-Z0-9]+\)$/, '').trim()
+                              const newName = `${baseName} (${code})`
+                              try {
+                                const res = await authFetch(`${API_BASE_URL}/api/products/${activeProduct.id}`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ name: newName }),
+                                })
+                                if (res.ok) {
+                                  setCreatedProducts(prev => prev.map((p, i) =>
+                                    i === activeProductIdx ? { ...p, name: newName } : p
+                                  ))
+                                }
+                              } finally {
+                                setSavingCode(null)
+                              }
+                            }}
+                            className="rounded-lg bg-yellow-400/20 px-4 py-2 text-sm font-semibold text-yellow-300 hover:bg-yellow-400/30 disabled:opacity-40"
+                          >
+                            {savingCode === activeProduct.id ? '…' : 'Сохранить'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Drop zone */}
                     <div

@@ -843,11 +843,11 @@ export function HomePage() {
               </div>
               <div className="flex items-center gap-2">
                 <TruckIcon className="h-5 w-5 text-blue-500" />
-                Бесплатная доставка
+                Доставка от 500 ₽
               </div>
               <div className="flex items-center gap-2">
                 <CardIcon className="h-5 w-5 text-purple-500" />
-                Рассрочка без %
+                Кредит
               </div>
               <div className="flex items-center gap-2">
                 <PhoneIcon className="h-5 w-5 text-yellow-500" />

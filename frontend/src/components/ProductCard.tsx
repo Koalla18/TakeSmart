@@ -296,9 +296,9 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
             </span>
             <span className="flex items-center gap-1">
               <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
               </svg>
-              Быстрая доставка
+              Рассрочка 0%
             </span>
           </div>
         </div>
