@@ -271,7 +271,7 @@ export function CatalogPage() {
         // Загружаем категории и товары параллельно
         const [catResp, prodResp] = await Promise.all([
           fetch(`${API_BASE_URL}/api/categories`),
-          fetch(`${API_BASE_URL}/api/products?limit=200&only_active=true`),
+          fetch(`${API_BASE_URL}/api/products?limit=1000&only_active=true`),
         ])
 
         if (!catResp.ok || !prodResp.ok) return
