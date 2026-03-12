@@ -211,7 +211,7 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
           
           {/* Name */}
           <Link to={`/product/${product.slug}`}>
-            <h3 className="mb-2 sm:mb-3 line-clamp-2 text-sm sm:text-base font-semibold text-gray-900 transition-colors hover:text-yellow-600">
+            <h3 className="mb-2 sm:mb-3 text-sm sm:text-base font-semibold text-gray-900 transition-colors hover:text-yellow-600">
               {product.name.replace(/\s*\([A-Z][A-Z0-9]{3,}\)$/, '')}
             </h3>
           </Link>
@@ -301,12 +301,6 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
               Гарантия
-            </span>
-            <span className="flex items-center gap-1">
-              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-              </svg>
-              Рассрочка 0%
             </span>
           </div>
         </div>
