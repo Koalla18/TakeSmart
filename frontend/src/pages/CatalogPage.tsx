@@ -36,8 +36,6 @@ const DEFAULT_QUICK_FILTERS: Record<string, { label: string; query: string; bran
     { label: 'iPhone 15', query: 'iPhone 15', brand: 'apple' },
     { label: 'iPhone 14', query: 'iPhone 14', brand: 'apple' },
     { label: 'iPhone 13', query: 'iPhone 13', brand: 'apple' },
-    { label: 'iPhone 12', query: 'iPhone 12', brand: 'apple' },
-    { label: 'iPhone 11', query: 'iPhone 11', brand: 'apple' },
     { label: 'Galaxy S26 Ultra', query: 'Galaxy S26 Ultra', brand: 'samsung' },
     { label: 'Galaxy S26+', query: 'Galaxy S26 Plus', brand: 'samsung' },
     { label: 'Galaxy S26', query: 'Galaxy S26', brand: 'samsung' },
