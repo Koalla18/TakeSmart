@@ -1352,7 +1352,7 @@ export function ProductPage() {
                     </div>
                     <div>
                       <div className="font-semibold text-gray-900">Быстрая доставка</div>
-                      <div className="text-sm text-gray-500">По Москве от 2 часов</div>
+                      <div className="text-sm text-gray-500">По Москве от 30 мин</div>
                     </div>
                   </div>
                   <div className="flex items-start gap-3">

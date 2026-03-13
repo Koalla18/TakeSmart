@@ -40,9 +40,8 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
     fetch(`${API_BASE_URL}/api/categories?limit=100&only_active=true`)
       .then(res => res.json())
       .then(data => {
-        if (Array.isArray(data)) {
-          setCategories(data.filter(c => !c.name.toLowerCase().includes('б/у')))
-        }
+        const items = Array.isArray(data) ? data : (data.items || [])
+        setCategories(items.filter((c: any) => !c.name.toLowerCase().includes('б/у')))
       })
       .catch(console.error)
   }, [])
