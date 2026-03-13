@@ -6,6 +6,7 @@ import { PhoneIcon, MailIcon, ClockIcon, MenuIcon, CloseIcon, TelegramIcon, Chev
 import { Container } from './ui/Layout'
 import { useCart } from '../lib/cart'
 import { GlobalSearch, MobileSearchButton } from './GlobalSearch'
+import { API_BASE_URL } from '../lib/config'
 
 function NavItem({ to, label, onClick }: { to: string; label: string; onClick?: () => void }) {
   return (
@@ -33,6 +34,19 @@ function NavItem({ to, label, onClick }: { to: string; label: string; onClick?: 
 }
 
 function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const [categories, setCategories] = useState<any[]>([])
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/categories?limit=100&only_active=true`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setCategories(data.filter(c => !c.name.toLowerCase().includes('б/у')))
+        }
+      })
+      .catch(console.error)
+  }, [])
+
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden'
@@ -98,17 +112,6 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                   <ChevronRightIcon className="h-4 w-4 text-gray-400" />
                 </NavLink>
               ))}
-              {/* Б/У — скрыт до открытия */}
-              <div className="group relative flex items-center justify-between rounded-xl px-4 py-3 text-base font-medium text-gray-300 cursor-not-allowed select-none">
-                <span>Б/У техника</span>
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-gray-400">
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                  </svg>
-                </span>
-                {/* blur overlay on hover */}
-                <div className="absolute inset-0 rounded-xl bg-white/0 group-hover:bg-gray-50/60 backdrop-blur-0 group-hover:backdrop-blur-[1px] transition-all duration-200 pointer-events-none" />
-              </div>
             </div>
             
             {/* Categories quick links */}
@@ -117,22 +120,31 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                 Категории
               </h3>
               <div className="space-y-1">
-                {[
-                  { icon: '📱', label: 'Смартфоны', category: 'smartphones' },
-                  { icon: '💻', label: 'Ноутбуки', category: 'laptops' },
-                  { icon: '🎧', label: 'Наушники', category: 'headphones' },
-                  { icon: '⌚', label: 'Часы', category: 'watches' },
-                ].map(cat => (
-                  <Link
-                    key={cat.category}
-                    to={`/catalog?category=${cat.category}`}
-                    onClick={onClose}
-                    className="flex items-center gap-3 rounded-xl px-4 py-2.5 transition-colors hover:bg-gray-50"
-                  >
-                    <span className="text-xl">{cat.icon}</span>
-                    <span className="text-sm text-gray-700">{cat.label}</span>
-                  </Link>
-                ))}
+                {categories.map(cat => {
+                  let icon = '📦';
+                  const name = cat.name.toLowerCase();
+                  if (name.includes('смартфоны') || name.includes('телефон')) icon = '📱';
+                  else if (name.includes('ноутбук')) icon = '💻';
+                  else if (name.includes('наушник')) icon = '🎧';
+                  else if (name.includes('час')) icon = '⌚';
+                  else if (name.includes('планшет')) icon = '📱';
+                  else if (name.includes('аксессуар')) icon = '🔌';
+                  else if (name.includes('колонк')) icon = '🔊';
+                  else if (name.includes('красота')) icon = '💇‍♀️';
+                  else if (name.includes('дом')) icon = '🏠';
+                  
+                  return (
+                    <Link
+                      key={cat.id}
+                      to={`/catalog?category=${cat.slug || cat.id}`}
+                      onClick={onClose}
+                      className="flex items-center gap-3 rounded-xl px-4 py-2.5 transition-colors hover:bg-gray-50"
+                    >
+                      <span className="text-xl">{icon}</span>
+                      <span className="text-sm text-gray-700">{cat.name}</span>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           </nav>

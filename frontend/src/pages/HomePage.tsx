@@ -273,7 +273,7 @@ const benefits = [
   { 
     icon: <TruckIcon className="h-8 w-8" />, 
     title: 'Доставка за 2 часа', 
-    description: 'Бесплатная доставка по Москве'
+    description: 'Быстрая доставка по Москве'
   },
   { 
     icon: <CardIcon className="h-8 w-8" />, 

@@ -1334,10 +1334,12 @@ export function ProductPage() {
                 
                 {/* Disclaimer */}
                 <p className="mb-6 text-xs text-gray-400">
-                  Товар имеет недостаток: невозможно установить и использовать RuStore
-                  <br />
-                  Цена действительна только для интернет-магазина и может отличаться от цен в розничных магазинах, 
-                  а также в зависимости от версии приобретаемого устройства
+                  {product.brand.toLowerCase() === 'apple' && (
+                    <>
+                      Товар имеет недостаток: невозможно установить и использовать RuStore
+                      <br />
+                    </>
+                  )}
                 </p>
                 
                 {/* Benefits */}
@@ -1347,7 +1349,7 @@ export function ProductPage() {
                       <TruckIcon className="h-5 w-5" />
                     </div>
                     <div>
-                      <div className="font-semibold text-gray-900">Бесплатная доставка</div>
+                      <div className="font-semibold text-gray-900">Быстрая доставка</div>
                       <div className="text-sm text-gray-500">По Москве от 2 часов</div>
                     </div>
                   </div>

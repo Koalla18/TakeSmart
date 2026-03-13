@@ -195,7 +195,10 @@ function FilterSidebar({
         <h3 className="mb-3 text-sm font-semibold text-gray-900">Категории</h3>
         <div className="space-y-1">
           <button
-            onClick={() => setSelectedCategory('all')}
+            onClick={() => {
+              setSelectedCategory('all');
+              setSelectedBrand('all');
+            }}
             className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
               selectedCategory === 'all'
                 ? 'bg-yellow-50 font-medium text-yellow-700'
@@ -207,11 +210,14 @@ function FilterSidebar({
           {categoriesList.map((cat) => {
             const isSelected = selectedCategory === cat.id
             const catBrands = isSelected ? (categoryBrandsMap[cat.id] || []) : []
-            
+
             return (
               <div key={cat.id} className="space-y-0.5">
                 <button
-                  onClick={() => setSelectedCategory(cat.id)}
+                  onClick={() => {
+                    setSelectedCategory(cat.id);
+                    setSelectedBrand('all');
+                  }}
                   className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                     isSelected
                       ? 'bg-yellow-50 font-medium text-yellow-700'
@@ -371,7 +377,7 @@ export function CatalogPage() {
         // Загружаем категории и товары параллельно
         const [catResp, prodResp] = await Promise.all([
           fetch(`${API_BASE_URL}/api/categories`),
-          fetch(`${API_BASE_URL}/api/products?limit=1000&only_active=true`),
+          fetch(`${API_BASE_URL}/api/products?limit=2500&only_active=true`),
         ])
 
         if (!catResp.ok || !prodResp.ok) return
@@ -438,7 +444,7 @@ export function CatalogPage() {
               quickFilters: base.quickFilters.length > 0 ? base.quickFilters : (DEFAULT_QUICK_FILTERS[c.slug] ?? []),
             }
           })
-          .filter(c => activeSlugs.has(c.id) || c.count > 0)
+          .filter(c => (activeSlugs.has(c.id) || c.count > 0) && !c.name.toLowerCase().includes('б/у'))
 
         setDisplayProducts(mapped)
         setDisplayCategories(apiCategories)
@@ -675,9 +681,12 @@ export function CatalogPage() {
             <div className="mb-4 lg:hidden">
               <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
                 <button
-                  onClick={() => setSelectedCategory('all')}
+                  onClick={() => {
+                    setSelectedCategory('all');
+                    setSelectedBrand('all');
+                  }}
                   className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                    selectedCategory === 'all'
+                      selectedCategory === 'all'
                       ? 'bg-yellow-400 text-gray-900'
                       : 'bg-white text-gray-700 border border-gray-200'
                   }`}
@@ -687,7 +696,10 @@ export function CatalogPage() {
                 {displayCategories.map((cat) => (
                   <button
                     key={cat.id}
-                    onClick={() => setSelectedCategory(cat.id)}
+                    onClick={() => {
+                      setSelectedCategory(cat.id);
+                      setSelectedBrand('all');
+                    }}
                     className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
                       selectedCategory === cat.id
                         ? 'bg-yellow-400 text-gray-900'

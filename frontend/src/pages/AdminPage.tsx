@@ -201,7 +201,7 @@ export function AdminPage() {
 
   const loadProducts = async () => {
     try {
-      const res = await authFetch(`${API_BASE_URL}/api/products?limit=1000&only_active=false`)
+      const res = await authFetch(`${API_BASE_URL}/api/products?limit=2500&only_active=false`)
       if (res.ok) {
         const data: PaginatedResponse<Product> = await res.json()
         setProducts(data.items)

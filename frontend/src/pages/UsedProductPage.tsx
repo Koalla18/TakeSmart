@@ -328,7 +328,7 @@ export function UsedProductPage() {
                     <TruckIcon className="h-5 w-5" />
                   </div>
                   <div>
-                    <div className="font-semibold text-gray-900">Бесплатная доставка</div>
+                    <div className="font-semibold text-gray-900">Быстрая доставка</div>
                     <div className="text-sm text-gray-500">По Москве от 2 часов</div>
                   </div>
                 </div>
