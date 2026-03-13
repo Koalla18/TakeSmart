@@ -33,11 +33,7 @@ const DEFAULT_QUICK_FILTERS: Record<string, { label: string; query: string; bran
     { label: 'iPhone 16 Pro Max', query: 'iPhone 16 Pro Max', brand: 'apple' },
     { label: 'iPhone 16 Pro', query: 'iPhone 16 Pro', brand: 'apple' },
     { label: 'iPhone 16', query: 'iPhone 16', brand: 'apple' },
-    { label: 'iPhone 15 Pro Max', query: 'iPhone 15 Pro Max', brand: 'apple' },
-    { label: 'iPhone 15 Pro', query: 'iPhone 15 Pro', brand: 'apple' },
     { label: 'iPhone 15', query: 'iPhone 15', brand: 'apple' },
-    { label: 'iPhone 14 Pro Max', query: 'iPhone 14 Pro Max', brand: 'apple' },
-    { label: 'iPhone 14 Pro', query: 'iPhone 14 Pro', brand: 'apple' },
     { label: 'iPhone 14', query: 'iPhone 14', brand: 'apple' },
     { label: 'iPhone 13', query: 'iPhone 13', brand: 'apple' },
     { label: 'iPhone 12', query: 'iPhone 12', brand: 'apple' },
@@ -237,7 +233,7 @@ function FilterSidebar({
                           : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
                       }`}
                     >
-                      Все модели бренда
+                      Общий каталог
                     </button>
                     {catBrands.map((brand) => (
                       <button
