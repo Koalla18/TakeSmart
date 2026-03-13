@@ -1334,12 +1334,14 @@ export function ProductPage() {
                 
                 {/* Disclaimer */}
                 <p className="mb-6 text-xs text-gray-400">
-                  {product.brand.toLowerCase() === 'apple' && (
+                  {apiProduct?.brand?.toLowerCase() === 'apple' && (
                     <>
                       Товар имеет недостаток: невозможно установить и использовать RuStore
                       <br />
                     </>
                   )}
+                  Цена действительна только для интернет-магазина и может отличаться от цен в розничных магазинах,
+                  а также в зависимости от версии приобретаемого устройства
                 </p>
                 
                 {/* Benefits */}
