@@ -96,6 +96,7 @@ function FilterSidebar({
   onClose,
   categoriesList,
   brandsList,
+  categoryBrandsMap,
 }: {
   selectedCategory: string
   setSelectedCategory: (v: string) => void
@@ -110,6 +111,7 @@ function FilterSidebar({
   onClose?: () => void
   categoriesList: CatalogCategory[]
   brandsList: CatalogBrand[]
+  categoryBrandsMap: Record<string, CatalogBrand[]>
 }) {
   const minPrice = 0
   const maxPrice = 300000
@@ -153,6 +155,37 @@ function FilterSidebar({
             </button>
           ))}
         </div>
+
+        {selectedCategory !== 'all' && (categoryBrandsMap[selectedCategory]?.length ?? 0) > 0 && (
+          <div className="mt-3 rounded-lg border border-gray-100 bg-white p-2.5">
+            <p className="mb-2 text-xs font-medium text-gray-500">Бренды в категории</p>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                onClick={() => setSelectedBrand('all')}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                  selectedBrand === 'all'
+                    ? 'bg-yellow-50 text-yellow-700'
+                    : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                Все
+              </button>
+              {categoryBrandsMap[selectedCategory].map((brand) => (
+                <button
+                  key={brand.id}
+                  onClick={() => setSelectedBrand(brand.id)}
+                  className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                    selectedBrand === brand.id
+                      ? 'bg-yellow-50 text-yellow-700'
+                      : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  {brand.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       
       {/* Brands */}
@@ -253,6 +286,7 @@ export function CatalogPage() {
   const [displayProducts, setDisplayProducts] = useState<Product[]>([])
   const [displayCategories, setDisplayCategories] = useState<CatalogCategory[]>([])
   const [displayBrands, setDisplayBrands] = useState<CatalogBrand[]>([])
+  const [categoryBrandsMap, setCategoryBrandsMap] = useState<Record<string, CatalogBrand[]>>({})
 
   // Filter states
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || 'all')
@@ -313,6 +347,19 @@ export function CatalogPage() {
           logo: brandIcons[b.toLowerCase()] ?? '📦',
         }))
 
+        const apiBrandsByCategory: Record<string, CatalogBrand[]> = {}
+        for (const c of new Set(mapped.map(p => p.categorySlug).filter(Boolean))) {
+          const brandsInCategory = [...new Set(mapped
+            .filter(p => p.categorySlug === c)
+            .map(p => p.brand)
+            .filter(Boolean))]
+          apiBrandsByCategory[c] = brandsInCategory.map(b => ({
+            id: b.toLowerCase(),
+            name: b,
+            logo: brandIcons[b.toLowerCase()] ?? '📦',
+          }))
+        }
+
         // Категории из API (только с товарами)
         const activeSlugs = new Set(mapped.map(p => p.categorySlug).filter(Boolean))
         const apiCategories: CatalogCategory[] = catData
@@ -360,6 +407,7 @@ export function CatalogPage() {
           }
         }
         setDisplayBrands(apiBrands)
+        setCategoryBrandsMap(apiBrandsByCategory)
       } catch (err) {
         console.error('Failed to load catalog:', err)
       }
@@ -400,15 +448,19 @@ export function CatalogPage() {
   // Filter and sort products
   const filteredProducts = useMemo(() => {
     let result = [...displayProducts]
+    const hasSearch = searchQuery.trim().length > 0
     
-    // Category filter
-    if (selectedCategory !== 'all') {
-      result = result.filter(p => p.categorySlug === selectedCategory)
-    }
-    
-    // Brand filter
-    if (selectedBrand !== 'all') {
-      result = result.filter(p => p.brand.toLowerCase() === selectedBrand)
+    // While searching, ignore category/brand filters and search globally.
+    if (!hasSearch) {
+      // Category filter
+      if (selectedCategory !== 'all') {
+        result = result.filter(p => p.categorySlug === selectedCategory)
+      }
+
+      // Brand filter
+      if (selectedBrand !== 'all') {
+        result = result.filter(p => p.brand.toLowerCase() === selectedBrand)
+      }
     }
     
     // Price filter
@@ -547,6 +599,7 @@ export function CatalogPage() {
               onReset={resetFilters}
               categoriesList={displayCategories}
               brandsList={displayBrands}
+              categoryBrandsMap={categoryBrandsMap}
             />
           </aside>
           
@@ -804,6 +857,7 @@ export function CatalogPage() {
               onClose={() => setShowMobileFilters(false)}
               categoriesList={displayCategories}
               brandsList={displayBrands}
+              categoryBrandsMap={categoryBrandsMap}
             />
           </div>
         </>
