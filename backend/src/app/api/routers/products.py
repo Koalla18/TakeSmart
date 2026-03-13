@@ -88,7 +88,7 @@ def _build_detail(product, images, specs, variants=None, siblings=None) -> Produ
 )
 async def list_products(
     offset: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=1000),
+    limit: int = Query(20, ge=1, le=5000),
     only_active: bool = Query(True),
     category_id: UUID | None = Query(None, description="Фильтр по категории"),
     brand: str | None = Query(None, description="Фильтр по бренду"),
