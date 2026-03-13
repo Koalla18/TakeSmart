@@ -530,7 +530,9 @@ export function CatalogPage() {
       }
 
       // Brand filter
-      if (selectedBrand !== 'all') {
+      if (selectedBrand === 'android') {
+        result = result.filter(p => !['apple'].includes(p.brand.toLowerCase()))
+      } else if (selectedBrand !== 'all') {
         result = result.filter(p => p.brand.toLowerCase() === selectedBrand)
       }
     }
@@ -726,10 +728,13 @@ export function CatalogPage() {
                   >
                     Все модели
                   </button>
-                  {currentCategory.quickFilters.filter(qf =>
-                    selectedBrand === 'all' || !qf.brand || qf.brand === selectedBrand
-                  ).map((qf) => {
-                    const isActive = searchQuery === qf.query && (!qf.brand || selectedBrand === qf.brand)
+                  {currentCategory.quickFilters.filter(qf => {
+                    if (selectedBrand === 'android') {
+                      return qf.brand && qf.brand !== 'apple'
+                    }
+                    return selectedBrand === 'all' || !qf.brand || qf.brand === selectedBrand
+                  }).map((qf) => {
+                    const isActive = searchQuery === qf.query && (!qf.brand || selectedBrand === qf.brand || (selectedBrand === 'android' && qf.brand !== 'apple'))
                     return (
                       <button
                         key={qf.label}
@@ -847,7 +852,7 @@ export function CatalogPage() {
                     onClick={() => setSelectedBrand('all')}
                     className="flex items-center gap-1 rounded-full bg-yellow-100 px-3 py-1 text-sm font-medium text-yellow-800"
                   >
-                    {displayBrands.find(b => b.id === selectedBrand)?.name}
+                    {selectedBrand === 'android' ? 'Android' : displayBrands.find(b => b.id === selectedBrand)?.name || selectedBrand}
                     <CloseIcon className="h-3 w-3" />
                   </button>
                 )}

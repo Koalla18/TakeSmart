@@ -504,7 +504,7 @@ export function HomePage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
             {[
               { name: 'Смартфоны Apple',      image: '/categories/apple-iphones.png',    link: '/catalog?category=smartphones&brand=apple',   bg: 'bg-blue-50',   hover: 'hover:bg-blue-100' },
-              { name: 'Смартфоны на Android', image: '/categories/android-phones.png',   link: '/catalog?category=smartphones',               bg: 'bg-green-50',  hover: 'hover:bg-green-100' },
+              { name: 'Смартфоны на Android', image: '/categories/android-phones.png',   link: '/catalog?category=smartphones&brand=android', bg: 'bg-green-50',  hover: 'hover:bg-green-100' },
               { name: 'Ноутбуки, компьютеры', image: '/categories/laptops.png',           link: '/catalog?category=laptops',                   bg: 'bg-purple-50', hover: 'hover:bg-purple-100' },
               { name: 'Планшеты',             image: '/categories/tablets.png',            link: '/catalog?category=tablets',                   bg: 'bg-yellow-50', hover: 'hover:bg-yellow-100' },
               { name: 'Умные часы',           image: '/categories/watches.png',            link: '/catalog?category=watches',                   bg: 'bg-orange-50', hover: 'hover:bg-orange-100' },
