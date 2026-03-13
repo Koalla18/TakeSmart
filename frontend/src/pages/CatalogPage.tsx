@@ -30,45 +30,114 @@ const DEFAULT_QUICK_FILTERS: Record<string, { label: string; query: string; bran
     { label: 'iPhone 17 Pro Max', query: 'iPhone 17 Pro Max', brand: 'apple' },
     { label: 'iPhone 17 Pro', query: 'iPhone 17 Pro', brand: 'apple' },
     { label: 'iPhone 17', query: 'iPhone 17', brand: 'apple' },
+    { label: 'iPhone 16 Pro Max', query: 'iPhone 16 Pro Max', brand: 'apple' },
+    { label: 'iPhone 16 Pro', query: 'iPhone 16 Pro', brand: 'apple' },
     { label: 'iPhone 16', query: 'iPhone 16', brand: 'apple' },
+    { label: 'iPhone 15 Pro Max', query: 'iPhone 15 Pro Max', brand: 'apple' },
+    { label: 'iPhone 15 Pro', query: 'iPhone 15 Pro', brand: 'apple' },
+    { label: 'iPhone 15', query: 'iPhone 15', brand: 'apple' },
+    { label: 'iPhone 14 Pro Max', query: 'iPhone 14 Pro Max', brand: 'apple' },
+    { label: 'iPhone 14 Pro', query: 'iPhone 14 Pro', brand: 'apple' },
+    { label: 'iPhone 14', query: 'iPhone 14', brand: 'apple' },
+    { label: 'iPhone 13', query: 'iPhone 13', brand: 'apple' },
+    { label: 'iPhone 12', query: 'iPhone 12', brand: 'apple' },
+    { label: 'iPhone 11', query: 'iPhone 11', brand: 'apple' },
     { label: 'Galaxy S26 Ultra', query: 'Galaxy S26 Ultra', brand: 'samsung' },
     { label: 'Galaxy S26+', query: 'Galaxy S26 Plus', brand: 'samsung' },
     { label: 'Galaxy S26', query: 'Galaxy S26', brand: 'samsung' },
     { label: 'Galaxy S25 Ultra', query: 'Galaxy S25 Ultra', brand: 'samsung' },
+    { label: 'Galaxy S25+', query: 'Galaxy S25 Plus', brand: 'samsung' },
     { label: 'Galaxy S25', query: 'Galaxy S25', brand: 'samsung' },
+    { label: 'Galaxy S24 Ultra', query: 'Galaxy S24 Ultra', brand: 'samsung' },
+    { label: 'Galaxy S24', query: 'Galaxy S24', brand: 'samsung' },
+    { label: 'Galaxy S23', query: 'Galaxy S23', brand: 'samsung' },
+    { label: 'Galaxy Z Fold', query: 'Z Fold', brand: 'samsung' },
+    { label: 'Galaxy Z Flip', query: 'Z Flip', brand: 'samsung' },
     { label: 'Xiaomi 15', query: 'Xiaomi 15', brand: 'xiaomi' },
+    { label: 'Xiaomi 14', query: 'Xiaomi 14', brand: 'xiaomi' },
+    { label: 'Xiaomi 13', query: 'Xiaomi 13', brand: 'xiaomi' },
   ],
   laptops: [
     { label: 'MacBook Air 13"', query: 'MacBook Air 13', brand: 'apple' },
     { label: 'MacBook Air 15"', query: 'MacBook Air 15', brand: 'apple' },
-    { label: 'MacBook Pro', query: 'MacBook Pro', brand: 'apple' },
+    { label: 'MacBook Pro 14"', query: 'MacBook Pro 14', brand: 'apple' },
+    { label: 'MacBook Pro 16"', query: 'MacBook Pro 16', brand: 'apple' },
+    { label: 'iMac', query: 'iMac', brand: 'apple' },
+    { label: 'Mac mini', query: 'Mac mini', brand: 'apple' },
+    { label: 'Surface Laptop', query: 'Surface Laptop', brand: 'microsoft' },
+    { label: 'ZenBook', query: 'ZenBook', brand: 'asus' },
+    { label: 'ROG', query: 'ROG', brand: 'asus' },
+    { label: 'ThinkPad', query: 'ThinkPad', brand: 'lenovo' },
+    { label: 'Legion', query: 'Legion', brand: 'lenovo' },
   ],
   tablets: [
     { label: 'iPad 11" (2025)', query: 'iPad 11', brand: 'apple' },
+    { label: 'iPad 10.9"', query: 'iPad 10', brand: 'apple' },
     { label: 'iPad Air M3', query: 'iPad Air', brand: 'apple' },
     { label: 'iPad Pro M5', query: 'iPad Pro', brand: 'apple' },
+    { label: 'iPad mini', query: 'iPad mini', brand: 'apple' },
+    { label: 'Galaxy Tab S10', query: 'Tab S10', brand: 'samsung' },
+    { label: 'Galaxy Tab S9', query: 'Tab S9', brand: 'samsung' },
+    { label: 'Xiaomi Pad', query: 'Xiaomi Pad', brand: 'xiaomi' },
   ],
   headphones: [
     { label: 'AirPods Pro 3', query: 'AirPods Pro 3', brand: 'apple' },
     { label: 'AirPods Pro 2', query: 'AirPods Pro 2', brand: 'apple' },
     { label: 'AirPods 4', query: 'AirPods 4', brand: 'apple' },
+    { label: 'AirPods 3', query: 'AirPods 3', brand: 'apple' },
     { label: 'AirPods Max', query: 'AirPods Max', brand: 'apple' },
     { label: 'Marshall Major V', query: 'Marshall Major', brand: 'marshall' },
+    { label: 'Marshall Motif', query: 'Marshall Motif', brand: 'marshall' },
+    { label: 'Galaxy Buds', query: 'Galaxy Buds', brand: 'samsung' },
   ],
   'krasota-i-ukhod': [
-    { label: 'Airwrap', query: 'Airwrap' },
-    { label: 'Airstrait', query: 'Airstrait' },
-    { label: 'Supersonic', query: 'Supersonic' },
+    { label: 'Стайлеры Airwrap', query: 'Airwrap', brand: 'dyson' },
+    { label: 'Выпрямители Airstrait', query: 'Airstrait', brand: 'dyson' },
+    { label: 'Выпрямители Corrale', query: 'Corrale', brand: 'dyson' },
+    { label: 'Фены Supersonic', query: 'Supersonic', brand: 'dyson' },
+    { label: 'Фены Nural', query: 'Nural', brand: 'dyson' },
+    { label: 'Машинки для стрижки', query: 'стрижк' },
+    { label: 'Электробритвы', query: 'бритв' },
   ],
   'dlia-doma': [
-    { label: 'Пылесосы', query: 'пылесос' },
+    { label: 'Пылесосы Dyson', query: 'пылесос', brand: 'dyson' },
     { label: 'Роботы-пылесосы', query: 'робот' },
     { label: 'Очистители воздуха', query: 'очистител' },
+    { label: 'Увлажнители', query: 'увлажнител' },
+    { label: 'Умный дом Яндекс', query: 'яндекс', brand: 'яндекс' },
   ],
   accessories: [
     { label: 'Чехлы Pitaka', query: 'Pitaka' },
+    { label: 'Чехлы Apple', query: 'чехол', brand: 'apple' },
+    { label: 'Ремешки', query: 'ремешок' },
     { label: 'Apple Pencil', query: 'Apple Pencil', brand: 'apple' },
-    { label: 'Зарядки', query: 'заряд' },
+    { label: 'Зарядки', query: 'зарядк' },
+    { label: 'Кабели', query: 'кабел' },
+    { label: 'Защитные стекла', query: 'стекл' },
+  ],
+  watches: [
+    { label: 'Apple Watch Ultra 2', query: 'Watch Ultra 2', brand: 'apple' },
+    { label: 'Apple Watch Series 10', query: 'Watch Series 10', brand: 'apple' },
+    { label: 'Apple Watch Series 9', query: 'Watch Series 9', brand: 'apple' },
+    { label: 'Apple Watch SE', query: 'Watch SE', brand: 'apple' },
+    { label: 'Galaxy Watch 7', query: 'Watch 7', brand: 'samsung' },
+    { label: 'Galaxy Watch Ultra', query: 'Watch Ultra', brand: 'samsung' },
+  ],
+  gaming: [
+    { label: 'PlayStation 5', query: 'PlayStation 5', brand: 'sony' },
+    { label: 'Xbox Series X', query: 'Xbox Series', brand: 'microsoft' },
+    { label: 'Nintendo Switch', query: 'Switch', brand: 'nintendo' },
+    { label: 'Steam Deck', query: 'Steam Deck' },
+    { label: 'VR Гарнитуры', query: 'VR' },
+    { label: 'Геймпады', query: 'геймпад' },
+  ],
+  tv: [
+    { label: 'Телевизоры Samsung', query: 'телевизор', brand: 'samsung' },
+    { label: 'Телевизоры LG', query: 'телевизор', brand: 'lg' },
+    { label: 'Телевизоры Xiaomi', query: 'телевизор', brand: 'xiaomi' },
+    { label: 'Apple TV', query: 'Apple TV', brand: 'apple' },
+    { label: 'Саундбары', query: 'саундбар' },
+    { label: 'Умные колонки', query: 'колонк' },
   ],
 }
 
@@ -141,51 +210,54 @@ function FilterSidebar({
           >
             Все товары
           </button>
-          {categoriesList.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                selectedCategory === cat.id
-                  ? 'bg-yellow-50 font-medium text-yellow-700'
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              {cat.name}
-            </button>
-          ))}
-        </div>
-
-        {selectedCategory !== 'all' && (categoryBrandsMap[selectedCategory]?.length ?? 0) > 0 && (
-          <div className="mt-3 rounded-lg border border-gray-100 bg-white p-2.5">
-            <p className="mb-2 text-xs font-medium text-gray-500">Бренды в категории</p>
-            <div className="flex flex-wrap gap-1.5">
-              <button
-                onClick={() => setSelectedBrand('all')}
-                className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
-                  selectedBrand === 'all'
-                    ? 'bg-yellow-50 text-yellow-700'
-                    : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                Все
-              </button>
-              {categoryBrandsMap[selectedCategory].map((brand) => (
+          {categoriesList.map((cat) => {
+            const isSelected = selectedCategory === cat.id
+            const catBrands = isSelected ? (categoryBrandsMap[cat.id] || []) : []
+            
+            return (
+              <div key={cat.id} className="space-y-0.5">
                 <button
-                  key={brand.id}
-                  onClick={() => setSelectedBrand(brand.id)}
-                  className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
-                    selectedBrand === brand.id
-                      ? 'bg-yellow-50 text-yellow-700'
-                      : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                  onClick={() => setSelectedCategory(cat.id)}
+                  className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                    isSelected
+                      ? 'bg-yellow-50 font-medium text-yellow-700'
+                      : 'text-gray-600 hover:bg-gray-50'
                   }`}
                 >
-                  {brand.name}
+                  {cat.name}
                 </button>
-              ))}
-            </div>
-          </div>
-        )}
+                
+                {isSelected && catBrands.length > 0 && (
+                  <div className="ml-3 mt-1 flex flex-col space-y-0.5 border-l-2 border-yellow-100 pl-3">
+                    <button
+                      onClick={() => setSelectedBrand('all')}
+                      className={`flex w-full items-center rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
+                        selectedBrand === 'all'
+                          ? 'font-medium text-yellow-700'
+                          : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                      }`}
+                    >
+                      Все модели бренда
+                    </button>
+                    {catBrands.map((brand) => (
+                      <button
+                        key={brand.id}
+                        onClick={() => setSelectedBrand(brand.id)}
+                        className={`group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
+                          selectedBrand === brand.id
+                            ? 'font-medium text-yellow-700'
+                            : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                        }`}
+                      >
+                        {brand.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
       </div>
       
       {/* Brands */}
