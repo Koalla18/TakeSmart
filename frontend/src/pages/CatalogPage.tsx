@@ -177,7 +177,7 @@ function FilterSidebar({
   categoryBrandsMap: Record<string, CatalogBrand[]>
 }) {
   const minPrice = 0
-  const maxPrice = 300000
+  const maxPrice = 10000000
   
   return (
     <div className={isMobile ? '' : 'sticky top-24'}>
@@ -363,7 +363,7 @@ export function CatalogPage() {
   // Filter states
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || 'all')
   const [selectedBrand, setSelectedBrand] = useState(searchParams.get('brand') || 'all')
-  const [priceRange, setPriceRange] = useState<[number, number]>([0, 300000])
+  const [priceRange, setPriceRange] = useState<[number, number]>([0, 10000000])
   const [inStockOnly, setInStockOnly] = useState(false)
   const [sort, setSort] = useState<SortOption>('popular')
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '')
@@ -599,7 +599,7 @@ export function CatalogPage() {
   const resetFilters = () => {
     setSelectedCategory('all')
     setSelectedBrand('all')
-    setPriceRange([0, 300000])
+    setPriceRange([0, 10000000])
     setInStockOnly(false)
     setSearchQuery('')
   }
@@ -607,7 +607,7 @@ export function CatalogPage() {
   const activeFiltersCount = [
     selectedCategory !== 'all',
     selectedBrand !== 'all',
-    priceRange[0] > 0 || priceRange[1] < 300000,
+    priceRange[0] > 0 || priceRange[1] < 10000000,
     inStockOnly,
   ].filter(Boolean).length
   

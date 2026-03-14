@@ -277,8 +277,8 @@ const benefits = [
   },
   { 
     icon: <CardIcon className="h-8 w-8" />, 
-    title: 'Рассрочка 0%', 
-    description: 'Без первого взноса и переплат'
+    title: 'Одобрение кредита от 5 мин', 
+    description: 'Без первого взноса'
   },
   { 
     icon: <PhoneIcon className="h-8 w-8" />, 

@@ -163,7 +163,7 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                             setExpandedCatId(expandedCatId === cat.id ? null : cat.id);
                           } else {
                             onClose();
-                            navigate(`/catalog/c/${cat.slug}`);
+                            navigate(`/catalog?category=${cat.slug}`);
                           }
                         }}
                         className="flex items-center justify-between rounded-xl px-4 py-3 text-base font-medium text-gray-700 transition-colors hover:bg-gray-50"
@@ -184,7 +184,7 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                               key={brand}
                               onClick={() => {
                                 onClose();
-                                navigate(`/catalog/c/${cat.slug}?brand=${brand.toLowerCase()}`);
+                                navigate(`/catalog?category=${cat.slug}&brand=${brand.toLowerCase()}`);
                               }}
                               className="text-left py-1 text-sm text-gray-600 hover:text-gray-900"
                             >
@@ -480,11 +480,11 @@ export function Shell({ children }: PropsWithChildren) {
                 <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-gray-500">Популярные продукты</h3>
                 <ul className="space-y-2.5">
                   {[
-                    { label: 'iPhone 15 Pro', to: '/catalog/c/smartphones?q=iphone+15+pro' },
-                    { label: 'iPhone 16 Pro', to: '/catalog/c/smartphones?q=iphone+16+pro' },
-                    { label: 'iPhone 16', to: '/catalog/c/smartphones?q=iphone+16' },
-                    { label: 'AirPods 4', to: '/catalog/c/headphones?q=airpods+4' },
-                    { label: 'AirPods Pro 2', to: '/catalog/c/headphones?q=airpods+pro+2' },
+                    { label: 'iPhone 15 Pro', to: '/catalog?category=smartphones&q=iPhone+15+Pro' },
+                    { label: 'iPhone 16 Pro', to: '/catalog?category=smartphones&q=iPhone+16+Pro' },
+                    { label: 'iPhone 16', to: '/catalog?category=smartphones&q=iPhone+16' },
+                    { label: 'AirPods 4', to: '/catalog?category=headphones&q=AirPods+4' },
+                    { label: 'AirPods Pro 2', to: '/catalog?category=headphones&q=AirPods+Pro+2' },
                   ].map(item => (
                     <li key={item.label}>
                       <Link
