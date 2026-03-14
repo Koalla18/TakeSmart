@@ -3062,8 +3062,9 @@ const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
   ],
   tablets: [
     { field: 'color', label: 'Цвета', placeholder: 'Space Gray' },
-    { field: 'storage', label: 'Память', placeholder: '256 ГБ' },
-    { field: 'connectivity', label: 'Связь', placeholder: 'WiFi + Cellular' },
+    { field: 'connectivity', label: 'ОЗУ', placeholder: '8 ГБ', hint: 'Объём оперативной памяти' },
+    { field: 'storage', label: 'Память', placeholder: '256 ГБ', hint: 'Объём встроенной памяти' },
+    { field: 'processor', label: 'Связь', placeholder: 'WiFi + Cellular', hint: 'Тип связи (WiFi, 5G...)' },
   ],
   laptops: [
     { field: 'color', label: 'Цвет', placeholder: 'серебристый', hint: 'Каждый цвет = отдельная карточка' },
@@ -3073,6 +3074,7 @@ const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
   ],
   watches: [
     { field: 'color', label: 'Цвета', placeholder: 'Титан' },
+    { field: 'processor', label: 'Тип ремешка', placeholder: 'Sport Band' },
     { field: 'storage', label: 'Размер ремешка', placeholder: 'S/M' },
     { field: 'connectivity', label: 'Размер циферблата', placeholder: '42 мм' },
   ],
@@ -3188,6 +3190,16 @@ function GroupCreationModal({
               // Format: Samsung S25 Ultra 12ГБ/256ГБ SIM + eSIM, чёрный
               const spec = [cn, s].filter(Boolean).join('/')
               const parts = [baseName, spec, proc].filter(Boolean)
+              fullName = c ? `${parts.join(' ')}, ${c}` : parts.join(' ')
+            } else if (catSlug === 'tablets') {
+              const spec = [cn, s].filter(Boolean).map(v => v.replace(/(?:\s*ГБ|\s*ТБ)$/i, '')).join('/')
+              const unit = s ? (s.toLowerCase().includes('тб') ? ' ТБ' : ' ГБ') : ''
+              const memStr = spec ? `${spec}${unit}` : ''
+              const parts = [baseName, memStr, proc].filter(Boolean)
+              fullName = c ? `${parts.join(' ')}, ${c}` : parts.join(' ')
+            } else if (catSlug === 'watches') {
+              // proc = Тип ремешка, s = Размер ремешка, cn = Размер циферблата. Expected order: Размер циф, Тип ремешка, Размер ремешка.
+              const parts = [baseName, cn, proc, s].filter(Boolean)
               fullName = c ? `${parts.join(' ')}, ${c}` : parts.join(' ')
             } else {
               const parts = [baseName, proc, s, cn].filter(Boolean)

@@ -34,17 +34,41 @@ function NavItem({ to, label, onClick }: { to: string; label: string; onClick?: 
 }
 
 function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+
   const [categories, setCategories] = useState<any[]>([])
+  const [brandsByCategory, setBrandsByCategory] = useState<Record<string, string[]>>({})
+  const [expandedCatId, setExpandedCatId] = useState<string | null>(null)
+  const [dataFetched, setDataFetched] = useState(false)
+  const navigate = useNavigate();
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/categories?limit=100&only_active=true`)
-      .then(res => res.json())
-      .then(data => {
-        const items = Array.isArray(data) ? data : (data.items || [])
-        setCategories(items.filter((c: any) => !c.name.toLowerCase().includes('б/у')))
+    if (!isOpen || dataFetched) return;
+    setDataFetched(true);
+    
+    Promise.all([
+      fetch(`${API_BASE_URL}/api/categories?limit=100&only_active=true`).then(r => r.json()),
+      fetch(`${API_BASE_URL}/api/products?limit=2500&only_active=true`).then(r => r.json())
+    ])
+    .then(([catData, prodData]) => {
+      const cats = Array.isArray(catData) ? catData : (catData.items || [])
+      setCategories(cats.filter((c: any) => !c.name.toLowerCase().includes('б/у')))
+      
+      const prods = Array.isArray(prodData) ? prodData : (prodData.items || [])
+      const bMap: Record<string, Set<string>> = {}
+      prods.forEach((p: any) => {
+        if (!p.category_id || !p.brand) return
+        if (!bMap[p.category_id]) bMap[p.category_id] = new Set()
+        bMap[p.category_id].add(p.brand)
       })
-      .catch(console.error)
-  }, [])
+      const finalMap: Record<string, string[]> = {}
+      for (const [cid, set] of Object.entries(bMap)) {
+        finalMap[cid] = Array.from(set).sort()
+      }
+      setBrandsByCategory(finalMap)
+    })
+    .catch(console.error)
+  }, [isOpen, dataFetched])
+
 
   useEffect(() => {
     if (isOpen) {
@@ -128,20 +152,48 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                   else if (name.includes('час')) icon = '⌚';
                   else if (name.includes('планшет')) icon = '📱';
                   else if (name.includes('аксессуар')) icon = '🔌';
-                  else if (name.includes('колонк')) icon = '🔊';
-                  else if (name.includes('красота')) icon = '💇‍♀️';
-                  else if (name.includes('дом')) icon = '🏠';
-                  
+
+                  const brands = brandsByCategory[cat.id] || [];
+
                   return (
-                    <Link
-                      key={cat.id}
-                      to={`/catalog?category=${cat.slug || cat.id}`}
-                      onClick={onClose}
-                      className="flex items-center gap-3 rounded-xl px-4 py-2.5 transition-colors hover:bg-gray-50"
-                    >
-                      <span className="text-xl">{icon}</span>
-                      <span className="text-sm text-gray-700">{cat.name}</span>
-                    </Link>
+                    <div key={cat.id} className="flex flex-col">
+                      <button
+                        onClick={() => {
+                          if (brands.length > 0) {
+                            setExpandedCatId(expandedCatId === cat.id ? null : cat.id);
+                          } else {
+                            onClose();
+                            navigate(`/catalog/c/${cat.slug}`);
+                          }
+                        }}
+                        className="flex items-center justify-between rounded-xl px-4 py-3 text-base font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-xl">{icon}</span>
+                          <span>{cat.name}</span>
+                        </div>
+                        {brands.length > 0 && (
+                          <ChevronRightIcon className={`h-4 w-4 text-gray-400 transition-transform ${expandedCatId === cat.id ? 'rotate-90' : ''}`} />
+                        )}
+                      </button>
+                      
+                      {expandedCatId === cat.id && brands.length > 0 && (
+                        <div className="ml-12 mt-1 flex flex-col space-y-2 border-l border-gray-100 pl-4">
+                          {brands.map(brand => (
+                            <button
+                              key={brand}
+                              onClick={() => {
+                                onClose();
+                                navigate(`/catalog/c/${cat.slug}?brand=${brand.toLowerCase()}`);
+                              }}
+                              className="text-left py-1 text-sm text-gray-600 hover:text-gray-900"
+                            >
+                              {brand}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -423,24 +475,23 @@ export function Shell({ children }: PropsWithChildren) {
                 </ul>
               </div>
 
-              {/* Apple iPhone models */}
+                            {/* Apple iPhone models */}
               <div>
-                <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-gray-500">Apple iPhone</h3>
+                <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-gray-500">Популярные продукты</h3>
                 <ul className="space-y-2.5">
                   {[
-                    'iPhone 17 Pro Max',
-                    'iPhone 17 Pro',
-                    'iPhone 17',
-                    'iPhone Air',
-                    'iPhone 16 Pro Max',
-                    'iPhone 16',
-                  ].map(model => (
-                    <li key={model}>
+                    { label: 'iPhone 15 Pro', to: '/catalog/c/smartphones?q=iphone+15+pro' },
+                    { label: 'iPhone 16 Pro', to: '/catalog/c/smartphones?q=iphone+16+pro' },
+                    { label: 'iPhone 16', to: '/catalog/c/smartphones?q=iphone+16' },
+                    { label: 'AirPods 4', to: '/catalog/c/headphones?q=airpods+4' },
+                    { label: 'AirPods Pro 2', to: '/catalog/c/headphones?q=airpods+pro+2' },
+                  ].map(item => (
+                    <li key={item.label}>
                       <Link
-                        to={`/catalog?category=smartphones&q=${encodeURIComponent(model)}`}
+                        to={item.to}
                         className="text-sm text-gray-400 transition-colors hover:text-white"
                       >
-                        {model}
+                        {item.label}
                       </Link>
                     </li>
                   ))}
@@ -528,6 +579,9 @@ export function Shell({ children }: PropsWithChildren) {
                   Согласие на обработку персональных данных
                 </Link>
               </div>
+            </div>
+            <div className="mt-8 text-center text-[10px] leading-relaxed text-gray-500/40 opacity-40">
+              Apple, логотип Apple, iPhone, iPad, Mac, MacBook, AirPods, Apple Watch, iMac, Mac mini, Mac Studio, Mac Pro, MagSafe, AirTag, Apple TV, Apple Pencil, Lightning являются зарегистрированными товарными знаками компании Apple Inc. в США и/или других странах.
             </div>
           </Container>
         </div>

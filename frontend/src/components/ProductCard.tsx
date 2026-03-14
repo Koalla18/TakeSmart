@@ -130,7 +130,7 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
   }
   
   return (
-    <div className="group relative">
+    <div className="group relative h-full">
       {/* Card */}
       <div className="relative flex h-full flex-col overflow-hidden rounded-3xl bg-white border border-gray-100 transition-all duration-500 hover:border-gray-200 hover:shadow-2xl hover:shadow-gray-200/50 hover:-translate-y-1">
         

@@ -272,7 +272,7 @@ const benefits = [
   },
   { 
     icon: <TruckIcon className="h-8 w-8" />, 
-    title: 'Доставка за 2 часа', 
+    title: 'Доставка от 30 минут', 
     description: 'Быстрая доставка по Москве'
   },
   { 
@@ -508,7 +508,7 @@ export function HomePage() {
               { name: 'Ноутбуки, компьютеры', image: '/categories/laptops.png',           link: '/catalog?category=laptops',                   bg: 'bg-purple-50', hover: 'hover:bg-purple-100' },
               { name: 'Планшеты',             image: '/categories/tablets.png',            link: '/catalog?category=tablets',                   bg: 'bg-yellow-50', hover: 'hover:bg-yellow-100' },
               { name: 'Умные часы',           image: '/categories/watches.png',            link: '/catalog?category=watches',                   bg: 'bg-orange-50', hover: 'hover:bg-orange-100' },
-              { name: 'Наушники, колонки',    image: '/categories/headphones.png',         link: '/catalog?category=headphones',                bg: 'bg-sky-50',    hover: 'hover:bg-sky-100' },
+              { name: 'Наушники',         image: '/categories/headphones.png',         link: '/catalog?category=headphones',                bg: 'bg-sky-50',    hover: 'hover:bg-sky-100' },
               { name: 'Аксессуары',           image: '/categories/accessories.png',        link: '/catalog?category=accessories',               bg: 'bg-pink-50',   hover: 'hover:bg-pink-100' },
               { name: 'Игровые приставки',    image: '/categories/gaming.png',             link: '/catalog?category=gaming',                    bg: 'bg-indigo-50', hover: 'hover:bg-indigo-100' },
               { name: 'Все для дома',         image: '/categories/home.png',               link: '/catalog?category=home',                      bg: 'bg-teal-50',   hover: 'hover:bg-teal-100' },
@@ -589,9 +589,9 @@ export function HomePage() {
             </div>
           </AnimatedSection>
           
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4 items-stretch">
             {featuredProducts.map((product, i) => (
-              <AnimatedSection key={product.id} delay={i * 100}>
+              <AnimatedSection key={product.id} delay={i * 100} className="h-full">
                 <ProductCard product={product} />
               </AnimatedSection>
             ))}

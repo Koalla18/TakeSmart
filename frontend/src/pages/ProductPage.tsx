@@ -47,6 +47,14 @@ function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs
     return { storage, connectivity, color: color || null }
   }
 
+  // ── Watch parsing ──
+  const watchMatch = name.match(/(\d+\s*(?:мм|mm))(.*?)(?:,|$)/i);
+  if (watchMatch && watchMatch[2] && !name.toLowerCase().includes('ssd')) {
+    const conn = watchMatch[1].trim();
+    const stor = watchMatch[2].trim();
+    return { storage: stor || null, connectivity: conn, color: color || null };
+  }
+
   // ── Regular (non-laptop) parsing ──
   let storage: string | null = null
   const storageMatch = name.match(/(\d+(?:\s*\/\s*\d+)?)\s*(ГБ|GB|ТБ|TB)/i)
@@ -912,6 +920,8 @@ export function ProductPage() {
 
                   // Detect laptop group: any card name contains "N ГБ SSD"
                   const isLaptopGroup = allCards.some(c => /\d+\s*(?:ГБ|GB|ТБ|TB)\s+SSD/i.test(c.name))
+                  const isWatchGroup = apiProduct.category?.slug === 'watches'
+                  const isTabletGroup = apiProduct.category?.slug === 'tablets'
 
                   // Unique values per dimension
                   const uniqueColors = [...new Set(allCards.map(c => c.color).filter(Boolean))] as string[]
@@ -1044,7 +1054,7 @@ export function ProductPage() {
                       {uniqueStorages.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
-                            {isLaptopGroup ? 'Память SSD' : 'Память'}: <span className="font-semibold text-gray-900">{currentParsed.storage || '—'}</span>
+                            {isLaptopGroup ? 'Память SSD' : isWatchGroup ? 'Ремешок' : 'Память'}: <span className="font-semibold text-gray-900">{currentParsed.storage || '—'}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {uniqueStorages.map(stor => {
@@ -1078,7 +1088,7 @@ export function ProductPage() {
                       {!isLaptopGroup && uniqueConn.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
-                            Связь: <span className="font-semibold text-gray-900">{currentParsed.connectivity || '—'}</span>
+                            {isWatchGroup ? 'Размер корпуса' : isTabletGroup ? 'Связь / ОЗУ' : 'Связь'}: <span className="font-semibold text-gray-900">{currentParsed.connectivity || '—'}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {uniqueConn.map(conn => {
