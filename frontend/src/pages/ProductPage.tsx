@@ -360,6 +360,7 @@ interface ApiProduct {
   slug: string
   brand: string | null
   category_id: string | null
+  category?: { id: string; name: string; slug: string }
   price: number
   discount_price: number | null
   stock_quantity: number
