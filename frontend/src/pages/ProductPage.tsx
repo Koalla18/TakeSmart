@@ -20,6 +20,7 @@ import {
 interface ParsedAttrs {
   storage: string | null
   connectivity: string | null
+  ram: string | null
   color: string | null
 }
 
@@ -30,6 +31,8 @@ interface ParsedAttrs {
  *   "MacBook Pro 14 M4 Pro 16/512 ГБ, Space Black"
  */
 function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs {
+  let ram: string | null = null
+
   // ── Laptop: name contains "N ГБ SSD" or "N ТБ SSD" (built by admin group creator) ──
   const ssdMatch = name.match(/(\d+)\s*(ГБ|GB|ТБ|TB)\s+SSD/i)
   if (ssdMatch) {
@@ -42,9 +45,9 @@ function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs
     if (allRamMatches.length > 0) {
       const last = allRamMatches[allRamMatches.length - 1]
       const unit = /ТБ|TB/i.test(last[2]) ? 'ТБ' : 'ГБ'
-      connectivity = `${last[1]} ${unit}`
+      ram = `${last[1]} ${unit}`
     }
-    return { storage, connectivity, color: color || null }
+    return { storage, connectivity, ram, color: color || null }
   }
 
   // ── Watch parsing ──
@@ -52,16 +55,22 @@ function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs
   if (watchMatch && watchMatch[2] && !name.toLowerCase().includes('ssd')) {
     const conn = watchMatch[1].trim();
     const stor = watchMatch[2].trim();
-    return { storage: stor || null, connectivity: conn, color: color || null };
+    return { storage: stor || null, connectivity: conn, ram, color: color || null };
   }
 
   // ── Regular (non-laptop) parsing ──
   let storage: string | null = null
-  const storageMatch = name.match(/(\d+(?:\s*\/\s*\d+)?)\s*(ГБ|GB|ТБ|TB)/i)
+  const storageMatch = name.match(/(\d+)(?:\s*\/\s*(\d+))?\s*(ГБ|GB|ТБ|TB)/i)
   if (storageMatch) {
-    const num = storageMatch[1].replace(/\s/g, '')
-    const unit = /ТБ|TB/i.test(storageMatch[2]) ? 'ТБ' : 'ГБ'
-    storage = `${num} ${unit}`
+    if (storageMatch[2]) {
+      ram = `${storageMatch[1]} ГБ`
+      const unit = /ТБ|TB/i.test(storageMatch[3]) ? 'ТБ' : 'ГБ'
+      storage = `${storageMatch[2]} ${unit}`
+    } else {
+      const num = storageMatch[1].replace(/\s/g, '')
+      const unit = /ТБ|TB/i.test(storageMatch[3]) ? 'ТБ' : 'ГБ'
+      storage = `${num} ${unit}`
+    }
   } else {
     // Bare number as storage: "iPhone 18 pro 256 sim" → "256"
     // Iterate ALL numbers and pick the first one that looks like a storage size (32+)
@@ -99,7 +108,7 @@ function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs
     if (pattern.test(name)) { connectivity = label; break }
   }
 
-  return { storage, connectivity, color: color || null }
+  return { storage, connectivity, ram, color: color || null }
 }
 
 function sortStorageValues(values: string[]): string[] {
@@ -913,7 +922,7 @@ export function ProductPage() {
                   // Parse attributes from names (storage + connectivity) 
                   const cardsWithAttrs = allCards.map(c => {
                     const parsed = parseAttrsFromProduct(c.name, c.color)
-                    return { ...c, storage: parsed.storage, connectivity: parsed.connectivity }
+                    return { ...c, storage: parsed.storage, connectivity: parsed.connectivity, ram: parsed.ram }
                   })
 
                   const currentColor = apiProduct.color || null
@@ -922,7 +931,6 @@ export function ProductPage() {
                   // Detect laptop group: any card name contains "N ГБ SSD"
                   const isLaptopGroup = allCards.some(c => /\d+\s*(?:ГБ|GB|ТБ|TB)\s+SSD/i.test(c.name))
                   const isWatchGroup = apiProduct.category?.slug === 'watches'
-                  const isTabletGroup = apiProduct.category?.slug === 'tablets'
 
                   // Unique values per dimension
                   const uniqueColors = [...new Set(allCards.map(c => c.color).filter(Boolean))] as string[]
@@ -930,26 +938,36 @@ export function ProductPage() {
                     [...new Set(cardsWithAttrs.map(c => c.storage).filter(Boolean))] as string[]
                   )
                   const uniqueConn = [...new Set(cardsWithAttrs.map(c => c.connectivity).filter(Boolean))] as string[]
+                  const uniqueRam = sortStorageValues(
+                    [...new Set(cardsWithAttrs.map(c => c.ram).filter(Boolean))] as string[]
+                  )
 
                   // Navigate to the best-matching sibling
                   const goTo = (
                     wantColor?: string | null,
                     wantStorage?: string | null,
                     wantConn?: string | null,
+                    wantRam?: string | null,
                   ) => {
                     const c = wantColor !== undefined ? wantColor : currentColor
                     const s = wantStorage !== undefined ? wantStorage : currentParsed.storage
                     const cn = wantConn !== undefined ? wantConn : currentParsed.connectivity
+                    const r = wantRam !== undefined ? wantRam : currentParsed.ram
 
                     // Try exact → progressively relax
                     const candidates = [
+                      cardsWithAttrs.find(p => p.color === c && p.storage === s && p.connectivity === cn && p.ram === r),
                       cardsWithAttrs.find(p => p.color === c && p.storage === s && p.connectivity === cn),
+                      cardsWithAttrs.find(p => p.color === c && p.storage === s && p.ram === r),
                       cardsWithAttrs.find(p => p.color === c && p.storage === s),
                       cardsWithAttrs.find(p => p.color === c && p.connectivity === cn),
+                      cardsWithAttrs.find(p => p.color === c && p.ram === r),
                       cardsWithAttrs.find(p => p.storage === s && p.connectivity === cn),
+                      cardsWithAttrs.find(p => p.storage === s && p.ram === r),
                       wantColor !== undefined && cardsWithAttrs.find(p => p.color === wantColor),
                       wantStorage !== undefined && cardsWithAttrs.find(p => p.storage === wantStorage),
                       wantConn !== undefined && cardsWithAttrs.find(p => p.connectivity === wantConn),
+                      wantRam !== undefined && cardsWithAttrs.find(p => p.ram === wantRam),
                     ]
                     const match = candidates.find(Boolean)
                     if (match && typeof match !== 'boolean' && match.id !== apiProduct.id) {
@@ -1014,27 +1032,26 @@ export function ProductPage() {
                         </div>
                       )}
 
-                      {/* ── For laptops: ОЗУ first (connectivity), then Память SSD (storage) ── */}
-                      {/* ── For others:  Память (storage), then Связь (connectivity) ── */}
-
-                      {/* ── ОЗУ row — laptops only ── */}
-                      {isLaptopGroup && uniqueConn.length > 0 && (
+                      {/* ── ОЗУ / RAM ── */}
+                      {uniqueRam.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
-                            ОЗУ: <span className="font-semibold text-gray-900">{currentParsed.connectivity || '—'}</span>
+                            ОЗУ: <span className="font-semibold text-gray-900">{currentParsed.ram || '—'}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
-                            {uniqueConn.map(conn => {
-                              const isCurrent = conn === currentParsed.connectivity
+                            {uniqueRam.map(ramVal => {
+                              const isCurrent = ramVal === currentParsed.ram
                               const target = cardsWithAttrs.find(p =>
-                                p.connectivity === conn && (p.color === currentColor || !currentColor)
-                              ) || cardsWithAttrs.find(p => p.connectivity === conn)
+                                p.ram === ramVal && 
+                                (p.color === currentColor || !currentColor) && 
+                                (p.storage === currentParsed.storage || !currentParsed.storage)
+                              ) || cardsWithAttrs.find(p => p.ram === ramVal)
                               const isAvailable = !!target
                               return (
                                 <button
-                                  key={conn}
+                                  key={ramVal}
                                   disabled={!isAvailable}
-                                  onClick={() => isAvailable && !isCurrent && goTo(undefined, undefined, conn)}
+                                  onClick={() => isAvailable && !isCurrent && goTo(undefined, undefined, undefined, ramVal)}
                                   className={`rounded-xl border px-4 py-2 text-sm font-medium transition-all ${
                                     isCurrent
                                       ? 'border-gray-900 bg-gray-900 text-white shadow-sm'
@@ -1043,7 +1060,7 @@ export function ProductPage() {
                                         : 'cursor-not-allowed border-gray-100 bg-gray-50 text-gray-300'
                                   }`}
                                 >
-                                  {conn}
+                                  {ramVal}
                                 </button>
                               )
                             })}
@@ -1085,11 +1102,11 @@ export function ProductPage() {
                         </div>
                       )}
 
-                      {/* ── Connectivity (Связь / SIM) — non-laptop only ── */}
-                      {!isLaptopGroup && uniqueConn.length > 0 && (
+                      {/* ── Connectivity (Связь / SIM) ── */}
+                      {uniqueConn.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
-                            {isWatchGroup ? 'Размер корпуса' : isTabletGroup ? 'Связь / ОЗУ' : 'Связь'}: <span className="font-semibold text-gray-900">{currentParsed.connectivity || '—'}</span>
+                            {isWatchGroup ? 'Размер корпуса' : 'Связь'}: <span className="font-semibold text-gray-900">{currentParsed.connectivity || '—'}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {uniqueConn.map(conn => {
