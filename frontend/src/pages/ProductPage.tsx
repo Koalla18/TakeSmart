@@ -51,11 +51,21 @@ function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs
   }
 
   // ── Watch parsing ──
-  const watchMatch = name.match(/(\d+\s*(?:мм|mm))(.*?)(?:,|$)/i);
-  if (watchMatch && watchMatch[2] && !name.toLowerCase().includes('ssd')) {
+  const watchMatch = name.match(/(\d+\s*(?:мм|mm))/i);
+  if (watchMatch && !name.toLowerCase().includes('ssd')) {
     const conn = watchMatch[1].trim();
-    const stor = watchMatch[2].trim();
-    return { storage: stor || null, connectivity: conn, ram, color: color || null };
+    
+    let stor: string | null = null;
+    const idx = name.indexOf(watchMatch[1]) + watchMatch[1].length;
+    let remainder = name.slice(idx);
+    
+    if (color && remainder.includes(color)) {
+      remainder = remainder.replace(color, '');
+    }
+    remainder = remainder.replace(/,/g, '').trim();
+    stor = remainder || null;
+    
+    return { storage: stor, connectivity: conn, ram, color: color || null };
   }
 
   // ── Regular (non-laptop) parsing ──

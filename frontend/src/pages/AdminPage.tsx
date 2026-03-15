@@ -3198,9 +3198,10 @@ function GroupCreationModal({
               const parts = [baseName, memStr, proc].filter(Boolean)
               fullName = c ? `${parts.join(' ')}, ${c}` : parts.join(' ')
             } else if (catSlug === 'watches') {
-              // proc = Тип ремешка, s = Размер ремешка, cn = Размер циферблата. Expected order: Размер циф, Тип ремешка, Размер ремешка.
-              const parts = [baseName, cn, proc, s].filter(Boolean)
-              fullName = c ? `${parts.join(' ')}, ${c}` : parts.join(' ')
+              // proc = Тип ремешка, s = Размер ремешка, cn = Размер циферблата.
+              // New expected order: baseName + cn + Color (корпус) + proc (ремешок) + s (размер ремешка)
+              const parts = [baseName, cn, c, proc, s].filter(Boolean)
+              fullName = parts.join(' ')
             } else {
               const parts = [baseName, proc, s, cn].filter(Boolean)
               fullName = c ? `${parts.join(' ')}, ${c}` : parts.join(' ')
