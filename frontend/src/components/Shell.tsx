@@ -152,6 +152,11 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                   else if (name.includes('час')) icon = '⌚';
                   else if (name.includes('планшет')) icon = '📱';
                   else if (name.includes('аксессуар')) icon = '🔌';
+                  else if (name.includes('консол') || name.includes('игр')) icon = '🎮';
+                  else if (name.includes('тв') || name.includes('аудио') || name.includes('телевизор')) icon = '📺';
+                  else if (name.includes('красот') || name.includes('уход')) icon = '✨';
+                  else if (name.includes('дом')) icon = '🏠';
+                  else if (name.includes('фото') || name.includes('видео')) icon = '📷';
 
                   const brands = brandsByCategory[cat.id] || [];
 
@@ -480,11 +485,13 @@ export function Shell({ children }: PropsWithChildren) {
                 <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-gray-500">Популярные продукты</h3>
                 <ul className="space-y-2.5">
                   {[
-                    { label: 'iPhone 15 Pro', to: '/catalog?category=smartphones&q=iPhone+15+Pro' },
-                    { label: 'iPhone 16 Pro', to: '/catalog?category=smartphones&q=iPhone+16+Pro' },
-                    { label: 'iPhone 16', to: '/catalog?category=smartphones&q=iPhone+16' },
-                    { label: 'AirPods 4', to: '/catalog?category=headphones&q=AirPods+4' },
-                    { label: 'AirPods Pro 2', to: '/catalog?category=headphones&q=AirPods+Pro+2' },
+                    { label: 'iPhone 17 Pro Max', to: '/catalog?category=smartphones&q=iPhone+17+Pro+Max' },
+                    { label: 'iPhone 17 Pro', to: '/catalog?category=smartphones&q=iPhone+17+Pro' },
+                    { label: 'iPhone 17', to: '/catalog?category=smartphones&q=iPhone+17' },
+                    { label: 'MacBook Pro 14 M5', to: '/catalog?category=laptops&q=MacBook+Pro+14+M5' },
+                    { label: 'MacBook Air 13 M4', to: '/catalog?category=laptops&q=MacBook+Air+13+M4' },
+                    { label: 'iPad 11', to: '/catalog?category=tablets&q=iPad+11' },
+                    { label: 'Samsung S26 Ultra', to: '/catalog?category=smartphones&q=Samsung+S26+Ultra' },
                   ].map(item => (
                     <li key={item.label}>
                       <Link
@@ -564,8 +571,9 @@ export function Shell({ children }: PropsWithChildren) {
         <div className="py-6">
           <Container>
             <div className="mb-4 text-xs leading-relaxed text-gray-600">
-              Указанная стоимость товаров и условия их приобретения действительны по состоянию на дату, указанную в товаре.
-              Сайт носит сугубо информационный характер и не является публичной офертой, определяемой Статьёй 437 (2) ГК РФ.
+              <p>Указанная стоимость товаров и условия их приобретения действительны по состоянию на дату, указанную в товаре. 
+              Сайт носит сугубо информационный характер и не является публичной офертой, определяемой Статьёй 437 (2) ГК РФ.</p>
+              <p className="mt-2">Apple, логотип Apple и изображения Apple являются зарегистрированными товарными знаками компании Apple Inc. в США и других странах. App Store является знаком обслуживания компании Apple Inc.</p>
             </div>
             <div className="flex flex-col items-center justify-between gap-3 sm:flex-row">
               <p className="text-sm text-gray-600">
