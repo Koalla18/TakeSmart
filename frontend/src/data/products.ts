@@ -29,6 +29,15 @@ export function getBadgeText(badge: Product['badge']): string {
   }
 }
 
+export function formatProductName(name: string): string {
+  // Fix Watch name ordering
+  const match = name.match(/^(.*?)\s*(ремешок\s+.*?)[,\s]+\s*(корпус\s+.*)$/i);
+  if (match) {
+    return `${match[1]} ${match[3]} ${match[2]}`
+  }
+  return name;
+}
+
 // ─── API types (зеркало backend схем) ────────────────────────────────────────
 
 export interface ApiProductOut {
@@ -123,7 +132,7 @@ export function mapApiProduct(
   return {
     id: p.id,
     slug: p.slug,
-    name: p.name,
+    name: formatProductName(p.name),
     brand: p.brand || '',
     category: categoryName,
     categorySlug,

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
-import { formatPrice } from '../data/products'
+import { formatPrice, formatProductName } from '../data/products'
 import { useCart } from '../lib/cart'
 import { API_BASE_URL } from '../lib/config'
 import type { Product as CartProduct } from '../data/products'
@@ -607,9 +607,10 @@ export function ProductPage() {
   
   const handleAddToCart = () => {
       // Variant-aware name: append variant name if selected
+      const baseName = formatProductName(apiProduct!.name)
       const productName = selectedVariant
-        ? `${apiProduct!.name} — ${selectedVariant.name}`
-        : apiProduct!.name
+        ? `${baseName} — ${selectedVariant.name}`
+        : baseName
 
       const variantSpecs: Array<{label: string; value: string}> = []
       if (selectedVariant?.color) variantSpecs.push({ label: 'Цвет', value: selectedVariant.color })
@@ -707,7 +708,7 @@ export function ProductPage() {
               <span className="text-gray-300">/</span>
               <Link to="/catalog" className="text-gray-500 hover:text-yellow-600">Каталог</Link>
               <span className="text-gray-300">/</span>
-              <span className="truncate text-gray-900">{apiProduct.name}</span>
+              <span className="truncate text-gray-900">{formatProductName(apiProduct.name)}</span>
             </nav>
           </Container>
         </div>
@@ -890,7 +891,7 @@ export function ProductPage() {
                 
                 {/* Name */}
                 <h1 className="mb-4 text-2xl font-bold text-gray-900 sm:text-3xl lg:text-4xl">
-                  {apiProduct.name.replace(/\s*\([A-Z][A-Z0-9]{3,}\)$/, '')}
+                  {formatProductName(apiProduct.name).replace(/\s*\([A-Z][A-Z0-9]{3,}\)$/, '')}
                   {(() => {
                     const m = apiProduct.name.match(/\(([A-Z][A-Z0-9]{3,})\)$/)
                     return m ? (
