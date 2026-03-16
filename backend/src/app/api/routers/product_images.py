@@ -45,7 +45,7 @@ async def list_images(
 
 
 @router.post(
-    dependencies=[Depends(get_current_admin)],"", status_code=status.HTTP_201_CREATED, summary="Загрузить изображение товара")
+    "", dependencies=[Depends(get_current_admin)], status_code=status.HTTP_201_CREATED, summary="Загрузить изображение товара")
 async def upload_image(
     product_id: UUID,
     file: UploadFile = File(..., description="Изображение товара (JPEG / PNG / WebP, макс. 5 МБ)"),
@@ -97,7 +97,7 @@ async def upload_image(
 
 
 @router.delete(
-    dependencies=[Depends(get_current_admin)],"/{image_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, summary="Удалить изображение")
+    "/{image_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, summary="Удалить изображение", dependencies=[Depends(get_current_admin)])
 async def delete_image(product_id: UUID, image_id: UUID) -> None:
     async with UnitOfWork() as uow:
         image = await uow.product_images.get_by_id(image_id)
@@ -135,7 +135,7 @@ async def delete_image(product_id: UUID, image_id: UUID) -> None:
 
 
 @router.patch(
-    dependencies=[Depends(get_current_admin)],"/{image_id}/set-main", summary="Сделать изображение главным")
+    "/{image_id}/set-main", summary="Сделать изображение главным", dependencies=[Depends(get_current_admin)])
 async def set_main_image(product_id: UUID, image_id: UUID) -> ProductImageOut:
     async with UnitOfWork() as uow:
         image = await uow.product_images.get_by_id(image_id)
@@ -156,7 +156,7 @@ async def set_main_image(product_id: UUID, image_id: UUID) -> ProductImageOut:
 
 
 @router.patch(
-    dependencies=[Depends(get_current_admin)],"/reorder", summary="Изменить порядок изображений")
+    "/reorder", summary="Изменить порядок изображений", dependencies=[Depends(get_current_admin)])
 async def reorder_images(product_id: UUID, body: ReorderRequest) -> list[ProductImageOut]:
     async with UnitOfWork() as uow:
         product = await uow.products.get_by_id(product_id)

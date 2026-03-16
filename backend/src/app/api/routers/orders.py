@@ -38,9 +38,9 @@ def _generate_order_number() -> str:
     "",
     response_model=PaginatedResponse[OrderOut],
     summary="Список всех заказов",
+    dependencies=[Depends(get_current_admin)]
 )
 async def list_orders(
-    admin_=Depends(get_current_admin),
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     status: OrderStatus | None = Query(None, description="Фильтр по статусу заказа"),
@@ -80,9 +80,10 @@ async def list_orders(
     response_model=OrderDetailOut,
     summary="Получить заказ по ID",
     responses={404: {"description": "Заказ не найден"}},
+    dependencies=[Depends(get_current_admin)]
 )
 async def get_order(
-    admin_=Depends(get_current_admin),order_id: UUID) -> OrderDetailOut:
+order_id: UUID) -> OrderDetailOut:
     async with UnitOfWork() as uow:
         order = await uow.orders.get_with_items(order_id)
 
@@ -223,9 +224,10 @@ async def create_order(body: OrderCreate) -> OrderDetailOut:
         404: {"description": "Заказ не найден"},
         409: {"description": "Недопустимый переход статуса"},
     },
+    dependencies=[Depends(get_current_admin)]
 )
 async def update_order_status(
-    admin_=Depends(get_current_admin),order_id: UUID, body: OrderStatusUpdate) -> OrderOut:
+order_id: UUID, body: OrderStatusUpdate) -> OrderOut:
     async with UnitOfWork() as uow:
         order = await uow.orders.get_by_id(order_id)
         if not order:
@@ -252,9 +254,9 @@ async def update_order_status(
     response_model=OrderOut,
     summary="Изменить статус оплаты",
     responses={404: {"description": "Заказ не найден"}},
+    dependencies=[Depends(get_current_admin)]
 )
 async def update_payment_status(
-    admin_=Depends(get_current_admin),
     order_id: UUID, body: OrderPaymentStatusUpdate
 ) -> OrderOut:
     async with UnitOfWork() as uow:
@@ -281,9 +283,10 @@ async def update_payment_status(
     response_model=OrderOut,
     summary="Добавить/обновить заметку администратора",
     responses={404: {"description": "Заказ не найден"}},
+    dependencies=[Depends(get_current_admin)]
 )
 async def update_admin_note(
-    admin_=Depends(get_current_admin),order_id: UUID, body: OrderAdminNoteUpdate) -> OrderOut:
+order_id: UUID, body: OrderAdminNoteUpdate) -> OrderOut:
     async with UnitOfWork() as uow:
         order = await uow.orders.get_by_id(order_id)
         if not order:
@@ -307,9 +310,10 @@ async def update_admin_note(
         404: {"description": "Заказ не найден"},
         409: {"description": "Нельзя удалить — заказ уже обрабатывается"},
     },
+    dependencies=[Depends(get_current_admin)]
 )
 async def delete_order(
-    admin_=Depends(get_current_admin),order_id: UUID) -> None:
+order_id: UUID) -> None:
     async with UnitOfWork() as uow:
         order = await uow.orders.get_by_id(order_id)
         if not order:
