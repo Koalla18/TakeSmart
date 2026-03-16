@@ -4,6 +4,9 @@ from uuid import UUID
 
 from typing import Optional
 
+
+from fastapi import Depends
+from src.app.api.admin.endpoints import get_current_admin
 from fastapi import APIRouter, Form, HTTPException, Query, UploadFile, File, status
 from fastapi.responses import Response
 
@@ -41,7 +44,8 @@ async def list_images(
         ]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, summary="Загрузить изображение товара")
+@router.post(
+    dependencies=[Depends(get_current_admin)],"", status_code=status.HTTP_201_CREATED, summary="Загрузить изображение товара")
 async def upload_image(
     product_id: UUID,
     file: UploadFile = File(..., description="Изображение товара (JPEG / PNG / WebP, макс. 5 МБ)"),
@@ -92,7 +96,8 @@ async def upload_image(
     )
 
 
-@router.delete("/{image_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, summary="Удалить изображение")
+@router.delete(
+    dependencies=[Depends(get_current_admin)],"/{image_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, summary="Удалить изображение")
 async def delete_image(product_id: UUID, image_id: UUID) -> None:
     async with UnitOfWork() as uow:
         image = await uow.product_images.get_by_id(image_id)
@@ -129,7 +134,8 @@ async def delete_image(product_id: UUID, image_id: UUID) -> None:
         await uow.commit()
 
 
-@router.patch("/{image_id}/set-main", summary="Сделать изображение главным")
+@router.patch(
+    dependencies=[Depends(get_current_admin)],"/{image_id}/set-main", summary="Сделать изображение главным")
 async def set_main_image(product_id: UUID, image_id: UUID) -> ProductImageOut:
     async with UnitOfWork() as uow:
         image = await uow.product_images.get_by_id(image_id)
@@ -149,7 +155,8 @@ async def set_main_image(product_id: UUID, image_id: UUID) -> ProductImageOut:
     )
 
 
-@router.patch("/reorder", summary="Изменить порядок изображений")
+@router.patch(
+    dependencies=[Depends(get_current_admin)],"/reorder", summary="Изменить порядок изображений")
 async def reorder_images(product_id: UUID, body: ReorderRequest) -> list[ProductImageOut]:
     async with UnitOfWork() as uow:
         product = await uow.products.get_by_id(product_id)
