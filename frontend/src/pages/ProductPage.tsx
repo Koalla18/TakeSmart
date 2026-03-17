@@ -387,6 +387,7 @@ interface ApiProduct {
   is_featured: boolean
   main_image_url: string | null
   images?: ProductImage[]
+  attributes?: Record<string, string>
   description: string | null
   short_description: string | null
   sku: string | null
@@ -930,18 +931,38 @@ export function ProductPage() {
                     ...apiProduct.siblings,
                   ]
 
-                  // Parse attributes from names (storage + connectivity) 
+                  // Parse attributes from names (or use JSON attributes if present)
+                  const getParsed = (item: any) => {
+                    const attrs = item.attributes || {};
+                    if (Object.keys(attrs).length > 0 && (attrs.storage || attrs.connectivity || attrs.processor)) {
+                      return { storage: attrs.storage || null, connectivity: attrs.connectivity || null, ram: attrs.processor || null, color: item.color || null }
+                    }
+                    const parsed = parseAttrsFromProduct(item.name, item.color)
+                    const isWatch = item.category?.slug === 'watches' || item.category?.slug === 'smart-bands' || /watch/i.test(item.name || '')
+                    if (isWatch && parsed.storage) {
+                       const match = parsed.storage.match(/(.*?)\s+(S|M|L|S\/M|M\/L|One Size|Единый|41\s*mm|45\s*mm|49\s*mm|41\s*мм|45\s*мм|49\s*мм)$/i);
+                       if (match) {
+                           parsed.ram = match[1].trim(); 
+                           parsed.storage = match[2].trim(); 
+                       } else {
+                           parsed.ram = parsed.storage; 
+                           parsed.storage = null;
+                       }
+                    }
+                    return parsed;
+                  }
+
                   const cardsWithAttrs = allCards.map(c => {
-                    const parsed = parseAttrsFromProduct(c.name, c.color)
+                    const parsed = getParsed(c)
                     return { ...c, storage: parsed.storage, connectivity: parsed.connectivity, ram: parsed.ram }
                   })
 
                   const currentColor = apiProduct.color || null
-                  const currentParsed = parseAttrsFromProduct(apiProduct.name, apiProduct.color)
+                  const currentParsed = getParsed(apiProduct)
 
                   // Detect laptop group: any card name contains "N ГБ SSD"
                   const isLaptopGroup = allCards.some(c => /\d+\s*(?:ГБ|GB|ТБ|TB)\s+SSD/i.test(c.name))
-                  const isWatchGroup = apiProduct.category?.slug === 'watches'
+                  const isWatchGroup = apiProduct.category?.slug === 'watches' || apiProduct.category?.slug === 'smart-bands' || /watch/i.test(apiProduct.name || '')
 
                   // Unique values per dimension
                   const uniqueColors = [...new Set(allCards.map(c => c.color).filter(Boolean))] as string[]
@@ -1047,7 +1068,7 @@ export function ProductPage() {
                       {uniqueRam.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
-                            ОЗУ: <span className="font-semibold text-gray-900">{currentParsed.ram || '—'}</span>
+                            {isWatchGroup ? 'Тип ремешка' : 'ОЗУ'}: <span className="font-semibold text-gray-900">{currentParsed.ram || '—'}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {uniqueRam.map(ramVal => {
@@ -1083,7 +1104,7 @@ export function ProductPage() {
                       {uniqueStorages.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
-                            {isLaptopGroup ? 'Память SSD' : isWatchGroup ? 'Ремешок' : 'Память'}: <span className="font-semibold text-gray-900">{currentParsed.storage || '—'}</span>
+                            {isLaptopGroup ? 'Память SSD' : isWatchGroup ? 'Размер ремешка' : 'Память'}: <span className="font-semibold text-gray-900">{currentParsed.storage || '—'}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {uniqueStorages.map(stor => {

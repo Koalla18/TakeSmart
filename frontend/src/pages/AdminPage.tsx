@@ -3268,6 +3268,7 @@ function GroupCreationModal({
           brand: brand || null, category_id: categoryId || null,
           description: description || null, color: item.color || null,
           warranty_months: warranty ? parseInt(warranty) || null : null,
+          attributes: { storage: item.storage || null, connectivity: item.connectivity || null, processor: item.processor || null }
         }
 
         const res = await authFetch(`${API_BASE_URL}/api/products`, {
