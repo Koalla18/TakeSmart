@@ -939,15 +939,32 @@ export function ProductPage() {
                     }
                     const parsed = parseAttrsFromProduct(item.name, item.color)
                     const isWatch = item.category?.slug === 'watches' || item.category?.slug === 'smart-bands' || /watch/i.test(item.name || '')
-                    if (isWatch && parsed.storage) {
-                       const match = parsed.storage.match(/(.*?)\s+(S|M|L|S\/M|M\/L|One Size|Единый|41\s*mm|45\s*mm|49\s*mm|41\s*мм|45\s*мм|49\s*мм)$/i);
-                       if (match) {
-                           parsed.ram = match[1].trim(); 
-                           parsed.storage = match[2].trim(); 
-                       } else {
-                           parsed.ram = parsed.storage; 
-                           parsed.storage = null;
-                       }
+                    
+                    if (isWatch && Object.keys(attrs).length === 0) {
+                        let wConn = null;
+                        let wStorage = null;
+                        let wRam = null;
+
+                        const dialMatch = item.name.match(/(\d{2,}\s*(?:mm|мм))/i) || item.name.match(/\b(32|38|40|41|42|44|45|46|49)\b/);
+                        if (dialMatch) wConn = dialMatch[0].trim();
+
+                        const strapSizeMatch = item.name.match(/\b(S|M|L|S\/M|M\/L|One Size|Единый)\b/i);
+                        if (strapSizeMatch) wStorage = strapSizeMatch[0].toUpperCase();
+
+                        let remainder = item.name;
+                        if (item.color) remainder = remainder.replace(new RegExp(item.color, 'ig'), '');
+                        if (wConn) remainder = remainder.replace(new RegExp(wConn.replace(/\s+/g,'\\s*'), 'ig'), '');
+                        if (wStorage) remainder = remainder.replace(new RegExp(`\\b${wStorage.replace('/','\\/')}\\b`, 'ig'), '');
+                        remainder = remainder.replace(/apple watcheee|apple watch series \d+|apple watch se \d+|apple watch se|apple watch ultra \d+|apple watch ultra|apple watch|watch/ig, '');
+                        remainder = remainder.replace(/[,\(\)]/g, '').replace(/[\-]/g, ' ');
+                        wRam = remainder.replace(/\s+/g, ' ').trim() || null;
+
+                        parsed.connectivity = wConn || parsed.connectivity;
+                        parsed.storage = wStorage || parsed.storage;
+                        parsed.ram = wRam || parsed.ram;
+                        
+                        // Clear out generic fallback that put "32" into ram earlier
+                        if (parsed.ram === wConn) parsed.ram = null;
                     }
                     return parsed;
                   }
@@ -1174,6 +1191,7 @@ export function ProductPage() {
 
                 {/* Variant selector — only show when product is NOT in a group */}
                 {variants.length > 0 && !(apiProduct.siblings && apiProduct.siblings.length > 0) && (() => {
+                  const isWatchGroup = apiProduct.category?.slug === 'watches' || apiProduct.category?.slug === 'smart-bands' || /watch/i.test(apiProduct.name || '')
                   const colors = [...new Set(variants.filter(v => v.color).map(v => v.color!))]
                   const storages = [...new Set(variants.filter(v => v.storage).map(v => v.storage!))]
                   const sizes = [...new Set(variants.filter(v => v.size).map(v => v.size!))]
@@ -1259,7 +1277,7 @@ export function ProductPage() {
                       {/* ── Storage (накопитель) — disabled if not in current color ── */}
                       {storages.length > 0 && (
                         <div>
-                          <p className="mb-2.5 text-[13px] text-gray-500">Накопитель</p>
+                          <p className="mb-2.5 text-[13px] text-gray-500">{isWatchGroup ? 'Размер ремешка' : 'Накопитель'}</p>
                           <div className="flex flex-wrap gap-2">
                             {storages.map(s => {
                               const isAvailable = availableStorages.includes(s)
@@ -1288,7 +1306,7 @@ export function ProductPage() {
                       {/* ── Size / SIM — disabled if not in current color+storage ── */}
                       {sizes.length > 0 && (
                         <div>
-                          <p className="mb-2.5 text-[13px] text-gray-500">Связь</p>
+                          <p className="mb-2.5 text-[13px] text-gray-500">{isWatchGroup ? 'Размер корпуса' : 'Связь'}</p>
                           <div className="flex flex-wrap gap-2">
                             {sizes.map(s => {
                               const isAvailable = availableSizes.includes(s)
