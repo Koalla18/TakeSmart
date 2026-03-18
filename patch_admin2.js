@@ -1,26 +1,10 @@
-const fs = require('fs');
-let content = fs.readFileSync('frontend/src/pages/AdminPage.tsx', 'utf8');
+const fs = require('fs')
+const path = 'frontend/src/pages/AdminPage.tsx'
+let text = fs.readFileSync(path, 'utf-8')
 
-// The original lines in buildMatrix
-const orig = `            } else {
-              const parts = [baseName, proc, s, cn].filter(Boolean)
-              fullName = c ? \`\${parts.join(' ')}, \${c}\` : parts.join(' ')
-            }`;
+text = text.replace(
+  "warranty_months: warranty ? parseInt(warranty) || null : null,",
+  "warranty_months: warranty ? parseInt(warranty) || null : null,\n          attributes: { storage: item.storage || null, connectivity: item.connectivity || null, processor: item.processor || null },"
+)
 
-const repl = `            } else if (catSlug === 'tablets') {
-              const spec = [cn, s].filter(Boolean).map(v => v.replace(/(?:\\s*ГБ|\\s*ТБ)$/i, '')).join('/')
-              const unit = s ? (s.toLowerCase().includes('тб') ? ' ТБ' : ' ГБ') : ''
-              const memStr = spec ? \`\${spec}\${unit}\` : ''
-              const parts = [baseName, memStr, proc].filter(Boolean)
-              fullName = c ? \`\${parts.join(' ')}, \${c}\` : parts.join(' ')
-            } else if (catSlug === 'watches') {
-              // proc = Тип ремешка, s = Размер ремешка, cn = Размер циферблата. Expected order: Размер циф, Тип ремешка, Размер ремешка.
-              const parts = [baseName, cn, proc, s].filter(Boolean)
-              fullName = c ? \`\${parts.join(' ')}, \${c}\` : parts.join(' ')
-            } else {
-              const parts = [baseName, proc, s, cn].filter(Boolean)
-              fullName = c ? \`\${parts.join(' ')}, \${c}\` : parts.join(' ')
-            }`;
-
-content = content.replace(orig, repl);
-fs.writeFileSync('frontend/src/pages/AdminPage.tsx', content);
+fs.writeFileSync(path, text)

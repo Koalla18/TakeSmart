@@ -927,7 +927,7 @@ export function ProductPage() {
                 {apiProduct.siblings && apiProduct.siblings.length > 0 && (() => {
                   // All products in group: current + siblings
                   const allCards = [
-                    { id: apiProduct.id, name: apiProduct.name, slug: apiProduct.slug, color: apiProduct.color, main_image_url: apiProduct.main_image_url, price: apiProduct.price, discount_price: apiProduct.discount_price, is_active: true },
+                    { id: apiProduct.id, name: apiProduct.name, slug: apiProduct.slug, color: apiProduct.color, main_image_url: apiProduct.main_image_url, price: apiProduct.price, discount_price: apiProduct.discount_price, is_active: true, attributes: apiProduct.attributes, category: apiProduct.category },
                     ...apiProduct.siblings,
                   ]
 
@@ -955,7 +955,7 @@ export function ProductPage() {
                         if (item.color) remainder = remainder.replace(new RegExp(item.color, 'ig'), '');
                         if (wConn) remainder = remainder.replace(new RegExp(wConn.replace(/\s+/g,'\\s*'), 'ig'), '');
                         if (wStorage) remainder = remainder.replace(new RegExp(`\\b${wStorage.replace('/','\\/')}\\b`, 'ig'), '');
-                        remainder = remainder.replace(/apple watcheee|apple watch series \d+|apple watch se \d+|apple watch se|apple watch ultra \d+|apple watch ultra|apple watch|watch/ig, '');
+                        remainder = remainder.replace(/apple watcheee|apple watch series \d+|apple watch se \d+|apple watch se|apple watch ultra \d+|apple watch ultra|apple watch|watch|часы \d+|часы/ig, '');
                         remainder = remainder.replace(/[,\(\)]/g, '').replace(/[\-]/g, ' ');
                         wRam = remainder.replace(/\s+/g, ' ').trim() || null;
 
