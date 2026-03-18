@@ -1094,31 +1094,45 @@ export function ProductPage() {
                             {isWatchGroup ? 'Тип ремешка' : 'ОЗУ'}: <span className="font-semibold text-gray-900">{currentParsed.ram || '—'}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
-                            {uniqueRam.map(ramVal => {
-                              const isCurrent = ramVal === currentParsed.ram
-                              const target = cardsWithAttrs.find(p =>
-                                p.ram === ramVal && 
-                                (p.color === currentColor || !currentColor) && 
-                                (p.storage === currentParsed.storage || !currentParsed.storage)
-                              ) || cardsWithAttrs.find(p => p.ram === ramVal)
-                              const isAvailable = !!target
-                              return (
+                            {isWatchGroup ? (
+                              currentParsed.ram ? (
                                 <button
-                                  key={ramVal}
-                                  disabled={!isAvailable}
-                                  onClick={() => isAvailable && !isCurrent && goTo(undefined, undefined, undefined, ramVal)}
-                                  className={`rounded-xl border px-4 py-2 text-sm font-medium transition-all ${
-                                    isCurrent
-                                      ? 'border-gray-900 bg-gray-900 text-white shadow-sm'
-                                      : isAvailable
-                                        ? 'border-gray-200 bg-white text-gray-700 hover:border-gray-400 hover:shadow-sm cursor-pointer'
-                                        : 'cursor-not-allowed border-gray-100 bg-gray-50 text-gray-300'
-                                  }`}
+                                  key={currentParsed.ram}
+                                  disabled
+                                  className="rounded-xl border border-gray-900 bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-sm"
                                 >
-                                  {ramVal}
+                                  {currentParsed.ram}
                                 </button>
+                              ) : (
+                                <span className="text-sm text-gray-400">—</span>
                               )
-                            })}
+                            ) : (
+                              uniqueRam.map(ramVal => {
+                                const isCurrent = ramVal === currentParsed.ram
+                                const target = cardsWithAttrs.find(p =>
+                                  p.ram === ramVal &&
+                                  (p.color === currentColor || !currentColor) &&
+                                  (p.storage === currentParsed.storage || !currentParsed.storage)
+                                ) || cardsWithAttrs.find(p => p.ram === ramVal)
+                                const isAvailable = !!target
+                                return (
+                                  <button
+                                    key={ramVal}
+                                    disabled={!isAvailable}
+                                    onClick={() => isAvailable && !isCurrent && goTo(undefined, undefined, undefined, ramVal)}
+                                    className={`rounded-xl border px-4 py-2 text-sm font-medium transition-all ${
+                                      isCurrent
+                                        ? 'border-gray-900 bg-gray-900 text-white shadow-sm'
+                                        : isAvailable
+                                          ? 'border-gray-200 bg-white text-gray-700 hover:border-gray-400 hover:shadow-sm cursor-pointer'
+                                          : 'cursor-not-allowed border-gray-100 bg-gray-50 text-gray-300'
+                                    }`}
+                                  >
+                                    {ramVal}
+                                  </button>
+                                )
+                              })
+                            )}
                           </div>
                         </div>
                       )}
