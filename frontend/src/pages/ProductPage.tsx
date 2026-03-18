@@ -952,10 +952,16 @@ export function ProductPage() {
                         if (strapSizeMatch) wStorage = strapSizeMatch[0].toUpperCase();
 
                         let remainder = item.name;
-                        if (item.color) remainder = remainder.replace(new RegExp(item.color, 'ig'), '');
+                        if (item.color) {
+                            const cleanColor = item.color.replace(/[()]/g, '').trim();
+                            const colorWords = cleanColor.split(' ').filter((w: string) => w.length > 2);
+                            colorWords.forEach((word: string) => {
+                                remainder = remainder.replace(new RegExp(word, 'ig'), '');
+                            });
+                        }
                         if (wConn) remainder = remainder.replace(new RegExp(wConn.replace(/\s+/g,'\\s*'), 'ig'), '');
                         if (wStorage) remainder = remainder.replace(new RegExp(`\\b${wStorage.replace('/','\\/')}\\b`, 'ig'), '');
-                        remainder = remainder.replace(/apple watcheee|apple watch series \d+|apple watch se \d+|apple watch se|apple watch ultra \d+|apple watch ultra|apple watch|watch|часы \d+|часы/ig, '');
+                        remainder = remainder.replace(/apple watcheee|apple watch series \d+|apple watch se \d+|apple watch se|apple watch ultra \d+|apple watch ultra|apple watch|watch|часы|\b202\d\b/ig, '');
                         remainder = remainder.replace(/[,\(\)]/g, '').replace(/[\-]/g, ' ');
                         wRam = remainder.replace(/\s+/g, ' ').trim() || null;
 
