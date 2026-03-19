@@ -3,6 +3,7 @@ export interface Product {
   slug: string
   name: string
   brand: string
+  model?: string
   category: string
   categorySlug: string
   price: number
@@ -134,6 +135,7 @@ export function mapApiProduct(
     slug: p.slug,
     name: formatProductName(p.name),
     brand: p.brand || '',
+    model: p.model || undefined,
     category: categoryName,
     categorySlug,
     price: Number(p.discount_price ?? p.price),

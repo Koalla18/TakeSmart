@@ -935,6 +935,21 @@ export function ProductPage() {
                   const getParsed = (item: any) => {
                     const attrs = item.attributes || {};
                     if (Object.keys(attrs).length > 0 && (attrs.storage || attrs.connectivity || attrs.processor)) {
+                      const categorySlug = item.category?.slug || apiProduct.category?.slug || ''
+                      const brandSlug = (item.brand || apiProduct.brand || '').toLowerCase()
+                      const isSamsungXiaomiPhone = categorySlug === 'smartphones' && ['samsung', 'xiaomi'].includes(brandSlug)
+                      const hasRamInConn = typeof attrs.connectivity === 'string' && /\b\d+\s*(?:гб|gb)\b/i.test(attrs.connectivity)
+                      const hasSimInProc = typeof attrs.processor === 'string' && /sim|esim/i.test(attrs.processor)
+
+                      if (isSamsungXiaomiPhone && hasRamInConn && hasSimInProc) {
+                        return {
+                          storage: attrs.storage || null,
+                          connectivity: attrs.processor || null,
+                          ram: attrs.connectivity || null,
+                          color: item.color || null,
+                        }
+                      }
+
                       return { storage: attrs.storage || null, connectivity: attrs.connectivity || null, ram: attrs.processor || null, color: item.color || null }
                     }
                     const parsed = parseAttrsFromProduct(item.name, item.color)

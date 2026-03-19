@@ -3060,6 +3060,12 @@ const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
     { field: 'storage', label: 'Память', placeholder: '256 ГБ', hint: 'Объём встроенной памяти' },
     { field: 'processor', label: 'SIM', placeholder: 'SIM + eSIM', hint: 'Тип SIM-карт' },
   ],
+  'smartphones:xiaomi': [
+    { field: 'color', label: 'Цвета', placeholder: 'Чёрный', hint: 'Каждый цвет = отдельная карточка товара' },
+    { field: 'connectivity', label: 'ОЗУ', placeholder: '12 ГБ', hint: 'Объём оперативной памяти' },
+    { field: 'storage', label: 'Память', placeholder: '256 ГБ', hint: 'Объём встроенной памяти' },
+    { field: 'processor', label: 'SIM', placeholder: 'SIM + eSIM', hint: 'Тип SIM-карт' },
+  ],
   tablets: [
     { field: 'color', label: 'Цвета', placeholder: 'Space Gray' },
     { field: 'connectivity', label: 'ОЗУ', placeholder: '8 ГБ', hint: 'Объём оперативной памяти' },
@@ -3082,6 +3088,7 @@ const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
     { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
   ],
   tv: [
+    { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
     { field: 'storage', label: 'Диагональ', placeholder: '55"' },
   ],
   gaming: [
@@ -3173,7 +3180,7 @@ function GroupCreationModal({
     const conns = axisValues.connectivity.length > 0 ? axisValues.connectivity : ['']
     const processors = axisValues.processor.length > 0 ? axisValues.processor : ['']
     const isLaptop = catSlug === 'laptops'
-    const isSamsungPhone = catSlug === 'smartphones' && brand?.toLowerCase() === 'samsung'
+    const isRamFirstPhone = catSlug === 'smartphones' && ['samsung', 'xiaomi'].includes((brand || '').toLowerCase())
 
     const result: GroupProductRow[] = []
     for (const c of colors) {
@@ -3186,7 +3193,7 @@ function GroupCreationModal({
               const specParts = [proc, cn, s ? `${s} SSD` : ''].filter(Boolean)
               const specs = specParts.length > 0 ? ` (${specParts.join(', ')})` : ''
               fullName = c ? `${baseName}${specs}, ${c}` : `${baseName}${specs}`
-            } else if (isSamsungPhone) {
+            } else if (isRamFirstPhone) {
               // Format: Samsung S25 Ultra 12ГБ/256ГБ SIM + eSIM, чёрный
               const spec = [cn, s].filter(Boolean).join('/')
               const parts = [baseName, spec, proc].filter(Boolean)
@@ -3671,11 +3678,11 @@ function GroupCreationModal({
                       </div>
                     </div>
 
-                    {/* Model code field (laptops) */}
-                    {selectedCat?.slug === 'laptops' && (
+                    {/* Model code field (laptops/tablets) */}
+                    {(selectedCat?.slug === 'laptops' || selectedCat?.slug === 'tablets') && (
                       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-2">
                         <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Код модели (SKU)</div>
-                        <div className="text-[10px] text-slate-600">Apple article, например MX2F3 — добавится в скобках в конце названия</div>
+                        <div className="text-[10px] text-slate-600">Например MX2F3 — добавится в скобках в конце названия</div>
                         <div className="flex gap-2">
                           <input
                             type="text"

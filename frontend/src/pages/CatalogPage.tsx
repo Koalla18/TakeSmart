@@ -557,7 +557,7 @@ export function CatalogPage() {
           .filter(qf => qf.query !== searchQuery && qf.query.toLowerCase().startsWith(q))
           .map(qf => qf.query.toLowerCase())
         result = result.filter(p => {
-          const hay = `${p.name} ${p.brand} ${p.description}`.toLowerCase()
+          const hay = `${p.name} ${p.brand} ${p.description} ${p.model || ''}`.toLowerCase()
           if (!hay.includes(q)) return false
           // Exclude if it matches a more specific sibling tag
           if (moreSpecific.some(s => hay.includes(s))) return false
@@ -568,7 +568,7 @@ export function CatalogPage() {
         const tokens = q.split(/\s+/).filter(Boolean)
         if (tokens.length) {
           result = result.filter(p => {
-            const hay = `${p.name} ${p.brand} ${p.description}`.toLowerCase()
+            const hay = `${p.name} ${p.brand} ${p.description} ${p.model || ''}`.toLowerCase()
             return tokens.every(t => hay.includes(t))
           })
         }

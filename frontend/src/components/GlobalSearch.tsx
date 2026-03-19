@@ -9,6 +9,7 @@ interface SearchProduct {
   slug: string
   name: string
   brand: string
+  model: string
   price: number
   oldPrice?: number
   image: string
@@ -21,6 +22,7 @@ function mapSearchProduct(p: ApiProductOut): SearchProduct {
     slug: p.slug,
     name: p.name,
     brand: p.brand || '',
+    model: p.model || '',
     price: Number(p.discount_price ?? p.price),
     oldPrice: p.discount_price != null ? Number(p.price) : undefined,
     image: p.main_image_url || '',
@@ -44,7 +46,7 @@ export function GlobalSearch() {
     if (cacheRef.current) return
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/products?limit=200&only_active=true`)
+      const res = await fetch(`${API_BASE_URL}/api/products?limit=2500&only_active=true`)
       if (res.ok) {
         const data = await res.json()
         const items: ApiProductOut[] = data.items ?? data
@@ -65,7 +67,7 @@ export function GlobalSearch() {
         const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
         return source
           .filter(p => {
-            const hay = `${p.name} ${p.brand}`.toLowerCase()
+            const hay = `${p.name} ${p.brand} ${p.model}`.toLowerCase()
             return tokens.every(t => hay.includes(t))
           })
           .slice(0, 6)
@@ -240,7 +242,7 @@ export function MobileSearchButton() {
     if (cacheRef.current) return
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/products?limit=200&only_active=true`)
+      const res = await fetch(`${API_BASE_URL}/api/products?limit=2500&only_active=true`)
       if (res.ok) {
         const data = await res.json()
         const items: ApiProductOut[] = data.items ?? data
@@ -271,7 +273,7 @@ export function MobileSearchButton() {
         const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
         return source
           .filter(p => {
-            const hay = `${p.name} ${p.brand}`.toLowerCase()
+            const hay = `${p.name} ${p.brand} ${p.model}`.toLowerCase()
             return tokens.every(t => hay.includes(t))
           })
           .slice(0, 8)
