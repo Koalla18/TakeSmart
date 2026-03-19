@@ -1065,10 +1065,11 @@ export function ProductPage() {
                       wantConn !== undefined && cardsWithAttrs.find(p => p.connectivity === wantConn),
                       wantRam !== undefined && cardsWithAttrs.find(p => p.ram === wantRam),
                     ]
-                    const match = candidates.find(Boolean)
-                    if (match && typeof match !== 'boolean' && match.id !== apiProduct.id) {
-                      navigate(`/product/${match.slug}`)
-                    }
+                    const match = candidates.find(
+                      (candidate): candidate is typeof cardsWithAttrs[number] =>
+                        !!candidate && typeof candidate !== 'boolean' && candidate.id !== apiProduct.id,
+                    )
+                    if (match) navigate(`/product/${match.slug}`)
                   }
 
                   return (
