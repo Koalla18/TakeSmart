@@ -135,6 +135,33 @@ function sortStorageValues(values: string[]): string[] {
   return [...values].sort((a, b) => toGB(a) - toGB(b))
 }
 
+function normalizeWatchStrapSize(value: string | null | undefined): string | null {
+  if (!value) return null
+  const normalized = value.trim().replace(/\s*\/\s*/g, '/').toUpperCase()
+  if (normalized === 'ONE SIZE' || normalized === 'ONESIZE') return 'ONE SIZE'
+  if (normalized === 'ЕДИНЫЙ') return 'Единый'
+  if (['S', 'M', 'L', 'S/M', 'M/L'].includes(normalized)) return normalized
+  return value.trim()
+}
+
+function sortWatchStrapSizes(values: Array<string | null>): Array<string | null> {
+  const order = ['S', 'S/M', 'M', 'M/L', 'L', 'ONE SIZE', 'Единый']
+  const uniq = Array.from(new Set(values.map(v => normalizeWatchStrapSize(v) || null)))
+  return uniq.sort((a, b) => {
+    if (a === null && b === null) return 0
+    if (a === null) return 1
+    if (b === null) return -1
+    const ai = order.indexOf(a)
+    const bi = order.indexOf(b)
+    if (ai !== -1 || bi !== -1) {
+      if (ai === -1) return 1
+      if (bi === -1) return -1
+      return ai - bi
+    }
+    return a.localeCompare(b, 'ru', { sensitivity: 'base' })
+  })
+}
+
 const CSS_COLOR_MAP: Record<string, string> = {
   'черный': '#1c1c1e', 'black': '#1c1c1e', 'чёрный': '#1c1c1e',
   'белый': '#f5f5f7', 'white': '#f5f5f7',
@@ -940,8 +967,9 @@ export function ProductPage() {
                       const brand = String(item.brand || '').toLowerCase()
                       const categorySlug = String(item.category?.slug || '').toLowerCase()
                       const isRamAxisPhone = categorySlug === 'smartphones' && (brand === 'samsung' || brand === 'xiaomi')
+                      const isWatch = categorySlug === 'watches' || categorySlug === 'smart-bands' || /watch/i.test(item.name || '')
                       return {
-                        storage: attrs.storage || null,
+                        storage: isWatch ? normalizeWatchStrapSize(attrs.storage) : (attrs.storage || null),
                         connectivity: isRamAxisPhone ? (attrs.processor || null) : (attrs.connectivity || null),
                         ram: isRamAxisPhone ? (attrs.connectivity || null) : (attrs.processor || null),
                         color: item.color || null,
@@ -958,8 +986,8 @@ export function ProductPage() {
                         const dialMatch = item.name.match(/(\d{2,}\s*(?:mm|мм))/i) || item.name.match(/\b(32|38|40|41|42|44|45|46|49)\b/);
                         if (dialMatch) wConn = dialMatch[0].trim();
 
-                        const strapSizeMatch = item.name.match(/\b(S|M|L|S\/M|M\/L|One Size|Единый)\b/i);
-                        if (strapSizeMatch) wStorage = strapSizeMatch[0].toUpperCase();
+                        const strapSizeMatch = item.name.match(/\b(S\s*\/\s*M|M\s*\/\s*L|ONE\s+SIZE|ЕДИНЫЙ|S|M|L)\b/i);
+                        if (strapSizeMatch) wStorage = normalizeWatchStrapSize(strapSizeMatch[0]);
 
                         let remainder = item.name;
                         if (item.color) {
@@ -1000,9 +1028,11 @@ export function ProductPage() {
 
                   // Unique values per dimension
                   const uniqueColors = [...new Set(allCards.map(c => c.color).filter(Boolean))] as string[]
-                  const uniqueStorages = sortStorageValues(
-                    [...new Set(cardsWithAttrs.map(c => c.storage).filter(Boolean))] as string[]
-                  )
+                  const uniqueStorages = isWatchGroup
+                    ? sortWatchStrapSizes(cardsWithAttrs.map(c => c.storage ?? null))
+                    : sortStorageValues(
+                        [...new Set(cardsWithAttrs.map(c => c.storage).filter(Boolean))] as string[]
+                      )
                   const uniqueConn = [...new Set(cardsWithAttrs.map(c => c.connectivity).filter(Boolean))] as string[]
                   const uniqueRam = sortStorageValues(
                     [...new Set(cardsWithAttrs.map(c => c.ram).filter(Boolean))] as string[]
@@ -1156,16 +1186,21 @@ export function ProductPage() {
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {uniqueStorages.map(stor => {
-                              const isCurrent = stor === currentParsed.storage
+                              const normalizedStor = isWatchGroup ? normalizeWatchStrapSize(stor) : stor
+                              const normalizedCurrentStorage = isWatchGroup ? normalizeWatchStrapSize(currentParsed.storage) : currentParsed.storage
+                              const isCurrent = normalizedStor === normalizedCurrentStorage
                               const target = cardsWithAttrs.find(p =>
-                                p.storage === stor && (p.color === currentColor || !currentColor)
-                              ) || cardsWithAttrs.find(p => p.storage === stor)
+                                (isWatchGroup ? normalizeWatchStrapSize(p.storage) : p.storage) === normalizedStor &&
+                                (p.color === currentColor || !currentColor)
+                              ) || cardsWithAttrs.find(p =>
+                                (isWatchGroup ? normalizeWatchStrapSize(p.storage) : p.storage) === normalizedStor
+                              )
                               const isAvailable = !!target
                               return (
                                 <button
-                                  key={stor}
+                                  key={stor ?? '__no_size__'}
                                   disabled={!isAvailable}
-                                  onClick={() => isAvailable && !isCurrent && goTo(undefined, stor)}
+                                  onClick={() => isAvailable && !isCurrent && goTo(undefined, normalizedStor ?? null)}
                                   className={`rounded-xl border px-4 py-2 text-sm font-medium transition-all ${
                                     isCurrent
                                       ? 'border-gray-900 bg-gray-900 text-white shadow-sm'
@@ -1174,7 +1209,7 @@ export function ProductPage() {
                                         : 'cursor-not-allowed border-gray-100 bg-gray-50 text-gray-300'
                                   }`}
                                 >
-                                  {stor}
+                                  {stor ?? 'Без размера'}
                                 </button>
                               )
                             })}
