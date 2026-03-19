@@ -3061,7 +3061,7 @@ const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
     { field: 'processor', label: 'SIM', placeholder: 'SIM + eSIM', hint: 'Тип SIM-карт' },
   ],
   'smartphones:xiaomi': [
-    { field: 'color', label: 'Цвета', placeholder: 'Чёрный', hint: 'Каждый цвет = отдельная карточка товара' },
+    { field: 'color', label: 'Цвета', placeholder: 'Черный', hint: 'Каждый цвет = отдельная карточка товара' },
     { field: 'connectivity', label: 'ОЗУ', placeholder: '12 ГБ', hint: 'Объём оперативной памяти' },
     { field: 'storage', label: 'Память', placeholder: '256 ГБ', hint: 'Объём встроенной памяти' },
     { field: 'processor', label: 'SIM', placeholder: 'SIM + eSIM', hint: 'Тип SIM-карт' },
@@ -3088,7 +3088,7 @@ const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
     { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
   ],
   tv: [
-    { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
+    { field: 'color', label: 'Цвета', placeholder: 'Черный' },
     { field: 'storage', label: 'Диагональ', placeholder: '55"' },
   ],
   gaming: [
@@ -3180,7 +3180,8 @@ function GroupCreationModal({
     const conns = axisValues.connectivity.length > 0 ? axisValues.connectivity : ['']
     const processors = axisValues.processor.length > 0 ? axisValues.processor : ['']
     const isLaptop = catSlug === 'laptops'
-    const isRamFirstPhone = catSlug === 'smartphones' && ['samsung', 'xiaomi'].includes((brand || '').toLowerCase())
+    const phoneBrand = brand?.toLowerCase() || ''
+    const isRamAxisPhone = catSlug === 'smartphones' && (phoneBrand === 'samsung' || phoneBrand === 'xiaomi')
 
     const result: GroupProductRow[] = []
     for (const c of colors) {
@@ -3193,7 +3194,7 @@ function GroupCreationModal({
               const specParts = [proc, cn, s ? `${s} SSD` : ''].filter(Boolean)
               const specs = specParts.length > 0 ? ` (${specParts.join(', ')})` : ''
               fullName = c ? `${baseName}${specs}, ${c}` : `${baseName}${specs}`
-            } else if (isRamFirstPhone) {
+            } else if (isRamAxisPhone) {
               // Format: Samsung S25 Ultra 12ГБ/256ГБ SIM + eSIM, чёрный
               const spec = [cn, s].filter(Boolean).join('/')
               const parts = [baseName, spec, proc].filter(Boolean)

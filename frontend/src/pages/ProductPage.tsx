@@ -624,9 +624,11 @@ export function ProductPage() {
         : baseName
 
       const variantSpecs: Array<{label: string; value: string}> = []
+      const isTvCategory = apiProduct?.category?.slug === 'tv'
+      const isWatchCategory = apiProduct?.category?.slug === 'watches' || apiProduct?.category?.slug === 'smart-bands'
       if (selectedVariant?.color) variantSpecs.push({ label: 'Цвет', value: selectedVariant.color })
-      if (selectedVariant?.storage) variantSpecs.push({ label: 'Память', value: selectedVariant.storage })
-      if (selectedVariant?.size) variantSpecs.push({ label: 'Размер', value: selectedVariant.size })
+      if (selectedVariant?.storage) variantSpecs.push({ label: isTvCategory ? 'Диагональ' : isWatchCategory ? 'Размер ремешка' : 'Память', value: selectedVariant.storage })
+      if (selectedVariant?.size) variantSpecs.push({ label: isWatchCategory ? 'Размер корпуса' : 'Размер', value: selectedVariant.size })
 
       const cartProduct: CartProduct = {
         id: apiProduct!.id,
@@ -935,22 +937,15 @@ export function ProductPage() {
                   const getParsed = (item: any) => {
                     const attrs = item.attributes || {};
                     if (Object.keys(attrs).length > 0 && (attrs.storage || attrs.connectivity || attrs.processor)) {
-                      const categorySlug = item.category?.slug || apiProduct.category?.slug || ''
-                      const brandSlug = (item.brand || apiProduct.brand || '').toLowerCase()
-                      const isSamsungXiaomiPhone = categorySlug === 'smartphones' && ['samsung', 'xiaomi'].includes(brandSlug)
-                      const hasRamInConn = typeof attrs.connectivity === 'string' && /\b\d+\s*(?:гб|gb)\b/i.test(attrs.connectivity)
-                      const hasSimInProc = typeof attrs.processor === 'string' && /sim|esim/i.test(attrs.processor)
-
-                      if (isSamsungXiaomiPhone && hasRamInConn && hasSimInProc) {
-                        return {
-                          storage: attrs.storage || null,
-                          connectivity: attrs.processor || null,
-                          ram: attrs.connectivity || null,
-                          color: item.color || null,
-                        }
+                      const brand = String(item.brand || '').toLowerCase()
+                      const categorySlug = String(item.category?.slug || '').toLowerCase()
+                      const isRamAxisPhone = categorySlug === 'smartphones' && (brand === 'samsung' || brand === 'xiaomi')
+                      return {
+                        storage: attrs.storage || null,
+                        connectivity: isRamAxisPhone ? (attrs.processor || null) : (attrs.connectivity || null),
+                        ram: isRamAxisPhone ? (attrs.connectivity || null) : (attrs.processor || null),
+                        color: item.color || null,
                       }
-
-                      return { storage: attrs.storage || null, connectivity: attrs.connectivity || null, ram: attrs.processor || null, color: item.color || null }
                     }
                     const parsed = parseAttrsFromProduct(item.name, item.color)
                     const isWatch = item.category?.slug === 'watches' || item.category?.slug === 'smart-bands' || /watch/i.test(item.name || '')
@@ -1001,6 +996,7 @@ export function ProductPage() {
                   // Detect laptop group: any card name contains "N ГБ SSD"
                   const isLaptopGroup = allCards.some(c => /\d+\s*(?:ГБ|GB|ТБ|TB)\s+SSD/i.test(c.name))
                   const isWatchGroup = apiProduct.category?.slug === 'watches' || apiProduct.category?.slug === 'smart-bands' || /watch/i.test(apiProduct.name || '')
+                  const isTvGroup = apiProduct.category?.slug === 'tv'
 
                   // Unique values per dimension
                   const uniqueColors = [...new Set(allCards.map(c => c.color).filter(Boolean))] as string[]
@@ -1156,7 +1152,7 @@ export function ProductPage() {
                       {uniqueStorages.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
-                            {isLaptopGroup ? 'Память SSD' : isWatchGroup ? 'Размер ремешка' : 'Память'}: <span className="font-semibold text-gray-900">{currentParsed.storage || '—'}</span>
+                            {isLaptopGroup ? 'Память SSD' : isWatchGroup ? 'Размер ремешка' : isTvGroup ? 'Диагональ' : 'Память'}: <span className="font-semibold text-gray-900">{currentParsed.storage || '—'}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {uniqueStorages.map(stor => {
@@ -1227,6 +1223,7 @@ export function ProductPage() {
                 {/* Variant selector — only show when product is NOT in a group */}
                 {variants.length > 0 && !(apiProduct.siblings && apiProduct.siblings.length > 0) && (() => {
                   const isWatchGroup = apiProduct.category?.slug === 'watches' || apiProduct.category?.slug === 'smart-bands' || /watch/i.test(apiProduct.name || '')
+                  const isTvGroup = apiProduct.category?.slug === 'tv'
                   const colors = [...new Set(variants.filter(v => v.color).map(v => v.color!))]
                   const storages = [...new Set(variants.filter(v => v.storage).map(v => v.storage!))]
                   const sizes = [...new Set(variants.filter(v => v.size).map(v => v.size!))]
@@ -1312,7 +1309,7 @@ export function ProductPage() {
                       {/* ── Storage (накопитель) — disabled if not in current color ── */}
                       {storages.length > 0 && (
                         <div>
-                          <p className="mb-2.5 text-[13px] text-gray-500">{isWatchGroup ? 'Размер ремешка' : 'Накопитель'}</p>
+                          <p className="mb-2.5 text-[13px] text-gray-500">{isWatchGroup ? 'Размер ремешка' : isTvGroup ? 'Диагональ' : 'Накопитель'}</p>
                           <div className="flex flex-wrap gap-2">
                             {storages.map(s => {
                               const isAvailable = availableStorages.includes(s)

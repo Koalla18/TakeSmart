@@ -547,7 +547,14 @@ export function CatalogPage() {
     
     // Smart search
     if (searchQuery) {
-      const q = searchQuery.toLowerCase()
+      const normalizeSearchText = (value: string) =>
+        value
+          .toLowerCase()
+          .replace(/[()\[\]{}.,/\\+\-_:;"']/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+
+      const q = normalizeSearchText(searchQuery)
       // If query matches a quick filter tag — use exact substring match
       // and exclude products that match MORE specific sibling filters
       const isQuickFilter = currentCategory?.quickFilters.some(qf => qf.query === searchQuery)
@@ -557,7 +564,7 @@ export function CatalogPage() {
           .filter(qf => qf.query !== searchQuery && qf.query.toLowerCase().startsWith(q))
           .map(qf => qf.query.toLowerCase())
         result = result.filter(p => {
-          const hay = `${p.name} ${p.brand} ${p.description} ${p.model || ''}`.toLowerCase()
+          const hay = normalizeSearchText(`${p.name} ${p.brand} ${p.description} ${p.slug}`)
           if (!hay.includes(q)) return false
           // Exclude if it matches a more specific sibling tag
           if (moreSpecific.some(s => hay.includes(s))) return false
@@ -568,7 +575,7 @@ export function CatalogPage() {
         const tokens = q.split(/\s+/).filter(Boolean)
         if (tokens.length) {
           result = result.filter(p => {
-            const hay = `${p.name} ${p.brand} ${p.description} ${p.model || ''}`.toLowerCase()
+            const hay = normalizeSearchText(`${p.name} ${p.brand} ${p.description} ${p.slug}`)
             return tokens.every(t => hay.includes(t))
           })
         }

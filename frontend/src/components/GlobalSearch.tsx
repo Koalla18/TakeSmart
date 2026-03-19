@@ -30,6 +30,14 @@ function mapSearchProduct(p: ApiProductOut): SearchProduct {
   }
 }
 
+function normalizeSearchText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[()\[\]{}.,/\\+\-_:;"']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export function GlobalSearch() {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
@@ -64,10 +72,10 @@ export function GlobalSearch() {
   const results = query.trim()
     ? (() => {
         const source = cacheRef.current || products
-        const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
+          const tokens = normalizeSearchText(query).split(/\s+/).filter(Boolean)
         return source
           .filter(p => {
-            const hay = `${p.name} ${p.brand} ${p.model}`.toLowerCase()
+              const hay = normalizeSearchText(`${p.name} ${p.brand} ${p.model} ${p.slug}`)
             return tokens.every(t => hay.includes(t))
           })
           .slice(0, 6)
@@ -270,10 +278,10 @@ export function MobileSearchButton() {
   const results = query.trim()
     ? (() => {
         const source = cacheRef.current || products
-        const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
+          const tokens = normalizeSearchText(query).split(/\s+/).filter(Boolean)
         return source
           .filter(p => {
-            const hay = `${p.name} ${p.brand} ${p.model}`.toLowerCase()
+              const hay = normalizeSearchText(`${p.name} ${p.brand} ${p.model} ${p.slug}`)
             return tokens.every(t => hay.includes(t))
           })
           .slice(0, 8)
