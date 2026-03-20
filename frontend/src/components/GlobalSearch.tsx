@@ -54,13 +54,28 @@ export function GlobalSearch() {
     if (cacheRef.current) return
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/products?limit=2500&only_active=true`)
-      if (res.ok) {
-        const data = await res.json()
-        const items: ApiProductOut[] = data.items ?? data
-        cacheRef.current = items.map(mapSearchProduct)
-        setProducts(cacheRef.current)
+      const chunkSize = 1000
+      let offset = 0
+      const allItems: ApiProductOut[] = []
+
+      while (true) {
+        const res = await fetch(`${API_BASE_URL}/api/products?limit=${chunkSize}&offset=${offset}&only_active=true`)
+        if (!res.ok) break
+
+        const raw = await res.json() as { items?: ApiProductOut[]; has_next?: boolean } | ApiProductOut[]
+        const items = Array.isArray(raw) ? raw : (raw.items ?? [])
+        allItems.push(...items)
+
+        const hasNext = Array.isArray(raw)
+          ? items.length === chunkSize
+          : Boolean(raw.has_next)
+
+        if (!hasNext || items.length === 0) break
+        offset += items.length
       }
+
+      cacheRef.current = allItems.map(mapSearchProduct)
+      setProducts(cacheRef.current)
     } catch {
       /* silently fail */
     } finally {
@@ -250,13 +265,28 @@ export function MobileSearchButton() {
     if (cacheRef.current) return
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/products?limit=2500&only_active=true`)
-      if (res.ok) {
-        const data = await res.json()
-        const items: ApiProductOut[] = data.items ?? data
-        cacheRef.current = items.map(mapSearchProduct)
-        setProducts(cacheRef.current)
+      const chunkSize = 1000
+      let offset = 0
+      const allItems: ApiProductOut[] = []
+
+      while (true) {
+        const res = await fetch(`${API_BASE_URL}/api/products?limit=${chunkSize}&offset=${offset}&only_active=true`)
+        if (!res.ok) break
+
+        const raw = await res.json() as { items?: ApiProductOut[]; has_next?: boolean } | ApiProductOut[]
+        const items = Array.isArray(raw) ? raw : (raw.items ?? [])
+        allItems.push(...items)
+
+        const hasNext = Array.isArray(raw)
+          ? items.length === chunkSize
+          : Boolean(raw.has_next)
+
+        if (!hasNext || items.length === 0) break
+        offset += items.length
       }
+
+      cacheRef.current = allItems.map(mapSearchProduct)
+      setProducts(cacheRef.current)
     } catch {
       /* silently fail */
     } finally {

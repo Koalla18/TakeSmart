@@ -374,24 +374,39 @@ export function CatalogPage() {
 
     async function fetchData() {
       try {
-        // Загружаем категории и товары параллельно
-        const [catResp, prodResp] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/categories`),
-          fetch(`${API_BASE_URL}/api/products?limit=2500&only_active=true`),
-        ])
-
-        if (!catResp.ok || !prodResp.ok) return
+        // Загружаем категории
+        const catResp = await fetch(`${API_BASE_URL}/api/categories`)
+        if (!catResp.ok) return
 
         const catRaw = await catResp.json()
         const catData: ApiCategoryOut[] = Array.isArray(catRaw) ? catRaw : (catRaw.items ?? [])
-        const prodData: ApiPaginatedResponse<ApiProductOut> = await prodResp.json()
+
+        // Загружаем товары постранично, чтобы не упираться в лимит одного запроса
+        const chunkSize = 1000
+        let offset = 0
+        const allProducts: ApiProductOut[] = []
+        while (true) {
+          const prodResp = await fetch(`${API_BASE_URL}/api/products?limit=${chunkSize}&offset=${offset}&only_active=true`)
+          if (!prodResp.ok) break
+
+          const raw = await prodResp.json() as ApiPaginatedResponse<ApiProductOut> | ApiProductOut[]
+          const items = Array.isArray(raw) ? raw : (raw.items ?? [])
+          allProducts.push(...items)
+
+          const hasNext = Array.isArray(raw)
+            ? items.length === chunkSize
+            : Boolean(raw.has_next)
+
+          if (!hasNext || items.length === 0) break
+          offset += items.length
+        }
 
         if (cancelled) return
 
-        if (prodData.items.length === 0) { setIsLoading(false); return }
+        if (allProducts.length === 0) { setIsLoading(false); return }
 
         // Фильтруем только новые товары (не Б/У)
-        const newItems = prodData.items.filter(p => (p.condition || 'new') !== 'used')
+        const newItems = allProducts.filter(p => (p.condition || 'new') !== 'used')
         if (newItems.length === 0) { setIsLoading(false); return }
 
         // Строим map category_id -> { slug, name }

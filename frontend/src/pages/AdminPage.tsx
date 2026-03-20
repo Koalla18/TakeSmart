@@ -201,11 +201,25 @@ export function AdminPage() {
 
   const loadProducts = async () => {
     try {
-      const res = await authFetch(`${API_BASE_URL}/api/products?limit=2500&only_active=false`)
-      if (res.ok) {
-        const data: PaginatedResponse<Product> = await res.json()
-        setProducts(data.items)
+      const chunkSize = 1000
+      let offset = 0
+      let allItems: Product[] = []
+      while (true) {
+        const res = await authFetch(`${API_BASE_URL}/api/products?limit=${chunkSize}&offset=${offset}&only_active=false`)
+        if (!res.ok) break
+
+        const data: PaginatedResponse<Product> | Product[] = await res.json()
+        const items = Array.isArray(data) ? data : (data.items ?? [])
+        allItems = allItems.concat(items)
+
+        const hasNext = Array.isArray(data)
+          ? items.length === chunkSize
+          : Boolean(data.has_next)
+
+        if (!hasNext || items.length === 0) break
+        offset += items.length
       }
+      setProducts(allItems)
     } catch (err) { console.error(err) }
   }
 
