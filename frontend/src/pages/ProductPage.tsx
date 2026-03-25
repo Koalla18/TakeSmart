@@ -968,6 +968,28 @@ export function ProductPage() {
                       const categorySlug = String(item.category?.slug || '').toLowerCase()
                       const isRamAxisPhone = categorySlug === 'smartphones' && (brand === 'samsung' || brand === 'xiaomi')
                       const isWatch = categorySlug === 'watches' || categorySlug === 'smart-bands' || /watch/i.test(item.name || '')
+
+                      if (categorySlug === 'laptops') {
+                        return {
+                          storage: attrs.storage || null,
+                          // Laptops in group constructor store RAM in `connectivity`.
+                          // We hide the generic connectivity axis for this category.
+                          connectivity: null,
+                          ram: attrs.connectivity || null,
+                          color: item.color || null,
+                        }
+                      }
+
+                      if (categorySlug === 'tablets') {
+                        return {
+                          storage: attrs.storage || null,
+                          // Tablets store RAM in `connectivity` and network type in `processor`.
+                          connectivity: attrs.processor || null,
+                          ram: attrs.connectivity || null,
+                          color: item.color || null,
+                        }
+                      }
+
                       return {
                         storage: isWatch ? normalizeWatchStrapSize(attrs.storage) : (attrs.storage || null),
                         connectivity: isRamAxisPhone ? (attrs.processor || null) : (attrs.connectivity || null),
