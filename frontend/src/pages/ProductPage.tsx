@@ -144,6 +144,15 @@ function normalizeWatchStrapSize(value: string | null | undefined): string | nul
   return value.trim()
 }
 
+function normalizeMemoryValue(value: string | null | undefined): string | null {
+  if (!value) return null
+  const trimmed = value.trim().replace(/\s+/g, ' ')
+  const m = trimmed.match(/^(\d+)\s*(ГБ|GB|ТБ|TB)$/i)
+  if (!m) return trimmed
+  const unit = /тб|tb/i.test(m[2]) ? 'ТБ' : 'ГБ'
+  return `${m[1]} ${unit}`
+}
+
 function sortWatchStrapSizes(values: Array<string | null>): Array<string | null> {
   const order = ['S', 'S/M', 'M', 'M/L', 'L', 'ONE SIZE', 'Единый']
   const uniq = Array.from(new Set(values.map(v => normalizeWatchStrapSize(v) || null)))
@@ -968,32 +977,43 @@ export function ProductPage() {
                       const categorySlug = String(item.category?.slug || '').toLowerCase()
                       const isRamAxisPhone = categorySlug === 'smartphones' && (brand === 'samsung' || brand === 'xiaomi')
                       const isWatch = categorySlug === 'watches' || categorySlug === 'smart-bands' || /watch/i.test(item.name || '')
+                      const nameLower = String(item.name || '').toLowerCase()
+                      const procLower = String(attrs.processor || '').toLowerCase()
+                      const isLikelyLaptop =
+                        categorySlug === 'laptops' ||
+                        /macbook|laptop|ноутбук|cpu|gpu|ssd/.test(nameLower) ||
+                        /cpu|gpu/.test(procLower)
+                      const isLikelyTablet =
+                        categorySlug === 'tablets' ||
+                        /ipad|tablet|планшет/.test(nameLower)
 
-                      if (categorySlug === 'laptops') {
+                      if (isLikelyLaptop) {
                         return {
-                          storage: attrs.storage || null,
+                          storage: normalizeMemoryValue(attrs.storage) || attrs.storage || null,
                           // Laptops in group constructor store RAM in `connectivity`.
                           // We hide the generic connectivity axis for this category.
                           connectivity: null,
-                          ram: attrs.connectivity || null,
+                          ram: normalizeMemoryValue(attrs.connectivity) || attrs.connectivity || null,
                           color: item.color || null,
                         }
                       }
 
-                      if (categorySlug === 'tablets') {
+                      if (isLikelyTablet) {
                         return {
-                          storage: attrs.storage || null,
+                          storage: normalizeMemoryValue(attrs.storage) || attrs.storage || null,
                           // Tablets store RAM in `connectivity` and network type in `processor`.
                           connectivity: attrs.processor || null,
-                          ram: attrs.connectivity || null,
+                          ram: normalizeMemoryValue(attrs.connectivity) || attrs.connectivity || null,
                           color: item.color || null,
                         }
                       }
 
+                      const mappedConnectivity = isRamAxisPhone ? (attrs.processor || null) : (attrs.connectivity || null)
+                      const mappedRam = isRamAxisPhone ? (attrs.connectivity || null) : (attrs.processor || null)
                       return {
-                        storage: isWatch ? normalizeWatchStrapSize(attrs.storage) : (attrs.storage || null),
-                        connectivity: isRamAxisPhone ? (attrs.processor || null) : (attrs.connectivity || null),
-                        ram: isRamAxisPhone ? (attrs.connectivity || null) : (attrs.processor || null),
+                        storage: isWatch ? normalizeWatchStrapSize(attrs.storage) : (normalizeMemoryValue(attrs.storage) || attrs.storage || null),
+                        connectivity: mappedConnectivity,
+                        ram: normalizeMemoryValue(mappedRam) || mappedRam,
                         color: item.color || null,
                       }
                     }
