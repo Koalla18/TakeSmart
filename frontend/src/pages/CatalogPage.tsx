@@ -52,6 +52,7 @@ const DEFAULT_QUICK_FILTERS: Record<string, { label: string; query: string; bran
     { label: 'Xiaomi 13', query: 'Xiaomi 13', brand: 'xiaomi' },
   ],
   laptops: [
+    { label: 'MacBook NEO', query: 'MacBook Neo', brand: 'apple' },
     { label: 'MacBook Air 13"', query: 'MacBook Air 13', brand: 'apple' },
     { label: 'MacBook Air 15"', query: 'MacBook Air 15', brand: 'apple' },
     { label: 'MacBook Pro 14"', query: 'MacBook Pro 14', brand: 'apple' },
