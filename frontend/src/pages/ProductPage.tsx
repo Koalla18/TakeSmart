@@ -70,32 +70,40 @@ function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs
 
   // ── Regular (non-laptop) parsing ──
   let storage: string | null = null
-  const storageMatch = name.match(/(\d+)(?:\s*\/\s*(\d+))?\s*(ГБ|GB|ТБ|TB)/i)
-  if (storageMatch) {
-    if (storageMatch[2]) {
-      ram = `${storageMatch[1]} ГБ`
-      const unit = /ТБ|TB/i.test(storageMatch[3]) ? 'ТБ' : 'ГБ'
-      storage = `${storageMatch[2]} ${unit}`
-    } else {
-      const num = storageMatch[1].replace(/\s/g, '')
-      const unit = /ТБ|TB/i.test(storageMatch[3]) ? 'ТБ' : 'ГБ'
-      storage = `${num} ${unit}`
-    }
+  const pairWithUnits = name.match(/(\d+)\s*(ГБ|GB|ТБ|TB)\s*\/\s*(\d+)\s*(ГБ|GB|ТБ|TB)/i)
+  if (pairWithUnits) {
+    const ramUnit = /ТБ|TB/i.test(pairWithUnits[2]) ? 'ТБ' : 'ГБ'
+    const storUnit = /ТБ|TB/i.test(pairWithUnits[4]) ? 'ТБ' : 'ГБ'
+    ram = `${pairWithUnits[1]} ${ramUnit}`
+    storage = `${pairWithUnits[3]} ${storUnit}`
   } else {
-    // Bare number as storage: "iPhone 18 pro 256 sim" → "256"
-    // Iterate ALL numbers and pick the first one that looks like a storage size (32+)
-    const allNumbers = [...name.matchAll(/\b(\d{2,4})\b/g)]
-    for (const m of allNumbers) {
-      const n = parseInt(m[1])
-      // Typical storage values: 32, 64, 128, 256, 512, 1024, etc.
-      // Skip small numbers that are likely model numbers (e.g. "18" in "iPhone 18")
-      if (n >= 32 && n <= 9999) {
-        // Make sure it's not followed by unit-like suffixes that indicate non-storage
-        const afterIdx = (m.index ?? 0) + m[0].length
-        const after = name.slice(afterIdx, afterIdx + 5)
-        if (!/^\s*(мм|mm|мес|"|\'|шт|₽)/i.test(after)) {
-          storage = m[1]
-          break
+    const storageMatch = name.match(/(\d+)(?:\s*\/\s*(\d+))?\s*(ГБ|GB|ТБ|TB)/i)
+    if (storageMatch) {
+      if (storageMatch[2]) {
+        ram = `${storageMatch[1]} ГБ`
+        const unit = /ТБ|TB/i.test(storageMatch[3]) ? 'ТБ' : 'ГБ'
+        storage = `${storageMatch[2]} ${unit}`
+      } else {
+        const num = storageMatch[1].replace(/\s/g, '')
+        const unit = /ТБ|TB/i.test(storageMatch[3]) ? 'ТБ' : 'ГБ'
+        storage = `${num} ${unit}`
+      }
+    } else {
+      // Bare number as storage: "iPhone 18 pro 256 sim" → "256"
+      // Iterate ALL numbers and pick the first one that looks like a storage size (32+)
+      const allNumbers = [...name.matchAll(/\b(\d{2,4})\b/g)]
+      for (const m of allNumbers) {
+        const n = parseInt(m[1])
+        // Typical storage values: 32, 64, 128, 256, 512, 1024, etc.
+        // Skip small numbers that are likely model numbers (e.g. "18" in "iPhone 18")
+        if (n >= 32 && n <= 9999) {
+          // Make sure it's not followed by unit-like suffixes that indicate non-storage
+          const afterIdx = (m.index ?? 0) + m[0].length
+          const after = name.slice(afterIdx, afterIdx + 5)
+          if (!/^\s*(мм|mm|мес|"|\'|шт|₽)/i.test(after)) {
+            storage = m[1]
+            break
+          }
         }
       }
     }
@@ -965,8 +973,12 @@ export function ProductPage() {
                 {apiProduct.siblings && apiProduct.siblings.length > 0 && (() => {
                   // All products in group: current + siblings
                   const allCards = [
-                    { id: apiProduct.id, name: apiProduct.name, slug: apiProduct.slug, color: apiProduct.color, main_image_url: apiProduct.main_image_url, price: apiProduct.price, discount_price: apiProduct.discount_price, is_active: true, attributes: apiProduct.attributes, category: apiProduct.category },
-                    ...apiProduct.siblings,
+                    { id: apiProduct.id, name: apiProduct.name, slug: apiProduct.slug, color: apiProduct.color, main_image_url: apiProduct.main_image_url, price: apiProduct.price, discount_price: apiProduct.discount_price, is_active: true, attributes: apiProduct.attributes, category: apiProduct.category, brand: apiProduct.brand },
+                    ...apiProduct.siblings.map(s => ({
+                      ...s,
+                      brand: (s as any).brand ?? apiProduct.brand,
+                      category: (s as any).category ?? apiProduct.category,
+                    })),
                   ]
 
                   // Parse attributes from names (or use JSON attributes if present)
@@ -975,7 +987,19 @@ export function ProductPage() {
                     if (Object.keys(attrs).length > 0 && (attrs.storage || attrs.connectivity || attrs.processor)) {
                       const brand = String(item.brand || '').toLowerCase()
                       const categorySlug = String(item.category?.slug || '').toLowerCase()
-                      const isRamAxisPhone = categorySlug === 'smartphones' && (brand === 'samsung' || brand === 'xiaomi')
+                      const connectivityRaw = String(attrs.connectivity || '')
+                      const processorRaw = String(attrs.processor || '')
+                      const storageRaw = String(attrs.storage || '')
+                      const isMemoryLike = (v: string) => /\d+\s*(гб|gb|тб|tb)/i.test(v)
+                      const isSimLike = (v: string) => /sim|esim|wi[-\s]?fi|cellular/i.test(v)
+                      const isPhoneByName = /смартфон|galaxy|iphone|xiaomi|redmi|poco|pixel|oneplus|huawei|honor|z\s*fold|z\s*flip/i.test(String(item.name || '').toLowerCase())
+                      const inferredRamAxisPhone =
+                        isMemoryLike(connectivityRaw) &&
+                        (isSimLike(processorRaw) || (isPhoneByName && processorRaw.length === 0))
+                      const isRamAxisPhone =
+                        (categorySlug === 'smartphones' && (brand === 'samsung' || brand === 'xiaomi')) ||
+                        inferredRamAxisPhone ||
+                        (isPhoneByName && isMemoryLike(connectivityRaw) && isMemoryLike(storageRaw))
                       const isWatch = categorySlug === 'watches' || categorySlug === 'smart-bands' || /watch/i.test(item.name || '')
                       const nameLower = String(item.name || '').toLowerCase()
                       const procLower = String(attrs.processor || '').toLowerCase()
