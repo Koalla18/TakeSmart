@@ -814,12 +814,9 @@ export function HomePage() {
               <div className="absolute -bottom-20 -right-20 h-64 w-64 rounded-full bg-white/20" />
               
               <div className="relative z-10">
-                <h2 className="mb-4 text-4xl font-bold text-gray-900 sm:text-5xl">
+                <h2 className="mb-8 text-4xl font-bold text-gray-900 sm:text-5xl">
                   Готовы к покупкам?
                 </h2>
-                <p className="mx-auto mb-8 max-w-2xl text-xl text-gray-800">
-                  Оставьте заявку и получите персональную скидку 10% на первый заказ
-                </p>
                 <div className="flex flex-col justify-center gap-4 sm:flex-row">
                   <Button href="https://t.me/takesmart_manager" variant="secondary" size="lg">
                     Написать менеджеру

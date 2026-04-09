@@ -1413,7 +1413,7 @@ const BRANDS = [
   'DJI', 'GoPro', 'Dyson', 'Pitaka',
   'JBL', 'Bose', 'Beats', 'Marshall', 'Sennheiser',
   'Nintendo', 'Microsoft', 'Asus', 'Lenovo', 'HP', 'Dell', 'Acer', 'LG',
-  'Яндекс', 'Canon',
+  'Яндекс', 'Canon', 'Ray-Ban',
 ]
 
 const MAX_DESC = 3000
@@ -1465,6 +1465,10 @@ const CATEGORY_AXES: Record<string, VariantAxis[]> = {
   ],
   accessories: [
     { field: 'size', label: 'Размер / тип', placeholder: 'S, M, L…' },
+  ],
+  monobloki: [
+    { field: 'storage', label: 'Память (SSD)', placeholder: '512 ГБ, 1 ТБ…' },
+    { field: 'size', label: 'ОЗУ', placeholder: '16 ГБ, 24 ГБ…' },
   ],
 }
 
@@ -3113,6 +3117,12 @@ const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
   accessories: [
     { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
     { field: 'storage', label: 'Размер / тип', placeholder: 'M' },
+  ],
+  monobloki: [
+    { field: 'color', label: 'Цвет', placeholder: 'серебристый', hint: 'Каждый цвет = отдельная карточка' },
+    { field: 'processor', label: 'Процессор', placeholder: 'M4, M4 Pro…', hint: 'Модель чипа' },
+    { field: 'connectivity', label: 'ОЗУ', placeholder: '16 ГБ', hint: 'Объём оперативной памяти' },
+    { field: 'storage', label: 'Память SSD', placeholder: '512 ГБ', hint: 'Объём накопителя' },
   ],
 }
 
