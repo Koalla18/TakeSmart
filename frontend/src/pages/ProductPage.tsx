@@ -1482,13 +1482,39 @@ export function ProductPage() {
                   )
                 })()}
 
-                {/* Color info (only when no variant selector and no group nav) */}
-                {variants.length === 0 && apiProduct.color && !(apiProduct.siblings && apiProduct.siblings.length > 0) && (
-                  <div className="mb-4">
-                    <span className="text-sm text-gray-500">Цвет: </span>
-                    <span className="text-sm font-medium text-gray-900">{apiProduct.color}</span>
-                  </div>
-                )}
+                {/* Standalone product attrs (no group, no variants) */}
+                {variants.length === 0 && !(apiProduct.siblings && apiProduct.siblings.length > 0) && (() => {
+                  const attrs = apiProduct.attributes || {}
+                  const catSlug = apiProduct.category?.slug || ''
+                  const isMonoblok = catSlug === 'monobloki'
+                  const isLaptop = catSlug === 'laptops' || /macbook|ноутбук/i.test(apiProduct.name || '')
+                  const isTablet = catSlug === 'tablets'
+                  const rows: { label: string; value: string | null }[] = []
+
+                  if (apiProduct.color) rows.push({ label: 'Цвет', value: apiProduct.color })
+
+                  if (isMonoblok || isLaptop) {
+                    if (attrs.processor) rows.push({ label: 'Процессор', value: attrs.processor })
+                    if (attrs.connectivity) rows.push({ label: 'ОЗУ', value: normalizeMemoryValue(attrs.connectivity) || attrs.connectivity })
+                    if (attrs.storage) rows.push({ label: 'Память SSD', value: normalizeMemoryValue(attrs.storage) || attrs.storage })
+                  } else if (isTablet) {
+                    if (attrs.connectivity) rows.push({ label: 'ОЗУ', value: normalizeMemoryValue(attrs.connectivity) || attrs.connectivity })
+                    if (attrs.storage) rows.push({ label: 'Память', value: normalizeMemoryValue(attrs.storage) || attrs.storage })
+                    if (attrs.processor) rows.push({ label: 'Связь', value: attrs.processor })
+                  }
+
+                  if (rows.length === 0) return null
+                  return (
+                    <div className="mb-5 space-y-2">
+                      {rows.map(({ label, value }) => value ? (
+                        <div key={label}>
+                          <span className="text-sm text-gray-500">{label}: </span>
+                          <span className="text-sm font-semibold text-gray-900">{value}</span>
+                        </div>
+                      ) : null)}
+                    </div>
+                  )
+                })()}
 
                 {/* Price */}
                 <div className="mb-6 flex items-end gap-3">
