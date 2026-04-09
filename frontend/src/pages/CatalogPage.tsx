@@ -375,8 +375,8 @@ export function CatalogPage() {
 
     async function fetchData() {
       try {
-        // Загружаем категории
-        const catResp = await fetch(`${API_BASE_URL}/api/categories`)
+        // Загружаем категории (включая неактивные, чтобы товары правильно маппировались)
+        const catResp = await fetch(`${API_BASE_URL}/api/categories?only_active=false&limit=500`)
         if (!catResp.ok) return
 
         const catRaw = await catResp.json()
@@ -387,7 +387,7 @@ export function CatalogPage() {
         let offset = 0
         const allProducts: ApiProductOut[] = []
         while (true) {
-          const prodResp = await fetch(`${API_BASE_URL}/api/products?limit=${chunkSize}&offset=${offset}&only_active=true`)
+          const prodResp = await fetch(`${API_BASE_URL}/api/products?limit=${chunkSize}&offset=${offset}&only_active=false`)
           if (!prodResp.ok) break
 
           const raw = await prodResp.json() as ApiPaginatedResponse<ApiProductOut> | ApiProductOut[]
@@ -406,8 +406,8 @@ export function CatalogPage() {
 
         if (allProducts.length === 0) { setIsLoading(false); return }
 
-        // Фильтруем только новые товары (не Б/У)
-        const newItems = allProducts.filter(p => (p.condition || 'new') !== 'used')
+        // Фильтруем: только активные товары, не Б/У
+        const newItems = allProducts.filter(p => p.is_active !== false && (p.condition || 'new') !== 'used')
         if (newItems.length === 0) { setIsLoading(false); return }
 
         // Строим map category_id -> { slug, name }
