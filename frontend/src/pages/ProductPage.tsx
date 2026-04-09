@@ -1007,9 +1007,20 @@ export function ProductPage() {
                         categorySlug === 'laptops' ||
                         /macbook|laptop|ноутбук|cpu|gpu|ssd/.test(nameLower) ||
                         /cpu|gpu/.test(procLower)
+                      const isLikelyMonoblok = categorySlug === 'monobloki'
                       const isLikelyTablet =
                         categorySlug === 'tablets' ||
                         /ipad|tablet|планшет/.test(nameLower)
+
+                      if (isLikelyMonoblok) {
+                        return {
+                          storage: normalizeMemoryValue(attrs.storage) || attrs.storage || null,
+                          // Monoblock: processor shown as a chip, RAM in connectivity slot
+                          connectivity: attrs.processor || null,
+                          ram: normalizeMemoryValue(attrs.connectivity) || attrs.connectivity || null,
+                          color: item.color || null,
+                        }
+                      }
 
                       if (isLikelyLaptop) {
                         return {
@@ -1089,6 +1100,7 @@ export function ProductPage() {
 
                   // Detect laptop group: any card name contains "N ГБ SSD"
                   const isLaptopGroup = allCards.some(c => /\d+\s*(?:ГБ|GB|ТБ|TB)\s+SSD/i.test(c.name))
+                  const isMonoblokGroup = apiProduct.category?.slug === 'monobloki'
                   const isWatchGroup = apiProduct.category?.slug === 'watches' || apiProduct.category?.slug === 'smart-bands' || /watch/i.test(apiProduct.name || '')
                   const isTvGroup = apiProduct.category?.slug === 'tv'
 
@@ -1200,6 +1212,7 @@ export function ProductPage() {
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
                             {isWatchGroup ? 'Тип ремешка' : 'ОЗУ'}: <span className="font-semibold text-gray-900">{currentParsed.ram || '—'}</span>
+
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {isWatchGroup ? (
@@ -1249,7 +1262,7 @@ export function ProductPage() {
                       {uniqueStorages.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
-                            {isLaptopGroup ? 'Память SSD' : isWatchGroup ? 'Размер ремешка' : isTvGroup ? 'Диагональ' : 'Память'}: <span className="font-semibold text-gray-900">{currentParsed.storage || '—'}</span>
+                            {isLaptopGroup || isMonoblokGroup ? 'Память SSD' : isWatchGroup ? 'Размер ремешка' : isTvGroup ? 'Диагональ' : 'Память'}: <span className="font-semibold text-gray-900">{currentParsed.storage || '—'}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {uniqueStorages.map(stor => {
@@ -1288,7 +1301,7 @@ export function ProductPage() {
                       {uniqueConn.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
-                            {isWatchGroup ? 'Размер корпуса' : 'Связь'}: <span className="font-semibold text-gray-900">{currentParsed.connectivity || '—'}</span>
+                            {isMonoblokGroup ? 'Процессор' : isWatchGroup ? 'Размер корпуса' : 'Связь'}: <span className="font-semibold text-gray-900">{currentParsed.connectivity || '—'}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {uniqueConn.map(conn => {

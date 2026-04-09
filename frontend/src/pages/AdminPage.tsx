@@ -3204,6 +3204,7 @@ function GroupCreationModal({
     const conns = axisValues.connectivity.length > 0 ? axisValues.connectivity : ['']
     const processors = axisValues.processor.length > 0 ? axisValues.processor : ['']
     const isLaptop = catSlug === 'laptops'
+    const isMonoblok = catSlug === 'monobloki'
     const phoneBrand = brand?.toLowerCase() || ''
     const isRamAxisPhone = catSlug === 'smartphones' && (phoneBrand === 'samsung' || phoneBrand === 'xiaomi')
 
@@ -3213,7 +3214,7 @@ function GroupCreationModal({
         for (const cn of conns) {
           for (const s of storages) {
             let fullName: string
-            if (isLaptop) {
+            if (isLaptop || isMonoblok) {
               // Format: {baseName} ({processor}, {ram}, {storage} SSD), {color}
               const specParts = [proc, cn, s ? `${s} SSD` : ''].filter(Boolean)
               const specs = specParts.length > 0 ? ` (${specParts.join(', ')})` : ''
