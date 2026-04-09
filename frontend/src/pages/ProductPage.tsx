@@ -1101,6 +1101,7 @@ export function ProductPage() {
                   // Detect laptop group: any card name contains "N ГБ SSD"
                   const isLaptopGroup = allCards.some(c => /\d+\s*(?:ГБ|GB|ТБ|TB)\s+SSD/i.test(c.name))
                   const isMonoblokGroup = apiProduct.category?.slug === 'monobloki'
+                  const isSmartGlassesGroup = apiProduct.category?.slug === 'umnye-ochki'
                   const isWatchGroup = apiProduct.category?.slug === 'watches' || apiProduct.category?.slug === 'smart-bands' || /watch/i.test(apiProduct.name || '')
                   const isTvGroup = apiProduct.category?.slug === 'tv'
 
@@ -1211,7 +1212,7 @@ export function ProductPage() {
                       {uniqueRam.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
-                            {isWatchGroup ? 'Тип ремешка' : 'ОЗУ'}: <span className="font-semibold text-gray-900">{currentParsed.ram || '—'}</span>
+                            {isSmartGlassesGroup ? 'Оправа' : isWatchGroup ? 'Тип ремешка' : 'ОЗУ'}: <span className="font-semibold text-gray-900">{currentParsed.ram || '—'}</span>
 
                           </p>
                           <div className="flex flex-wrap gap-2">
@@ -1262,7 +1263,7 @@ export function ProductPage() {
                       {uniqueStorages.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
-                            {isLaptopGroup || isMonoblokGroup ? 'Память SSD' : isWatchGroup ? 'Размер ремешка' : isTvGroup ? 'Диагональ' : 'Память'}: <span className="font-semibold text-gray-900">{currentParsed.storage || '—'}</span>
+                            {isLaptopGroup || isMonoblokGroup ? 'Память SSD' : isSmartGlassesGroup ? 'Линзы' : isWatchGroup ? 'Размер ремешка' : isTvGroup ? 'Диагональ' : 'Память'}: <span className="font-semibold text-gray-900">{currentParsed.storage || '—'}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {uniqueStorages.map(stor => {
@@ -1301,7 +1302,7 @@ export function ProductPage() {
                       {uniqueConn.length > 0 && (
                         <div>
                           <p className="mb-2 text-sm text-gray-500">
-                            {isMonoblokGroup ? 'Процессор' : isWatchGroup ? 'Размер корпуса' : 'Связь'}: <span className="font-semibold text-gray-900">{currentParsed.connectivity || '—'}</span>
+                            {isSmartGlassesGroup ? 'Размер' : isMonoblokGroup ? 'Процессор' : isWatchGroup ? 'Размер корпуса' : 'Связь'}: <span className="font-semibold text-gray-900">{currentParsed.connectivity || '—'}</span>
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {uniqueConn.map(conn => {
@@ -1501,6 +1502,10 @@ export function ProductPage() {
                     if (attrs.connectivity) rows.push({ label: 'ОЗУ', value: normalizeMemoryValue(attrs.connectivity) || attrs.connectivity })
                     if (attrs.storage) rows.push({ label: 'Память', value: normalizeMemoryValue(attrs.storage) || attrs.storage })
                     if (attrs.processor) rows.push({ label: 'Связь', value: attrs.processor })
+                  } else if (catSlug === 'umnye-ochki') {
+                    if (attrs.processor) rows.push({ label: 'Оправа', value: attrs.processor })
+                    if (attrs.storage) rows.push({ label: 'Линзы', value: attrs.storage })
+                    if (attrs.connectivity) rows.push({ label: 'Размер', value: attrs.connectivity })
                   }
 
                   if (rows.length === 0) return null

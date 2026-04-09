@@ -1470,6 +1470,10 @@ const CATEGORY_AXES: Record<string, VariantAxis[]> = {
     { field: 'storage', label: 'Память (SSD)', placeholder: '512 ГБ, 1 ТБ…' },
     { field: 'size', label: 'ОЗУ', placeholder: '16 ГБ, 24 ГБ…' },
   ],
+  'umnye-ochki': [
+    { field: 'size', label: 'Размер', placeholder: 'S, M, L…' },
+    { field: 'storage', label: 'Линзы', placeholder: 'прозрачные, поляризованные…' },
+  ],
 }
 
 // Fallback: generic axes for unknown categories
@@ -3124,6 +3128,11 @@ const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
     { field: 'connectivity', label: 'ОЗУ', placeholder: '16 ГБ', hint: 'Объём оперативной памяти' },
     { field: 'storage', label: 'Память SSD', placeholder: '512 ГБ', hint: 'Объём накопителя' },
   ],
+  'umnye-ochki': [
+    { field: 'processor', label: 'Оправа', placeholder: 'матовая черная', hint: 'Цвет и тип оправы' },
+    { field: 'storage', label: 'Линзы', placeholder: 'прозрачные', hint: 'Тип линз' },
+    { field: 'connectivity', label: 'Размер', placeholder: 'S, M, L', hint: 'Размер оправы' },
+  ],
 }
 
 const GROUP_DEFAULT_AXES: GroupAxis[] = [
@@ -3205,6 +3214,7 @@ function GroupCreationModal({
     const processors = axisValues.processor.length > 0 ? axisValues.processor : ['']
     const isLaptop = catSlug === 'laptops'
     const isMonoblok = catSlug === 'monobloki'
+    const isSmartGlasses = catSlug === 'umnye-ochki'
     const phoneBrand = brand?.toLowerCase() || ''
     const isRamAxisPhone = catSlug === 'smartphones' && (phoneBrand === 'samsung' || phoneBrand === 'xiaomi')
 
@@ -3219,6 +3229,14 @@ function GroupCreationModal({
               const specParts = [proc, cn, s ? `${s} SSD` : ''].filter(Boolean)
               const specs = specParts.length > 0 ? ` (${specParts.join(', ')})` : ''
               fullName = c ? `${baseName}${specs}, ${c}` : `${baseName}${specs}`
+            } else if (isSmartGlasses) {
+              // Format: Ray-Ban Meta Gen 2 (матовая черная оправа, линзы прозрачные) L
+              const specParts = [
+                proc ? `${proc} оправа` : '',
+                s ? `линзы ${s}` : '',
+              ].filter(Boolean)
+              const specs = specParts.length > 0 ? ` (${specParts.join(', ')})` : ''
+              fullName = cn ? `${baseName}${specs} ${cn}` : `${baseName}${specs}`
             } else if (isRamAxisPhone) {
               // Format: Samsung S25 Ultra 12ГБ/256ГБ SIM + eSIM, чёрный
               const spec = [cn, s].filter(Boolean).join('/')
