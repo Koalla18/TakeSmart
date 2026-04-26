@@ -3,7 +3,8 @@
 
 Конфигурируется через переменные окружения:
   TELEGRAM_BOT_TOKEN — токен бота (от @BotFather)
-  TELEGRAM_CHAT_ID   — id чата/канала, куда приходят уведомления
+    TELEGRAM_CHAT_ID   — id чата/канала (одиночное значение)
+    TELEGRAM_CHAT_IDS  — id чатов через запятую
 
 Если токен не задан — все вызовы тихо игнорируются (no-op).
 """
@@ -45,10 +46,14 @@ async def send_order_notification(order: "Order") -> None:
     Ошибки перехватываются — они не должны падать основной запрос.
     """
     token = settings.TELEGRAM_BOT_TOKEN
-    chat_ids_raw = settings.TELEGRAM_CHAT_IDS
+    chat_ids_raw = settings.TELEGRAM_CHAT_IDS or settings.TELEGRAM_CHAT_ID
 
-    if not token or not chat_ids_raw:
-        logger.debug("telegram_not_configured", skipping=True)
+    if not token:
+        logger.warning("telegram_not_configured", reason="missing_bot_token", skipping=True)
+        return
+
+    if not chat_ids_raw:
+        logger.warning("telegram_not_configured", reason="missing_chat_id", skipping=True)
         return
 
     chat_ids = [cid.strip() for cid in chat_ids_raw.split(",") if cid.strip()]
