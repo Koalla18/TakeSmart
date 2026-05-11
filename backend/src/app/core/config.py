@@ -67,9 +67,9 @@ class Settings(BaseSettings):
     TELEGRAM_CHAT_IDS: str = ""
     TELEGRAM_THREAD_ID: int | None = None
     TELEGRAM_API_BASE_URL: str = "https://api.telegram.org"
-    TELEGRAM_TIMEOUT_SECONDS: float = 10.0
-    TELEGRAM_RETRIES: int = 1
-    TELEGRAM_RETRY_DELAY_SECONDS: float = 0.5
+    TELEGRAM_TIMEOUT_SECONDS: float = 20.0
+    TELEGRAM_RETRIES: int = 3
+    TELEGRAM_RETRY_DELAY_SECONDS: float = 1.0
 
     model_config = SettingsConfigDict(
         env_file=".env",
