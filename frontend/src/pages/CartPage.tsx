@@ -118,6 +118,8 @@ export function CartPage() {
   const [orderNumber, setOrderNumber] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [limitWarning, setLimitWarning] = useState<string | null>(null)
+  const [consentChecked, setConsentChecked] = useState(false)
+  const [consentError, setConsentError] = useState<string | null>(null)
 
   // Общее количество товаров
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0)
@@ -317,6 +319,13 @@ export function CartPage() {
       setError('Пожалуйста, заполните все поля адреса')
       return
     }
+
+    if (!consentChecked) {
+      setConsentError('Подтвердите согласие на обработку персональных данных')
+      setError('Подтвердите согласие на обработку персональных данных')
+      return
+    }
+    setConsentError(null)
 
     setIsSubmitting(true)
     setError(null)
@@ -786,13 +795,42 @@ export function CartPage() {
                     ⚠️ При оплате {paymentMethod === 'card' ? 'картой' : 'по QR-коду'} действует наценка {Math.round(paymentMarkup * 100)}%. Оплата наличными без наценки.
                   </div>
                 )}
+
+                <div className="mt-6 rounded-xl border border-gray-200 p-4">
+                  <label className="flex items-start gap-3 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={consentChecked}
+                      onChange={(e) => {
+                        setConsentChecked(e.target.checked)
+                        if (e.target.checked) {
+                          setConsentError(null)
+                          if (error === 'Подтвердите согласие на обработку персональных данных') {
+                            setError(null)
+                          }
+                        }
+                      }}
+                      className="mt-1 h-4 w-4 rounded border-gray-300 text-yellow-500 focus:ring-yellow-400"
+                    />
+                    <span>
+                      Я даю согласие на обработку персональных данных в соответствии с{' '}
+                      <Link to="/personal-data" className="text-yellow-600 hover:underline">Согласием</Link>.
+                    </span>
+                  </label>
+                  {consentError && (
+                    <p className="mt-2 text-xs text-red-600">{consentError}</p>
+                  )}
+                </div>
                 
                 <Button type="submit" disabled={isSubmitting} size="lg" className="mt-6 w-full">
                   {isSubmitting ? 'Оформляем...' : 'Оформить заказ'}
                 </Button>
                 
                 <p className="mt-4 text-center text-xs text-gray-500">
-                  Нажимая кнопку, вы соглашаетесь с политикой конфиденциальности
+                  Нажимая кнопку, вы принимаете условия{' '}
+                  <Link to="/offer" className="text-yellow-600 hover:underline">публичной оферты</Link>{' '}
+                  и{' '}
+                  <Link to="/privacy-policy" className="text-yellow-600 hover:underline">политики конфиденциальности</Link>.
                 </p>
               </div>
             </div>

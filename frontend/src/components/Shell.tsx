@@ -245,7 +245,7 @@ function CookieConsent() {
         <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-gray-600">
             Мы используем cookies для улучшения работы сайта.{' '}
-            <Link to="/privacy" className="text-yellow-600 hover:underline">
+            <Link to="/privacy-policy" className="text-yellow-600 hover:underline">
               Политика конфиденциальности
             </Link>
           </p>
@@ -571,8 +571,9 @@ export function Shell({ children }: PropsWithChildren) {
         <div className="py-6">
           <Container>
             <div className="mb-4 text-xs leading-relaxed text-gray-600">
-              <p>Указанная стоимость товаров и условия их приобретения действительны по состоянию на дату, указанную в товаре. 
-              Сайт носит сугубо информационный характер и не является публичной офертой, определяемой Статьёй 437 (2) ГК РФ.</p>
+              <p>Указанная стоимость товаров и условия их приобретения действительны по состоянию на дату, указанную в товаре.
+              Информация о товарах, ценах и наличии может обновляться. Договор розничной купли-продажи заключается на условиях
+              публичной оферты, размещенной на Сайте.</p>
               <p className="mt-2">Apple, логотип Apple и изображения Apple являются зарегистрированными товарными знаками компании Apple Inc. в США и других странах. App Store является знаком обслуживания компании Apple Inc.</p>
             </div>
             <div className="flex flex-col items-center justify-between gap-3 sm:flex-row">
@@ -580,6 +581,9 @@ export function Shell({ children }: PropsWithChildren) {
                 © {new Date().getFullYear()} TakeSmart. Все права защищены.
               </p>
               <div className="flex flex-wrap justify-center gap-4 text-sm text-gray-600 sm:justify-end">
+                <Link to="/offer" className="transition-colors hover:text-white">
+                  Публичная оферта
+                </Link>
                 <Link to="/privacy-policy" className="transition-colors hover:text-white">
                   Политика конфиденциальности
                 </Link>

@@ -7,7 +7,7 @@ export function PersonalDataPage() {
             Согласие на обработку персональных данных
           </h1>
           <p className="mb-8 text-sm text-gray-500">
-            Дата последнего обновления: 18 февраля 2026 г.
+            Дата последнего обновления: 18 мая 2026 г.
           </p>
 
           <div className="prose prose-gray max-w-none text-sm leading-relaxed text-gray-700 space-y-6">
@@ -15,7 +15,7 @@ export function PersonalDataPage() {
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-5">
               <p className="text-sm text-blue-800">
                 Физическое лицо (далее — «Субъект персональных данных»), отправляя форму заказа или
-                обратной связи на веб-сайтах <strong>takesmart.com</strong> и <strong>take-smart.com</strong>{' '}
+                обратной связи на веб-сайтах <strong>takesmart.ru</strong> и <strong>take-smart.ru</strong>{' '}
                 (далее — «Сайт»), действуя свободно, своей волей и в своём интересе, а также подтверждая
                 свою полную дееспособность, предоставляет своё согласие оператору персональных данных
                 (далее — «Оператор») на обработку своих персональных данных (далее — «Согласие») на
@@ -163,7 +163,7 @@ export function PersonalDataPage() {
                 С Политикой конфиденциальности и обработки персональных данных Оператора можно ознакомиться
                 по адресу:{' '}
                 <a href="/privacy-policy" className="text-blue-600 hover:underline">
-                  takesmart.com/privacy-policy
+                  takesmart.ru/privacy-policy
                 </a>
               </p>
             </section>

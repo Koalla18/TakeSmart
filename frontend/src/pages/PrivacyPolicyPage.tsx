@@ -7,7 +7,7 @@ export function PrivacyPolicyPage() {
             Политика конфиденциальности и обработки персональных данных
           </h1>
           <p className="mb-8 text-sm text-gray-500">
-            Дата последнего обновления: 18 февраля 2026 г.
+            Дата последнего обновления: 18 мая 2026 г.
           </p>
 
           <div className="prose prose-gray max-w-none space-y-8 text-sm leading-relaxed text-gray-700">
@@ -31,7 +31,7 @@ export function PrivacyPolicyPage() {
               </p>
               <p className="mt-2">
                 1.3. Настоящая Политика применяется ко всей информации, которую Оператор может получить о
-                пользователях сайтов <strong>takesmart.com</strong> и <strong>take-smart.com</strong> (далее — «Сайт»)
+                пользователях сайтов <strong>takesmart.ru</strong> и <strong>take-smart.ru</strong> (далее — «Сайт»)
                 в процессе использования ими Сайта, его сервисов, продуктов и услуг.
               </p>
               <p className="mt-2">
@@ -309,8 +309,8 @@ export function PrivacyPolicyPage() {
               </p>
               <p className="mt-2">
                 14.2. Действующая редакция Политики находится на Сайте по адресу:{' '}
-                <a href="https://takesmart.com/privacy-policy" className="text-blue-600 hover:underline">
-                  takesmart.com/privacy-policy
+                <a href="https://takesmart.ru/privacy-policy" className="text-blue-600 hover:underline">
+                  takesmart.ru/privacy-policy
                 </a>
               </p>
               <p className="mt-2">

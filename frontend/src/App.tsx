@@ -9,6 +9,7 @@ import { CatalogPage } from './pages/CatalogPage'
 import { DeliveryPage } from './pages/DeliveryPage'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
+import { OfferPage } from './pages/OfferPage'
 import { PersonalDataPage } from './pages/PersonalDataPage'
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage'
 import { ProductPage } from './pages/ProductPage'
@@ -43,6 +44,7 @@ function App() {
           <Route path="/trade-in" element={<Shell><TradeInPage /></Shell>} />
           <Route path="/used" element={<Shell><UsedPage /></Shell>} />
           <Route path="/used/:slug" element={<Shell><UsedProductPage /></Shell>} />
+          <Route path="/offer" element={<Shell><OfferPage /></Shell>} />
           <Route path="/privacy-policy" element={<Shell><PrivacyPolicyPage /></Shell>} />
           <Route path="/personal-data" element={<Shell><PersonalDataPage /></Shell>} />
           <Route path="*" element={<Navigate to="/" replace />} />
