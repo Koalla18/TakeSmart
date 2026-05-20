@@ -688,117 +688,31 @@ export function HomePage() {
                 />
               </div>
             </div>
-          </AnimatedSection>
-        </Container>
-      </Section>
 
-      {/* Customer Reviews */}
-      <Section className="py-24">
-        <Container>
-          <AnimatedSection>
-            <div className="mb-8 text-center">
-              <h2 className="mb-4 text-4xl font-bold text-gray-900">Мнение наших клиентов</h2>
-            </div>
-            
-            <div className="mb-8 flex flex-wrap items-center justify-center gap-6 text-center">
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-6 text-center">
               <div className="flex items-center gap-2 rounded-full bg-yellow-100 px-4 py-2">
                 <span className="text-xl font-bold text-yellow-600">5.0</span>
                 <span className="text-yellow-500">★</span>
                 <span className="text-gray-500">| 1518 отзывов</span>
               </div>
               <div className="flex gap-6 text-sm text-gray-600">
-                <a href="https://yandex.ru/maps/org/takesmart/159717386486" target="_blank" rel="noopener noreferrer" className="hover:text-yellow-600">
+                <a
+                  href="https://yandex.ru/maps/org/takesmart/159717386486"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-yellow-600"
+                >
                   Яндекс <span className="font-bold">5.0</span>
                 </a>
-                <a href="https://www.avito.ru/brands/takesmart/all?sellerId=a434514ec122f52f3718339ace6d3b4d" target="_blank" rel="noopener noreferrer" className="hover:text-[#00aaff]">
+                <a
+                  href="https://www.avito.ru/brands/takesmart/all?sellerId=a434514ec122f52f3718339ace6d3b4d"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-[#00aaff]"
+                >
                   Авито <span className="font-bold">5.0</span>
                 </a>
               </div>
-            </div>
-          </AnimatedSection>
-          
-          <AnimatedSection delay={200}>
-            <div className="grid gap-6 md:grid-cols-3">
-              {[
-                {
-                  name: 'Артём Киц-Ковязин',
-                  date: '1 декабря 2025',
-                  source: 'Яндекс Карты',
-                  rating: 5,
-                  text: 'Брал тут 2 айфона 17 про макс на 512. Все супер. Быстро договорились, продавцы очень профессиональные и приятные! Бонусом поклеили защитное стекло и подарили чехлы.'
-                },
-                {
-                  name: 'Анна С.',
-                  date: '26 октября 2025',
-                  source: 'Яндекс Карты',
-                  rating: 5,
-                  text: 'Совершила сегодня свою долгожданную покупку нового телефона в этом замечательном месте! Помимо приятнейших цен и большого ассортимента, хочется отметить отношение внимательных и приветливых молодых людей к каждому клиенту!'
-                },
-                {
-                  name: 'Влад',
-                  date: '27 января 2026',
-                  source: 'Яндекс Карты',
-                  rating: 5,
-                  text: 'Магазин просто бомбовый, обслуживание на наивысшем уровне, дали вкусных конфет, обслужили юмором, позитивным настроением, а главное — быстрым и чётким обслуживанием!🙏'
-                },
-                {
-                  name: 'Александр Д.',
-                  date: '29 ноября 2025',
-                  source: 'Яндекс Карты',
-                  rating: 5,
-                  text: 'На днях покупал iPhone 16 чёрный на 128гб, все сделали хорошо, на упаковке айфона были все пломбы + проверил по серийному номеру на сайте. Приятная цена и отличное обслуживание!'
-                },
-                {
-                  name: 'Антон Аношкин',
-                  date: '3 ноября 2025',
-                  source: 'Яндекс Карты',
-                  rating: 5,
-                  text: 'Купил сегодня жене 17 pro max и Apple Watch 11. Товар оригинальный, цены хорошие. Есть возможность оплатить по карте. Могу советовать данный магазин!'
-                },
-                {
-                  name: 'Регина Хамзина',
-                  date: '1 августа 2025',
-                  source: 'Яндекс Карты',
-                  rating: 5,
-                  text: 'Огромное спасибо ребятам! Приобрела новенький iPhone 16 pro, сдав свой 12 по трейд-ин. Самая адекватная цена, без накруток. Телефон оригинальный!'
-                },
-                {
-                  name: 'Дмитрий К.',
-                  date: '14 января 2026',
-                  source: 'Авито',
-                  rating: 5,
-                  text: 'Отличный магазин! Брал iPhone 15 Pro Max, всё оформили быстро, упаковка запечатана. Цена ниже чем в официальных магазинах. Меняли 12 про на 15 про макс по хорошему курсу трейд-ин — всё честно и прозрачно.'
-                },
-                {
-                  name: 'Марина Соколова',
-                  date: '3 февраля 2026',
-                  source: 'Авито',
-                  rating: 5,
-                  text: 'Покупала AirPods Pro 2 — доставили на следующий день, аксессуары оригинальные. Ребята очень внимательные, ответили на все вопросы. Буду обращаться ещё!'
-                }
-              ].map((review, i) => (
-                <div key={i} className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
-                  <div className="mb-4 flex items-start gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center">
-                      {review.source === 'Авито' ? (
-                        <span className="text-[10px] font-black text-white rounded px-1 py-0.5" style={{background:'#00aaff'}}>АВИТО</span>
-                      ) : (
-                        <span className="text-red-500 text-2xl">📍</span>
-                      )}
-                    </div>
-                    <div>
-                      <div className="font-semibold text-gray-900">{review.name}</div>
-                      <div className="text-sm text-gray-500">
-                        {review.date} на <span className="text-yellow-600">{review.source}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mb-3 flex text-yellow-400">
-                    {'★'.repeat(review.rating)}
-                  </div>
-                  <p className="text-gray-700">{review.text}</p>
-                </div>
-              ))}
             </div>
           </AnimatedSection>
         </Container>
