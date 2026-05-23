@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     # Static files / S3
     S3_ENDPOINT_URL: str = "https://s3.twcstorage.ru"
-    S3_BUCKET_NAME: str = "90acb72e-dd6d-4433-b2b3-3105b08551ea"
+    S3_BUCKET_NAME: str = "9fbee474-1fa2-419a-ab9e-e0f8ecde4b7e"
     S3_ACCESS_KEY: str = ""
     S3_SECRET_KEY: str = ""
     S3_REGION: str = "ru-1"
