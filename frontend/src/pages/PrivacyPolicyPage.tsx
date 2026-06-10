@@ -31,7 +31,7 @@ export function PrivacyPolicyPage() {
               </p>
               <p className="mt-2">
                 1.3. Настоящая Политика применяется ко всей информации, которую Оператор может получить о
-                пользователях сайтов <strong>takesmart.ru</strong> и <strong>take-smart.ru</strong> (далее — «Сайт»)
+                пользователях сайтов <strong> takesmart.ru </strong> и <strong> take-smart.ru </strong> (далее — «Сайт»)
                 в процессе использования ими Сайта, его сервисов, продуктов и услуг.
               </p>
               <p className="mt-2">
