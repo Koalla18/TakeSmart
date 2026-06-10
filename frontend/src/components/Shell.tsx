@@ -260,18 +260,18 @@ function CookieConsent() {
   if (!isVisible) return null
   
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 px-4 pb-4 sm:bottom-6 sm:px-6 lg:bottom-0 lg:px-0 lg:pb-0">
+    <div className="fixed inset-x-0 bottom-0 z-50 px-4 pb-4 sm:bottom-6 sm:px-6 md:bottom-0 md:px-0 md:pb-0">
       <div
         role="dialog"
         aria-labelledby="cookie-consent-title"
-        className="mx-auto max-w-xl rounded-2xl border border-yellow-200 bg-white p-5 text-center shadow-2xl shadow-gray-900/20 sm:p-7 lg:max-w-none lg:rounded-none lg:border-x-0 lg:border-b-0 lg:bg-white/95 lg:px-0 lg:py-3 lg:text-left lg:backdrop-blur"
+        className="mx-auto max-w-xl rounded-2xl border border-yellow-200 bg-white p-5 text-center shadow-2xl shadow-gray-900/20 sm:p-7 md:max-w-none md:rounded-none md:border-x-0 md:border-b-0 md:bg-white/95 md:px-0 md:py-3 md:text-left md:backdrop-blur"
       >
-        <div className="lg:mx-auto lg:flex lg:w-full lg:max-w-7xl lg:items-center lg:justify-between lg:gap-6 lg:px-8">
-          <div className="lg:flex lg:min-w-0 lg:items-baseline lg:gap-3">
-            <h2 id="cookie-consent-title" className="text-xl font-extrabold text-gray-900 sm:text-2xl lg:flex-shrink-0 lg:text-base">
+        <div className="md:flex md:w-full md:items-center md:justify-between md:gap-5 md:px-8 xl:px-12 2xl:px-16">
+          <div className="md:flex md:min-w-0 md:items-baseline md:gap-3">
+            <h2 id="cookie-consent-title" className="text-xl font-extrabold text-gray-900 sm:text-2xl md:flex-shrink-0 md:text-base">
               Мы используем cookie
             </h2>
-            <p className="mt-3 text-base leading-relaxed text-gray-700 sm:text-lg lg:hidden">
+            <p className="mt-3 text-base leading-relaxed text-gray-700 sm:text-lg md:hidden">
               Этот сайт использует файлы cookies для работы сервиса, аналитики и улучшения
               пользовательского опыта. Продолжая использовать сайт, вы соглашаетесь с обработкой
               файлов cookies в соответствии с{' '}
@@ -283,7 +283,17 @@ function CookieConsent() {
               </Link>
               .
             </p>
-            <p className="hidden text-sm leading-6 text-gray-700 lg:block xl:whitespace-nowrap">
+            <p className="hidden text-sm leading-6 text-gray-700 md:block xl:hidden">
+              Сайт использует cookies. Продолжая работу, вы соглашаетесь с{' '}
+              <Link
+                to="/cookie-policy"
+                className="font-semibold text-yellow-700 underline decoration-yellow-500 underline-offset-4 transition-colors hover:text-gray-900"
+              >
+                политикой cookie
+              </Link>
+              .
+            </p>
+            <p className="hidden text-sm leading-6 text-gray-700 xl:block xl:whitespace-nowrap">
               Сайт использует cookies для работы сервиса и аналитики. Продолжая работу, вы соглашаетесь с{' '}
               <Link
                 to="/cookie-policy"
@@ -296,7 +306,7 @@ function CookieConsent() {
           </div>
           <button
             onClick={accept}
-            className="mt-6 w-full rounded-xl bg-yellow-400 px-6 py-3.5 text-base font-extrabold text-gray-950 transition-all hover:bg-yellow-500 hover:shadow-lg hover:shadow-yellow-400/30 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 lg:mt-0 lg:w-auto lg:flex-shrink-0 lg:rounded-lg lg:px-6 lg:py-2.5 lg:text-sm"
+            className="mt-6 w-full rounded-xl bg-yellow-400 px-6 py-3.5 text-base font-extrabold text-gray-950 transition-all hover:bg-yellow-500 hover:shadow-lg hover:shadow-yellow-400/30 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 md:mt-0 md:w-auto md:flex-shrink-0 md:rounded-lg md:px-7 md:py-2.5 md:text-sm xl:px-8"
           >
             Принять
           </button>
