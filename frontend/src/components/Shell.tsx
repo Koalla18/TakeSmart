@@ -1,6 +1,6 @@
 import type { PropsWithChildren } from 'react'
 import { useState, useEffect, useCallback } from 'react'
-import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Logo } from './Logo'
 import { PhoneIcon, MailIcon, ClockIcon, MenuIcon, CloseIcon, TelegramIcon, ChevronRightIcon } from './ui/Icons'
 import { Container } from './ui/Layout'
@@ -32,6 +32,8 @@ function NavItem({ to, label, onClick }: { to: string; label: string; onClick?: 
     </NavLink>
   )
 }
+
+const legalDocumentPaths = ['/offer', '/privacy-policy', '/personal-data', '/cookie-policy']
 
 function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
 
@@ -226,37 +228,80 @@ function CookieConsent() {
   const [isVisible, setIsVisible] = useState(false)
   
   useEffect(() => {
-    const consent = localStorage.getItem('cookie-consent')
-    if (!consent) {
-      setTimeout(() => setIsVisible(true), 1500)
+    const consentKey = 'cookie-consent'
+    const consentTtl = 1000 * 60 * 60 * 24 * 365
+    const storedConsent = localStorage.getItem(consentKey)
+
+    if (storedConsent) {
+      if (storedConsent === 'true') {
+        localStorage.setItem(consentKey, JSON.stringify({ accepted: true, acceptedAt: Date.now() }))
+        return
+      }
+
+      try {
+        const parsed = JSON.parse(storedConsent) as { accepted?: boolean; acceptedAt?: number }
+        if (parsed.accepted && parsed.acceptedAt && Date.now() - parsed.acceptedAt < consentTtl) {
+          return
+        }
+      } catch {
+        localStorage.removeItem(consentKey)
+      }
     }
+
+    const timer = window.setTimeout(() => setIsVisible(true), 1200)
+    return () => window.clearTimeout(timer)
   }, [])
   
   const accept = () => {
-    localStorage.setItem('cookie-consent', 'true')
+    localStorage.setItem('cookie-consent', JSON.stringify({ accepted: true, acceptedAt: Date.now() }))
     setIsVisible(false)
   }
   
   if (!isVisible) return null
   
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-gray-200 bg-white p-4 shadow-lg sm:p-6">
-      <Container>
-        <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-gray-600">
-            Мы используем cookies для улучшения работы сайта.{' '}
-            <Link to="/privacy-policy" className="text-yellow-600 hover:underline">
-              Политика конфиденциальности
-            </Link>
-          </p>
+    <div className="fixed inset-x-0 bottom-0 z-50 px-4 pb-4 sm:bottom-6 sm:px-6 lg:bottom-0 lg:px-0 lg:pb-0">
+      <div
+        role="dialog"
+        aria-labelledby="cookie-consent-title"
+        className="mx-auto max-w-xl rounded-2xl border border-yellow-200 bg-white p-5 text-center shadow-2xl shadow-gray-900/20 sm:p-7 lg:max-w-none lg:rounded-none lg:border-x-0 lg:border-b-0 lg:bg-white/95 lg:px-0 lg:py-3 lg:text-left lg:backdrop-blur"
+      >
+        <div className="lg:mx-auto lg:flex lg:w-full lg:max-w-7xl lg:items-center lg:justify-between lg:gap-6 lg:px-8">
+          <div className="lg:flex lg:min-w-0 lg:items-baseline lg:gap-3">
+            <h2 id="cookie-consent-title" className="text-xl font-extrabold text-gray-900 sm:text-2xl lg:flex-shrink-0 lg:text-base">
+              Мы используем cookie
+            </h2>
+            <p className="mt-3 text-base leading-relaxed text-gray-700 sm:text-lg lg:hidden">
+              Этот сайт использует файлы cookies для работы сервиса, аналитики и улучшения
+              пользовательского опыта. Продолжая использовать сайт, вы соглашаетесь с обработкой
+              файлов cookies в соответствии с{' '}
+              <Link
+                to="/cookie-policy"
+                className="font-semibold text-yellow-700 underline decoration-yellow-500 underline-offset-4 transition-colors hover:text-gray-900"
+              >
+                Политикой использования cookie
+              </Link>
+              .
+            </p>
+            <p className="hidden text-sm leading-6 text-gray-700 lg:block xl:whitespace-nowrap">
+              Сайт использует cookies для работы сервиса и аналитики. Продолжая работу, вы соглашаетесь с{' '}
+              <Link
+                to="/cookie-policy"
+                className="font-semibold text-yellow-700 underline decoration-yellow-500 underline-offset-4 transition-colors hover:text-gray-900"
+              >
+                политикой использования cookie
+              </Link>
+              .
+            </p>
+          </div>
           <button
             onClick={accept}
-            className="rounded-lg bg-yellow-400 px-6 py-2 text-sm font-semibold text-gray-900 transition-colors hover:bg-yellow-500"
+            className="mt-6 w-full rounded-xl bg-yellow-400 px-6 py-3.5 text-base font-extrabold text-gray-950 transition-all hover:bg-yellow-500 hover:shadow-lg hover:shadow-yellow-400/30 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 lg:mt-0 lg:w-auto lg:flex-shrink-0 lg:rounded-lg lg:px-6 lg:py-2.5 lg:text-sm"
           >
             Принять
           </button>
         </div>
-      </Container>
+      </div>
     </div>
   )
 }
@@ -265,7 +310,9 @@ export function Shell({ children }: PropsWithChildren) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const { getItemCount } = useCart()
+  const { pathname } = useLocation()
   const cartCount = getItemCount()
+  const isLegalDocument = legalDocumentPaths.includes(pathname)
   const handleCloseMenu = useCallback(() => setMobileMenuOpen(false), [])
   
   useEffect(() => {
@@ -590,6 +637,9 @@ export function Shell({ children }: PropsWithChildren) {
                 <Link to="/personal-data" className="transition-colors hover:text-white">
                   Согласие на обработку персональных данных
                 </Link>
+                <Link to="/cookie-policy" className="transition-colors hover:text-white">
+                  Политика использования cookie
+                </Link>
               </div>
             </div>
             <div className="mt-8 text-center text-[10px] leading-relaxed text-gray-500/40 opacity-40">
@@ -608,9 +658,11 @@ export function Shell({ children }: PropsWithChildren) {
         href="https://t.me/takesmart_manager"
         target="_blank"
         rel="noopener noreferrer"
-        className="fixed bottom-20 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[#0088cc] text-white shadow-lg transition-transform hover:scale-110 hover:shadow-xl sm:bottom-6"
+        className={`fixed bottom-5 right-4 z-30 h-12 w-12 items-center justify-center rounded-full bg-[#0088cc] text-white shadow-lg transition-transform hover:scale-110 hover:shadow-xl sm:bottom-6 sm:right-6 sm:h-14 sm:w-14 ${
+          isLegalDocument ? 'hidden sm:flex' : 'flex'
+        }`}
       >
-        <TelegramIcon className="h-7 w-7" />
+        <TelegramIcon className="h-6 w-6 sm:h-7 sm:w-7" />
       </a>
     </div>
   )

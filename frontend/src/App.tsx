@@ -6,6 +6,7 @@ import { CartProvider } from './lib/cart'
 import { AdminPage } from './pages/AdminPage'
 import { CartPage } from './pages/CartPage'
 import { CatalogPage } from './pages/CatalogPage'
+import { CookiePolicyPage } from './pages/CookiePolicyPage'
 import { DeliveryPage } from './pages/DeliveryPage'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
@@ -46,6 +47,7 @@ function App() {
           <Route path="/used/:slug" element={<Shell><UsedProductPage /></Shell>} />
           <Route path="/offer" element={<Shell><OfferPage /></Shell>} />
           <Route path="/privacy-policy" element={<Shell><PrivacyPolicyPage /></Shell>} />
+          <Route path="/cookie-policy" element={<Shell><CookiePolicyPage /></Shell>} />
           <Route path="/personal-data" element={<Shell><PersonalDataPage /></Shell>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
