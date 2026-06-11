@@ -337,15 +337,18 @@ export function HomePage() {
       {/* Video Hero Section - Apple Style */}
       <section 
         ref={heroRef}
-        className="relative min-h-[70vh] sm:min-h-[130vh] bg-gradient-to-b from-black via-black to-gray-900"
+        className="relative min-h-[720px] bg-gradient-to-b from-black via-black to-gray-900 sm:min-h-[130vh]"
       >
         {/* Sticky video container */}
-        <div className="sticky top-0 h-[70svh] sm:h-[100svh] overflow-hidden">
+        <div className="sticky top-0 h-[720px] overflow-hidden sm:h-[100svh]">
           {/* Video background */}
           <video
             ref={videoRef}
             className="absolute inset-0 h-full w-full object-cover object-center"
             src="/hero-video.mp4"
+            poster="/hero-poster.jpg"
+            autoPlay
+            loop
             muted
             playsInline
             preload="auto"
@@ -358,7 +361,7 @@ export function HomePage() {
           />
           
           {/* Content overlay */}
-          <div className="relative z-10 flex h-full items-end sm:items-center justify-center pb-28 sm:pb-0">
+          <div className="relative z-10 flex h-full items-start justify-center pb-24 pt-8 sm:items-center sm:pb-0 sm:pt-0">
             <Container>
               <div 
                 className="text-center transition-all duration-500"
@@ -374,23 +377,23 @@ export function HomePage() {
                 </div>
                 
                 {/* Main heading */}
-                <h1 className="mb-4 sm:mb-6 text-4xl font-bold leading-tight text-white sm:text-6xl lg:text-8xl">
+                <h1 className="mb-4 text-[42px] font-bold leading-[1.08] text-white sm:mb-6 sm:text-6xl lg:text-8xl">
                   <span className="block drop-shadow-lg">Умная техника</span>
                   <span className="block bg-gradient-to-r from-yellow-400 to-amber-300 bg-clip-text text-transparent pb-2">
                     будущего
                   </span>
                 </h1>
                 
-                <p className="mx-auto mb-6 sm:mb-10 max-w-2xl text-base sm:text-lg text-gray-300 lg:text-xl">
+                <p className="mx-auto mb-6 max-w-2xl text-base leading-7 text-gray-300 sm:mb-10 sm:text-lg lg:text-xl">
                   Откройте мир инновационных технологий. Смартфоны, ноутбуки и аксессуары от ведущих брендов с официальной гарантией.
                 </p>
                 
                 <div className="flex flex-col justify-center gap-3 sm:gap-4 sm:flex-row">
-                  <Button to="/catalog" size="lg" className="shadow-2xl shadow-yellow-400/30">
+                  <Button to="/catalog" size="md" className="w-full shadow-2xl shadow-yellow-400/30 sm:w-auto sm:px-8 sm:py-4 sm:text-lg">
                     Смотреть каталог
                     <ArrowRightIcon className="ml-2 h-5 w-5" />
                   </Button>
-                  <Button href="https://t.me/takesmart_manager" variant="outline" size="lg" className="border-white/30 text-white hover:bg-white/10 backdrop-blur-sm">
+                  <Button href="https://t.me/takesmart_manager" variant="outline" size="md" className="w-full border-white/30 text-white backdrop-blur-sm hover:bg-white/10 sm:w-auto sm:px-8 sm:py-4 sm:text-lg">
                     Написать менеджеру
                   </Button>
                 </div>
@@ -400,7 +403,7 @@ export function HomePage() {
           
           {/* Scroll indicator */}
           <div 
-            className="absolute bottom-10 left-1/2 -translate-x-1/2 transition-opacity duration-300"
+            className="absolute bottom-10 left-1/2 hidden -translate-x-1/2 transition-opacity duration-300 sm:block"
             style={{ opacity: 1 - videoProgress * 3 }}
           >
             <div className="flex flex-col items-center gap-2 text-white/60">
