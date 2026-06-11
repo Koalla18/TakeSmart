@@ -7,7 +7,7 @@ export function PersonalDataPage() {
             Согласие на обработку персональных данных
           </h1>
           <p className="mb-8 text-sm text-gray-500">
-            Дата последнего обновления: 18 мая 2026 г.
+            Дата последнего обновления: 11 июня 2026 г.
           </p>
 
           <div className="prose prose-gray max-w-none text-sm leading-relaxed text-gray-700 space-y-6">
