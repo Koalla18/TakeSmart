@@ -7,7 +7,7 @@ from uuid import UUID
 
 from fastapi import Depends
 from src.app.api.admin.endpoints import get_current_admin
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 from fastapi.responses import Response
 
 from src.app.core.logger import get_logger
@@ -126,7 +126,7 @@ async def get_order_by_number(order_number: str) -> OrderDetailOut:
         422: {"description": "Ошибка валидации"},
     },
 )
-async def create_order(body: OrderCreate) -> OrderDetailOut:
+async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> OrderDetailOut:
     async with UnitOfWork() as uow:
         # ── 1. Валидируем все товары и считаем суммы ──────────────────
         order_lines = []
@@ -210,8 +210,9 @@ async def create_order(body: OrderCreate) -> OrderDetailOut:
         items=len(order.items),
     )
 
-    # Уведомление в Telegram (не блокирует ответ — ошибки перехватываются внутри)
-    await send_order_notification(order)
+    # Уведомление в Telegram отправляем после возврата ответа,
+    # чтобы медленный/упавший Telegram не подвешивал оформление заказа.
+    background_tasks.add_task(send_order_notification, order)
 
     return order
 
