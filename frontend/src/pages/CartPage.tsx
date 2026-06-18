@@ -251,11 +251,26 @@ export function CartPage() {
       items: orderItems,
     }
 
-    const res = await fetch(`${API_BASE_URL}/api/orders`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
+    // Защита от зависшего запроса: обрываем fetch, если сервер не ответил за 30 сек.
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), 30_000)
+
+    let res: Response
+    try {
+      res = await fetch(`${API_BASE_URL}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      })
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw new Error('Сервер не отвечает. Проверьте соединение и попробуйте ещё раз.')
+      }
+      throw new Error('Не удалось связаться с сервером. Проверьте интернет-соединение.')
+    } finally {
+      window.clearTimeout(timeoutId)
+    }
 
     if (!res.ok) {
       if (res.status === 422) {
