@@ -427,7 +427,7 @@ export function CatalogPage() {
           apple: '🍎', samsung: '📱', xiaomi: '📱', sony: '🎮',
           google: '🔍', huawei: '📱', oppo: '📱', lg: '📺',
           microsoft: '💻', asus: '💻', lenovo: '💻', hp: '💻',
-          dell: '💻', nintendo: '🎮',
+          dell: '💻', nintendo: '🎮', whoop: '⌚',
         }
         const apiBrands: CatalogBrand[] = uniqueBrands.map(b => ({
           id: b.toLowerCase(),
