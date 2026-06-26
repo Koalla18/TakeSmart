@@ -1,12 +1,18 @@
 import type { PropsWithChildren } from 'react'
-import { useState, useEffect, useCallback } from 'react'
-import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Logo } from './Logo'
 import { PhoneIcon, MailIcon, ClockIcon, MenuIcon, CloseIcon, TelegramIcon, ChevronRightIcon } from './ui/Icons'
 import { Container } from './ui/Layout'
 import { useCart } from '../lib/cart'
 import { GlobalSearch, MobileSearchButton } from './GlobalSearch'
-import { API_BASE_URL } from '../lib/config'
+import {
+  fetchMenuCategories,
+  fetchCategoryBrands,
+  categoryEmoji,
+  type MenuCategory,
+  type MenuBrand,
+} from '../lib/catalogMenu'
 
 function NavItem({ to, label, onClick }: { to: string; label: string; onClick?: () => void }) {
   return (
@@ -33,43 +39,184 @@ function NavItem({ to, label, onClick }: { to: string; label: string; onClick?: 
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Десктоп мега-меню «Каталог» (по образцу cordstore, без копирования кода).
+// Открывается по наведению. Категории грузятся 1 раз, бренды — лениво по разделу.
+// НЕ делаем «прилипающий» под-хедер — это просто dropdown, открыт пока наведён.
+// ─────────────────────────────────────────────────────────────────────────────
+function CatalogMegaMenu() {
+  const [open, setOpen] = useState(false)
+  const [cats, setCats] = useState<MenuCategory[]>([])
+  const [loadedCats, setLoadedCats] = useState(false)
+  const [activeCat, setActiveCat] = useState<MenuCategory | null>(null)
+  const [brandsByCat, setBrandsByCat] = useState<Record<string, MenuBrand[]>>({})
+  const closeTimer = useRef<number | undefined>(undefined)
+
+  const cancelClose = useCallback(() => {
+    if (closeTimer.current) window.clearTimeout(closeTimer.current)
+  }, [])
+  const scheduleClose = useCallback(() => {
+    cancelClose()
+    closeTimer.current = window.setTimeout(() => setOpen(false), 140)
+  }, [cancelClose])
+  const closeNow = useCallback(() => { cancelClose(); setOpen(false) }, [cancelClose])
+
+  // Категории — один раз при первом открытии
+  useEffect(() => {
+    if (!open || loadedCats) return
+    setLoadedCats(true)
+    fetchMenuCategories().then(list => {
+      setCats(list)
+      if (list[0]) setActiveCat(list[0])
+    })
+  }, [open, loadedCats])
+
+  // Бренды активной категории — лениво, с кэшем (undefined = ещё грузим)
+  useEffect(() => {
+    if (!activeCat || brandsByCat[activeCat.id] !== undefined) return
+    let cancelled = false
+    fetchCategoryBrands(activeCat.id).then(brands => {
+      if (!cancelled) setBrandsByCat(prev => ({ ...prev, [activeCat.id]: brands }))
+    })
+    return () => { cancelled = true }
+  }, [activeCat, brandsByCat])
+
+  const activeBrands = activeCat ? brandsByCat[activeCat.id] : undefined
+
+  return (
+    <div
+      onMouseEnter={() => { cancelClose(); setOpen(true) }}
+      onMouseLeave={scheduleClose}
+    >
+      <Link
+        to="/catalog"
+        onClick={closeNow}
+        aria-expanded={open}
+        className={`relative flex items-center gap-1 px-1 py-2 text-sm font-medium transition-colors ${
+          open ? 'text-yellow-500' : 'text-gray-700 hover:text-yellow-500'
+        }`}
+      >
+        Каталог
+        <svg className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </Link>
+
+      {/* Широкая панель меню */}
+      <div
+        className={`absolute left-0 right-0 top-full z-40 border-t border-gray-100 bg-white shadow-xl transition-all duration-200 ${
+          open ? 'visible translate-y-0 opacity-100' : 'invisible -translate-y-2 opacity-0'
+        }`}
+        onMouseEnter={cancelClose}
+        onMouseLeave={scheduleClose}
+      >
+        <Container>
+          <div className="grid grid-cols-[260px_1fr] gap-6 py-6">
+            {/* Колонка категорий */}
+            <div className="max-h-[70vh] overflow-y-auto border-r border-gray-100 pr-2">
+              {cats.length === 0
+                ? Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className="mb-2 h-10 animate-pulse rounded-xl bg-gray-100" />
+                  ))
+                : cats.map(cat => (
+                    <Link
+                      key={cat.id}
+                      to={`/catalog?category=${cat.slug}`}
+                      onMouseEnter={() => setActiveCat(cat)}
+                      onFocus={() => setActiveCat(cat)}
+                      onClick={closeNow}
+                      className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${
+                        activeCat?.id === cat.id ? 'bg-yellow-50 text-yellow-700' : 'text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2.5 truncate">
+                        <span className="text-base">{categoryEmoji(cat.name)}</span>
+                        <span className="truncate">{cat.name}</span>
+                      </span>
+                      <ChevronRightIcon className="h-4 w-4 flex-shrink-0 text-gray-300" />
+                    </Link>
+                  ))}
+            </div>
+
+            {/* Бренды активной категории */}
+            <div className="min-h-[220px]">
+              {activeCat && (
+                <>
+                  <div className="mb-4 flex items-center justify-between">
+                    <h3 className="text-base font-bold text-gray-900">{activeCat.name}</h3>
+                    <Link
+                      to={`/catalog?category=${activeCat.slug}`}
+                      onClick={closeNow}
+                      className="text-sm font-medium text-yellow-600 hover:text-yellow-700"
+                    >
+                      Все товары →
+                    </Link>
+                  </div>
+
+                  {activeBrands === undefined ? (
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {Array.from({ length: 9 }).map((_, i) => (
+                        <div key={i} className="h-9 animate-pulse rounded-lg bg-gray-100" />
+                      ))}
+                    </div>
+                  ) : activeBrands.length === 0 ? (
+                    <p className="text-sm text-gray-400">
+                      Бренды не найдены.{' '}
+                      <Link to={`/catalog?category=${activeCat.slug}`} onClick={closeNow} className="text-yellow-600 hover:text-yellow-700">
+                        Перейти в раздел →
+                      </Link>
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-3">
+                      {activeBrands.map(b => (
+                        <Link
+                          key={b.name}
+                          to={`/catalog?category=${activeCat.slug}&brand=${encodeURIComponent(b.name.toLowerCase())}`}
+                          onClick={closeNow}
+                          className="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                        >
+                          <span className="truncate">{b.name}</span>
+                          <span className="ml-2 text-xs text-gray-300">{b.count}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </Container>
+      </div>
+    </div>
+  )
+}
+
 const legalDocumentPaths = ['/offer', '/privacy-policy', '/personal-data', '/cookie-policy']
 
 function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
 
-  const [categories, setCategories] = useState<any[]>([])
-  const [brandsByCategory, setBrandsByCategory] = useState<Record<string, string[]>>({})
+  const [categories, setCategories] = useState<MenuCategory[]>([])
+  const [brandsByCat, setBrandsByCat] = useState<Record<string, MenuBrand[]>>({})
   const [expandedCatId, setExpandedCatId] = useState<string | null>(null)
   const [dataFetched, setDataFetched] = useState(false)
-  const navigate = useNavigate();
 
+  // Категории — один раз при открытии. Бренды НЕ грузим заранее: раньше тянули
+  // весь каталог (limit=2500), теперь — лениво по конкретному разделу.
   useEffect(() => {
-    if (!isOpen || dataFetched) return;
-    setDataFetched(true);
-    
-    Promise.all([
-      fetch(`${API_BASE_URL}/api/categories?limit=100&only_active=true`).then(r => r.json()),
-      fetch(`${API_BASE_URL}/api/products?limit=2500&only_active=true`).then(r => r.json())
-    ])
-    .then(([catData, prodData]) => {
-      const cats = Array.isArray(catData) ? catData : (catData.items || [])
-      setCategories(cats.filter((c: any) => !c.name.toLowerCase().includes('б/у')))
-      
-      const prods = Array.isArray(prodData) ? prodData : (prodData.items || [])
-      const bMap: Record<string, Set<string>> = {}
-      prods.forEach((p: any) => {
-        if (!p.category_id || !p.brand) return
-        if (!bMap[p.category_id]) bMap[p.category_id] = new Set()
-        bMap[p.category_id].add(p.brand)
-      })
-      const finalMap: Record<string, string[]> = {}
-      for (const [cid, set] of Object.entries(bMap)) {
-        finalMap[cid] = Array.from(set).sort()
-      }
-      setBrandsByCategory(finalMap)
-    })
-    .catch(console.error)
+    if (!isOpen || dataFetched) return
+    setDataFetched(true)
+    fetchMenuCategories().then(setCategories)
   }, [isOpen, dataFetched])
+
+  // Раскрытие раздела: тогглим и лениво подгружаем его бренды (с кэшем)
+  const toggleCategory = (cat: MenuCategory) => {
+    setExpandedCatId(prev => (prev === cat.id ? null : cat.id))
+    if (brandsByCat[cat.id] === undefined) {
+      fetchCategoryBrands(cat.id).then(brands =>
+        setBrandsByCat(prev => ({ ...prev, [cat.id]: brands }))
+      )
+    }
+  }
 
 
   useEffect(() => {
@@ -145,64 +292,63 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                 Категории
               </h3>
               <div className="space-y-1">
-                {categories.map(cat => {
-                  let icon = '📦';
-                  const name = cat.name.toLowerCase();
-                  if (name.includes('смартфоны') || name.includes('телефон')) icon = '📱';
-                  else if (name.includes('ноутбук')) icon = '💻';
-                  else if (name.includes('наушник')) icon = '🎧';
-                  else if (name.includes('час')) icon = '⌚';
-                  else if (name.includes('планшет')) icon = '📱';
-                  else if (name.includes('аксессуар')) icon = '🔌';
-                  else if (name.includes('консол') || name.includes('игр')) icon = '🎮';
-                  else if (name.includes('тв') || name.includes('аудио') || name.includes('телевизор')) icon = '📺';
-                  else if (name.includes('красот') || name.includes('уход')) icon = '✨';
-                  else if (name.includes('дом')) icon = '🏠';
-                  else if (name.includes('фото') || name.includes('видео')) icon = '📷';
-
-                  const brands = brandsByCategory[cat.id] || [];
-
-                  return (
-                    <div key={cat.id} className="flex flex-col">
-                      <button
-                        onClick={() => {
-                          if (brands.length > 0) {
-                            setExpandedCatId(expandedCatId === cat.id ? null : cat.id);
-                          } else {
-                            onClose();
-                            navigate(`/catalog?category=${cat.slug}`);
-                          }
-                        }}
-                        className="flex items-center justify-between rounded-xl px-4 py-3 text-base font-medium text-gray-700 transition-colors hover:bg-gray-50"
-                      >
-                        <div className="flex items-center gap-3">
-                          <span className="text-xl">{icon}</span>
-                          <span>{cat.name}</span>
-                        </div>
-                        {brands.length > 0 && (
-                          <ChevronRightIcon className={`h-4 w-4 text-gray-400 transition-transform ${expandedCatId === cat.id ? 'rotate-90' : ''}`} />
-                        )}
-                      </button>
-                      
-                      {expandedCatId === cat.id && brands.length > 0 && (
-                        <div className="ml-12 mt-1 flex flex-col space-y-2 border-l border-gray-100 pl-4">
-                          {brands.map(brand => (
-                            <button
-                              key={brand}
-                              onClick={() => {
-                                onClose();
-                                navigate(`/catalog?category=${cat.slug}&brand=${brand.toLowerCase()}`);
-                              }}
-                              className="text-left py-1 text-sm text-gray-600 hover:text-gray-900"
+                {categories.length === 0
+                  ? Array.from({ length: 6 }).map((_, i) => (
+                      <div key={i} className="h-11 animate-pulse rounded-xl bg-gray-100" />
+                    ))
+                  : categories.map(cat => {
+                      const brands = brandsByCat[cat.id]
+                      const expanded = expandedCatId === cat.id
+                      return (
+                        <div key={cat.id} className="flex flex-col">
+                          <div className="flex items-center">
+                            <Link
+                              to={`/catalog?category=${cat.slug}`}
+                              onClick={onClose}
+                              className="flex flex-1 items-center gap-3 rounded-xl px-4 py-3 text-base font-medium text-gray-700 transition-colors hover:bg-gray-50"
                             >
-                              {brand}
+                              <span className="text-xl">{categoryEmoji(cat.name)}</span>
+                              <span>{cat.name}</span>
+                            </Link>
+                            <button
+                              onClick={() => toggleCategory(cat)}
+                              aria-label={`Бренды: ${cat.name}`}
+                              aria-expanded={expanded}
+                              className="rounded-xl p-3 text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                            >
+                              <ChevronRightIcon className={`h-4 w-4 transition-transform ${expanded ? 'rotate-90' : ''}`} />
                             </button>
-                          ))}
+                          </div>
+
+                          {expanded && (
+                            <div className="ml-12 mt-1 flex flex-col space-y-2 border-l border-gray-100 pl-4">
+                              {brands === undefined ? (
+                                <span className="py-1 text-sm text-gray-400">Загрузка…</span>
+                              ) : brands.length === 0 ? (
+                                <Link
+                                  to={`/catalog?category=${cat.slug}`}
+                                  onClick={onClose}
+                                  className="py-1 text-sm text-yellow-600"
+                                >
+                                  Перейти в раздел →
+                                </Link>
+                              ) : (
+                                brands.map(b => (
+                                  <Link
+                                    key={b.name}
+                                    to={`/catalog?category=${cat.slug}&brand=${encodeURIComponent(b.name.toLowerCase())}`}
+                                    onClick={onClose}
+                                    className="py-1 text-left text-sm text-gray-600 hover:text-gray-900"
+                                  >
+                                    {b.name}
+                                  </Link>
+                                ))
+                              )}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
+                      )
+                    })}
               </div>
             </div>
           </nav>
@@ -382,7 +528,7 @@ export function Shell({ children }: PropsWithChildren) {
             {/* Desktop nav */}
             <nav className="hidden items-center gap-6 lg:flex">
               <NavItem to="/" label="Главная" />
-              <NavItem to="/catalog" label="Каталог" />
+              <CatalogMegaMenu />
               <NavItem to="/delivery" label="Доставка" />
               <NavItem to="/trade-in" label="Trade-in" />
               <NavItem to="/cart" label="Заявка" />

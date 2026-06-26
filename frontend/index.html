@@ -5,6 +5,12 @@
     <link rel="icon" type="image/jpeg" href="/lion.jpg" />
     <link rel="apple-touch-icon" href="/lion.jpg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- LCP: первый баннер hero рендерится сразу — предзагружаем его картинку -->
+    <link rel="preload" as="image" href="/iphone-17-pro.png" fetchpriority="high" />
+    <!-- Фото товаров лежат в S3 (s3.twcstorage.ru) — заранее открываем соединение.
+         Это только сетевой hint, URL/хранилище НЕ меняются. -->
+    <link rel="preconnect" href="https://s3.twcstorage.ru" crossorigin />
+    <link rel="dns-prefetch" href="https://s3.twcstorage.ru" />
     <meta name="description" content="Take Smart — магазин современной техники. Смартфоны, ноутбуки и аксессуары с гарантией." />
     <meta property="og:title" content="Take Smart — Магазин современной техники" />
     <meta property="og:description" content="Смартфоны, ноутбуки и аксессуары от ведущих брендов с гарантией." />

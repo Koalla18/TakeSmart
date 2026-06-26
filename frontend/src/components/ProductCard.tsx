@@ -116,6 +116,8 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
               <img
                 src={product.image}
                 alt={product.name}
+                loading="lazy"
+                decoding="async"
                 className="relative z-10 h-64 w-64 md:h-80 md:w-80 object-contain transition-transform duration-700 group-hover:scale-110 group-hover:rotate-3 drop-shadow-2xl"
               />
             ) : (
@@ -170,6 +172,8 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
                 <img
                   src={product.image}
                   alt={product.name}
+                  loading="lazy"
+                  decoding="async"
                   className="h-full w-full object-contain transition-all duration-500 group-hover:scale-105"
                 />
               ) : (

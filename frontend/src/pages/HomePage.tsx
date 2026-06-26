@@ -1,23 +1,27 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { Container, Section } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
-import { ProductCard } from '../components/ProductCard'
+import { ProductCard, ProductCardSkeleton } from '../components/ProductCard'
 import {
   type ApiProductOut,
   mapApiProduct,
   type Product,
 } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
-import { 
-  ShieldIcon, 
-  TruckIcon, 
-  CardIcon, 
-  PhoneIcon, 
+import {
+  ShieldIcon,
+  TruckIcon,
+  CardIcon,
+  PhoneIcon,
   ArrowRightIcon,
 } from '../components/ui/Icons'
 
-// Scroll animation hook
+// ─────────────────────────────────────────────────────────────────────────────
+// Анимированная секция (fade-in при скролле). Используется ТОЛЬКО ниже первого
+// экрана — первый экран (hero + Топ-10) рендерится сразу видимым, чтобы не
+// задерживать LCP.
+// ─────────────────────────────────────────────────────────────────────────────
 function useScrollAnimation(threshold = 0.1) {
   const ref = useRef<HTMLDivElement>(null)
   const [isVisible, setIsVisible] = useState(false)
@@ -43,26 +47,25 @@ function useScrollAnimation(threshold = 0.1) {
   return { ref, isVisible }
 }
 
-// Animated section wrapper
-function AnimatedSection({ 
-  children, 
+function AnimatedSection({
+  children,
   className = '',
-  delay = 0 
-}: { 
+  delay = 0,
+}: {
   children: React.ReactNode
   className?: string
   delay?: number
 }) {
   const { ref, isVisible } = useScrollAnimation()
-  
+
   return (
-    <div 
+    <div
       ref={ref}
       className={`transition-all duration-1000 ease-out ${className}`}
       style={{
         opacity: isVisible ? 1 : 0,
         transform: isVisible ? 'translateY(0)' : 'translateY(40px)',
-        transitionDelay: `${delay}ms`
+        transitionDelay: `${delay}ms`,
       }}
     >
       {children}
@@ -70,7 +73,248 @@ function AnimatedSection({
   )
 }
 
-// Weekly Slides Carousel — extracted as proper component for correct hooks usage
+// ─────────────────────────────────────────────────────────────────────────────
+// HERO: слайдер промо-баннеров (заменил видео-блок).
+// Палитра — текущая takesmart: белый фон, чёрный текст, жёлтый акцент.
+// Контейнер фиксированной высоты (первый слайд задаёт высоту) → CLS = 0.
+// ─────────────────────────────────────────────────────────────────────────────
+interface Banner {
+  badge: string
+  title: string
+  highlight: string
+  description: string
+  image: string
+  cta: { label: string; to?: string; href?: string }
+  secondary?: { label: string; to?: string; href?: string }
+}
+
+const HERO_BANNERS: Banner[] = [
+  {
+    badge: 'Новая коллекция 2026',
+    title: 'Умная техника',
+    highlight: 'будущего',
+    description:
+      'Смартфоны, ноутбуки и аксессуары от ведущих брендов с официальной гарантией.',
+    image: '/iphone-17-pro.png',
+    cta: { label: 'Смотреть каталог', to: '/catalog' },
+    secondary: { label: 'Написать менеджеру', href: 'https://t.me/takesmart_manager' },
+  },
+  {
+    badge: 'Trade-in',
+    title: 'Обменяй старое',
+    highlight: 'на новое',
+    description:
+      'Сдайте свой гаджет и получите скидку на новую технику. Оценка за пару минут.',
+    image: '/watch-ultra-2.png',
+    cta: { label: 'Узнать про Trade-in', to: '/trade-in' },
+    secondary: { label: 'В каталог', to: '/catalog' },
+  },
+  {
+    badge: 'Доставка по Москве',
+    title: 'Привезём',
+    highlight: 'за 30 минут',
+    description:
+      'Быстрая доставка и удобные способы оплаты — наличными, картой или в рассрочку.',
+    image: '/iphone-15-blue.png',
+    cta: { label: 'Доставка и оплата', to: '/delivery' },
+    secondary: { label: 'В каталог', to: '/catalog' },
+  },
+]
+
+function HeroBannerSlider() {
+  const [current, setCurrent] = useState(0)
+  const [touchStartX, setTouchStartX] = useState<number | null>(null)
+  const count = HERO_BANNERS.length
+
+  const next = useCallback(() => setCurrent(p => (p + 1) % count), [count])
+  const prev = useCallback(() => setCurrent(p => (p - 1 + count) % count), [count])
+
+  useEffect(() => {
+    const timer = setInterval(next, 6000)
+    return () => clearInterval(timer)
+  }, [next])
+
+  const onTouchEnd = (endX: number) => {
+    if (touchStartX === null) return
+    const dx = endX - touchStartX
+    if (Math.abs(dx) > 50) (dx < 0 ? next : prev)()
+    setTouchStartX(null)
+  }
+
+  return (
+    <section className="bg-white pt-4 sm:pt-6">
+      <Container>
+        <div
+          className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-gray-50 via-white to-gray-100 ring-1 ring-gray-100"
+          onTouchStart={e => setTouchStartX(e.touches[0].clientX)}
+          onTouchEnd={e => onTouchEnd(e.changedTouches[0].clientX)}
+        >
+          {HERO_BANNERS.map((b, idx) => (
+            <div
+              key={idx}
+              aria-hidden={idx !== current}
+              className={`${idx === 0 ? '' : 'absolute inset-0'} carousel-slide ${
+                idx === current ? 'carousel-slide-active' : 'carousel-slide-hidden'
+              }`}
+            >
+              <div className="grid min-h-[440px] items-center gap-4 sm:min-h-[480px] lg:min-h-[520px] lg:grid-cols-2">
+                {/* Текст */}
+                <div className="order-2 px-6 pb-8 sm:px-10 lg:order-1 lg:py-12 lg:pl-14">
+                  <span className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-medium text-gray-700 sm:text-sm">
+                    <span className="h-2 w-2 rounded-full bg-yellow-400" />
+                    {b.badge}
+                  </span>
+                  <h1 className="mt-4 text-4xl font-bold leading-[1.05] text-gray-900 sm:mt-6 sm:text-5xl lg:text-6xl">
+                    <span className="block">{b.title}</span>
+                    <span className="block text-yellow-500">{b.highlight}</span>
+                  </h1>
+                  <p className="mt-4 max-w-md text-base leading-7 text-gray-500 sm:mt-6 sm:text-lg">
+                    {b.description}
+                  </p>
+                  <div className="mt-6 flex flex-col gap-3 sm:mt-8 sm:flex-row">
+                    <Button to={b.cta.to} href={b.cta.href} size="md" className="w-full sm:w-auto sm:px-8">
+                      {b.cta.label}
+                      <ArrowRightIcon className="ml-2 h-5 w-5" />
+                    </Button>
+                    {b.secondary && (
+                      <Button
+                        to={b.secondary.to}
+                        href={b.secondary.href}
+                        variant="outline"
+                        size="md"
+                        className="w-full border-gray-300 text-gray-900 hover:bg-gray-900 hover:text-white sm:w-auto sm:px-8"
+                      >
+                        {b.secondary.label}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Картинка */}
+                <div className="order-1 flex items-center justify-center px-6 pt-8 lg:order-2 lg:py-12 lg:pr-14">
+                  <img
+                    src={b.image}
+                    alt={`${b.title} ${b.highlight}`}
+                    width={420}
+                    height={420}
+                    loading={idx === 0 ? 'eager' : 'lazy'}
+                    fetchPriority={idx === 0 ? 'high' : 'low'}
+                    decoding="async"
+                    className="h-48 w-auto object-contain drop-shadow-2xl sm:h-64 lg:h-80"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Стрелки (десктоп) */}
+          <button
+            onClick={prev}
+            aria-label="Предыдущий слайд"
+            className="absolute left-4 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-gray-200 bg-white/90 text-gray-700 backdrop-blur transition-all hover:bg-gray-900 hover:text-white lg:flex"
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <button
+            onClick={next}
+            aria-label="Следующий слайд"
+            className="absolute right-4 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-gray-200 bg-white/90 text-gray-700 backdrop-blur transition-all hover:bg-gray-900 hover:text-white lg:flex"
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+
+          {/* Точки */}
+          <div className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 gap-2">
+            {HERO_BANNERS.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setCurrent(i)}
+                aria-label={`Слайд ${i + 1}`}
+                className={`h-1.5 rounded-full transition-all duration-500 ${
+                  i === current ? 'w-8 bg-gray-900' : 'w-3 bg-gray-300 hover:bg-gray-400'
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+      </Container>
+    </section>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Топ-10 популярных товаров (сетка карточек) + кнопка «Перейти в каталог».
+// Данные — featured (is_featured) с бэкенда, limit=10.
+// ─────────────────────────────────────────────────────────────────────────────
+function TopProducts() {
+  const [products, setProducts] = useState<Product[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`${API_BASE_URL}/api/products/featured?limit=10`)
+      .then(res => (res.ok ? res.json() : Promise.reject()))
+      .then((data: ApiProductOut[]) => {
+        if (!cancelled && Array.isArray(data)) setProducts(data.map(p => mapApiProduct(p)))
+      })
+      .catch(() => { /* API offline — покажем только кнопку каталога */ })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  return (
+    <Section className="bg-white py-10 sm:py-14">
+      <Container>
+        <div className="mb-6 flex flex-col items-start justify-between gap-3 sm:mb-8 sm:flex-row sm:items-end">
+          <div>
+            <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl">Топ-10 популярных</h2>
+            <p className="mt-2 text-gray-500">Самые востребованные товары этой недели</p>
+          </div>
+          <Link
+            to="/catalog"
+            className="group hidden items-center gap-2 font-semibold text-gray-900 hover:text-yellow-600 sm:flex"
+          >
+            Весь каталог
+            <ArrowRightIcon className="h-5 w-5 transition-transform group-hover:translate-x-1" />
+          </Link>
+        </div>
+
+        {loading ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <ProductCardSkeleton key={i} />
+            ))}
+          </div>
+        ) : products.length > 0 ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
+            {products.map(product => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        ) : null}
+
+        <div className="mt-8 text-center sm:mt-10">
+          <Link
+            to="/catalog"
+            className="inline-flex items-center gap-3 rounded-full bg-gray-900 px-8 py-4 text-lg font-semibold text-white transition-all hover:bg-yellow-400 hover:text-gray-900 hover:scale-105"
+          >
+            Перейти в каталог
+            <ArrowRightIcon className="h-5 w-5" />
+          </Link>
+        </div>
+      </Container>
+    </Section>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Товары недели — карусель промо-слайдов (данные из админки, /api/weekly-slides).
+// НЕ удалять без согласования владельца (см. ТЗ, п.4).
+// ─────────────────────────────────────────────────────────────────────────────
 interface Slide {
   badge: string
   title: string
@@ -89,23 +333,25 @@ function WeeklySlides() {
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/weekly-slides`)
-      .then(res => res.ok ? res.json() : Promise.reject())
+      .then(res => (res.ok ? res.json() : Promise.reject()))
       .then((data: any[]) => {
         if (data.length > 0) {
-          setSlides(data.map(s => ({
-            badge: s.badge || '',
-            title: s.title,
-            description: s.description || '',
-            price: s.price,
-            image: s.image || '',
-            color: s.color || 'bg-gradient-to-br from-gray-50 via-white to-gray-100',
-            tags: s.tags || [],
-            isNew: s.is_new || false,
-            link_url: s.link_url || '',
-          })))
+          setSlides(
+            data.map(s => ({
+              badge: s.badge || '',
+              title: s.title,
+              description: s.description || '',
+              price: s.price,
+              image: s.image || '',
+              color: s.color || 'bg-gradient-to-br from-gray-50 via-white to-gray-100',
+              tags: s.tags || [],
+              isNew: s.is_new || false,
+              link_url: s.link_url || '',
+            }))
+          )
         }
       })
-      .catch(() => { /* API offline — section stays hidden */ })
+      .catch(() => { /* API offline — секция скрыта */ })
   }, [])
 
   const nextSlide = useCallback(() => setCurrentSlide(prev => (prev + 1) % slides.length), [slides.length])
@@ -123,27 +369,29 @@ function WeeklySlides() {
     <div className="relative">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">Товары недели</h2>
+          <h2 className="text-3xl font-bold text-gray-900 lg:text-4xl">Товары недели</h2>
           <p className="mt-2 text-gray-500">Лучшие предложения от TakeSmart</p>
         </div>
         <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-400 font-medium hidden sm:block">
+          <span className="hidden text-sm font-medium text-gray-400 sm:block">
             {String(currentSlide + 1).padStart(2, '0')} / {String(slides.length).padStart(2, '0')}
           </span>
           <div className="flex gap-3">
             <button
               onClick={prevSlide}
-              className="w-12 h-12 rounded-2xl bg-white/90 backdrop-blur border border-gray-200 flex items-center justify-center hover:bg-gray-900 hover:border-gray-900 transition-all duration-300 group shadow-sm"
+              aria-label="Предыдущий"
+              className="group flex h-12 w-12 items-center justify-center rounded-2xl border border-gray-200 bg-white/90 shadow-sm backdrop-blur transition-all duration-300 hover:border-gray-900 hover:bg-gray-900"
             >
-              <svg className="w-5 h-5 text-gray-700 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-5 w-5 text-gray-700 transition-colors group-hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
             <button
               onClick={nextSlide}
-              className="w-12 h-12 rounded-2xl bg-white/90 backdrop-blur border border-gray-200 flex items-center justify-center hover:bg-gray-900 hover:border-gray-900 transition-all duration-300 group shadow-sm"
+              aria-label="Следующий"
+              className="group flex h-12 w-12 items-center justify-center rounded-2xl border border-gray-200 bg-white/90 shadow-sm backdrop-blur transition-all duration-300 hover:border-gray-900 hover:bg-gray-900"
             >
-              <svg className="w-5 h-5 text-gray-700 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-5 w-5 text-gray-700 transition-colors group-hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
               </svg>
             </button>
@@ -151,26 +399,7 @@ function WeeklySlides() {
         </div>
       </div>
 
-      <div className="relative rounded-[2rem] overflow-hidden">
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none hidden lg:block">
-          <div className="relative w-28 h-28">
-            <div className="absolute inset-0 rounded-full border border-gray-200/60 bg-white/80 backdrop-blur-md shadow-lg" />
-            <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full animate-spin-slow">
-              <defs>
-                <path id="circlePath" d="M 50, 50 m -38, 0 a 38,38 0 1,1 76,0 a 38,38 0 1,1 -76,0"/>
-              </defs>
-              <text className="fill-gray-500" style={{ fontSize: '9.5px', letterSpacing: '3px', textTransform: 'uppercase' }}>
-                <textPath href="#circlePath">
-                  • товар недели • товар недели 
-                </textPath>
-              </text>
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-3.5 h-3.5 rounded-full bg-gray-900" />
-            </div>
-          </div>
-        </div>
-
+      <div className="relative overflow-hidden rounded-[2rem]">
         {slides.map((s, idx) => (
           <div
             key={idx}
@@ -179,81 +408,65 @@ function WeeklySlides() {
               idx === currentSlide ? 'carousel-slide-active' : 'carousel-slide-hidden'
             }`}
           >
-            <div className="grid lg:grid-cols-2 min-h-[480px] sm:min-h-[580px]">
-              <div className="relative p-6 sm:p-8 lg:p-12 flex flex-col justify-between">
+            <div className="grid min-h-[480px] sm:min-h-[580px] lg:grid-cols-2">
+              <div className="relative flex flex-col justify-between p-6 sm:p-8 lg:p-12">
                 <div className="mb-2 sm:mb-auto">
-                  <span className="inline-block rounded-full border border-gray-300 bg-white/80 backdrop-blur px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm text-gray-600">
+                  <span className="inline-block rounded-full border border-gray-300 bg-white/80 px-3 py-1.5 text-xs text-gray-600 backdrop-blur sm:px-4 sm:py-2 sm:text-sm">
                     {s.badge}
                   </span>
                 </div>
                 <div className="my-auto">
-                  <h2 className="text-3xl sm:text-4xl lg:text-6xl font-bold text-gray-900 mb-3 sm:mb-6 leading-[1.1]">
+                  <h2 className="mb-3 text-3xl font-bold leading-[1.1] text-gray-900 sm:mb-6 sm:text-4xl lg:text-6xl">
                     {s.title}
                   </h2>
-                  <p className="text-gray-500 mb-4 sm:mb-8 whitespace-pre-line leading-relaxed max-w-md text-sm sm:text-[15px] line-clamp-3 sm:line-clamp-none">
+                  <p className="mb-4 max-w-md whitespace-pre-line text-sm leading-relaxed text-gray-500 line-clamp-3 sm:mb-8 sm:text-[15px] sm:line-clamp-none">
                     {s.description}
                   </p>
                   <div className="flex items-center gap-4 sm:gap-6">
-                    <span className="text-xl sm:text-2xl lg:text-3xl font-semibold text-gray-900">от {s.price} ₽</span>
-                    <Link to={s.link_url || '/catalog'} className="inline-flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 px-6 py-3 sm:px-8 sm:py-3.5 text-sm sm:text-base text-white font-medium transition-all hover:shadow-lg hover:shadow-blue-500/25">
+                    <span className="text-xl font-semibold text-gray-900 sm:text-2xl lg:text-3xl">от {s.price} ₽</span>
+                    <Link
+                      to={s.link_url || '/catalog'}
+                      className="inline-flex items-center justify-center rounded-full bg-gray-900 px-6 py-3 text-sm font-medium text-white transition-all hover:bg-yellow-400 hover:text-gray-900 sm:px-8 sm:py-3.5 sm:text-base"
+                    >
                       Подробнее
                     </Link>
                   </div>
                 </div>
-                <div className="hidden sm:grid grid-cols-2 gap-4 mt-8">
-                  <Link to="/delivery" className="bg-white rounded-2xl p-5 border border-gray-100 hover:shadow-lg hover:border-gray-200 transition-all group">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-semibold text-gray-900">Доставка и оплата</h4>
-                      <div className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center group-hover:bg-gray-900 group-hover:border-gray-900 transition-all">
-                        <svg className="w-4 h-4 text-gray-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 17L17 7M17 7H7M17 7V17" />
-                        </svg>
-                      </div>
-                    </div>
-                    <div className="border-t border-gray-100 pt-3">
-                      <p className="text-sm text-gray-500">Выбирайте подходящий вариант именно для вас.</p>
-                    </div>
-                  </Link>
-                  <Link to="/trade-in" className="bg-white rounded-2xl p-5 border border-gray-100 hover:shadow-lg hover:border-gray-200 transition-all group">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-semibold text-gray-900">Trade-in</h4>
-                      <div className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center group-hover:bg-gray-900 group-hover:border-gray-900 transition-all">
-                        <svg className="w-4 h-4 text-gray-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 17L17 7M17 7H7M17 7V17" />
-                        </svg>
-                      </div>
-                    </div>
-                    <div className="border-t border-gray-100 pt-3">
-                      <p className="text-sm text-gray-500">Обменяйте своё старое устройство на новое и получите скидку.</p>
-                    </div>
-                  </Link>
-                </div>
               </div>
-              <div className="relative px-6 py-6 sm:py-4 lg:p-12 flex items-center justify-center min-h-[200px] sm:min-h-0">
-                <div className="absolute top-4 right-4 sm:top-6 sm:right-6 flex flex-wrap gap-1.5 sm:gap-2 justify-end max-w-[200px] sm:max-w-[300px] z-10">
+              <div className="relative flex min-h-[200px] items-center justify-center px-6 py-6 sm:min-h-0 sm:py-4 lg:p-12">
+                <div className="absolute right-4 top-4 z-10 flex max-w-[200px] flex-wrap justify-end gap-1.5 sm:right-6 sm:top-6 sm:max-w-[300px] sm:gap-2">
                   {s.tags.map((tag, j) => (
                     <span
                       key={j}
-                      className={`rounded-full px-3 py-1 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium ${
-                        tag === 'новинка' || tag === 'хит' ? 'bg-gray-900 text-white' : 'border border-gray-300 bg-white/80 backdrop-blur text-gray-700'
+                      className={`rounded-full px-3 py-1 text-xs font-medium sm:px-4 sm:py-2 sm:text-sm ${
+                        tag === 'новинка' || tag === 'хит'
+                          ? 'bg-gray-900 text-white'
+                          : 'border border-gray-300 bg-white/80 text-gray-700 backdrop-blur'
                       }`}
                     >
                       {tag}
                     </span>
                   ))}
                 </div>
-                <img src={s.image} alt={s.title} loading="lazy" className="relative z-0 max-w-[200px] sm:max-w-[280px] lg:max-w-[380px] h-auto object-contain drop-shadow-2xl" />
+                <img
+                  src={s.image}
+                  alt={s.title}
+                  loading="lazy"
+                  decoding="async"
+                  className="relative z-0 h-auto max-w-[200px] object-contain drop-shadow-2xl sm:max-w-[280px] lg:max-w-[380px]"
+                />
               </div>
             </div>
           </div>
         ))}
       </div>
 
-      <div className="flex justify-center gap-2 mt-6">
+      <div className="mt-6 flex justify-center gap-2">
         {slides.map((_, i) => (
           <button
             key={i}
             onClick={() => setCurrentSlide(i)}
+            aria-label={`Слайд ${i + 1}`}
             className={`h-1.5 rounded-full transition-all duration-500 ${
               i === currentSlide ? 'w-10 bg-gray-900' : 'w-4 bg-gray-300 hover:bg-gray-400'
             }`}
@@ -265,210 +478,62 @@ function WeeklySlides() {
 }
 
 const benefits = [
-  { 
-    icon: <ShieldIcon className="h-8 w-8" />, 
-    title: 'Гарантия до 3 лет', 
-    description: 'Официальная гарантия на всю технику'
-  },
-  { 
-    icon: <TruckIcon className="h-8 w-8" />, 
-    title: 'Доставка от 30 минут', 
-    description: 'Быстрая доставка по Москве'
-  },
-  { 
-    icon: <CardIcon className="h-8 w-8" />, 
-    title: 'Одобрение кредита от 5 мин', 
-    description: 'Без первого взноса'
-  },
-  { 
-    icon: <PhoneIcon className="h-8 w-8" />, 
-    title: 'Поддержка 24/7', 
-    description: 'Ответим на любой вопрос'
-  },
+  { icon: <ShieldIcon className="h-8 w-8" />, title: 'Гарантия до 3 лет', description: 'Официальная гарантия на всю технику' },
+  { icon: <TruckIcon className="h-8 w-8" />, title: 'Доставка от 30 минут', description: 'Быстрая доставка по Москве' },
+  { icon: <CardIcon className="h-8 w-8" />, title: 'Одобрение кредита от 5 мин', description: 'Без первого взноса' },
+  { icon: <PhoneIcon className="h-8 w-8" />, title: 'Поддержка 24/7', description: 'Ответим на любой вопрос' },
+]
+
+const BRANDS = [
+  { name: 'Apple', logo: '/logos/apple.svg' },
+  { name: 'Samsung', logo: '/logos/samsung.svg' },
+  { name: 'Sony', logo: '/logos/sony.svg' },
+  { name: 'PlayStation', logo: '/logos/playstation.svg' },
+  { name: 'Xbox', logo: '/logos/xbox.svg' },
+  { name: 'Яндекс', logo: '/logos/yandex.svg' },
+  { name: 'JBL', logo: '/logos/jbl.svg' },
+  { name: 'Xiaomi', logo: '/logos/xiaomi.svg' },
+  { name: 'Nintendo', logo: '/logos/nintendo.svg' },
+  { name: 'Huawei', logo: '/logos/huawei.svg' },
+  { name: 'DJI', logo: '/logos/dji.svg' },
+  { name: 'GoPro', logo: '/logos/gopro.svg' },
 ]
 
 export function HomePage() {
-  const [featuredProducts, setFeaturedProducts] = useState<Product[]>([])
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const heroRef = useRef<HTMLDivElement>(null)
-  const [videoProgress, setVideoProgress] = useState(0)
-
-  // Load featured products from API
-  useEffect(() => {
-    fetch(`${API_BASE_URL}/api/products/featured?limit=8`)
-      .then(res => res.ok ? res.json() : Promise.reject())
-      .then((data: ApiProductOut[]) => {
-        if (data.length > 0) setFeaturedProducts(data.map(p => mapApiProduct(p)))
-      })
-      .catch(() => { /* API error — section stays hidden */ })
-  }, [])
-
-  // Video scroll sync (Apple-style) — throttled with rAF
-  useEffect(() => {
-    const video = videoRef.current
-    const hero = heroRef.current
-    if (!video || !hero) return
-
-    let rafId = 0
-    const handleScroll = () => {
-      cancelAnimationFrame(rafId)
-      rafId = requestAnimationFrame(() => {
-        const rect = hero.getBoundingClientRect()
-        const heroHeight = hero.offsetHeight
-        const scrolled = Math.max(0, -rect.top)
-        const progress = Math.min(1, scrolled / heroHeight)
-        setVideoProgress(progress)
-        
-        if (video.duration) {
-          video.currentTime = progress * video.duration
-        }
-      })
-    }
-
-    window.addEventListener('scroll', handleScroll, { passive: true })
-    return () => {
-      cancelAnimationFrame(rafId)
-      window.removeEventListener('scroll', handleScroll)
-    }
-  }, [])
-
   return (
     <div className="overflow-hidden">
-      {/* Video Hero Section - Apple Style */}
-      <section 
-        ref={heroRef}
-        className="relative min-h-[720px] bg-gradient-to-b from-black via-black to-gray-900 sm:min-h-[130vh]"
-      >
-        {/* Sticky video container */}
-        <div className="sticky top-0 h-[720px] overflow-hidden sm:h-[100svh]">
-          {/* Video background */}
-          <video
-            ref={videoRef}
-            className="absolute inset-0 h-full w-full object-cover object-center"
-            src="/hero-video.mp4"
-            poster="/hero-poster.jpg"
-            autoPlay
-            loop
-            muted
-            playsInline
-            preload="auto"
-          />
-          
-          {/* Dark overlay that fades based on scroll */}
-          <div 
-            className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black/80 transition-opacity duration-300"
-            style={{ opacity: 1 - videoProgress * 0.3 }}
-          />
-          
-          {/* Content overlay */}
-          <div className="relative z-10 flex h-full items-start justify-center pb-24 pt-8 sm:items-center sm:pb-0 sm:pt-0">
-            <Container>
-              <div 
-                className="text-center transition-all duration-500"
-                style={{
-                  opacity: 1 - videoProgress * 1.5,
-                  transform: `translateY(${videoProgress * -100}px) scale(${1 - videoProgress * 0.1})`
-                }}
-              >
-                {/* Badge */}
-                <div className="mb-4 sm:mb-6 inline-flex items-center gap-2 rounded-full bg-white/10 backdrop-blur-sm px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-medium text-white border border-white/20">
-                  <span className="flex h-2 w-2 rounded-full bg-yellow-400 animate-pulse" />
-                  Новая коллекция 2026
-                </div>
-                
-                {/* Main heading */}
-                <h1 className="mb-4 text-[42px] font-bold leading-[1.08] text-white sm:mb-6 sm:text-6xl lg:text-8xl">
-                  <span className="block drop-shadow-lg">Умная техника</span>
-                  <span className="block bg-gradient-to-r from-yellow-400 to-amber-300 bg-clip-text text-transparent pb-2">
-                    будущего
-                  </span>
-                </h1>
-                
-                <p className="mx-auto mb-6 max-w-2xl text-base leading-7 text-gray-300 sm:mb-10 sm:text-lg lg:text-xl">
-                  Откройте мир инновационных технологий. Смартфоны, ноутбуки и аксессуары от ведущих брендов с официальной гарантией.
-                </p>
-                
-                <div className="flex flex-col justify-center gap-3 sm:gap-4 sm:flex-row">
-                  <Button to="/catalog" size="md" className="w-full shadow-2xl shadow-yellow-400/30 sm:w-auto sm:px-8 sm:py-4 sm:text-lg">
-                    Смотреть каталог
-                    <ArrowRightIcon className="ml-2 h-5 w-5" />
-                  </Button>
-                  <Button href="https://t.me/takesmart_manager" variant="outline" size="md" className="w-full border-white/30 text-white backdrop-blur-sm hover:bg-white/10 sm:w-auto sm:px-8 sm:py-4 sm:text-lg">
-                    Написать менеджеру
-                  </Button>
-                </div>
-              </div>
-            </Container>
-          </div>
-          
-          {/* Scroll indicator */}
-          <div 
-            className="absolute bottom-10 left-1/2 hidden -translate-x-1/2 transition-opacity duration-300 sm:block"
-            style={{ opacity: 1 - videoProgress * 3 }}
-          >
-            <div className="flex flex-col items-center gap-2 text-white/60">
-              <span className="text-sm">Листайте вниз</span>
-              <div className="h-12 w-6 rounded-full border-2 border-white/30 p-1">
-                <div className="h-2 w-2 rounded-full bg-white animate-bounce" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+      {/* 1. Слайдер баннеров (вместо видео) */}
+      <HeroBannerSlider />
 
-      {/* Brands Carousel - Infinite Loop */}
-      <section className="relative -mt-20 z-20">
+      {/* 2. Топ-10 популярных + кнопка «Перейти в каталог» */}
+      <TopProducts />
+
+      {/* 3. Бренды-партнёры (бесконечная лента) */}
+      <section className="bg-white py-4">
         <Container>
           <AnimatedSection>
-            <div className="rounded-3xl bg-white p-8 shadow-2xl shadow-black/10 sm:p-10 overflow-hidden">
-              <div className="text-center mb-8">
+            <div className="overflow-hidden rounded-3xl bg-white p-8 shadow-xl shadow-black/5 ring-1 ring-gray-100 sm:p-10">
+              <div className="mb-8 text-center">
                 <h2 className="text-lg font-semibold text-gray-900">Официальный партнёр ведущих брендов</h2>
               </div>
-              
-              {/* Infinite Carousel */}
               <div className="relative overflow-hidden">
-                
-                <div className="flex animate-marquee gap-12 sm:gap-16 whitespace-nowrap py-4">
-                  {[
-                    { name: 'Apple', logo: '/logos/apple.svg' },
-                    { name: 'Samsung', logo: '/logos/samsung.svg' },
-                    { name: 'Sony', logo: '/logos/sony.svg' },
-                    { name: 'PlayStation', logo: '/logos/playstation.svg' },
-                    { name: 'Xbox', logo: '/logos/xbox.svg' },
-                    { name: 'Яндекс', logo: '/logos/yandex.svg' },
-                    { name: 'JBL', logo: '/logos/jbl.svg' },
-                    { name: 'Xiaomi', logo: '/logos/xiaomi.svg' },
-                    { name: 'Nintendo', logo: '/logos/nintendo.svg' },
-                    { name: 'Huawei', logo: '/logos/huawei.svg' },
-                    { name: 'DJI', logo: '/logos/dji.svg' },
-                    { name: 'GoPro', logo: '/logos/gopro.svg' },
-                    // Дубликат для бесшовной анимации
-                    { name: 'Apple', logo: '/logos/apple.svg' },
-                    { name: 'Samsung', logo: '/logos/samsung.svg' },
-                    { name: 'Sony', logo: '/logos/sony.svg' },
-                    { name: 'PlayStation', logo: '/logos/playstation.svg' },
-                    { name: 'Xbox', logo: '/logos/xbox.svg' },
-                    { name: 'Яндекс', logo: '/logos/yandex.svg' },
-                    { name: 'JBL', logo: '/logos/jbl.svg' },
-                    { name: 'Xiaomi', logo: '/logos/xiaomi.svg' },
-                    { name: 'Nintendo', logo: '/logos/nintendo.svg' },
-                    { name: 'Huawei', logo: '/logos/huawei.svg' },
-                    { name: 'DJI', logo: '/logos/dji.svg' },
-                    { name: 'GoPro', logo: '/logos/gopro.svg' },
-                  ].map((brand, i) => (
-                    <div 
-                      key={i} 
-                      className="flex items-center justify-center flex-shrink-0 w-[100px] h-[40px] grayscale hover:grayscale-0 opacity-50 hover:opacity-100 transition-all duration-300 cursor-pointer hover:scale-110"
+                <div className="flex animate-marquee gap-12 whitespace-nowrap py-4 sm:gap-16">
+                  {[...BRANDS, ...BRANDS].map((brand, i) => (
+                    <div
+                      key={i}
+                      className="flex h-[40px] w-[100px] flex-shrink-0 cursor-pointer items-center justify-center opacity-50 grayscale transition-all duration-300 hover:scale-110 hover:opacity-100 hover:grayscale-0"
                       title={brand.name}
                     >
-                      <img 
-                        src={brand.logo} 
+                      <img
+                        src={brand.logo}
                         alt={brand.name}
-                        className="max-h-[32px] max-w-[90px] w-auto h-auto object-contain"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                          const fallback = e.currentTarget.nextElementSibling as HTMLElement;
-                          if (fallback) fallback.classList.remove('hidden');
+                        loading="lazy"
+                        decoding="async"
+                        className="h-auto max-h-[32px] w-auto max-w-[90px] object-contain"
+                        onError={e => {
+                          e.currentTarget.style.display = 'none'
+                          const fallback = e.currentTarget.nextElementSibling as HTMLElement
+                          if (fallback) fallback.classList.remove('hidden')
                         }}
                       />
                       <span className="hidden text-lg font-semibold text-gray-500">{brand.name}</span>
@@ -480,9 +545,9 @@ export function HomePage() {
           </AnimatedSection>
         </Container>
       </section>
-      
-      {/* Featured Product Hero - HeyApple Style Carousel */}
-      <Section className="py-8 lg:py-16 overflow-hidden bg-gray-50">
+
+      {/* 4. Товары недели (НЕ удалять — согласование владельца) */}
+      <Section className="overflow-hidden bg-gray-50 py-8 lg:py-16">
         <Container>
           <AnimatedSection>
             <WeeklySlides />
@@ -490,120 +555,11 @@ export function HomePage() {
         </Container>
       </Section>
 
-      {/* Categories Grid — как на скриншоте */}
-      <Section className="py-16 sm:py-24 bg-white">
-        <Container>
-          <AnimatedSection>
-            <div className="mb-10 sm:mb-14 text-center">
-              <h2 className="mb-3 text-3xl sm:text-5xl font-bold text-gray-900">
-                Каталог товаров
-              </h2>
-              <p className="mx-auto max-w-2xl text-lg text-gray-500">
-                Выберите категорию и найдите то, что вам нужно
-              </p>
-            </div>
-          </AnimatedSection>
+      {/* Секция «Каталог товаров» (сетка категорий) убрана с лендинга по просьбе
+          владельца — каталог теперь в мега-меню хедера. Код сохранён в памяти
+          (landing-catalog-section-removed) и в git-истории, легко вернуть. */}
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-            {[
-              { name: 'Смартфоны Apple',      image: '/categories/apple-iphones.png',    link: '/catalog?category=smartphones&brand=apple',   bg: 'bg-blue-50',   hover: 'hover:bg-blue-100' },
-              { name: 'Смартфоны на Android', image: '/categories/android-phones.png',   link: '/catalog?category=smartphones&brand=android', bg: 'bg-green-50',  hover: 'hover:bg-green-100' },
-              { name: 'Ноутбуки, компьютеры', image: '/categories/laptops.png',           link: '/catalog?category=laptops',                   bg: 'bg-purple-50', hover: 'hover:bg-purple-100' },
-              { name: 'Планшеты',             image: '/categories/tablets.png',            link: '/catalog?category=tablets',                   bg: 'bg-yellow-50', hover: 'hover:bg-yellow-100' },
-              { name: 'Умные часы',           image: '/categories/watches.png',            link: '/catalog?category=watches',                   bg: 'bg-orange-50', hover: 'hover:bg-orange-100' },
-              { name: 'Наушники',         image: '/categories/headphones.png',         link: '/catalog?category=headphones',                bg: 'bg-sky-50',    hover: 'hover:bg-sky-100' },
-              { name: 'Аксессуары',           image: '/categories/accessories.png',        link: '/catalog?category=accessories',               bg: 'bg-pink-50',   hover: 'hover:bg-pink-100' },
-              { name: 'Игровые приставки',    image: '/categories/gaming.png',             link: '/catalog?category=gaming',                    bg: 'bg-indigo-50', hover: 'hover:bg-indigo-100' },
-              { name: 'Все для дома',         image: '/categories/home.png',               link: '/catalog?category=home',                      bg: 'bg-teal-50',   hover: 'hover:bg-teal-100' },
-              { name: 'Активный отдых',       image: '/categories/outdoor.png',            link: '/catalog?category=outdoor',                   bg: 'bg-lime-50',   hover: 'hover:bg-lime-100' },
-              { name: 'Красота и уход',       image: '/categories/beauty.png',             link: '/catalog?category=beauty',                    bg: 'bg-rose-50',   hover: 'hover:bg-rose-100' },
-            ].map((cat, i) => (
-              <AnimatedSection key={cat.name} delay={i * 60}>
-                <Link
-                  to={cat.link}
-                  className={`group flex flex-col items-center rounded-2xl sm:rounded-3xl ${cat.bg} ${cat.hover} p-4 sm:p-6 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5`}
-                >
-                  <div className="w-full aspect-square flex items-center justify-center mb-3 overflow-hidden">
-                    <img
-                      src={cat.image}
-                      alt={cat.name}
-                      loading="lazy"
-                      className="w-full h-full object-contain drop-shadow-sm transition-transform duration-500 group-hover:scale-105"
-                    />
-                  </div>
-                  <span className="text-[11px] sm:text-xs font-bold text-gray-800 uppercase tracking-wider text-center leading-tight">
-                    {cat.name}
-                  </span>
-                </Link>
-              </AnimatedSection>
-            ))}
-          </div>
-
-          <AnimatedSection delay={700}>
-            <div className="mt-10 sm:mt-14 text-center">
-              <Link
-                to="/catalog"
-                className="inline-flex items-center gap-3 rounded-full bg-gray-900 px-8 py-4 text-lg font-semibold text-white transition-all hover:bg-yellow-400 hover:text-gray-900 hover:scale-105"
-              >
-                Весь каталог
-                <ArrowRightIcon className="h-5 w-5" />
-              </Link>
-            </div>
-          </AnimatedSection>
-        </Container>
-      </Section>
-
-      {/* Stats Section */}
-      <section className="py-16">
-        <Container>
-          <AnimatedSection>
-            <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-              {[
-                { value: '10+', label: 'лет на рынке', color: 'text-yellow-500', icon: '🏆' },
-                { value: '50K+', label: 'довольных клиентов', color: 'text-green-500', icon: '👥' },
-                { value: '1000+', label: 'товаров в каталоге', color: 'text-blue-500', icon: '📦' },
-                { value: '99%', label: 'положительных отзывов', color: 'text-purple-500', icon: '⭐' },
-              ].map((stat, i) => (
-                <div key={i} className="text-center rounded-2xl bg-white p-6 shadow-lg">
-                  <div className="text-4xl mb-2">{stat.icon}</div>
-                  <div className={`text-4xl font-bold ${stat.color}`}>{stat.value}</div>
-                  <div className="mt-2 text-gray-500">{stat.label}</div>
-                </div>
-              ))}
-            </div>
-          </AnimatedSection>
-        </Container>
-      </section>
-
-      {/* Featured Products with Horizontal Scroll Feel */}
-      {featuredProducts.length > 0 && (
-      <Section className="bg-gray-50 py-24">
-        <Container>
-          <AnimatedSection>
-            <div className="mb-12 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
-              <div>
-                <h2 className="mb-2 text-4xl font-bold text-gray-900">Хиты продаж</h2>
-                <p className="text-xl text-gray-500">Самые популярные товары</p>
-              </div>
-              <Link to="/catalog" className="group flex items-center gap-2 text-yellow-600 font-semibold hover:text-yellow-700">
-                Весь каталог
-                <ArrowRightIcon className="h-5 w-5 transition-transform group-hover:translate-x-1" />
-              </Link>
-            </div>
-          </AnimatedSection>
-          
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4 items-stretch">
-            {featuredProducts.map((product, i) => (
-              <AnimatedSection key={product.id} delay={i * 100} className="h-full">
-                <ProductCard product={product} />
-              </AnimatedSection>
-            ))}
-          </div>
-        </Container>
-      </Section>
-      )}
-
-      {/* Benefits Section - Apple Style Cards */}
+      {/* 6. Почему мы (гарантия/доставка/кредит/поддержка) */}
       <Section className="py-24">
         <Container>
           <AnimatedSection>
@@ -612,11 +568,11 @@ export function HomePage() {
               <p className="text-xl text-gray-500">Гарантия качества на каждом этапе</p>
             </div>
           </AnimatedSection>
-          
+
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {benefits.map((benefit, i) => (
               <AnimatedSection key={i} delay={i * 100}>
-                <div className="group h-full rounded-3xl bg-white p-8 shadow-lg transition-all duration-500 hover:shadow-2xl hover:-translate-y-2 border border-gray-100">
+                <div className="group h-full rounded-3xl border border-gray-100 bg-white p-8 shadow-lg transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl">
                   <div className="mb-6 inline-flex rounded-2xl bg-yellow-400 p-4 text-gray-900 transition-transform duration-500 group-hover:scale-110">
                     {benefit.icon}
                   </div>
@@ -629,7 +585,29 @@ export function HomePage() {
         </Container>
       </Section>
 
-      {/* Store Location & Contacts */}
+      {/* 7. Статистика (после блока «Почему мы» — по просьбе владельца) */}
+      <section className="py-16">
+        <Container>
+          <AnimatedSection>
+            <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { value: '10+', label: 'лет на рынке', color: 'text-yellow-500', icon: '🏆' },
+                { value: '50K+', label: 'довольных клиентов', color: 'text-gray-900', icon: '👥' },
+                { value: '1000+', label: 'товаров в каталоге', color: 'text-gray-900', icon: '📦' },
+                { value: '99%', label: 'положительных отзывов', color: 'text-yellow-500', icon: '⭐' },
+              ].map((stat, i) => (
+                <div key={i} className="rounded-2xl bg-white p-6 text-center shadow-lg">
+                  <div className="mb-2 text-4xl">{stat.icon}</div>
+                  <div className={`text-4xl font-bold ${stat.color}`}>{stat.value}</div>
+                  <div className="mt-2 text-gray-500">{stat.label}</div>
+                </div>
+              ))}
+            </div>
+          </AnimatedSection>
+        </Container>
+      </section>
+
+      {/* 8. Адрес и контакты */}
       <Section id="contacts" className="bg-gray-50 py-24">
         <Container>
           <AnimatedSection>
@@ -638,48 +616,41 @@ export function HomePage() {
               <p className="text-xl text-gray-500">Приходите к нам в гости</p>
             </div>
           </AnimatedSection>
-          
+
           <AnimatedSection delay={200}>
-            <div className="grid gap-8 lg:grid-cols-5 overflow-hidden rounded-3xl bg-white shadow-xl">
-              {/* Contacts */}
-              <div className="lg:col-span-2 p-8 lg:p-10">
+            <div className="grid gap-8 overflow-hidden rounded-3xl bg-white shadow-xl lg:grid-cols-5">
+              <div className="p-8 lg:col-span-2 lg:p-10">
                 <h3 className="mb-6 text-xl font-bold text-gray-900">
                   г. Москва, ул. Барклая, д. 10, ТЦ «Багратионовский», павильон А60
                 </h3>
-                
                 <div className="space-y-6">
                   <div>
-                    <div className="text-sm font-medium text-gray-500 mb-1">МЕТРО</div>
+                    <div className="mb-1 text-sm font-medium text-gray-500">МЕТРО</div>
                     <div className="flex items-center gap-2">
                       <span className="flex h-5 w-5 items-center justify-center rounded-full bg-sky-500 text-[10px] text-white">М</span>
                       <span className="font-medium">Багратионовская</span>
                     </div>
                   </div>
-                  
                   <div>
-                    <div className="text-sm font-medium text-gray-500 mb-1">РЕЖИМ РАБОТЫ</div>
+                    <div className="mb-1 text-sm font-medium text-gray-500">РЕЖИМ РАБОТЫ</div>
                     <div className="font-medium">Пн - Вс: 10:00 - 20:00</div>
                     <div className="text-gray-500">Без выходных</div>
                   </div>
-                  
                   <div>
-                    <div className="text-sm font-medium text-gray-500 mb-1">ТЕЛЕФОН</div>
-                    <a href="tel:+79998021022" className="block font-medium text-lg hover:text-yellow-600">+7 (999) 802-10-22</a>
+                    <div className="mb-1 text-sm font-medium text-gray-500">ТЕЛЕФОН</div>
+                    <a href="tel:+79998021022" className="block text-lg font-medium hover:text-yellow-600">+7 (999) 802-10-22</a>
                   </div>
-                  
                   <div>
-                    <div className="text-sm font-medium text-gray-500 mb-1">E-MAIL</div>
+                    <div className="mb-1 text-sm font-medium text-gray-500">E-MAIL</div>
                     <a href="mailto:takesmart99@gmail.com" className="font-medium hover:text-yellow-600">takesmart99@gmail.com</a>
                   </div>
-                  
                   <Button to="/cart" variant="outline" size="md" className="mt-4 border-yellow-400 text-yellow-600 hover:bg-yellow-400 hover:text-gray-900">
                     Написать сообщение
                   </Button>
                 </div>
               </div>
-              
-              {/* Map */}
-              <div className="lg:col-span-3 min-h-[400px]">
+
+              <div className="min-h-[400px] lg:col-span-3">
                 <iframe
                   src="https://yandex.ru/map-widget/v1/?ll=37.499283%2C55.743401&z=17&l=map&pt=37.499283%2C55.743401%2Corg"
                   width="100%"
@@ -699,20 +670,10 @@ export function HomePage() {
                 <span className="text-gray-500">| 1518 отзывов</span>
               </div>
               <div className="flex gap-6 text-sm text-gray-600">
-                <a
-                  href="https://yandex.ru/maps/org/takesmart/159717386486"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:text-yellow-600"
-                >
+                <a href="https://yandex.ru/maps/org/takesmart/159717386486" target="_blank" rel="noopener noreferrer" className="hover:text-yellow-600">
                   Яндекс <span className="font-bold">5.0</span>
                 </a>
-                <a
-                  href="https://www.avito.ru/brands/takesmart/all?sellerId=a434514ec122f52f3718339ace6d3b4d"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:text-[#00aaff]"
-                >
+                <a href="https://www.avito.ru/brands/takesmart/all?sellerId=a434514ec122f52f3718339ace6d3b4d" target="_blank" rel="noopener noreferrer" className="hover:text-[#00aaff]">
                   Авито <span className="font-bold">5.0</span>
                 </a>
               </div>
@@ -721,19 +682,15 @@ export function HomePage() {
         </Container>
       </Section>
 
-      {/* CTA Section */}
+      {/* 9. CTA */}
       <Section className="py-24">
         <Container>
           <AnimatedSection>
             <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-yellow-400 to-amber-400 p-12 text-center sm:p-16">
-              {/* Background decorations */}
               <div className="absolute -left-20 -top-20 h-64 w-64 rounded-full bg-white/20" />
               <div className="absolute -bottom-20 -right-20 h-64 w-64 rounded-full bg-white/20" />
-              
               <div className="relative z-10">
-                <h2 className="mb-8 text-4xl font-bold text-gray-900 sm:text-5xl">
-                  Готовы к покупкам?
-                </h2>
+                <h2 className="mb-8 text-4xl font-bold text-gray-900 sm:text-5xl">Готовы к покупкам?</h2>
                 <div className="flex flex-col justify-center gap-4 sm:flex-row">
                   <Button href="https://t.me/takesmart_manager" variant="secondary" size="lg">
                     Написать менеджеру
@@ -748,21 +705,21 @@ export function HomePage() {
         </Container>
       </Section>
 
-      {/* Trust Badges */}
+      {/* 10. Trust badges */}
       <Section className="border-t border-gray-100 py-12">
         <Container>
           <AnimatedSection>
             <div className="flex flex-wrap items-center justify-center gap-8 text-center text-sm text-gray-500">
               <div className="flex items-center gap-2">
-                <ShieldIcon className="h-5 w-5 text-green-500" />
+                <ShieldIcon className="h-5 w-5 text-yellow-500" />
                 Безопасная оплата
               </div>
               <div className="flex items-center gap-2">
-                <TruckIcon className="h-5 w-5 text-blue-500" />
-                Доставка от 500 ₽
+                <TruckIcon className="h-5 w-5 text-gray-700" />
+                Доставка от 500 ₽
               </div>
               <div className="flex items-center gap-2">
-                <CardIcon className="h-5 w-5 text-purple-500" />
+                <CardIcon className="h-5 w-5 text-gray-700" />
                 Кредит
               </div>
               <div className="flex items-center gap-2">

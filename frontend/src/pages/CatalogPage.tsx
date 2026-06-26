@@ -1,5 +1,8 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+
+// Сколько карточек рендерим за раз (бесконечная прокрутка). Не рендерим 1000+ DOM-узлов сразу.
+const PAGE_SIZE = 24
 import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
 import { ProductCard, ProductCardSkeleton } from '../components/ProductCard'
@@ -354,6 +357,8 @@ export function CatalogPage() {
   const [showMobileFilters, setShowMobileFilters] = useState(false)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
   
   // ─── Данные (загружаются из API) ──────────────────────────────────────────
   const [displayProducts, setDisplayProducts] = useState<Product[]>([])
@@ -377,127 +382,119 @@ export function CatalogPage() {
       try {
         // Загружаем категории
         const catResp = await fetch(`${API_BASE_URL}/api/categories`)
-        if (!catResp.ok) return
+        if (!catResp.ok) { setIsLoading(false); return }
 
         const catRaw = await catResp.json()
         const catData: ApiCategoryOut[] = Array.isArray(catRaw) ? catRaw : (catRaw.items ?? [])
 
-        // Загружаем товары постранично, чтобы не упираться в лимит одного запроса
-        const chunkSize = 1000
-        let offset = 0
-        const allProducts: ApiProductOut[] = []
-        while (true) {
-          const prodResp = await fetch(`${API_BASE_URL}/api/products?limit=${chunkSize}&offset=${offset}&only_active=true`)
-          if (!prodResp.ok) break
-
-          const raw = await prodResp.json() as ApiPaginatedResponse<ApiProductOut> | ApiProductOut[]
-          const items = Array.isArray(raw) ? raw : (raw.items ?? [])
-          allProducts.push(...items)
-
-          const hasNext = Array.isArray(raw)
-            ? items.length === chunkSize
-            : Boolean(raw.has_next)
-
-          if (!hasNext || items.length === 0) break
-          offset += items.length
-        }
-
-        if (cancelled) return
-
-        if (allProducts.length === 0) { setIsLoading(false); return }
-
-        // Фильтруем только новые товары (не Б/У)
-        const newItems = allProducts.filter(p => (p.condition || 'new') !== 'used')
-        if (newItems.length === 0) { setIsLoading(false); return }
-
-        // Строим map category_id -> { slug, name }
-        const catMap = new Map<string, { slug: string; name: string }>(
-          catData.map(c => [c.id, { slug: c.slug, name: c.name }])
-        )
-
-        // Маппим товары
-        const mapped = newItems.map(p => {
-          const cat = p.category_id ? catMap.get(p.category_id) : undefined
-          return mapApiProduct(p, cat?.slug ?? '', cat?.name ?? '')
-        })
-
-        // Вычисляем бренды из товаров
-        const uniqueBrands = [...new Set(mapped.map(p => p.brand).filter(Boolean))]
         const brandIcons: Record<string, string> = {
           apple: '🍎', samsung: '📱', xiaomi: '📱', sony: '🎮',
           google: '🔍', huawei: '📱', oppo: '📱', lg: '📺',
           microsoft: '💻', asus: '💻', lenovo: '💻', hp: '💻',
           dell: '💻', nintendo: '🎮', whoop: '⌚',
         }
-        const apiBrands: CatalogBrand[] = uniqueBrands.map(b => ({
-          id: b.toLowerCase(),
-          name: b,
-          logo: brandIcons[b.toLowerCase()] ?? '📦',
-        }))
+        const catMap = new Map<string, { slug: string; name: string }>(
+          catData.map(c => [c.id, { slug: c.slug, name: c.name }])
+        )
 
-        const apiBrandsByCategory: Record<string, CatalogBrand[]> = {}
-        for (const c of new Set(mapped.map(p => p.categorySlug).filter(Boolean))) {
-          const brandsInCategory = [...new Set(mapped
-            .filter(p => p.categorySlug === c)
-            .map(p => p.brand)
-            .filter(Boolean))]
-          apiBrandsByCategory[c] = brandsInCategory.map(b => ({
-            id: b.toLowerCase(),
-            name: b,
-            logo: brandIcons[b.toLowerCase()] ?? '📦',
-          }))
-        }
-
-        // Категории из API (только с товарами)
-        const activeSlugs = new Set(mapped.map(p => p.categorySlug).filter(Boolean))
-        const apiCategories: CatalogCategory[] = catData
-          .filter(c => c.is_active)
-          .map(c => {
-            const base = mapApiCategory(c)
-            return {
-              ...base,
-              count: mapped.filter(p => p.categorySlug === c.slug).length,
-              quickFilters: base.quickFilters.length > 0 ? base.quickFilters : (DEFAULT_QUICK_FILTERS[c.slug] ?? []),
-            }
+        // Пересчёт стейта из накопленных товаров (вызывается после каждой порции)
+        const applyDerived = (rawItems: ApiProductOut[], isFirst: boolean) => {
+          const newItems = rawItems.filter(p => (p.condition || 'new') !== 'used')
+          const mapped = newItems.map(p => {
+            const cat = p.category_id ? catMap.get(p.category_id) : undefined
+            return mapApiProduct(p, cat?.slug ?? '', cat?.name ?? '')
           })
-          .filter(c => (activeSlugs.has(c.id) || c.count > 0) && !c.name.toLowerCase().includes('б/у'))
 
-        setDisplayProducts(mapped)
-        setDisplayCategories(apiCategories)
+          const uniqueBrands = [...new Set(mapped.map(p => p.brand).filter(Boolean))]
+          const apiBrands: CatalogBrand[] = uniqueBrands.map(b => ({
+            id: b.toLowerCase(), name: b, logo: brandIcons[b.toLowerCase()] ?? '📦',
+          }))
 
-        // Resolve category from URL: if ?category=X doesn't match any slug,
-        // try to find by alias or by partial name match and redirect
-        const urlCat = searchParams.get('category')
-        if (urlCat && urlCat !== 'all') {
-          const knownSlugs = new Set(apiCategories.map(c => c.id))
-          if (!knownSlugs.has(urlCat)) {
-            // Alias map: homepage English slug → potential keywords to search in DB slug/name
-            const ALIASES: Record<string, string[]> = {
-              smartphones: ['смартфон', 'phone', 'телефон'],
-              laptops: ['ноутбук', 'laptop', 'компьютер'],
-              tablets: ['планшет', 'tablet', 'ipad'],
-              watches: ['часы', 'watch', 'band'],
-              headphones: ['наушник', 'headphone', 'колонк', 'audio'],
-              accessories: ['аксессуар', 'accessor', 'чехол'],
-              gaming: ['игр', 'gaming', 'console', 'приставк'],
-              home: ['дом', 'home', 'бытов'],
-              outdoor: ['отдых', 'outdoor', 'спорт', 'активн'],
-              beauty: ['красот', 'beauty', 'уход', 'dyson'],
-              tv: ['тв', 'tv', 'аудио', 'телевизор'],
+          const apiBrandsByCategory: Record<string, CatalogBrand[]> = {}
+          for (const c of new Set(mapped.map(p => p.categorySlug).filter(Boolean))) {
+            const brandsInCategory = [...new Set(mapped.filter(p => p.categorySlug === c).map(p => p.brand).filter(Boolean))]
+            apiBrandsByCategory[c] = brandsInCategory.map(b => ({
+              id: b.toLowerCase(), name: b, logo: brandIcons[b.toLowerCase()] ?? '📦',
+            }))
+          }
+
+          const activeSlugs = new Set(mapped.map(p => p.categorySlug).filter(Boolean))
+          const apiCategories: CatalogCategory[] = catData
+            .filter(c => c.is_active)
+            .map(c => {
+              const base = mapApiCategory(c)
+              return {
+                ...base,
+                count: mapped.filter(p => p.categorySlug === c.slug).length,
+                quickFilters: base.quickFilters.length > 0 ? base.quickFilters : (DEFAULT_QUICK_FILTERS[c.slug] ?? []),
+              }
+            })
+            .filter(c => (activeSlugs.has(c.id) || c.count > 0) && !c.name.toLowerCase().includes('б/у'))
+
+          setDisplayProducts(mapped)
+          setDisplayCategories(apiCategories)
+          setDisplayBrands(apiBrands)
+          setCategoryBrandsMap(apiBrandsByCategory)
+
+          if (isFirst) {
+            // Resolve category from URL alias (один раз, по первой порции)
+            const urlCat = searchParams.get('category')
+            if (urlCat && urlCat !== 'all') {
+              const knownSlugs = new Set(apiCategories.map(c => c.id))
+              if (!knownSlugs.has(urlCat)) {
+                const ALIASES: Record<string, string[]> = {
+                  smartphones: ['смартфон', 'phone', 'телефон'],
+                  laptops: ['ноутбук', 'laptop', 'компьютер'],
+                  tablets: ['планшет', 'tablet', 'ipad'],
+                  watches: ['часы', 'watch', 'band'],
+                  headphones: ['наушник', 'headphone', 'колонк', 'audio'],
+                  accessories: ['аксессуар', 'accessor', 'чехол'],
+                  gaming: ['игр', 'gaming', 'console', 'приставк'],
+                  home: ['дом', 'home', 'бытов'],
+                  outdoor: ['отдых', 'outdoor', 'спорт', 'активн'],
+                  beauty: ['красот', 'beauty', 'уход', 'dyson'],
+                  tv: ['тв', 'tv', 'аудио', 'телевизор'],
+                }
+                const keywords = ALIASES[urlCat] || [urlCat]
+                const match = apiCategories.find(c =>
+                  keywords.some(kw => c.id.includes(kw) || c.name.toLowerCase().includes(kw))
+                )
+                if (match) setSelectedCategory(match.id)
+              }
             }
-            const keywords = ALIASES[urlCat] || [urlCat]
-            const match = apiCategories.find(c =>
-              keywords.some(kw => c.id.includes(kw) || c.name.toLowerCase().includes(kw))
-            )
-            if (match) {
-              setSelectedCategory(match.id)
-            }
+            setIsLoading(false)
           }
         }
-        setDisplayBrands(apiBrands)
-        setCategoryBrandsMap(apiBrandsByCategory)
+
+        // Грузим товары порциями: первую показываем сразу, остальные догружаем в фоне
+        // (нужны для клиентских фильтров/поиска/сортировки), не блокируя первый рендер.
+        const chunkSize = 200
+        let offset = 0
+        const allRaw: ApiProductOut[] = []
+        let chunkIndex = 0
+        while (true) {
+          const prodResp = await fetch(`${API_BASE_URL}/api/products?limit=${chunkSize}&offset=${offset}&only_active=true`)
+          if (!prodResp.ok) break
+
+          const raw = await prodResp.json() as ApiPaginatedResponse<ApiProductOut> | ApiProductOut[]
+          const items = Array.isArray(raw) ? raw : (raw.items ?? [])
+          if (cancelled) return
+
+          if (items.length > 0) {
+            allRaw.push(...items)
+            applyDerived(allRaw, chunkIndex === 0)
+            chunkIndex++
+          }
+
+          const hasNext = Array.isArray(raw) ? items.length === chunkSize : Boolean(raw.has_next)
+          if (!hasNext || items.length === 0) break
+          offset += items.length
+        }
+
+        if (chunkIndex === 0) setIsLoading(false)
       } catch (err) {
         console.error('Failed to load catalog:', err)
+        setIsLoading(false)
       }
     }
 
@@ -618,7 +615,34 @@ export function CatalogPage() {
     
     return result
   }, [displayProducts, selectedCategory, selectedBrand, priceRange, inStockOnly, sort, searchQuery])
-  
+
+  // ─── Бесконечная прокрутка: рендерим порциями по PAGE_SIZE ──────────────────
+  // Сбрасываем счётчик при смене фильтров (но НЕ при дозагрузке данных в фоне).
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE)
+  }, [selectedCategory, selectedBrand, priceRange[0], priceRange[1], inStockOnly, sort, searchQuery])
+
+  const visibleProducts = useMemo(
+    () => filteredProducts.slice(0, visibleCount),
+    [filteredProducts, visibleCount]
+  )
+  const hasMore = visibleCount < filteredProducts.length
+
+  // Подгружаем следующую порцию, когда «маяк» появляется в зоне видимости
+  useEffect(() => {
+    if (!hasMore) return
+    const el = loadMoreRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting) setVisibleCount(v => v + PAGE_SIZE)
+      },
+      { rootMargin: '600px 0px' }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [hasMore, filteredProducts.length])
+
   const resetFilters = () => {
     setSelectedCategory('all')
     setSelectedBrand('all')
@@ -909,15 +933,29 @@ export function CatalogPage() {
                 ))}
               </div>
             ) : filteredProducts.length > 0 ? (
-              <div className={`grid ${
-                viewMode === 'grid' 
-                  ? 'grid-cols-2 gap-3 sm:gap-6 xl:grid-cols-3' 
-                  : 'grid-cols-1 gap-6'
-              }`}>
-                {filteredProducts.map((product) => (
-                  <ProductCard key={product.id} product={product} />
-                ))}
-              </div>
+              <>
+                <div className={`grid ${
+                  viewMode === 'grid'
+                    ? 'grid-cols-2 gap-3 sm:gap-6 xl:grid-cols-3'
+                    : 'grid-cols-1 gap-6'
+                }`}>
+                  {visibleProducts.map((product) => (
+                    <ProductCard key={product.id} product={product} />
+                  ))}
+                </div>
+
+                {/* Бесконечная прокрутка: маяк + ручная кнопка (fallback) */}
+                {hasMore && (
+                  <div ref={loadMoreRef} className="mt-8 flex flex-col items-center gap-3">
+                    <Button onClick={() => setVisibleCount(v => v + PAGE_SIZE)} variant="outline">
+                      Показать ещё
+                    </Button>
+                    <span className="text-sm text-gray-400">
+                      Показано {visibleProducts.length} из {filteredProducts.length}
+                    </span>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="rounded-2xl border border-gray-200 bg-white p-12 text-center">
                 <div className="mb-4 text-5xl">🔍</div>

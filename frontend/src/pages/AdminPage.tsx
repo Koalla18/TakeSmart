@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth, getAuthHeaders } from '../lib/auth'
 import { API_BASE_URL } from '../lib/config'
 import { formatPrice } from '../data/products'
+import { toast, ToastHost } from '../lib/toast'
 
 // ============ TYPES ============
 
@@ -274,7 +275,7 @@ export function AdminPage() {
       if (!res.ok) throw new Error('Ошибка')
       setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o))
       if (selectedOrder?.id === orderId) setSelectedOrder({ ...selectedOrder, status: newStatus })
-    } catch { alert('Ошибка') }
+    } catch { toast('Ошибка', 'error') }
     finally { setUpdatingStatus(false) }
   }
 
@@ -284,7 +285,7 @@ export function AdminPage() {
       await authFetch(`${API_BASE_URL}/api/orders/${orderId}`, { method: 'DELETE' })
       setOrders(orders.filter(o => o.id !== orderId))
       setSelectedOrder(null)
-    } catch { alert('Ошибка') }
+    } catch { toast('Ошибка', 'error') }
   }
 
   // Product actions
@@ -317,7 +318,7 @@ export function AdminPage() {
     try {
       await authFetch(`${API_BASE_URL}/api/products/${productId}`, { method: 'DELETE' })
       loadProducts()
-    } catch { alert('Ошибка') }
+    } catch { toast('Ошибка', 'error') }
   }
 
   const toggleFeatured = async (product: Product) => {
@@ -328,7 +329,7 @@ export function AdminPage() {
         body: JSON.stringify({ is_featured: !product.is_featured })
       })
       loadProducts()
-    } catch { alert('Ошибка') }
+    } catch { toast('Ошибка', 'error') }
   }
 
   const toggleActive = async (product: Product) => {
@@ -339,7 +340,7 @@ export function AdminPage() {
         body: JSON.stringify({ is_active: !product.is_active })
       })
       loadProducts()
-    } catch { alert('Ошибка') }
+    } catch { toast('Ошибка', 'error') }
   }
 
   // Category actions
@@ -360,7 +361,7 @@ export function AdminPage() {
       setIsCategoryModalOpen(false)
       setEditingCategory(null)
       loadCategories()
-    } catch (err) { alert(err instanceof Error ? err.message : 'Ошибка') }
+    } catch (err) { toast(err instanceof Error ? err.message : 'Ошибка', 'error') }
   }
 
   const deleteCategory = async (categoryId: string) => {
@@ -378,15 +379,15 @@ export function AdminPage() {
       if (!res.ok) {
         const err = await res.json().catch(() => null)
         if (res.status === 409) {
-          alert(`Невозможно удалить категорию «${categoryName}»: к ней привязаны товары.\n\nСначала переместите все товары в другую категорию или удалите их.`)
+          toast(`Невозможно удалить категорию «${categoryName}»: к ней привязаны товары.\n\nСначала переместите все товары в другую категорию или удалите их.`, 'error', 6000)
         } else {
-          alert(err?.detail || `Ошибка ${res.status}`)
+          toast(err?.detail || `Ошибка ${res.status}`, 'error')
         }
         return
       }
       loadCategories()
       loadProducts()
-    } catch { alert('Ошибка сети') }
+    } catch { toast('Ошибка сети', 'error') }
   }
 
   // Weekly slides actions
@@ -404,7 +405,7 @@ export function AdminPage() {
       const saved = await res.json()
       loadSlides()
       return saved.id as string
-    } catch (err) { alert(err instanceof Error ? err.message : 'Ошибка'); return null }
+    } catch (err) { toast(err instanceof Error ? err.message : 'Ошибка', 'error'); return null }
   }
 
   const deleteSlide = async (slideId: string) => {
@@ -412,7 +413,7 @@ export function AdminPage() {
     try {
       await authFetch(`${API_BASE_URL}/api/weekly-slides/${slideId}`, { method: 'DELETE' })
       loadSlides()
-    } catch { alert('Ошибка') }
+    } catch { toast('Ошибка', 'error') }
   }
 
   const toggleSlideActive = async (slide: WeeklySlide) => {
@@ -423,7 +424,7 @@ export function AdminPage() {
         body: JSON.stringify({ is_active: !slide.is_active }),
       })
       loadSlides()
-    } catch { alert('Ошибка') }
+    } catch { toast('Ошибка', 'error') }
   }
 
   // Filtering
@@ -452,6 +453,7 @@ export function AdminPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+      <ToastHost />
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-900/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
@@ -965,12 +967,12 @@ function ProductsSection({
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        alert(`Ошибка: ${err.detail || res.status}`)
+        toast(`Ошибка: ${err.detail || res.status}`, 'error')
         return
       }
       setSelected(new Set())
       onRefresh?.()
-    } catch { alert('Ошибка при объединении') }
+    } catch { toast('Ошибка при объединении', 'error') }
     finally { setMerging(false) }
   }
 
@@ -985,7 +987,7 @@ function ProductsSection({
       })
       setSelected(new Set())
       onRefresh?.()
-    } catch { alert('Ошибка при разъединении') }
+    } catch { toast('Ошибка при разъединении', 'error') }
     finally { setMerging(false) }
   }
 
@@ -1003,7 +1005,7 @@ function ProductsSection({
     setSelected(new Set())
     onRefresh?.()
     setMerging(false)
-    if (deleted > 0 && deleted < selected.size) alert(`Удалено ${deleted} из ${selected.size}`)
+    if (deleted > 0 && deleted < selected.size) toast(`Удалено ${deleted} из ${selected.size}`, 'info')
   }
 
   // Группируем товары по group_id для визуального отображения
@@ -1629,9 +1631,9 @@ function ProductModal({
         })
         if (!res.ok) {
           const err = await res.json().catch(() => ({}))
-          alert(`Ошибка загрузки «${file.name}»: ${err.detail || res.status}`)
+          toast(`Ошибка загрузки «${file.name}»: ${err.detail || res.status}`, 'error')
         }
-      } catch { alert(`Ошибка загрузки «${file.name}»`) }
+      } catch { toast(`Ошибка загрузки «${file.name}»`, 'error') }
     }
     setUploading(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
@@ -2678,9 +2680,9 @@ function SlideModal({
         setImage(data.url)
       } else {
         const err = await res.json().catch(() => ({}))
-        alert(`Ошибка загрузки: ${err.detail || res.status}`)
+        toast(`Ошибка загрузки: ${err.detail || res.status}`, 'error')
       }
-    } catch { alert('Ошибка загрузки изображения') }
+    } catch { toast('Ошибка загрузки изображения', 'error') }
     finally { setUploading(false) }
   }
 
@@ -3353,7 +3355,7 @@ function GroupCreationModal({
       setProgress('')
       setCreating(false)
     } catch (err) {
-      alert(`Ошибка: ${err instanceof Error ? err.message : 'Неизвестно'}`)
+      toast(`Ошибка: ${err instanceof Error ? err.message : 'Неизвестно'}`, 'error')
       setCreating(false)
       setProgress('')
     }
