@@ -4,6 +4,7 @@ import { useAuth, getAuthHeaders } from '../lib/auth'
 import { API_BASE_URL } from '../lib/config'
 import { formatPrice } from '../data/products'
 import { toast, ToastHost } from '../lib/toast'
+import { confirmDialog, ConfirmHost } from '../lib/confirm'
 
 // ============ TYPES ============
 
@@ -166,6 +167,8 @@ export function AdminPage() {
   const [activeTab, setActiveTab] = useState<TabType>('orders')
   const [orders, setOrders] = useState<Order[]>([])
   const [statusFilter, setStatusFilter] = useState('all')
+  const [orderSearch, setOrderSearch] = useState('')
+  const [orderPage, setOrderPage] = useState(1)
   const [selectedOrder, setSelectedOrder] = useState<OrderDetail | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
@@ -280,7 +283,7 @@ export function AdminPage() {
   }
 
   const deleteOrder = async (orderId: string) => {
-    if (!confirm('Удалить заказ?')) return
+    if (!(await confirmDialog({ title: 'Удалить заказ?', message: 'Заказ будет удалён без возможности восстановления.', confirmLabel: 'Удалить' }))) return
     try {
       await authFetch(`${API_BASE_URL}/api/orders/${orderId}`, { method: 'DELETE' })
       setOrders(orders.filter(o => o.id !== orderId))
@@ -314,7 +317,7 @@ export function AdminPage() {
   }
 
   const deleteProduct = async (productId: string) => {
-    if (!confirm('Удалить товар?')) return
+    if (!(await confirmDialog({ title: 'Удалить товар?', message: 'Товар будет удалён из каталога.', confirmLabel: 'Удалить' }))) return
     try {
       await authFetch(`${API_BASE_URL}/api/products/${productId}`, { method: 'DELETE' })
       loadProducts()
@@ -373,7 +376,7 @@ export function AdminPage() {
       ? `Удалить категорию «${categoryName}»?\n\n⚠️ В этой категории ${productsInCategory.length} товар(ов). Сначала переместите или удалите их, либо категория не удалится.`
       : `Удалить категорию «${categoryName}»?`
 
-    if (!confirm(message)) return
+    if (!(await confirmDialog({ title: 'Удалить категорию?', message, confirmLabel: 'Удалить' }))) return
     try {
       const res = await authFetch(`${API_BASE_URL}/api/categories/${categoryId}`, { method: 'DELETE' })
       if (!res.ok) {
@@ -409,7 +412,7 @@ export function AdminPage() {
   }
 
   const deleteSlide = async (slideId: string) => {
-    if (!confirm('Удалить слайд?')) return
+    if (!(await confirmDialog({ title: 'Удалить слайд?', message: 'Слайд «Товары недели» будет удалён.', confirmLabel: 'Удалить' }))) return
     try {
       await authFetch(`${API_BASE_URL}/api/weekly-slides/${slideId}`, { method: 'DELETE' })
       loadSlides()
@@ -445,15 +448,50 @@ export function AdminPage() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-900">
-        <div className="text-white text-xl">⏳ Загрузка...</div>
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+        <header className="border-b border-white/10 bg-slate-900/90 px-4 py-4">
+          <div className="mx-auto flex max-w-7xl items-center gap-3">
+            <div className="h-10 w-10 animate-pulse rounded-xl bg-white/10" />
+            <div className="h-5 w-40 animate-pulse rounded bg-white/10" />
+          </div>
+        </header>
+        <div className="mx-auto max-w-7xl px-4 py-8">
+          <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-28 animate-pulse rounded-2xl bg-white/5" />
+            ))}
+          </div>
+          <div className="mb-6 flex flex-wrap gap-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-11 w-36 animate-pulse rounded-xl bg-white/10" />
+            ))}
+          </div>
+          <div className="space-y-2 rounded-2xl border border-white/10 p-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="h-12 animate-pulse rounded-lg bg-white/5" />
+            ))}
+          </div>
+        </div>
       </div>
     )
   }
 
+  const ORDERS_PER_PAGE = 15
+  const filteredOrders = orders.filter(o => {
+    if (statusFilter !== 'all' && o.status !== statusFilter) return false
+    const q = orderSearch.trim().toLowerCase()
+    if (!q) return true
+    return [o.order_number, o.customer_name, o.customer_phone, o.customer_email, o.shipping_city, o.shipping_address]
+      .some(v => String(v ?? '').toLowerCase().includes(q))
+  })
+  const orderPageCount = Math.max(1, Math.ceil(filteredOrders.length / ORDERS_PER_PAGE))
+  const safeOrderPage = Math.min(orderPage, orderPageCount)
+  const pagedOrders = filteredOrders.slice((safeOrderPage - 1) * ORDERS_PER_PAGE, safeOrderPage * ORDERS_PER_PAGE)
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       <ToastHost />
+      <ConfirmHost />
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-900/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
@@ -477,19 +515,24 @@ export function AdminPage() {
         {/* Quick Stats Dashboard */}
         <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            { label: 'Всего заказов', value: orders.length, icon: '📋', gradient: 'from-blue-500 to-cyan-500' },
-            { label: 'Новых заказов', value: pendingCount, icon: '🔔', gradient: 'from-red-500 to-rose-500' },
-            { label: 'Товаров', value: products.length, icon: '📦', gradient: 'from-indigo-500 to-violet-500' },
-            { label: 'Категорий', value: categories.length, icon: '📁', gradient: 'from-green-500 to-emerald-500' },
+            { label: 'Всего заказов', value: orders.length, icon: '📋', gradient: 'from-blue-500 to-cyan-500', tab: 'orders' as TabType, status: 'all' },
+            { label: 'Новых заказов', value: pendingCount, icon: '🔔', gradient: 'from-red-500 to-rose-500', tab: 'orders' as TabType, status: 'pending' },
+            { label: 'Товаров', value: products.length, icon: '📦', gradient: 'from-indigo-500 to-violet-500', tab: 'products' as TabType, status: 'all' },
+            { label: 'Категорий', value: categories.length, icon: '📁', gradient: 'from-green-500 to-emerald-500', tab: 'categories' as TabType, status: 'all' },
           ].map((stat, i) => (
-            <div key={i} className="relative overflow-hidden rounded-2xl bg-white/5 p-5 backdrop-blur transition-all hover:bg-white/10 cursor-pointer">
+            <button
+              key={i}
+              onClick={() => { setActiveTab(stat.tab); if (stat.tab === 'orders') { setStatusFilter(stat.status); setOrderPage(1) } }}
+              className="group relative overflow-hidden rounded-2xl bg-white/5 p-5 text-left backdrop-blur transition-all hover:bg-white/10 hover:ring-1 hover:ring-white/20"
+            >
               <div className={`absolute -right-4 -top-4 h-20 w-20 rounded-full bg-gradient-to-br ${stat.gradient} opacity-20 blur-2xl`} />
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-2xl">{stat.icon}</span>
+                <span className="ml-auto text-slate-500 opacity-0 transition-opacity group-hover:opacity-100">→</span>
               </div>
               <div className="text-2xl font-bold text-white">{stat.value}</div>
               <div className="text-xs text-slate-400">{stat.label}</div>
-            </div>
+            </button>
           ))}
         </div>
 
@@ -564,7 +607,7 @@ export function AdminPage() {
               ].map(f => (
                 <button
                   key={f.id}
-                  onClick={() => setStatusFilter(f.id)}
+                  onClick={() => { setStatusFilter(f.id); setOrderPage(1) }}
                   className={`rounded-lg px-3 py-1.5 text-sm font-medium transition flex items-center gap-1.5 ${
                     statusFilter === f.id ? 'bg-white text-gray-900' : 'bg-white/10 text-white hover:bg-white/20'
                   }`}
@@ -579,65 +622,130 @@ export function AdminPage() {
               ))}
             </div>
 
+            {/* Поиск по заказам */}
+            <div className="relative mb-4 max-w-md">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">🔍</span>
+              <input
+                value={orderSearch}
+                onChange={e => { setOrderSearch(e.target.value); setOrderPage(1) }}
+                placeholder="Поиск: номер, имя, телефон, email, город…"
+                className="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 pl-9 pr-9 text-sm text-white placeholder-slate-500 outline-none focus:border-yellow-400/50"
+              />
+              {orderSearch && (
+                <button onClick={() => { setOrderSearch(''); setOrderPage(1) }} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white" aria-label="Очистить">✕</button>
+              )}
+            </div>
+
             {orders.length === 0 ? (
               <div className="rounded-2xl bg-white/5 p-16 text-center">
                 <div className="text-5xl mb-4">📭</div>
                 <div className="text-xl font-semibold text-white">Заказов нет</div>
               </div>
-            ) : (
-              <div className="rounded-2xl overflow-hidden border border-white/10">
-                {/* Шапка */}
-                <div className="grid grid-cols-[140px_1fr_1fr_140px_120px_140px] bg-white/5 px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-widest border-b border-white/10">
-                  <span>Номер</span>
-                  <span>Клиент</span>
-                  <span>Город / Адрес</span>
-                  <span>Дата</span>
-                  <span className="text-right">Сумма</span>
-                  <span className="text-right">Статус</span>
-                </div>
-                {/* Строки */}
-                {orders.map((order, idx) => {
-                  const cfg = STATUS_CONFIG[order.status]
-                  return (
-                    <div
-                      key={order.id}
-                      onClick={() => loadOrderDetail(order.id)}
-                      className={`grid grid-cols-[140px_1fr_1fr_140px_120px_140px] items-center px-5 py-4 cursor-pointer transition-colors hover:bg-white/8 ${
-                        idx !== orders.length - 1 ? 'border-b border-white/5' : ''
-                      }`}
-                    >
-                      <span className="font-mono text-sm font-bold text-yellow-400">{order.order_number}</span>
-
-                      <div className="pr-4 min-w-0">
-                        <div className="text-sm font-semibold text-white truncate">{order.customer_name}</div>
-                        <div className="text-xs text-slate-500 truncate mt-0.5">{order.customer_phone || order.customer_email}</div>
-                      </div>
-
-                      <div className="pr-4 min-w-0">
-                        <div className="text-sm text-slate-300 truncate">{order.shipping_city}</div>
-                        <div className="text-xs text-slate-500 truncate mt-0.5">{order.shipping_address}</div>
-                      </div>
-
-                      <div className="text-xs text-slate-400">
-                        {new Date(order.created_at).toLocaleString('ru-RU', {
-                          day: '2-digit', month: '2-digit', year: '2-digit',
-                          hour: '2-digit', minute: '2-digit'
-                        })}
-                      </div>
-
-                      <div className="text-right text-sm font-bold text-yellow-400">
-                        {formatPrice(order.total_amount || 0)}
-                      </div>
-
-                      <div className="flex justify-end">
-                        <span className={`inline-flex items-center gap-1 rounded-lg px-3 py-1 text-xs font-semibold ${cfg?.bg || 'bg-gray-100'} ${cfg?.color || 'text-gray-600'}`}>
-                          {cfg?.icon} {cfg?.label || order.status}
-                        </span>
-                      </div>
-                    </div>
-                  )
-                })}
+            ) : filteredOrders.length === 0 ? (
+              <div className="rounded-2xl bg-white/5 p-12 text-center">
+                <div className="text-4xl mb-3">🔍</div>
+                <div className="text-lg font-semibold text-white">Ничего не найдено</div>
+                <div className="mt-1 text-sm text-slate-400">Измените запрос или фильтр статуса</div>
               </div>
+            ) : (
+              <>
+                <div className="hidden overflow-x-auto rounded-2xl border border-white/10 md:block">
+                  <div className="min-w-[900px]">
+                    {/* Шапка */}
+                    <div className="grid grid-cols-[140px_1fr_1fr_140px_120px_140px] bg-white/5 px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-widest border-b border-white/10">
+                      <span>Номер</span>
+                      <span>Клиент</span>
+                      <span>Город / Адрес</span>
+                      <span>Дата</span>
+                      <span className="text-right">Сумма</span>
+                      <span className="text-right">Статус</span>
+                    </div>
+                    {/* Строки */}
+                    {pagedOrders.map((order, idx) => {
+                      const cfg = STATUS_CONFIG[order.status]
+                      return (
+                        <div
+                          key={order.id}
+                          onClick={() => loadOrderDetail(order.id)}
+                          className={`grid grid-cols-[140px_1fr_1fr_140px_120px_140px] items-center px-5 py-4 cursor-pointer transition-colors hover:bg-white/8 ${
+                            idx !== pagedOrders.length - 1 ? 'border-b border-white/5' : ''
+                          }`}
+                        >
+                          <span className="font-mono text-sm font-bold text-yellow-400">{order.order_number}</span>
+
+                          <div className="pr-4 min-w-0">
+                            <div className="text-sm font-semibold text-white truncate">{order.customer_name}</div>
+                            <div className="text-xs text-slate-500 truncate mt-0.5">{order.customer_phone || order.customer_email}</div>
+                          </div>
+
+                          <div className="pr-4 min-w-0">
+                            <div className="text-sm text-slate-300 truncate">{order.shipping_city}</div>
+                            <div className="text-xs text-slate-500 truncate mt-0.5">{order.shipping_address}</div>
+                          </div>
+
+                          <div className="text-xs text-slate-400">
+                            {new Date(order.created_at).toLocaleString('ru-RU', {
+                              day: '2-digit', month: '2-digit', year: '2-digit',
+                              hour: '2-digit', minute: '2-digit'
+                            })}
+                          </div>
+
+                          <div className="text-right text-sm font-bold text-yellow-400">
+                            {formatPrice(order.total_amount || 0)}
+                          </div>
+
+                          <div className="flex justify-end">
+                            <span className={`inline-flex items-center gap-1 rounded-lg px-3 py-1 text-xs font-semibold ${cfg?.bg || 'bg-gray-100'} ${cfg?.color || 'text-gray-600'}`}>
+                              {cfg?.icon} {cfg?.label || order.status}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Мобильные карточки заказов (вместо таблицы на узких экранах) */}
+                <div className="space-y-3 md:hidden">
+                  {pagedOrders.map(order => {
+                    const cfg = STATUS_CONFIG[order.status]
+                    return (
+                      <div
+                        key={order.id}
+                        onClick={() => loadOrderDetail(order.id)}
+                        className="cursor-pointer rounded-2xl border border-white/10 bg-white/5 p-4 transition-colors hover:bg-white/10"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-sm font-bold text-yellow-400">{order.order_number}</span>
+                          <span className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold ${cfg?.bg || 'bg-gray-100'} ${cfg?.color || 'text-gray-600'}`}>
+                            {cfg?.icon} {cfg?.label || order.status}
+                          </span>
+                        </div>
+                        <div className="mt-2 text-sm font-semibold text-white">{order.customer_name}</div>
+                        <div className="text-xs text-slate-500">{order.customer_phone || order.customer_email}</div>
+                        <div className="mt-1 text-xs text-slate-400">{order.shipping_city}{order.shipping_address ? `, ${order.shipping_address}` : ''}</div>
+                        <div className="mt-2 flex items-center justify-between">
+                          <span className="text-xs text-slate-500">
+                            {new Date(order.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          <span className="text-sm font-bold text-yellow-400">{formatPrice(order.total_amount || 0)}</span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {orderPageCount > 1 && (
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
+                    <span>Показаны {(safeOrderPage - 1) * ORDERS_PER_PAGE + 1}–{Math.min(safeOrderPage * ORDERS_PER_PAGE, filteredOrders.length)} из {filteredOrders.length}</span>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setOrderPage(p => Math.max(1, p - 1))} disabled={safeOrderPage <= 1} className="rounded-lg bg-white/10 px-3 py-1.5 font-medium text-white transition hover:bg-white/20 disabled:opacity-40">← Назад</button>
+                      <span className="px-1 text-white">{safeOrderPage} / {orderPageCount}</span>
+                      <button onClick={() => setOrderPage(p => Math.min(orderPageCount, p + 1))} disabled={safeOrderPage >= orderPageCount} className="rounded-lg bg-white/10 px-3 py-1.5 font-medium text-white transition hover:bg-white/20 disabled:opacity-40">Вперёд →</button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
@@ -993,7 +1101,7 @@ function ProductsSection({
 
   const deleteSelected = async () => {
     if (selected.size === 0) return
-    if (!confirm(`Удалить ${selected.size} товаров? Это действие нельзя отменить.`)) return
+    if (!(await confirmDialog({ title: `Удалить ${selected.size} товаров?`, message: 'Это действие нельзя отменить.', confirmLabel: `Удалить ${selected.size}` }))) return
     setMerging(true)
     let deleted = 0
     for (const id of selected) {
@@ -1118,8 +1226,10 @@ function ProductsSection({
           {isUsedMode && <div className="text-slate-400 text-sm">Добавьте первый б/у товар через кнопку выше</div>}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl bg-white/5">
-          <table className="w-full">
+        <>
+        {/* Десктоп: таблица (на мобиле — карточки ниже) */}
+        <div className="hidden overflow-x-auto rounded-2xl bg-white/5 md:block">
+          <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b border-white/10 text-left text-sm text-slate-400">
                 <th className="p-4 w-10">
@@ -1225,6 +1335,54 @@ function ProductsSection({
             </tbody>
           </table>
         </div>
+
+        {/* Мобильные карточки (вместо таблицы на узких экранах) */}
+        <div className="space-y-3 md:hidden">
+          {products.map(product => {
+            const imgUrl = getImageUrl(product.main_image_url)
+            const isChecked = selected.has(product.id)
+            return (
+              <div key={product.id} className={`rounded-2xl border border-white/10 bg-white/5 p-4 ${isChecked ? 'ring-1 ring-yellow-400/40' : ''}`}>
+                <div className="flex gap-3">
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => toggleSelect(product.id)}
+                    className="mt-1 h-4 w-4 flex-shrink-0 rounded accent-yellow-400"
+                  />
+                  {imgUrl ? (
+                    <img src={imgUrl} alt="" className="h-14 w-14 flex-shrink-0 rounded-xl bg-white/10 object-cover" />
+                  ) : (
+                    <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-white/10 text-2xl">📦</div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start gap-2">
+                      <div className="font-semibold text-white">{product.name}</div>
+                      {product.is_featured && <span className="text-yellow-400" title="Хит">⭐</span>}
+                      {!product.is_active && <span className="text-xs text-red-400">(скрыт)</span>}
+                    </div>
+                    <div className="mt-0.5 text-sm text-slate-400">
+                      {product.brand || product.sku || '—'} · {categories.find(c => c.id === product.category_id)?.name || '—'}
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-yellow-400">{formatPrice(product.price)}</span>
+                      <span className={`rounded px-2 py-0.5 text-xs ${product.stock_quantity > 0 ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>
+                        {product.stock_quantity > 0 ? `✓ ${product.stock_quantity} шт.` : '✗ Нет'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-3 flex justify-end gap-1.5">
+                  <button onClick={() => onEdit(product)} aria-label="Редактировать" className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20">✏️</button>
+                  <button onClick={() => onToggleFeatured(product)} aria-label="Хит продаж" className={`rounded-lg px-3 py-2 text-sm ${product.is_featured ? 'bg-yellow-500/30 text-yellow-400' : 'bg-white/10 text-white hover:bg-white/20'}`}>⭐</button>
+                  <button onClick={() => onToggleActive(product)} aria-label={product.is_active ? 'Скрыть' : 'Показать'} className={`rounded-lg px-3 py-2 text-sm ${product.is_active ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>{product.is_active ? '👁' : '👁‍🗨'}</button>
+                  <button onClick={() => onDelete(product.id)} aria-label="Удалить" className="rounded-lg bg-red-900/50 px-3 py-2 text-sm text-red-400 hover:bg-red-900">🗑️</button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        </>
       )}
     </>
   )
@@ -1654,7 +1812,8 @@ function ProductModal({
   }
 
   const handleDeleteImage = async (imageId: string) => {
-    if (!savedProductId || !confirm('Удалить изображение?')) return
+    if (!savedProductId) return
+    if (!(await confirmDialog({ title: 'Удалить изображение?', message: 'Изображение товара будет удалено.', confirmLabel: 'Удалить' }))) return
     await authFetch(`${API_BASE_URL}/api/products/${savedProductId}/images/${imageId}`, { method: 'DELETE' })
     await loadImages(savedProductId)
     onRefresh()
@@ -1857,8 +2016,8 @@ function ProductModal({
   }
 
   // BULK delete ALL variants
-  const bulkDeleteAll = () => {
-    if (!confirm('Удалить ВСЕ варианты? Это действие нельзя отменить.')) return
+  const bulkDeleteAll = async () => {
+    if (!(await confirmDialog({ title: 'Удалить ВСЕ варианты?', message: 'Это действие нельзя отменить.', confirmLabel: 'Удалить все' }))) return
     setVariants(prev => prev.map(v => {
       if (v._isNew) return { ...v, _isDeleted: true }
       return { ...v, _isDeleted: true }
@@ -3430,11 +3589,11 @@ function GroupCreationModal({
   }, {})
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => {
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={async () => {
       const msg = step === 'configure'
         ? 'Вы уверены, что хотите выйти? Введённые данные не сохранятся.'
         : 'Выйти? Товары уже созданы, фото можно добавить позже через редактирование.'
-      if (window.confirm(msg)) onClose()
+      if (await confirmDialog({ title: 'Выйти из мастера?', message: msg, confirmLabel: 'Выйти', cancelLabel: 'Остаться' })) onClose()
     }}>
       <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-slate-800" onClick={e => e.stopPropagation()}>
 
@@ -3456,12 +3615,11 @@ function GroupCreationModal({
             </div>
           </div>
           <button
-            onClick={() => {
-              if (step === 'configure') {
-                if (!window.confirm('Вы уверены, что хотите выйти? Введённые данные не сохранятся.')) return
-              } else {
-                if (!window.confirm('Выйти? Товары уже созданы, фото можно добавить позже через редактирование.')) return
-              }
+            onClick={async () => {
+              const msg = step === 'configure'
+                ? 'Вы уверены, что хотите выйти? Введённые данные не сохранятся.'
+                : 'Выйти? Товары уже созданы, фото можно добавить позже через редактирование.'
+              if (!(await confirmDialog({ title: 'Выйти из мастера?', message: msg, confirmLabel: 'Выйти', cancelLabel: 'Остаться' }))) return
               onClose()
             }}
             className="text-xl text-slate-400 hover:text-white"
@@ -3639,7 +3797,7 @@ function GroupCreationModal({
                 </div>
               )}
               <div className="flex items-center justify-between">
-                <button onClick={() => { if (window.confirm('Вы уверены, что хотите выйти? Введённые данные не сохранятся.')) onClose() }} disabled={creating} className="rounded-xl bg-white/10 px-5 py-2.5 text-sm text-white hover:bg-white/20 disabled:opacity-40">Отмена</button>
+                <button onClick={async () => { if (await confirmDialog({ title: 'Выйти из мастера?', message: 'Вы уверены, что хотите выйти? Введённые данные не сохранятся.', confirmLabel: 'Выйти', cancelLabel: 'Остаться' })) onClose() }} disabled={creating} className="rounded-xl bg-white/10 px-5 py-2.5 text-sm text-white hover:bg-white/20 disabled:opacity-40">Отмена</button>
                 <button onClick={handleCreate}
                   disabled={creating || enabledCount === 0 || !baseName.trim() || !basePriceStr}
                   className="rounded-xl bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-500 disabled:opacity-40 transition-colors">

@@ -72,6 +72,74 @@ export async function fetchCategoryBrands(categoryId: string): Promise<MenuBrand
   }
 }
 
+export interface MenuModel {
+  name: string
+  slug: string
+  image: string
+}
+
+export interface MenuBrandGroup {
+  name: string
+  count: number
+  models: MenuModel[]
+}
+
+/**
+ * Бренды + их модели для одной категории — лениво, в один запрос (как у cordstore:
+ * колонка бренда, под ней модели). Берём товары ТОЛЬКО этой категории (лимит 300),
+ * группируем по бренду, модели дедуплицируем по названию (поле model, иначе name).
+ */
+export async function fetchCategoryBrandGroups(categoryId: string): Promise<MenuBrandGroup[]> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/products?category_id=${categoryId}&limit=300&only_active=true`
+    )
+    if (!res.ok) return []
+    const data = await res.json()
+    const items = Array.isArray(data) ? data : (data.items ?? [])
+
+    const byBrand = new Map<string, { count: number; models: Map<string, MenuModel> }>()
+    for (const p of items) {
+      const brand = String(p.brand ?? '').trim()
+      if (!brand) continue
+      const display = String(p.model ?? '').trim() || String(p.name ?? '').trim()
+      const slug = String(p.slug ?? '')
+      if (!byBrand.has(brand)) byBrand.set(brand, { count: 0, models: new Map() })
+      const g = byBrand.get(brand)!
+      g.count++
+      if (display && slug && !g.models.has(display)) {
+        g.models.set(display, { name: display, slug, image: String(p.main_image_url ?? '') })
+      }
+    }
+
+    return [...byBrand.entries()]
+      .map(([name, g]) => ({ name, count: g.count, models: [...g.models.values()] }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ru'))
+  } catch {
+    return []
+  }
+}
+
+const BRAND_LOGOS: Record<string, string> = {
+  apple: '/logos/apple.svg',
+  samsung: '/logos/samsung.svg',
+  sony: '/logos/sony.svg',
+  xiaomi: '/logos/xiaomi.svg',
+  nintendo: '/logos/nintendo.svg',
+  huawei: '/logos/huawei.svg',
+  jbl: '/logos/jbl.svg',
+  dji: '/logos/dji.svg',
+  gopro: '/logos/gopro.svg',
+  playstation: '/logos/playstation.svg',
+  xbox: '/logos/xbox.svg',
+  yandex: '/logos/yandex.svg',
+}
+
+/** Путь к логотипу бренда или null (тогда показываем текст). */
+export function brandLogo(name: string): string | null {
+  return BRAND_LOGOS[name.trim().toLowerCase()] ?? null
+}
+
 /** Эмодзи-иконка категории по названию (для меню). */
 export function categoryEmoji(name: string): string {
   const n = name.toLowerCase()

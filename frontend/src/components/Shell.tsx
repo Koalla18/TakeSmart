@@ -2,16 +2,19 @@ import type { PropsWithChildren } from 'react'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Logo } from './Logo'
-import { PhoneIcon, MailIcon, ClockIcon, MenuIcon, CloseIcon, TelegramIcon, ChevronRightIcon } from './ui/Icons'
+import {
+  PhoneIcon, MailIcon, ClockIcon, MenuIcon, CloseIcon, TelegramIcon, ChevronRightIcon,
+  SmartphoneIcon, LaptopIcon, TabletIcon, HeadphonesIcon, WatchIcon, GamepadIcon, CameraIcon, PlugIcon,
+} from './ui/Icons'
 import { Container } from './ui/Layout'
 import { useCart } from '../lib/cart'
 import { GlobalSearch, MobileSearchButton } from './GlobalSearch'
 import {
   fetchMenuCategories,
-  fetchCategoryBrands,
-  categoryEmoji,
+  fetchCategoryBrandGroups,
+  brandLogo,
   type MenuCategory,
-  type MenuBrand,
+  type MenuBrandGroup,
 } from '../lib/catalogMenu'
 
 function NavItem({ to, label, onClick }: { to: string; label: string; onClick?: () => void }) {
@@ -44,12 +47,68 @@ function NavItem({ to, label, onClick }: { to: string; label: string; onClick?: 
 // Открывается по наведению. Категории грузятся 1 раз, бренды — лениво по разделу.
 // НЕ делаем «прилипающий» под-хедер — это просто dropdown, открыт пока наведён.
 // ─────────────────────────────────────────────────────────────────────────────
+// Иконка категории (SVG из ui/Icons — НЕ эмодзи).
+function CategoryIcon({ name, className = 'h-5 w-5' }: { name: string; className?: string }) {
+  const n = name.toLowerCase()
+  if (n.includes('смартфон') || n.includes('телефон')) return <SmartphoneIcon className={className} />
+  if (n.includes('ноут') || n.includes('компью')) return <LaptopIcon className={className} />
+  if (n.includes('планшет')) return <TabletIcon className={className} />
+  if (n.includes('наушник') || n.includes('колонк')) return <HeadphonesIcon className={className} />
+  if (n.includes('час')) return <WatchIcon className={className} />
+  if (n.includes('консол') || n.includes('игр') || n.includes('приставк')) return <GamepadIcon className={className} />
+  if (n.includes('фото') || n.includes('видео')) return <CameraIcon className={className} />
+  if (n.includes('тв') || n.includes('аудио') || n.includes('телевизор')) return <HeadphonesIcon className={className} />
+  if (n.includes('аксессуар') || n.includes('заряд') || n.includes('кабел')) return <PlugIcon className={className} />
+  return <SmartphoneIcon className={className} />
+}
+
+// Логотип бренда (из /logos/*.svg), при отсутствии/ошибке — текст названия.
+function BrandLogo({ name, className = 'h-5 w-auto max-w-[92px]' }: { name: string; className?: string }) {
+  const logo = brandLogo(name)
+  const [failed, setFailed] = useState(false)
+  if (!logo || failed) return <span className="text-sm font-bold text-gray-900">{name}</span>
+  return (
+    <img
+      src={logo}
+      alt={name}
+      loading="lazy"
+      decoding="async"
+      className={`${className} object-contain`}
+      onError={() => setFailed(true)}
+    />
+  )
+}
+
+// Миниатюра модели (фото товара). Фолбэк — нейтральная плашка (если фото нет/недоступно).
+function ModelThumb({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(!src)
+  if (failed) {
+    return (
+      <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-300">
+        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
+      </span>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      className="h-10 w-10 flex-shrink-0 rounded-lg bg-gray-50 object-contain p-0.5 ring-1 ring-gray-100"
+      onError={() => setFailed(true)}
+    />
+  )
+}
+
 function CatalogMegaMenu() {
   const [open, setOpen] = useState(false)
   const [cats, setCats] = useState<MenuCategory[]>([])
   const [loadedCats, setLoadedCats] = useState(false)
   const [activeCat, setActiveCat] = useState<MenuCategory | null>(null)
-  const [brandsByCat, setBrandsByCat] = useState<Record<string, MenuBrand[]>>({})
+  const [groupsByCat, setGroupsByCat] = useState<Record<string, MenuBrandGroup[]>>({})
   const closeTimer = useRef<number | undefined>(undefined)
 
   const cancelClose = useCallback(() => {
@@ -71,17 +130,17 @@ function CatalogMegaMenu() {
     })
   }, [open, loadedCats])
 
-  // Бренды активной категории — лениво, с кэшем (undefined = ещё грузим)
+  // Бренды+модели активной категории — лениво, с кэшем (undefined = ещё грузим)
   useEffect(() => {
-    if (!activeCat || brandsByCat[activeCat.id] !== undefined) return
+    if (!activeCat || groupsByCat[activeCat.id] !== undefined) return
     let cancelled = false
-    fetchCategoryBrands(activeCat.id).then(brands => {
-      if (!cancelled) setBrandsByCat(prev => ({ ...prev, [activeCat.id]: brands }))
+    fetchCategoryBrandGroups(activeCat.id).then(groups => {
+      if (!cancelled) setGroupsByCat(prev => ({ ...prev, [activeCat.id]: groups }))
     })
     return () => { cancelled = true }
-  }, [activeCat, brandsByCat])
+  }, [activeCat, groupsByCat])
 
-  const activeBrands = activeCat ? brandsByCat[activeCat.id] : undefined
+  const activeGroups = activeCat ? groupsByCat[activeCat.id] : undefined
 
   return (
     <div
@@ -92,98 +151,172 @@ function CatalogMegaMenu() {
         to="/catalog"
         onClick={closeNow}
         aria-expanded={open}
-        className={`relative flex items-center gap-1 px-1 py-2 text-sm font-medium transition-colors ${
-          open ? 'text-yellow-500' : 'text-gray-700 hover:text-yellow-500'
+        className={`relative flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
+          open ? 'bg-yellow-400 text-gray-900' : 'text-gray-700 hover:bg-yellow-50 hover:text-yellow-600'
         }`}
       >
+        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3" y="3" width="7.5" height="7.5" rx="1.6" />
+          <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6" />
+          <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6" />
+          <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.6" />
+        </svg>
         Каталог
         <svg className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </Link>
 
-      {/* Широкая панель меню */}
+      {/* Широкая панель — раскладка как у cordstore: рельса категорий | бренды | промо */}
       <div
-        className={`absolute left-0 right-0 top-full z-40 border-t border-gray-100 bg-white shadow-xl transition-all duration-200 ${
+        className={`absolute left-0 right-0 top-full z-40 border-t-2 border-yellow-300 bg-white shadow-2xl ring-1 ring-black/5 transition-all duration-200 ${
           open ? 'visible translate-y-0 opacity-100' : 'invisible -translate-y-2 opacity-0'
         }`}
         onMouseEnter={cancelClose}
         onMouseLeave={scheduleClose}
       >
         <Container>
-          <div className="grid grid-cols-[260px_1fr] gap-6 py-6">
-            {/* Колонка категорий */}
-            <div className="max-h-[70vh] overflow-y-auto border-r border-gray-100 pr-2">
+          <div className="grid grid-cols-[264px_1fr] lg:grid-cols-[264px_1fr_280px]">
+            {/* Рельса категорий */}
+            <div className="max-h-[72vh] overflow-y-auto border-r border-gray-100 py-4 pr-3">
               {cats.length === 0
                 ? Array.from({ length: 8 }).map((_, i) => (
-                    <div key={i} className="mb-2 h-10 animate-pulse rounded-xl bg-gray-100" />
+                    <div key={i} className="mb-1.5 h-11 animate-pulse rounded-lg bg-gray-100" />
                   ))
-                : cats.map(cat => (
-                    <Link
-                      key={cat.id}
-                      to={`/catalog?category=${cat.slug}`}
-                      onMouseEnter={() => setActiveCat(cat)}
-                      onFocus={() => setActiveCat(cat)}
-                      onClick={closeNow}
-                      className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${
-                        activeCat?.id === cat.id ? 'bg-yellow-50 text-yellow-700' : 'text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2.5 truncate">
-                        <span className="text-base">{categoryEmoji(cat.name)}</span>
-                        <span className="truncate">{cat.name}</span>
-                      </span>
-                      <ChevronRightIcon className="h-4 w-4 flex-shrink-0 text-gray-300" />
-                    </Link>
-                  ))}
+                : cats.map(cat => {
+                    const isActive = activeCat?.id === cat.id
+                    return (
+                      <Link
+                        key={cat.id}
+                        to={`/catalog?category=${cat.slug}`}
+                        onMouseEnter={() => setActiveCat(cat)}
+                        onFocus={() => setActiveCat(cat)}
+                        onClick={closeNow}
+                        className={`group flex items-center justify-between gap-3 rounded-r-lg border-l-4 px-3 py-2.5 text-sm transition-colors ${
+                          isActive
+                            ? 'border-yellow-400 bg-yellow-50 font-semibold text-gray-900'
+                            : 'border-transparent text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2.5 truncate">
+                          <CategoryIcon name={cat.name} className={`h-5 w-5 flex-shrink-0 ${isActive ? 'text-yellow-600' : 'text-gray-400'}`} />
+                          <span className="truncate">{cat.name}</span>
+                        </span>
+                        <ChevronRightIcon className={`h-4 w-4 flex-shrink-0 transition-colors ${isActive ? 'text-yellow-500' : 'text-gray-300 group-hover:text-gray-400'}`} />
+                      </Link>
+                    )
+                  })}
             </div>
 
-            {/* Бренды активной категории */}
-            <div className="min-h-[220px]">
+            {/* Бренды активной категории (со скроллом — при большом каталоге низ доступен) */}
+            <div className="max-h-[74vh] min-h-[280px] overflow-y-auto px-6 py-5">
               {activeCat && (
                 <>
-                  <div className="mb-4 flex items-center justify-between">
-                    <h3 className="text-base font-bold text-gray-900">{activeCat.name}</h3>
+                  <div className="mb-4 flex items-baseline justify-between">
+                    <h3 className="text-lg font-bold text-gray-900">{activeCat.name}</h3>
                     <Link
                       to={`/catalog?category=${activeCat.slug}`}
                       onClick={closeNow}
-                      className="text-sm font-medium text-yellow-600 hover:text-yellow-700"
+                      className="text-sm font-semibold text-yellow-600 hover:text-yellow-700"
                     >
                       Все товары →
                     </Link>
                   </div>
 
-                  {activeBrands === undefined ? (
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {Array.from({ length: 9 }).map((_, i) => (
-                        <div key={i} className="h-9 animate-pulse rounded-lg bg-gray-100" />
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Бренды и модели</p>
+
+                  {activeGroups === undefined ? (
+                    <div className="grid grid-cols-2 gap-6 lg:grid-cols-3">
+                      {Array.from({ length: 3 }).map((_, i) => (
+                        <div key={i} className="space-y-2">
+                          <div className="h-5 w-24 animate-pulse rounded bg-gray-100" />
+                          <div className="h-4 w-full animate-pulse rounded bg-gray-50" />
+                          <div className="h-4 w-5/6 animate-pulse rounded bg-gray-50" />
+                          <div className="h-4 w-2/3 animate-pulse rounded bg-gray-50" />
+                        </div>
                       ))}
                     </div>
-                  ) : activeBrands.length === 0 ? (
-                    <p className="text-sm text-gray-400">
-                      Бренды не найдены.{' '}
-                      <Link to={`/catalog?category=${activeCat.slug}`} onClick={closeNow} className="text-yellow-600 hover:text-yellow-700">
-                        Перейти в раздел →
-                      </Link>
-                    </p>
+                  ) : activeGroups.length === 0 ? (
+                    <Link
+                      to={`/catalog?category=${activeCat.slug}`}
+                      onClick={closeNow}
+                      className="inline-flex rounded-lg bg-yellow-50 px-4 py-2 text-sm font-medium text-yellow-700 transition-colors hover:bg-yellow-100"
+                    >
+                      Открыть раздел «{activeCat.name}» →
+                    </Link>
                   ) : (
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-3">
-                      {activeBrands.map(b => (
-                        <Link
-                          key={b.name}
-                          to={`/catalog?category=${activeCat.slug}&brand=${encodeURIComponent(b.name.toLowerCase())}`}
-                          onClick={closeNow}
-                          className="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
-                        >
-                          <span className="truncate">{b.name}</span>
-                          <span className="ml-2 text-xs text-gray-300">{b.count}</span>
-                        </Link>
-                      ))}
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+                      {activeGroups.map(g => {
+                        const brandHref = `/catalog?category=${activeCat.slug}&brand=${encodeURIComponent(g.name.toLowerCase())}`
+                        return (
+                          <div key={g.name} className="min-w-0">
+                            <Link
+                              to={brandHref}
+                              onClick={closeNow}
+                              className="flex items-center gap-2 border-b border-gray-100 pb-2 transition-opacity hover:opacity-70"
+                            >
+                              <BrandLogo name={g.name} />
+                              <span className="ml-auto rounded bg-gray-100 px-1.5 text-xs text-gray-400">{g.count}</span>
+                            </Link>
+                            {g.models.length > 0 && (
+                              <ul className="mt-2 space-y-0.5">
+                                {g.models.slice(0, 5).map(m => (
+                                  <li key={m.slug}>
+                                    <Link
+                                      to={`/product/${m.slug}`}
+                                      onClick={closeNow}
+                                      className="group/m flex items-center gap-2.5 rounded-lg px-1 py-1 transition-colors hover:bg-yellow-50"
+                                    >
+                                      <ModelThumb src={m.image} alt={m.name} />
+                                      <span className="truncate text-sm text-gray-600 group-hover/m:text-gray-900">{m.name}</span>
+                                    </Link>
+                                  </li>
+                                ))}
+                                {g.models.length > 5 && (
+                                  <li>
+                                    <Link
+                                      to={brandHref}
+                                      onClick={closeNow}
+                                      className="block px-1 py-1 text-sm font-medium text-yellow-600 hover:text-yellow-700"
+                                    >
+                                      Ещё {g.models.length - 5} →
+                                    </Link>
+                                  </li>
+                                )}
+                              </ul>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
                 </>
               )}
             </div>
+
+            {/* Промо-блок справа (как у cordstore) */}
+            <aside className="hidden flex-col gap-3 border-l border-gray-100 p-5 lg:flex">
+              <Link
+                to="/trade-in"
+                onClick={closeNow}
+                className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-yellow-400 to-amber-500 p-5 text-gray-900 shadow-sm"
+              >
+                <p className="text-xs font-bold uppercase tracking-wider text-gray-900/70">Trade-in</p>
+                <p className="mt-1 text-lg font-extrabold leading-tight">Обменяй старое устройство с выгодой до 50%</p>
+                <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold">
+                  Подробнее
+                  <ChevronRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                </span>
+              </Link>
+              <Link
+                to="/delivery"
+                onClick={closeNow}
+                className="rounded-2xl border border-gray-200 p-4 transition-colors hover:border-yellow-300 hover:bg-yellow-50"
+              >
+                <p className="text-sm font-bold text-gray-900">🚚 Доставка сегодня</p>
+                <p className="mt-0.5 text-xs text-gray-500">По Москве и МО в день заказа</p>
+              </Link>
+            </aside>
           </div>
         </Container>
       </div>
@@ -194,42 +327,38 @@ function CatalogMegaMenu() {
 const legalDocumentPaths = ['/offer', '/privacy-policy', '/personal-data', '/cookie-policy']
 
 function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-
   const [categories, setCategories] = useState<MenuCategory[]>([])
-  const [brandsByCat, setBrandsByCat] = useState<Record<string, MenuBrand[]>>({})
-  const [expandedCatId, setExpandedCatId] = useState<string | null>(null)
+  const [groupsByCat, setGroupsByCat] = useState<Record<string, MenuBrandGroup[]>>({})
+  const [drillCat, setDrillCat] = useState<MenuCategory | null>(null)
   const [dataFetched, setDataFetched] = useState(false)
 
-  // Категории — один раз при открытии. Бренды НЕ грузим заранее: раньше тянули
-  // весь каталог (limit=2500), теперь — лениво по конкретному разделу.
+  // Категории — один раз при открытии (лёгкий запрос).
   useEffect(() => {
     if (!isOpen || dataFetched) return
     setDataFetched(true)
     fetchMenuCategories().then(setCategories)
   }, [isOpen, dataFetched])
 
-  // Раскрытие раздела: тогглим и лениво подгружаем его бренды (с кэшем)
-  const toggleCategory = (cat: MenuCategory) => {
-    setExpandedCatId(prev => (prev === cat.id ? null : cat.id))
-    if (brandsByCat[cat.id] === undefined) {
-      fetchCategoryBrands(cat.id).then(brands =>
-        setBrandsByCat(prev => ({ ...prev, [cat.id]: brands }))
+  // Drill в категорию: 2-й уровень + ленивая загрузка брендов+моделей (с кэшем).
+  const openCategory = (cat: MenuCategory) => {
+    setDrillCat(cat)
+    if (groupsByCat[cat.id] === undefined) {
+      fetchCategoryBrandGroups(cat.id).then(groups =>
+        setGroupsByCat(prev => ({ ...prev, [cat.id]: groups }))
       )
     }
   }
 
-
+  // Блокируем скролл body + сбрасываем drill при закрытии.
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
-    return () => {
-      document.body.style.overflow = ''
-    }
+    document.body.style.overflow = isOpen ? 'hidden' : ''
+    if (!isOpen) setDrillCat(null)
+    return () => { document.body.style.overflow = '' }
   }, [isOpen])
-  
+
+  const close = () => { setDrillCat(null); onClose() }
+  const drillGroups = drillCat ? groupsByCat[drillCat.id] : undefined
+
   return (
     <>
       {/* Backdrop */}
@@ -237,29 +366,44 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
         className={`fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300 ${
           isOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
         }`}
-        onClick={onClose}
+        onClick={close}
       />
-      
+
       {/* Menu panel */}
       <div
-        className={`fixed right-0 top-0 z-50 h-full w-full max-w-sm transform bg-white shadow-2xl transition-transform duration-300 ${
+        className={`fixed right-0 top-0 z-50 flex h-full w-full max-w-sm transform flex-col bg-white shadow-2xl transition-transform duration-300 ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        <div className="flex h-full flex-col">
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-            <Logo />
+        {/* Header: логотип или «назад» (на 2-м уровне) */}
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+          {drillCat ? (
             <button
-              onClick={onClose}
-              className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+              onClick={() => setDrillCat(null)}
+              className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 transition-colors hover:text-yellow-600"
             >
-              <CloseIcon />
+              <ChevronRightIcon className="h-5 w-5 rotate-180" />
+              Категории
             </button>
-          </div>
-          
-          {/* Navigation */}
-          <nav className="flex-1 overflow-y-auto px-4 py-6">
+          ) : (
+            <Logo />
+          )}
+          <button
+            onClick={close}
+            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+          >
+            <CloseIcon />
+          </button>
+        </div>
+
+        {/* Контент с горизонтальным переходом: уровень 1 / уровень 2 */}
+        <div className="relative flex-1 overflow-hidden">
+          {/* УРОВЕНЬ 1 — навигация + категории */}
+          <nav
+            className={`absolute inset-0 overflow-y-auto px-4 py-5 transition-transform duration-300 ${
+              drillCat ? '-translate-x-full' : 'translate-x-0'
+            }`}
+          >
             <div className="space-y-1">
               {[
                 { to: '/', label: 'Главная' },
@@ -271,12 +415,10 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                 <NavLink
                   key={item.to}
                   to={item.to}
-                  onClick={onClose}
+                  onClick={close}
                   className={({ isActive }) =>
                     `flex items-center justify-between rounded-xl px-4 py-3 text-base font-medium transition-colors ${
-                      isActive
-                        ? 'bg-yellow-50 text-yellow-600'
-                        : 'text-gray-700 hover:bg-gray-50'
+                      isActive ? 'bg-yellow-50 text-yellow-600' : 'text-gray-700 hover:bg-gray-50'
                     }`
                   }
                 >
@@ -285,85 +427,123 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                 </NavLink>
               ))}
             </div>
-            
-            {/* Categories quick links */}
-            <div className="mt-8">
-              <h3 className="mb-3 px-4 text-xs font-semibold uppercase tracking-wider text-gray-400">
-                Категории
-              </h3>
+
+            <div className="mt-7">
+              <h3 className="mb-2 px-4 text-xs font-semibold uppercase tracking-wider text-gray-400">Каталог</h3>
               <div className="space-y-1">
                 {categories.length === 0
-                  ? Array.from({ length: 6 }).map((_, i) => (
-                      <div key={i} className="h-11 animate-pulse rounded-xl bg-gray-100" />
+                  ? Array.from({ length: 8 }).map((_, i) => (
+                      <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-100" />
                     ))
-                  : categories.map(cat => {
-                      const brands = brandsByCat[cat.id]
-                      const expanded = expandedCatId === cat.id
-                      return (
-                        <div key={cat.id} className="flex flex-col">
-                          <div className="flex items-center">
-                            <Link
-                              to={`/catalog?category=${cat.slug}`}
-                              onClick={onClose}
-                              className="flex flex-1 items-center gap-3 rounded-xl px-4 py-3 text-base font-medium text-gray-700 transition-colors hover:bg-gray-50"
-                            >
-                              <span className="text-xl">{categoryEmoji(cat.name)}</span>
-                              <span>{cat.name}</span>
-                            </Link>
-                            <button
-                              onClick={() => toggleCategory(cat)}
-                              aria-label={`Бренды: ${cat.name}`}
-                              aria-expanded={expanded}
-                              className="rounded-xl p-3 text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-700"
-                            >
-                              <ChevronRightIcon className={`h-4 w-4 transition-transform ${expanded ? 'rotate-90' : ''}`} />
-                            </button>
-                          </div>
+                  : categories.map(cat => (
+                      <button
+                        key={cat.id}
+                        onClick={() => openCategory(cat)}
+                        className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-base font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                      >
+                        <CategoryIcon name={cat.name} className="h-5 w-5 flex-shrink-0 text-gray-400" />
+                        <span className="flex-1 truncate">{cat.name}</span>
+                        <ChevronRightIcon className="h-4 w-4 flex-shrink-0 text-gray-300" />
+                      </button>
+                    ))}
+              </div>
+            </div>
+          </nav>
 
-                          {expanded && (
-                            <div className="ml-12 mt-1 flex flex-col space-y-2 border-l border-gray-100 pl-4">
-                              {brands === undefined ? (
-                                <span className="py-1 text-sm text-gray-400">Загрузка…</span>
-                              ) : brands.length === 0 ? (
-                                <Link
-                                  to={`/catalog?category=${cat.slug}`}
-                                  onClick={onClose}
-                                  className="py-1 text-sm text-yellow-600"
-                                >
-                                  Перейти в раздел →
-                                </Link>
-                              ) : (
-                                brands.map(b => (
+          {/* УРОВЕНЬ 2 — бренды + модели выбранной категории */}
+          <div
+            className={`absolute inset-0 overflow-y-auto px-4 py-5 transition-transform duration-300 ${
+              drillCat ? 'translate-x-0' : 'translate-x-full'
+            }`}
+          >
+            {drillCat && (
+              <>
+                <div className="mb-3 flex items-center justify-between px-1">
+                  <h3 className="text-lg font-bold text-gray-900">{drillCat.name}</h3>
+                  <Link
+                    to={`/catalog?category=${drillCat.slug}`}
+                    onClick={close}
+                    className="text-sm font-semibold text-yellow-600"
+                  >
+                    Все товары →
+                  </Link>
+                </div>
+
+                {drillGroups === undefined ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-100" />
+                    ))}
+                  </div>
+                ) : drillGroups.length === 0 ? (
+                  <Link
+                    to={`/catalog?category=${drillCat.slug}`}
+                    onClick={close}
+                    className="block rounded-xl bg-yellow-50 px-4 py-3 text-sm font-medium text-yellow-700"
+                  >
+                    Открыть раздел «{drillCat.name}» →
+                  </Link>
+                ) : (
+                  <div className="space-y-5">
+                    {drillGroups.map(g => {
+                      const brandHref = `/catalog?category=${drillCat.slug}&brand=${encodeURIComponent(g.name.toLowerCase())}`
+                      return (
+                        <div key={g.name}>
+                          <Link
+                            to={brandHref}
+                            onClick={close}
+                            className="flex items-center gap-2 border-b border-gray-100 px-1 pb-2"
+                          >
+                            <BrandLogo name={g.name} />
+                            <span className="ml-auto rounded bg-gray-100 px-1.5 text-xs text-gray-400">{g.count}</span>
+                          </Link>
+                          {g.models.length > 0 && (
+                            <ul className="mt-1.5">
+                              {g.models.slice(0, 8).map(m => (
+                                <li key={m.slug}>
                                   <Link
-                                    key={b.name}
-                                    to={`/catalog?category=${cat.slug}&brand=${encodeURIComponent(b.name.toLowerCase())}`}
-                                    onClick={onClose}
-                                    className="py-1 text-left text-sm text-gray-600 hover:text-gray-900"
+                                    to={`/product/${m.slug}`}
+                                    onClick={close}
+                                    className="flex items-center gap-3 rounded-xl px-1 py-1.5 transition-colors hover:bg-yellow-50"
                                   >
-                                    {b.name}
+                                    <ModelThumb src={m.image} alt={m.name} />
+                                    <span className="truncate text-sm text-gray-700">{m.name}</span>
                                   </Link>
-                                ))
+                                </li>
+                              ))}
+                              {g.models.length > 8 && (
+                                <li>
+                                  <Link
+                                    to={brandHref}
+                                    onClick={close}
+                                    className="block px-1 py-1.5 text-sm font-medium text-yellow-600"
+                                  >
+                                    Ещё {g.models.length - 8} →
+                                  </Link>
+                                </li>
                               )}
-                            </div>
+                            </ul>
                           )}
                         </div>
                       )
                     })}
-              </div>
-            </div>
-          </nav>
-          
-          {/* Footer */}
-          <div className="border-t border-gray-100 px-6 py-4">
-            <a
-              href="tel:+79998021022"
-              className="mb-3 flex items-center gap-3 text-lg font-semibold text-gray-900 hover:text-yellow-500"
-            >
-              <PhoneIcon className="h-5 w-5 text-yellow-500" />
-              +7 (999) 802-10-22
-            </a>
-            <p className="text-sm text-gray-500">Ежедневно с 10:30 до 20:30</p>
+                  </div>
+                )}
+              </>
+            )}
           </div>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-gray-100 px-6 py-4">
+          <a
+            href="tel:+79998021022"
+            className="mb-1 flex items-center gap-3 text-lg font-semibold text-gray-900 hover:text-yellow-500"
+          >
+            <PhoneIcon className="h-5 w-5 text-yellow-500" />
+            +7 (999) 802-10-22
+          </a>
+          <p className="text-sm text-gray-500">Ежедневно с 10:30 до 20:30</p>
         </div>
       </div>
     </>

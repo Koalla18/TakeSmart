@@ -313,7 +313,8 @@ function TopProducts() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Товары недели — карусель промо-слайдов (данные из админки, /api/weekly-slides).
-// НЕ удалять без согласования владельца (см. ТЗ, п.4).
+// Убран с лендинга 2026-06-26 (по согласованию владельца — дублировал hero).
+// Компонент сохранён (export, dormant): чтобы вернуть — отрисовать <WeeklySlides/>.
 // ─────────────────────────────────────────────────────────────────────────────
 interface Slide {
   badge: string
@@ -327,7 +328,7 @@ interface Slide {
   link_url: string
 }
 
-function WeeklySlides() {
+export function WeeklySlides() {
   const [currentSlide, setCurrentSlide] = useState(0)
   const [slides, setSlides] = useState<Slide[]>([])
 
@@ -509,7 +510,7 @@ export function HomePage() {
       <TopProducts />
 
       {/* 3. Бренды-партнёры (бесконечная лента) */}
-      <section className="bg-white py-4">
+      <section className="bg-white py-10">
         <Container>
           <AnimatedSection>
             <div className="overflow-hidden rounded-3xl bg-white p-8 shadow-xl shadow-black/5 ring-1 ring-gray-100 sm:p-10">
@@ -546,21 +547,17 @@ export function HomePage() {
         </Container>
       </section>
 
-      {/* 4. Товары недели (НЕ удалять — согласование владельца) */}
-      <Section className="overflow-hidden bg-gray-50 py-8 lg:py-16">
-        <Container>
-          <AnimatedSection>
-            <WeeklySlides />
-          </AnimatedSection>
-        </Container>
-      </Section>
+      {/* Блок «Товары недели» убран с лендинга 2026-06-26 (по согласованию):
+          второй крупный слайдер дублировал hero и создавал «хаос».
+          Компонент WeeklySlides сохранён в этом файле (export, dormant) —
+          чтобы вернуть, достаточно снова отрисовать <WeeklySlides/> здесь. */}
 
       {/* Секция «Каталог товаров» (сетка категорий) убрана с лендинга по просьбе
           владельца — каталог теперь в мега-меню хедера. Код сохранён в памяти
           (landing-catalog-section-removed) и в git-истории, легко вернуть. */}
 
       {/* 6. Почему мы (гарантия/доставка/кредит/поддержка) */}
-      <Section className="py-24">
+      <Section className="py-16">
         <Container>
           <AnimatedSection>
             <div className="mb-16 text-center">
@@ -608,7 +605,7 @@ export function HomePage() {
       </section>
 
       {/* 8. Адрес и контакты */}
-      <Section id="contacts" className="bg-gray-50 py-24">
+      <Section id="contacts" className="bg-gray-50 py-16">
         <Container>
           <AnimatedSection>
             <div className="mb-12 text-center">
@@ -683,7 +680,7 @@ export function HomePage() {
       </Section>
 
       {/* 9. CTA */}
-      <Section className="py-24">
+      <Section className="py-16">
         <Container>
           <AnimatedSection>
             <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-yellow-400 to-amber-400 p-12 text-center sm:p-16">
