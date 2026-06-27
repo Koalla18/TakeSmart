@@ -68,14 +68,18 @@ function usePwaSetup() {
     const createdTheme = !theme
     if (!theme) { theme = document.createElement('meta'); theme.name = 'theme-color'; document.head.appendChild(theme) }
     const prevTheme = theme.content; theme.content = '#020617'
+    let apple = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]')
+    const createdApple = !apple
+    if (!apple) { apple = document.createElement('link'); apple.rel = 'apple-touch-icon'; document.head.appendChild(apple) }
+    const prevApple = apple.href; apple.href = '/app-icon-180.png'
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/app-sw.js').catch(() => {})
-    return () => { if (link) link.href = createdLink ? '' : prevHref; if (theme) theme.content = createdTheme ? '' : prevTheme }
+    return () => { if (link) link.href = createdLink ? '' : prevHref; if (theme) theme.content = createdTheme ? '' : prevTheme; if (apple) apple.href = createdApple ? '' : prevApple }
   }, [])
 }
 async function showOrderNotification(title: string, body: string) {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-  try { const reg = await navigator.serviceWorker?.ready; if (reg) { await reg.showNotification(title, { body, icon: '/app-icon.svg', badge: '/app-icon.svg', tag: 'takesmart-order', data: { url: '/app' } }); return } } catch { /* */ }
-  try { new Notification(title, { body, icon: '/app-icon.svg' }) } catch { /* */ }
+  try { const reg = await navigator.serviceWorker?.ready; if (reg) { await reg.showNotification(title, { body, icon: '/app-icon-192.png', badge: '/app-icon-192.png', tag: 'takesmart-order', data: { url: '/app' } }); return } } catch { /* */ }
+  try { new Notification(title, { body, icon: '/app-icon-192.png' }) } catch { /* */ }
 }
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -111,22 +115,33 @@ async function subscribeToPush(): Promise<boolean> {
   } catch { return false }
 }
 
-// Звук + вибрация при новом заказе (без ассетов — короткий бип через WebAudio).
-function playAlert() {
+// Постоянный AudioContext: разблокируется по жесту (клик «Включить»), после чего
+// звук работает и из таймера опроса (браузеры блокируют звук без жеста).
+let _audioCtx: AudioContext | null = null
+function getAudioCtx(): AudioContext | null {
   try {
     const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    if (Ctx) {
-      const ctx = new Ctx()
+    if (!Ctx) return null
+    if (!_audioCtx) _audioCtx = new Ctx()
+    return _audioCtx
+  } catch { return null }
+}
+function unlockAudio() { const c = getAudioCtx(); if (c && c.state === 'suspended') c.resume().catch(() => {}) }
+// Звук + вибрация при новом заказе.
+function playAlert() {
+  const ctx = getAudioCtx()
+  if (ctx) {
+    try {
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {})
       const o = ctx.createOscillator(); const g = ctx.createGain()
       o.connect(g); g.connect(ctx.destination)
       o.type = 'sine'; o.frequency.value = 880
       g.gain.setValueAtTime(0.0001, ctx.currentTime)
-      g.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.02)
+      g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02)
       g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4)
       o.start(); o.stop(ctx.currentTime + 0.42)
-      o.onended = () => ctx.close()
-    }
-  } catch { /* */ }
+    } catch { /* */ }
+  }
   try { navigator.vibrate?.([120, 60, 120]) } catch { /* */ }
 }
 
@@ -160,7 +175,7 @@ function LoginScreen() {
     <div className="relative flex min-h-[100dvh] flex-col items-center justify-center overflow-hidden bg-slate-950 px-6">
       <div className="pointer-events-none absolute -top-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-yellow-400/20 blur-3xl" />
       <div className="relative mb-9 flex flex-col items-center">
-        <img src="/app-icon.svg" alt="" className="h-20 w-20 rounded-3xl shadow-2xl shadow-yellow-400/10 ring-1 ring-white/10" />
+        <img src="/app-icon-192.png" alt="" className="h-20 w-20 rounded-3xl shadow-2xl shadow-yellow-400/10 ring-1 ring-white/10" />
         <h1 className="mt-5 text-2xl font-bold tracking-tight text-white">TakeSmart</h1>
         <p className="mt-1 text-sm text-slate-400">Заказы · вход для сотрудников</p>
       </div>
@@ -401,14 +416,19 @@ function useNotifyPermission() {
   const supported = typeof Notification !== 'undefined'
   const [perm, setPerm] = useState<NotificationPermission | 'unsupported'>(supported ? Notification.permission : 'unsupported')
   const request = useCallback(async () => {
-    if (!supported) return
+    if (!supported) { alert('Этот браузер не поддерживает уведомления.'); return }
+    unlockAudio()
     const p = await Notification.requestPermission(); setPerm(p)
-    if (p === 'granted') {
-      const ok = await subscribeToPush()
-      await showOrderNotification(
-        'Уведомления включены',
-        ok ? 'Будем присылать пуш о новых заказах — даже когда приложение закрыто.' : 'В этом браузере фоновый пуш недоступен, но в открытом приложении уведомления придут.',
-      )
+    if (p !== 'granted') {
+      alert('Уведомления не разрешены.\n\nНа iPhone: открой сайт в Safari → «Поделиться» → «На экран Домой», затем запусти приложение С ИКОНКИ и включи уведомления (в обычной вкладке Safari iOS их не даёт).')
+      return
+    }
+    const ok = await subscribeToPush()
+    playAlert()
+    if (ok) {
+      await showOrderNotification('Уведомления включены', 'Будем присылать «У вас новый заказ!» — даже когда приложение закрыто.')
+    } else {
+      alert('Разрешение получено, но подписка не оформилась.\n\nНа iPhone это работает только в приложении, установленном на экран «Домой» (Safari → Поделиться → На экран Домой). Открой его с иконки и нажми «Включить» ещё раз.')
     }
   }, [supported])
   return { perm, request }
@@ -480,7 +500,17 @@ function OrdersFeed() {
   }, [])
 
   const testPush = useCallback(async () => {
-    try { await fetch(`${API_BASE_URL}/api/push/test`, { method: 'POST', headers: getAuthHeaders() }) } catch { /* */ }
+    unlockAudio()
+    try {
+      const r = await fetch(`${API_BASE_URL}/api/push/test`, { method: 'POST', headers: getAuthHeaders() })
+      if (!r.ok) { alert(`Не удалось отправить тест (HTTP ${r.status}).`); return }
+      const d = await r.json().catch(() => ({} as { sent?: number }))
+      if (typeof d.sent === 'number') {
+        alert(d.sent > 0
+          ? `Тест отправлен на ${d.sent} устройств(а) — уведомление должно прийти.`
+          : 'Нет активных подписок на этом аккаунте. Сначала нажми «Включить уведомления» (на iPhone — в приложении, установленном на экран «Домой»).')
+      } else { alert('Тест отправлен.') }
+    } catch { alert('Ошибка сети при отправке теста.') }
   }, [])
 
   const counts = useMemo(() => {
@@ -505,7 +535,7 @@ function OrdersFeed() {
         {refreshing && <div className="absolute inset-x-0 top-0 h-0.5 animate-pulse bg-gradient-to-r from-transparent via-yellow-400 to-transparent" />}
         <div className="flex items-center justify-between gap-2 px-4 py-3">
           <div className="flex items-center gap-2.5">
-            <img src="/app-icon.svg" alt="" className="h-9 w-9 rounded-xl ring-1 ring-white/10" />
+            <img src="/app-icon-192.png" alt="" className="h-9 w-9 rounded-xl ring-1 ring-white/10" />
             <div>
               <div className="text-[15px] font-bold leading-tight">Заказы</div>
               <div className="text-[11px] leading-tight text-slate-500">{updatedAt ? `обновлено ${updatedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : 'загрузка…'}</div>

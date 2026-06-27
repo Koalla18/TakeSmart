@@ -17,11 +17,11 @@ self.addEventListener('push', (event) => {
   } catch (_e) {
     data = { body: event.data ? event.data.text() : '' }
   }
-  const title = data.title || 'Новый заказ'
+  const title = data.title || 'У вас новый заказ!'
   const options = {
     body: data.body || '',
-    icon: '/app-icon.svg',
-    badge: '/app-icon.svg',
+    icon: data.icon || '/app-icon-192.png',
+    badge: '/app-icon-192.png',
     tag: data.tag || 'takesmart-order',
     renotify: true,
     requireInteraction: true,
