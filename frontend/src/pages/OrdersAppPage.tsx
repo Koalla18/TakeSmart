@@ -46,7 +46,6 @@ interface OrderDetail extends AppOrder { items: OrderItem[] }
 const AVATAR = ['bg-rose-500/80', 'bg-amber-500/80', 'bg-emerald-500/80', 'bg-sky-500/80', 'bg-violet-500/80', 'bg-fuchsia-500/80', 'bg-cyan-500/80', 'bg-orange-500/80']
 function avatarColor(name: string): string { let h = 0; for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0; return AVATAR[h % AVATAR.length] }
 const fmtRub = (n: number) => new Intl.NumberFormat('ru-RU').format(Math.round(n || 0)) + ' ₽'
-const digits = (s?: string | null) => (s || '').replace(/\D/g, '')
 function timeAgo(iso: string): string {
   const d = new Date(iso); const s = (Date.now() - d.getTime()) / 1000
   if (s < 45) return 'только что'
@@ -112,16 +111,35 @@ async function subscribeToPush(): Promise<boolean> {
   } catch { return false }
 }
 
+// Звук + вибрация при новом заказе (без ассетов — короткий бип через WebAudio).
+function playAlert() {
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (Ctx) {
+      const ctx = new Ctx()
+      const o = ctx.createOscillator(); const g = ctx.createGain()
+      o.connect(g); g.connect(ctx.destination)
+      o.type = 'sine'; o.frequency.value = 880
+      g.gain.setValueAtTime(0.0001, ctx.currentTime)
+      g.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.02)
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4)
+      o.start(); o.stop(ctx.currentTime + 0.42)
+      o.onended = () => ctx.close()
+    }
+  } catch { /* */ }
+  try { navigator.vibrate?.([120, 60, 120]) } catch { /* */ }
+}
+
 const SAFE_TOP = { paddingTop: 'max(env(safe-area-inset-top), 0px)' }
 const SAFE_BOTTOM = { paddingBottom: 'max(env(safe-area-inset-bottom), 16px)' }
 
 // ── Кнопка «копировать» ────────────────────────────────────────────────────────
-function CopyBtn({ text, children }: { text: string; children: React.ReactNode }) {
+function CopyBtn({ text, children, className }: { text: string; children: React.ReactNode; className?: string }) {
   const [done, setDone] = useState(false)
   return (
     <button
       onClick={async () => { try { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1400) } catch { /* */ } }}
-      className="inline-flex items-center gap-1 rounded-lg bg-white/5 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition active:scale-95 hover:bg-white/10"
+      className={className || 'inline-flex items-center gap-1 rounded-lg bg-white/5 px-2.5 py-1.5 text-xs font-medium text-slate-300 transition active:scale-95 hover:bg-white/10'}
     >
       {done ? '✓ Скопировано' : children}
     </button>
@@ -162,11 +180,11 @@ function LoginScreen() {
 }
 
 // ── Карточка заказа в ленте ─────────────────────────────────────────────────────
-function OrderCard({ o, fresh, onOpen }: { o: AppOrder; fresh: boolean; onOpen: () => void }) {
+function OrderCard({ o, fresh, onOpen, onConfirm }: { o: AppOrder; fresh: boolean; onOpen: () => void; onConfirm?: () => void }) {
   const cfg = STATUS[o.status]
   const initial = (o.customer_name || '?').trim().charAt(0).toUpperCase()
   return (
-    <button onClick={onOpen} className={`w-full rounded-2xl border bg-white/[0.04] p-4 text-left transition-all duration-500 active:scale-[0.99] ${fresh ? 'border-yellow-400/50 bg-yellow-400/[0.07] shadow-lg shadow-yellow-400/10' : 'border-white/10 hover:border-white/20'}`}>
+    <div role="button" tabIndex={0} onClick={onOpen} className={`w-full cursor-pointer rounded-2xl border bg-white/[0.04] p-4 text-left transition-all duration-500 active:scale-[0.99] ${fresh ? 'border-yellow-400/50 bg-yellow-400/[0.07] shadow-lg shadow-yellow-400/10' : 'border-white/10 hover:border-white/20'}`}>
       <div className="flex items-center justify-between gap-2">
         <span className="font-mono text-[13px] font-bold tracking-tight text-yellow-400">{o.order_number}</span>
         <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
@@ -186,7 +204,10 @@ function OrderCard({ o, fresh, onOpen }: { o: AppOrder; fresh: boolean; onOpen: 
           </span>
         </div>
       </div>
-    </button>
+      {o.status === 'pending' && onConfirm && (
+        <button onClick={(e) => { e.stopPropagation(); onConfirm() }} className="mt-3 w-full rounded-xl bg-emerald-500/15 py-2 text-sm font-semibold text-emerald-300 transition active:scale-[0.98] hover:bg-emerald-500/25">✓ Подтвердить</button>
+      )}
+    </div>
   )
 }
 
@@ -233,7 +254,6 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange }: { orderId: strin
   }
 
   const phone = order?.customer_phone || ''
-  const phoneDigits = digits(phone)
   const fullAddress = order ? [order.shipping_postal_code, order.shipping_city, order.shipping_address].filter(Boolean).join(', ') : ''
   const flowIdx = order ? FLOW.indexOf(order.status as StatusKey) : -1
 
@@ -279,14 +299,22 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange }: { orderId: strin
                   <span className={`flex h-11 w-11 items-center justify-center rounded-full text-base font-bold text-white ${avatarColor(order.customer_name || '?')}`}>{(order.customer_name || '?').charAt(0).toUpperCase()}</span>
                   <div className="min-w-0">
                     <div className="truncate font-semibold text-white">{order.customer_name}</div>
-                    {order.customer_email && <div className="truncate text-xs text-slate-500">{order.customer_email}</div>}
+                    <div className="text-xs text-slate-500">Клиент</div>
                   </div>
                 </div>
                 {phone && (
-                  <div className="flex flex-wrap gap-2">
-                    <a href={`tel:${phone}`} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/15 px-3 py-2 text-sm font-medium text-emerald-300 transition active:scale-95 hover:bg-emerald-500/25">📞 Позвонить</a>
-                    {phoneDigits && <a href={`https://wa.me/${phoneDigits}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-2 text-sm font-medium text-slate-200 transition active:scale-95 hover:bg-white/10">💬 WhatsApp</a>}
-                    <CopyBtn text={phone}>📋 {phone}</CopyBtn>
+                  <div className="mb-2 flex items-center gap-2 rounded-xl bg-white/[0.03] px-3 py-2.5">
+                    <span className="text-base">📞</span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-white">{phone}</span>
+                    <a href={`tel:${phone}`} className="rounded-lg bg-emerald-500/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition active:scale-95 hover:bg-emerald-500/30">Позвонить</a>
+                    <CopyBtn text={phone}>Копировать</CopyBtn>
+                  </div>
+                )}
+                {order.customer_email && (
+                  <div className="flex items-center gap-2 rounded-xl bg-white/[0.03] px-3 py-2.5">
+                    <span className="text-base">✉️</span>
+                    <a href={`mailto:${order.customer_email}`} className="min-w-0 flex-1 truncate text-sm text-sky-300 transition hover:underline">{order.customer_email}</a>
+                    <CopyBtn text={order.customer_email}>Копировать</CopyBtn>
                   </div>
                 )}
               </section>
@@ -360,7 +388,7 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange }: { orderId: strin
           <div className="border-t border-white/10 bg-slate-950/90 px-4 py-3 backdrop-blur" style={SAFE_BOTTOM}>
             <div className="flex gap-2">
               <a href={`tel:${phone}`} className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-yellow-400 px-4 py-3 font-semibold text-gray-950 transition active:scale-[0.98] hover:bg-yellow-300">📞 Позвонить</a>
-              {phoneDigits && <a href={`https://wa.me/${phoneDigits}`} target="_blank" rel="noopener noreferrer" className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-white/10 px-4 py-3 font-semibold text-white transition active:scale-[0.98] hover:bg-white/15">💬 Написать</a>}
+              <CopyBtn text={phone} className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-white/10 px-4 py-3 font-semibold text-white transition active:scale-[0.98] hover:bg-white/15">📋 Скопировать</CopyBtn>
             </div>
           </div>
         )}
@@ -400,6 +428,11 @@ function OrdersFeed() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const seenIds = useRef<Set<string> | null>(null)
   const [freshIds, setFreshIds] = useState<Set<string>>(new Set())
+  const [query, setQuery] = useState('')
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [soundOn, setSoundOn] = useState(() => { try { return localStorage.getItem('takesmart_app_sound') !== '0' } catch { return true } })
+  const soundOnRef = useRef(soundOn)
+  useEffect(() => { soundOnRef.current = soundOn; try { localStorage.setItem('takesmart_app_sound', soundOn ? '1' : '0') } catch { /* */ } }, [soundOn])
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true)
@@ -412,6 +445,7 @@ function OrdersFeed() {
       if (seenIds.current) {
         const fresh = items.filter((o) => !seenIds.current!.has(o.id))
         if (fresh.length) {
+          if (soundOnRef.current) playAlert()
           setFreshIds((prev) => { const n = new Set(prev); fresh.forEach((o) => n.add(o.id)); return n })
           const ids = fresh.map((o) => o.id)
           window.setTimeout(() => setFreshIds((prev) => { const n = new Set(prev); ids.forEach((id) => n.delete(id)); return n }), 8000)
@@ -438,6 +472,17 @@ function OrdersFeed() {
 
   const patchStatus = useCallback((id: string, s: string) => setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status: s } : o))), [])
 
+  const quickConfirm = useCallback(async (id: string) => {
+    try {
+      const r = await fetch(`${API_BASE_URL}/api/orders/${id}/status`, { method: 'PATCH', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'confirmed' }) })
+      if (r.ok) setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status: 'confirmed' } : o)))
+    } catch { /* */ }
+  }, [])
+
+  const testPush = useCallback(async () => {
+    try { await fetch(`${API_BASE_URL}/api/push/test`, { method: 'POST', headers: getAuthHeaders() }) } catch { /* */ }
+  }, [])
+
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: orders.length }
     for (const f of FILTERS) if (f.statuses) c[f.key] = orders.filter((o) => f.statuses!.includes(o.status as StatusKey)).length
@@ -448,9 +493,11 @@ function OrdersFeed() {
   const newCount = counts['pending'] ?? 0
   const visible = useMemo(() => {
     const f = FILTERS.find((x) => x.key === filter)
-    if (!f || !f.statuses) return orders
-    return orders.filter((o) => f.statuses!.includes(o.status as StatusKey))
-  }, [orders, filter])
+    let list = !f || !f.statuses ? orders : orders.filter((o) => f.statuses!.includes(o.status as StatusKey))
+    const q = query.trim().toLowerCase()
+    if (q) list = list.filter((o) => [o.order_number, o.customer_name, o.customer_phone, o.shipping_city].some((v) => String(v ?? '').toLowerCase().includes(q)))
+    return list
+  }, [orders, filter, query])
 
   return (
     <div className="min-h-[100dvh] bg-slate-950 text-white" style={SAFE_BOTTOM}>
@@ -467,12 +514,32 @@ function OrdersFeed() {
           <div className="flex items-center gap-1.5">
             {perm === 'granted' && <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300">🔔</span>}
             <button onClick={() => load(true)} aria-label="Обновить" className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-slate-300 transition hover:bg-white/10 active:scale-95"><span className={refreshing ? 'inline-block animate-spin' : ''}>↻</span></button>
-            <button onClick={logout} aria-label="Выйти" className="flex h-9 items-center rounded-xl bg-white/5 px-3 text-xs text-slate-300 transition hover:bg-white/10 active:scale-95">Выйти</button>
+            <button onClick={() => setSettingsOpen((v) => !v)} aria-label="Настройки" className={`flex h-9 w-9 items-center justify-center rounded-xl transition active:scale-95 ${settingsOpen ? 'bg-yellow-400 text-gray-950' : 'bg-white/5 text-slate-300 hover:bg-white/10'}`}>⚙</button>
           </div>
         </div>
       </header>
 
       <div className="mx-auto max-w-xl px-4 pt-4">
+        {settingsOpen && (
+          <div className="mb-4 space-y-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Настройки</div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-white">Звук нового заказа</span>
+              <button onClick={() => setSoundOn((v) => !v)} aria-label="Звук" className={`relative h-6 w-11 rounded-full transition ${soundOn ? 'bg-yellow-400' : 'bg-white/15'}`}>
+                <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${soundOn ? 'left-[22px]' : 'left-0.5'}`} />
+              </button>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-white">Уведомления</span>
+              {perm === 'granted'
+                ? <button onClick={testPush} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-white/15">Тест</button>
+                : perm === 'denied'
+                  ? <span className="text-xs text-rose-300">заблокированы</span>
+                  : <button onClick={request} className="rounded-lg bg-yellow-400 px-3 py-1.5 text-xs font-semibold text-gray-950 transition hover:bg-yellow-300">Включить</button>}
+            </div>
+            <button onClick={logout} className="w-full rounded-xl bg-white/5 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-white/10">Выйти</button>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div className="relative overflow-hidden rounded-3xl border border-yellow-400/20 bg-gradient-to-br from-yellow-400/15 to-amber-500/5 p-4">
             <div className="text-[11px] font-medium uppercase tracking-wider text-yellow-200/70">Новые</div>
@@ -496,7 +563,12 @@ function OrdersFeed() {
         )}
         {perm === 'denied' && <div className="mt-3 rounded-2xl border border-rose-500/20 bg-rose-500/[0.06] px-4 py-2.5 text-xs text-rose-300">🔕 Уведомления заблокированы. Включите их в настройках браузера/системы.</div>}
 
-        <div className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="mt-4">
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="🔍 Поиск: номер, имя, телефон, город"
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-yellow-400/50" />
+        </div>
+
+        <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {FILTERS.map((f) => {
             const active = filter === f.key; const n = counts[f.key]
             return (
@@ -515,7 +587,7 @@ function OrdersFeed() {
         ) : visible.length === 0 ? (
           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-14 text-center"><div className="mb-3 text-5xl">📭</div><div className="font-semibold text-white">{filter === 'all' ? 'Заказов пока нет' : 'Нет заказов в этом фильтре'}</div></div>
         ) : (
-          visible.map((o) => <OrderCard key={o.id} o={o} fresh={freshIds.has(o.id)} onOpen={() => setSelectedId(o.id)} />)
+          visible.map((o) => <OrderCard key={o.id} o={o} fresh={freshIds.has(o.id)} onOpen={() => setSelectedId(o.id)} onConfirm={() => quickConfirm(o.id)} />)
         )}
       </div>
 
