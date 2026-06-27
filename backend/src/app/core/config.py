@@ -71,6 +71,11 @@ class Settings(BaseSettings):
     TELEGRAM_RETRIES: int = 1
     TELEGRAM_RETRY_DELAY_SECONDS: float = 1.0
 
+    # Web Push (VAPID) — для PWA «Заказы»
+    VAPID_PUBLIC_KEY: str = ""
+    VAPID_PRIVATE_KEY: str = ""
+    VAPID_SUBJECT: str = "mailto:admin@takesmart.ru"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
