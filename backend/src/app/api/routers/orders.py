@@ -11,7 +11,6 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 from fastapi.responses import Response
 
 from src.app.core.logger import get_logger
-from src.app.core.telegram_service import send_order_notification
 from src.app.core.push_service import send_order_push
 from src.app.database.models.order import OrderStatus, PaymentStatus
 from src.app.database.unit_of_work import UnitOfWork
@@ -211,9 +210,8 @@ async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> 
         items=len(order.items),
     )
 
-    # Уведомление в Telegram отправляем после возврата ответа,
-    # чтобы медленный/упавший Telegram не подвешивал оформление заказа.
-    background_tasks.add_task(send_order_notification, order)
+    # Telegram отключён по просьбе владельца — уведомления о новых заказах идут
+    # через Web Push (PWA «Заказы»). telegram_service.py оставлен на случай возврата.
     background_tasks.add_task(send_order_push, order)
 
     return order
