@@ -78,6 +78,40 @@ async function showOrderNotification(title: string, body: string) {
   try { const reg = await navigator.serviceWorker?.ready; if (reg) { await reg.showNotification(title, { body, icon: '/app-icon.svg', badge: '/app-icon.svg', tag: 'takesmart-order', data: { url: '/app' } }); return } } catch { /* */ }
   try { new Notification(title, { body, icon: '/app-icon.svg' }) } catch { /* */ }
 }
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = atob(base64)
+  const arr = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i)
+  return arr
+}
+
+// Подписка на Web Push: берём VAPID-ключ с бэкенда, подписываемся, отправляем подписку.
+async function subscribeToPush(): Promise<boolean> {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return false
+    const reg = await navigator.serviceWorker.ready
+    let sub = await reg.pushManager.getSubscription()
+    if (!sub) {
+      const res = await fetch(`${API_BASE_URL}/api/push/vapid-public-key`)
+      if (!res.ok) return false
+      const { public_key } = await res.json()
+      if (!public_key) return false
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(public_key) as unknown as BufferSource })
+    }
+    const j = sub.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } }
+    if (!j.endpoint || !j.keys?.p256dh || !j.keys?.auth) return false
+    const r = await fetch(`${API_BASE_URL}/api/push/subscribe`, {
+      method: 'POST',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: j.endpoint, keys: { p256dh: j.keys.p256dh, auth: j.keys.auth }, user_agent: navigator.userAgent.slice(0, 280) }),
+    })
+    return r.ok
+  } catch { return false }
+}
+
 const SAFE_TOP = { paddingTop: 'max(env(safe-area-inset-top), 0px)' }
 const SAFE_BOTTOM = { paddingBottom: 'max(env(safe-area-inset-bottom), 16px)' }
 
@@ -341,7 +375,13 @@ function useNotifyPermission() {
   const request = useCallback(async () => {
     if (!supported) return
     const p = await Notification.requestPermission(); setPerm(p)
-    if (p === 'granted') { try { await navigator.serviceWorker?.ready } catch { /* */ } await showOrderNotification('Уведомления включены', 'Будем сообщать о новых заказах.') }
+    if (p === 'granted') {
+      const ok = await subscribeToPush()
+      await showOrderNotification(
+        'Уведомления включены',
+        ok ? 'Будем присылать пуш о новых заказах — даже когда приложение закрыто.' : 'В этом браузере фоновый пуш недоступен, но в открытом приложении уведомления придут.',
+      )
+    }
   }, [supported])
   return { perm, request }
 }
@@ -392,6 +432,9 @@ function OrdersFeed() {
     document.addEventListener('visibilitychange', onVis)
     return () => { window.clearInterval(t); document.removeEventListener('visibilitychange', onVis) }
   }, [load])
+
+  // Если разрешение на уведомления уже выдано — тихо (пере)подписываемся на бэкенде.
+  useEffect(() => { if (typeof Notification !== 'undefined' && Notification.permission === 'granted') void subscribeToPush() }, [])
 
   const patchStatus = useCallback((id: string, s: string) => setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status: s } : o))), [])
 
