@@ -261,14 +261,15 @@ function CatalogMegaMenu() {
                             {g.models.length > 0 && (
                               <ul className="mt-2 space-y-0.5">
                                 {g.models.slice(0, 5).map(m => (
-                                  <li key={m.slug}>
+                                  <li key={m.name}>
                                     <Link
-                                      to={`/product/${m.slug}`}
+                                      to={`/catalog?category=${activeCat.slug}&brand=${encodeURIComponent(g.name.toLowerCase())}&q=${encodeURIComponent(m.name)}`}
                                       onClick={closeNow}
                                       className="group/m flex items-center gap-2.5 rounded-lg px-1 py-1 transition-colors hover:bg-yellow-50"
                                     >
                                       <ModelThumb src={m.image} alt={m.name} />
-                                      <span className="truncate text-sm text-gray-600 group-hover/m:text-gray-900">{m.name}</span>
+                                      <span className="flex-1 truncate text-sm text-gray-600 group-hover/m:text-gray-900">{m.name}</span>
+                                      {m.count > 1 && <span className="text-xs text-gray-300">{m.count}</span>}
                                     </Link>
                                   </li>
                                 ))}
@@ -500,14 +501,15 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                           {g.models.length > 0 && (
                             <ul className="mt-1.5">
                               {g.models.slice(0, 8).map(m => (
-                                <li key={m.slug}>
+                                <li key={m.name}>
                                   <Link
-                                    to={`/product/${m.slug}`}
+                                    to={`/catalog?category=${drillCat.slug}&brand=${encodeURIComponent(g.name.toLowerCase())}&q=${encodeURIComponent(m.name)}`}
                                     onClick={close}
                                     className="flex items-center gap-3 rounded-xl px-1 py-1.5 transition-colors hover:bg-yellow-50"
                                   >
                                     <ModelThumb src={m.image} alt={m.name} />
-                                    <span className="truncate text-sm text-gray-700">{m.name}</span>
+                                    <span className="flex-1 truncate text-sm text-gray-700">{m.name}</span>
+                                    {m.count > 1 && <span className="text-xs text-gray-400">{m.count}</span>}
                                   </Link>
                                 </li>
                               ))}

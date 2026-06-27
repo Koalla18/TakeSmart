@@ -73,9 +73,9 @@ export async function fetchCategoryBrands(categoryId: string): Promise<MenuBrand
 }
 
 export interface MenuModel {
-  name: string
-  slug: string
+  name: string   // модельное СЕМЕЙСТВО (напр. «iPhone 17 Pro Max»), без ёмкости/цвета
   image: string
+  count: number  // сколько вариантов товара в этом семействе
 }
 
 export interface MenuBrandGroup {
@@ -85,9 +85,30 @@ export interface MenuBrandGroup {
 }
 
 /**
- * Бренды + их модели для одной категории — лениво, в один запрос (как у cordstore:
- * колонка бренда, под ней модели). Берём товары ТОЛЬКО этой категории (лимит 300),
- * группируем по бренду, модели дедуплицируем по названию (поле model, иначе name).
+ * Извлекает «модельное семейство» из полного названия товара: срезает ведущее
+ * слово-категорию, бренд, ёмкость (512ГБ / 12/256ГБ), цвет/скобки и SIM-хвост.
+ * Напр.: «Смартфон Apple iPhone 17 Pro Max 256ГБ SIM+eSIM, тёмно-синий» → «iPhone 17 Pro Max».
+ */
+function modelFamily(name: string, brand: string): string {
+  let s = String(name || '')
+  s = s.replace(/^(смартфон|планшет|ноутбук|наушники|наушник|часы|смарт-часы|консоль|приставка|телевизор|монитор|колонка|роутер|клавиатура|мышь)\s+/i, '')
+  if (brand) {
+    const b = brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    s = s.replace(new RegExp('^' + b + '\\s+', 'i'), '')
+  }
+  s = s.replace(/\s*\b\d+(\s*\/\s*\d+)?\s*(гб|тб|gb|tb)\b.*$/i, '')   // ёмкость + всё после
+  s = s.replace(/\s*[,(].*$/, '')                                       // цвет / скобки
+  s = s.replace(/\s*\b(2?sim(\s*\+\s*e?sim)?|esim(\s*\+\s*esim)?)\b.*$/i, '')
+  s = s.replace(/\s{2,}/g, ' ').trim()
+  return s || String(name || '').trim()
+}
+
+/**
+ * Бренды + их модельные СЕМЕЙСТВА для одной категории — лениво, в один запрос
+ * (как у cordstore: колонка бренда, под ней модели). Берём товары ТОЛЬКО этой
+ * категории (лимит 300), группируем по бренду → по семейству; вариант (ёмкость/цвет)
+ * сворачивается в семейство, считается count. Открыть все варианты семейства можно
+ * через каталог (поиск по названию семейства).
  */
 export async function fetchCategoryBrandGroups(categoryId: string): Promise<MenuBrandGroup[]> {
   try {
@@ -102,18 +123,26 @@ export async function fetchCategoryBrandGroups(categoryId: string): Promise<Menu
     for (const p of items) {
       const brand = String(p.brand ?? '').trim()
       if (!brand) continue
-      const display = String(p.model ?? '').trim() || String(p.name ?? '').trim()
-      const slug = String(p.slug ?? '')
+      const fam = modelFamily(String(p.name ?? ''), brand)
+      if (!fam) continue
       if (!byBrand.has(brand)) byBrand.set(brand, { count: 0, models: new Map() })
       const g = byBrand.get(brand)!
       g.count++
-      if (display && slug && !g.models.has(display)) {
-        g.models.set(display, { name: display, slug, image: String(p.main_image_url ?? '') })
+      const existing = g.models.get(fam)
+      if (existing) {
+        existing.count++
+        if (!existing.image) existing.image = String(p.main_image_url ?? '')
+      } else {
+        g.models.set(fam, { name: fam, image: String(p.main_image_url ?? ''), count: 1 })
       }
     }
 
     return [...byBrand.entries()]
-      .map(([name, g]) => ({ name, count: g.count, models: [...g.models.values()] }))
+      .map(([name, g]) => ({
+        name,
+        count: g.count,
+        models: [...g.models.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ru')),
+      }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ru'))
   } catch {
     return []
