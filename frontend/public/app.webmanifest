@@ -1,0 +1,15 @@
+{
+  "name": "TakeSmart — Заказы",
+  "short_name": "Заказы",
+  "description": "Новые заказы и уведомления TakeSmart",
+  "start_url": "/app",
+  "scope": "/app",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "lang": "ru",
+  "icons": [
+    { "src": "/app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

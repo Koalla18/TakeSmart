@@ -21,6 +21,7 @@ const ProductPage = lazy(() => import('./pages/ProductPage').then(m => ({ defaul
 const TradeInPage = lazy(() => import('./pages/TradeInPage').then(m => ({ default: m.TradeInPage })))
 const UsedPage = lazy(() => import('./pages/UsedPage').then(m => ({ default: m.UsedPage })))
 const UsedProductPage = lazy(() => import('./pages/UsedProductPage').then(m => ({ default: m.UsedProductPage })))
+const OrdersAppPage = lazy(() => import('./pages/OrdersAppPage').then(m => ({ default: m.OrdersAppPage })))
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -49,6 +50,7 @@ export default function App() {
             {/* Admin routes (no Shell) */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/admin" element={<AdminPage />} />
+            <Route path="/app" element={<OrdersAppPage />} />
 
             {/* Public routes (with Shell) */}
             <Route path="/" element={<Shell><HomePage /></Shell>} />
