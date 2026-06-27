@@ -55,18 +55,18 @@ def _send_one(sub_info: dict, payload: str) -> int | None:
         return None
 
 
-async def send_push_to_all(title: str, body: str, url: str = "/app") -> None:
-    """Рассылает Web Push всем сохранённым подпискам. Безопасно (ошибки не пробрасываются)."""
+async def send_push_to_all(title: str, body: str, url: str = "/app") -> dict:
+    """Рассылает Web Push всем сохранённым подпискам. Возвращает {sent,total,pruned}. Безопасно."""
     if not settings.VAPID_PRIVATE_KEY or not settings.VAPID_PUBLIC_KEY:
         logger.warning("push_not_configured", skipping=True)
-        return
+        return {"sent": 0, "total": 0, "pruned": 0}
 
     dead: list[str] = []
     sent = 0
     async with AsyncSessionFactory() as session:
         rows = (await session.execute(select(PushSubscription))).scalars().all()
         if not rows:
-            return
+            return {"sent": 0, "total": 0, "pruned": 0}
         payload = json.dumps({"title": title, "body": body, "url": url}, ensure_ascii=False)
         for sub in rows:
             info = {"endpoint": sub.endpoint, "keys": {"p256dh": sub.p256dh, "auth": sub.auth}}
@@ -80,13 +80,14 @@ async def send_push_to_all(title: str, body: str, url: str = "/app") -> None:
             await session.commit()
 
     logger.info("push_sent", title=title, sent=sent, pruned=len(dead))
+    return {"sent": sent, "total": len(rows), "pruned": len(dead)}
 
 
 async def send_order_push(order: "Order") -> None:
     """Пуш о новом заказе (вешается в BackgroundTasks рядом с Telegram)."""
     try:
-        title = f"Новый заказ {order.order_number}"
-        body = f"{order.customer_name or 'Клиент'} · {_price(order.total_amount)}"
+        title = "У вас новый заказ!"
+        body = f"{order.order_number} · {order.customer_name or 'клиент'} · {_price(order.total_amount)}"
         await send_push_to_all(title, body, url="/app")
     except Exception as exc:  # noqa: BLE001
         logger.error("push_order_error", error=str(exc))

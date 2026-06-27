@@ -60,6 +60,6 @@ async def unsubscribe(body: PushUnsubscribeIn, db: AsyncSession = Depends(get_db
 
 
 @router.post("/test", summary="Отправить тестовый push", dependencies=[Depends(get_current_admin)])
-async def test_push(background_tasks: BackgroundTasks) -> dict:
-    background_tasks.add_task(send_push_to_all, "Тест уведомления", "Если вы это видите — пуши работают ✅", "/app")
-    return {"ok": True}
+async def test_push() -> dict:
+    # await напрямую — чтобы вернуть, скольким устройствам ушло (для обратной связи в UI)
+    return await send_push_to_all("Тест уведомления", "Если вы это видите — пуши работают ✅", "/app")
