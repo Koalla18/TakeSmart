@@ -24,7 +24,7 @@ const FLOW: StatusKey[] = ['pending', 'confirmed', 'processing', 'shipped', 'del
 const ALL_STATUSES: StatusKey[] = [...FLOW, 'cancelled', 'refunded']
 
 const PAYMENT: Record<string, string> = {
-  pending: 'Ожидает оплаты', paid: 'Оплачен', failed: 'Ошибка оплаты', refunded: 'Возвращён',
+  pending: 'Ожидает оплаты', unpaid: 'Не оплачен', paid: 'Оплачен', failed: 'Ошибка оплаты', refunded: 'Возвращён',
 }
 
 const FILTERS: { key: string; label: string; statuses?: StatusKey[] }[] = [
@@ -127,22 +127,31 @@ function getAudioCtx(): AudioContext | null {
   } catch { return null }
 }
 function unlockAudio() { const c = getAudioCtx(); if (c && c.state === 'suspended') c.resume().catch(() => {}) }
-// Звук + вибрация при новом заказе.
+// Звук + вибрация при новом заказе — звонкая громкая трель (восходящее трезвучие ×2).
+function tone(ctx: AudioContext, freq: number, start: number, dur: number, vol: number) {
+  const o = ctx.createOscillator(); const g = ctx.createGain()
+  o.connect(g); g.connect(ctx.destination)
+  o.type = 'triangle'; o.frequency.value = freq
+  g.gain.setValueAtTime(0.0001, start)
+  g.gain.exponentialRampToValueAtTime(vol, start + 0.015)
+  g.gain.exponentialRampToValueAtTime(0.0001, start + dur)
+  o.start(start); o.stop(start + dur + 0.03)
+}
 function playAlert() {
   const ctx = getAudioCtx()
   if (ctx) {
     try {
       if (ctx.state === 'suspended') ctx.resume().catch(() => {})
-      const o = ctx.createOscillator(); const g = ctx.createGain()
-      o.connect(g); g.connect(ctx.destination)
-      o.type = 'sine'; o.frequency.value = 880
-      g.gain.setValueAtTime(0.0001, ctx.currentTime)
-      g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02)
-      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4)
-      o.start(); o.stop(ctx.currentTime + 0.42)
+      const t = ctx.currentTime; const v = 0.5
+      tone(ctx, 1047, t, 0.16, v)
+      tone(ctx, 1319, t + 0.16, 0.16, v)
+      tone(ctx, 1568, t + 0.32, 0.30, v)
+      tone(ctx, 1047, t + 0.72, 0.16, v)
+      tone(ctx, 1319, t + 0.88, 0.16, v)
+      tone(ctx, 1568, t + 1.04, 0.36, v)
     } catch { /* */ }
   }
-  try { navigator.vibrate?.([120, 60, 120]) } catch { /* */ }
+  try { navigator.vibrate?.([200, 90, 200, 90, 250]) } catch { /* */ }
 }
 
 const SAFE_TOP = { paddingTop: 'max(env(safe-area-inset-top), 0px)' }
@@ -365,9 +374,14 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange }: { orderId: strin
                     </div>
                   ))}
                 </div>
-                <div className="mt-3 flex items-center justify-between rounded-2xl border border-yellow-400/20 bg-yellow-400/[0.07] px-4 py-3">
-                  <span className="text-sm font-medium text-slate-300">Итого{order.payment_status ? ` · ${PAYMENT[order.payment_status] || order.payment_status}` : ''}</span>
-                  <span className="text-lg font-extrabold text-yellow-400">{fmtRub(order.total_amount)}</span>
+                <div className="mt-3 rounded-2xl border border-yellow-400/20 bg-yellow-400/[0.07] px-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-slate-300">Итого</span>
+                    <span className="text-lg font-extrabold text-yellow-400">{fmtRub(order.total_amount)}</span>
+                  </div>
+                  {order.payment_status && (
+                    <div className="mt-1 text-xs text-slate-400">Оплата: {PAYMENT[order.payment_status] || order.payment_status}</div>
+                  )}
                 </div>
               </section>
 
@@ -519,7 +533,7 @@ function OrdersFeed() {
     return c
   }, [orders])
   const todayOrders = useMemo(() => orders.filter((o) => isToday(o.created_at)), [orders])
-  const todayRevenue = useMemo(() => todayOrders.reduce((s, o) => s + (o.total_amount || 0), 0), [todayOrders])
+  const todayRevenue = useMemo(() => todayOrders.reduce((s, o) => s + (Number(o.total_amount) || 0), 0), [todayOrders])
   const newCount = counts['pending'] ?? 0
   const visible = useMemo(() => {
     const f = FILTERS.find((x) => x.key === filter)

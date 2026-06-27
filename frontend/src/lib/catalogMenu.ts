@@ -96,7 +96,7 @@ function modelFamily(name: string, brand: string): string {
     const b = brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     s = s.replace(new RegExp('^' + b + '\\s+', 'i'), '')
   }
-  s = s.replace(/\s*\b\d+(\s*\/\s*\d+)?\s*(гб|тб|gb|tb)\b.*$/i, '')   // ёмкость + всё после
+  s = s.replace(/\s*\d+(\s*\/\s*\d+)?\s*(гб|тб|gb|tb).*$/i, '')   // ёмкость + всё после (без \b: в JS он не работает с кириллицей ГБ/ТБ)
   s = s.replace(/\s*[,(].*$/, '')                                       // цвет / скобки
   s = s.replace(/\s*\b(2?sim(\s*\+\s*e?sim)?|esim(\s*\+\s*esim)?)\b.*$/i, '')
   s = s.replace(/\s{2,}/g, ' ').trim()
