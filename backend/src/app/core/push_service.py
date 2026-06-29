@@ -55,8 +55,11 @@ def _price(value) -> str:
         return f"{value} ₽"
 
 
-def _send_one(sub_info: dict, payload: str) -> int | None:
-    """Синхронная отправка одного пуша. Возвращает HTTP-код (для 404/410 → удалить), иначе None."""
+def _send_one(sub_info: dict, payload: str) -> dict | None:
+    """Синхронная отправка одного пуша. None при успехе, иначе {'status':int|None,'detail':str}.
+
+    detail = текст ответа push-сервиса (напр. Apple 'BadJwtToken' при несовпадении
+    VAPID-ключей) — нужен для диагностики «всё настроил, а не приходит»."""
     try:
         webpush(
             subscription_info=sub_info,
@@ -69,24 +72,30 @@ def _send_one(sub_info: dict, payload: str) -> int | None:
         )
         return None
     except WebPushException as exc:
-        code = getattr(getattr(exc, "response", None), "status_code", None)
-        logger.warning("push_send_failed", status=code, error=str(exc)[:200])
-        return code
+        resp = getattr(exc, "response", None)
+        code = getattr(resp, "status_code", None)
+        detail = ""
+        try:
+            detail = (getattr(resp, "text", "") or "")[:160]
+        except Exception:  # noqa: BLE001
+            detail = ""
+        logger.warning("push_send_failed", status=code, detail=detail or str(exc)[:160])
+        return {"status": code, "detail": detail or str(exc)[:160]}
     except Exception as exc:  # noqa: BLE001
         logger.error("push_send_one_error", error=str(exc))
-        return None
+        return {"status": None, "detail": str(exc)[:160]}
 
 
 async def send_push_to_all(title: str, body: str, url: str = "/app", tag: str = "takesmart-order") -> dict:
-    """Рассылает Web Push всем сохранённым подпискам. Возвращает {sent,total,pruned}. Безопасно."""
+    """Рассылает Web Push всем подпискам. Возвращает {sent,total,pruned,errors}. Безопасно."""
     if not settings.VAPID_PRIVATE_KEY or not settings.VAPID_PUBLIC_KEY:
         logger.warning("push_not_configured", skipping=True)
-        return {"sent": 0, "total": 0, "pruned": 0}
+        return {"sent": 0, "total": 0, "pruned": 0, "errors": [{"status": None, "detail": "VAPID не настроен на сервере"}]}
 
     async with AsyncSessionFactory() as session:
         rows = (await session.execute(select(PushSubscription))).scalars().all()
         if not rows:
-            return {"sent": 0, "total": 0, "pruned": 0}
+            return {"sent": 0, "total": 0, "pruned": 0, "errors": []}
 
         payload = json.dumps(
             {"title": title, "body": body, "url": url, "tag": tag}, ensure_ascii=False
@@ -96,18 +105,20 @@ async def send_push_to_all(title: str, body: str, url: str = "/app", tag: str = 
             for sub in rows
         ]
         # Параллельная отправка: живое устройство не ждёт за таймаутами мёртвых.
-        codes = await asyncio.gather(
+        results = await asyncio.gather(
             *(asyncio.to_thread(_send_one, info, payload) for _, info in infos)
         )
 
-        dead = [endpoint for (endpoint, _), code in zip(infos, codes) if code in (404, 410)]
-        sent = sum(1 for code in codes if code is None)
+        dead = [ep for (ep, _), r in zip(infos, results) if r and r.get("status") in (404, 410)]
+        sent = sum(1 for r in results if r is None)
+        # Реальные ошибки доставки (не просроченные подписки) — для показа в UI.
+        errors = [r for r in results if r and r.get("status") not in (404, 410)]
         if dead:
             await session.execute(delete(PushSubscription).where(PushSubscription.endpoint.in_(dead)))
             await session.commit()
 
-    logger.info("push_sent", title=title, sent=sent, total=len(rows), pruned=len(dead))
-    return {"sent": sent, "total": len(rows), "pruned": len(dead)}
+    logger.info("push_sent", title=title, sent=sent, total=len(rows), pruned=len(dead), errors=len(errors))
+    return {"sent": sent, "total": len(rows), "pruned": len(dead), "errors": errors}
 
 
 async def count_subscriptions() -> int:
