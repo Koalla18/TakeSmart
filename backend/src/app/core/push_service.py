@@ -7,8 +7,17 @@ Web Push уведомления для PWA «Заказы».
   VAPID_SUBJECT      — mailto:/URL контакта (требование VAPID)
 
 Если ключи не заданы — все вызовы тихо игнорируются (no-op).
-pywebpush синхронный, поэтому отправка каждого пуша уходит в поток (to_thread),
-чтобы не блокировать event loop. Просроченные подписки (404/410) удаляются из БД.
+
+Надёжность и скорость доставки:
+  • TTL=PUSH_TTL — push-сервис (Apple APNs / Mozilla) хранит сообщение и
+    дослыает, когда устройство снова появится в сети. С дефолтным ttl=0
+    сообщение ВЫБРАСЫВАЕТСЯ, если устройство недоступно в этот миг (спящий
+    Mac, мигнувшая сеть) — отсюда «иногда не приходит».
+  • Urgency: high — просим сервис разбудить устройство немедленно, а не
+    группировать доставку (быстрее).
+  • Отправка всем подпискам идёт ПАРАЛЛЕЛЬНО (asyncio.gather + to_thread),
+    pywebpush синхронный — так живое устройство не ждёт за чужими таймаутами.
+Просроченные подписки (404/410) удаляются из БД.
 """
 from __future__ import annotations
 
@@ -29,6 +38,15 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Сколько push-сервис хранит недоставленное сообщение (сек). Заказ важен —
+# держим до суток, чтобы не потерять, если устройство было офлайн.
+PUSH_TTL = 24 * 60 * 60
+# RFC 8030: просим доставить немедленно (разбудить устройство).
+PUSH_HEADERS = {"Urgency": "high"}
+# Таймаут на одну отправку (сек). Отправки идут параллельно, так что мёртвая
+# подписка не задерживает остальные.
+SEND_TIMEOUT = 10
+
 
 def _price(value) -> str:
     try:
@@ -45,49 +63,58 @@ def _send_one(sub_info: dict, payload: str) -> int | None:
             data=payload,
             vapid_private_key=settings.VAPID_PRIVATE_KEY,
             vapid_claims={"sub": settings.VAPID_SUBJECT},
-            timeout=10,
+            ttl=PUSH_TTL,
+            headers=dict(PUSH_HEADERS),
+            timeout=SEND_TIMEOUT,
         )
         return None
     except WebPushException as exc:
-        return getattr(getattr(exc, "response", None), "status_code", None)
+        code = getattr(getattr(exc, "response", None), "status_code", None)
+        logger.warning("push_send_failed", status=code, error=str(exc)[:200])
+        return code
     except Exception as exc:  # noqa: BLE001
         logger.error("push_send_one_error", error=str(exc))
         return None
 
 
-async def send_push_to_all(title: str, body: str, url: str = "/app") -> dict:
+async def send_push_to_all(title: str, body: str, url: str = "/app", tag: str = "takesmart-order") -> dict:
     """Рассылает Web Push всем сохранённым подпискам. Возвращает {sent,total,pruned}. Безопасно."""
     if not settings.VAPID_PRIVATE_KEY or not settings.VAPID_PUBLIC_KEY:
         logger.warning("push_not_configured", skipping=True)
         return {"sent": 0, "total": 0, "pruned": 0}
 
-    dead: list[str] = []
-    sent = 0
     async with AsyncSessionFactory() as session:
         rows = (await session.execute(select(PushSubscription))).scalars().all()
         if not rows:
             return {"sent": 0, "total": 0, "pruned": 0}
-        payload = json.dumps({"title": title, "body": body, "url": url}, ensure_ascii=False)
-        for sub in rows:
-            info = {"endpoint": sub.endpoint, "keys": {"p256dh": sub.p256dh, "auth": sub.auth}}
-            code = await asyncio.to_thread(_send_one, info, payload)
-            if code in (404, 410):
-                dead.append(sub.endpoint)
-            elif code is None:
-                sent += 1
+
+        payload = json.dumps(
+            {"title": title, "body": body, "url": url, "tag": tag}, ensure_ascii=False
+        )
+        infos = [
+            (sub.endpoint, {"endpoint": sub.endpoint, "keys": {"p256dh": sub.p256dh, "auth": sub.auth}})
+            for sub in rows
+        ]
+        # Параллельная отправка: живое устройство не ждёт за таймаутами мёртвых.
+        codes = await asyncio.gather(
+            *(asyncio.to_thread(_send_one, info, payload) for _, info in infos)
+        )
+
+        dead = [endpoint for (endpoint, _), code in zip(infos, codes) if code in (404, 410)]
+        sent = sum(1 for code in codes if code is None)
         if dead:
             await session.execute(delete(PushSubscription).where(PushSubscription.endpoint.in_(dead)))
             await session.commit()
 
-    logger.info("push_sent", title=title, sent=sent, pruned=len(dead))
+    logger.info("push_sent", title=title, sent=sent, total=len(rows), pruned=len(dead))
     return {"sent": sent, "total": len(rows), "pruned": len(dead)}
 
 
 async def send_order_push(order: "Order") -> None:
-    """Пуш о новом заказе (вешается в BackgroundTasks рядом с Telegram)."""
+    """Пуш о новом заказе. Свой tag по номеру заказа — чтобы было видно каждый заказ."""
     try:
         title = "У вас новый заказ!"
         body = f"{order.order_number} · {order.customer_name or 'клиент'} · {_price(order.total_amount)}"
-        await send_push_to_all(title, body, url="/app")
+        await send_push_to_all(title, body, url="/app", tag=f"order-{order.order_number}")
     except Exception as exc:  # noqa: BLE001
         logger.error("push_order_error", error=str(exc))
