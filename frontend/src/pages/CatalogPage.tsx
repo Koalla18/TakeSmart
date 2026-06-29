@@ -380,8 +380,14 @@ export function CatalogPage() {
 
     async function fetchData() {
       try {
-        // Загружаем категории
-        const catResp = await fetch(`${API_BASE_URL}/api/categories`)
+        // Категории и ПЕРВУЮ (маленькую) порцию товаров грузим ПАРАЛЛЕЛЬНО — на один
+        // round-trip меньше до первой отрисовки (важно при высокой задержке: VPN/заграница).
+        const FIRST_CHUNK = 36
+        const CHUNK = 200
+        const [catResp, firstProdResp] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/categories`),
+          fetch(`${API_BASE_URL}/api/products?limit=${FIRST_CHUNK}&offset=0&only_active=true`),
+        ])
         if (!catResp.ok) { setIsLoading(false); return }
 
         const catRaw = await catResp.json()
@@ -466,18 +472,15 @@ export function CatalogPage() {
           }
         }
 
-        // Грузим товары порциями: ПЕРВУЮ делаем маленькой (≈экран) — чтобы каталог
-        // отрисовался почти мгновенно даже на медленном/далёком канале (VPN/заграница);
-        // остальное догружаем крупными порциями в фоне (для клиентских фильтров/поиска),
-        // не блокируя первый рендер.
-        const FIRST_CHUNK = 36
-        const CHUNK = 200
+        // Первую (маленькую) порцию уже загрузили параллельно с категориями — она даёт
+        // мгновенную первую отрисовку. Остальное догружаем крупными порциями в фоне
+        // (для клиентских фильтров/поиска), не блокируя первый рендер.
         let offset = 0
         let limit = FIRST_CHUNK
+        let prodResp = firstProdResp
         const allRaw: ApiProductOut[] = []
         let chunkIndex = 0
         while (true) {
-          const prodResp = await fetch(`${API_BASE_URL}/api/products?limit=${limit}&offset=${offset}&only_active=true`)
           if (!prodResp.ok) break
 
           const raw = await prodResp.json() as ApiPaginatedResponse<ApiProductOut> | ApiProductOut[]
@@ -494,6 +497,7 @@ export function CatalogPage() {
           if (!hasNext || items.length === 0) break
           offset += items.length
           limit = CHUNK
+          prodResp = await fetch(`${API_BASE_URL}/api/products?limit=${limit}&offset=${offset}&only_active=true`)
         }
 
         if (chunkIndex === 0) setIsLoading(false)
