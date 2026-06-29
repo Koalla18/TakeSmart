@@ -133,16 +133,10 @@ class ProductOut(BaseModel):
     @field_validator("main_image_url", mode="after")
     @classmethod
     def normalize_image_url(cls, v: Optional[str]) -> Optional[str]:
-        """Нормализует main_image_url — строит полный S3-URL для голых ключей."""
+        """Нормализует main_image_url. build_url сам разберёт голый ключ / полный
+        S3-URL / legacy /static/ и при IMAGE_PROXY вернёт ссылку через наш домен."""
         if not v:
             return v
-        if v.startswith("http"):
-            return v
-        # Убираем устаревший /static/ префикс если есть
-        if v.startswith("/static/"):
-            v = v[len("/static/"):]
-        elif v.startswith("/"):
-            v = v.lstrip("/")
         from src.app.core.static_service import static_service
         return static_service.build_url(v)
 

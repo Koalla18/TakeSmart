@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     S3_SECRET_KEY: str = ""
     S3_REGION: str = "ru-1"
     S3_PUBLIC_URL: str = ""  # если пусто — строится автоматически
+    # Проксировать картинки через наш домен (/api/media/<key>) вместо прямой
+    # ссылки на s3.twcstorage.ru. Нужно, т.к. российский S3 недоступен из-за
+    # рубежа/через VPN, а takesmart.ru доступен везде. Включается env IMAGE_PROXY=true.
+    IMAGE_PROXY: bool = False
     MAX_UPLOAD_SIZE_BYTES: int = 5 * 1024 * 1024
     ALLOWED_IMAGE_TYPES: list[str] = ["image/jpeg", "image/png", "image/webp"]
     PRODUCTS_IMAGES_DIR: str = "products"

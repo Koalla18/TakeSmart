@@ -89,30 +89,62 @@ class StaticFileService:
             logger.warning("file_delete_failed_s3", key=key, error=str(exc))
             return False
 
+    def _bare_key(self, value: str) -> str | None:
+        """Приводит значение к «голому» S3-ключу (products/abc/def.jpg).
+        Понимает полный S3-URL нашего бакета и legacy /static/. Внешний http-URL
+        (не наш бакет) → None (его не трогаем)."""
+        v = (value or "").strip()
+        if not v:
+            return None
+        if v.startswith("http"):
+            marker = f"/{settings.S3_BUCKET_NAME}/"
+            idx = v.find(marker)
+            if idx != -1:
+                return v[idx + len(marker):]
+            if settings.S3_PUBLIC_URL:
+                base = settings.S3_PUBLIC_URL.rstrip("/") + "/"
+                if v.startswith(base):
+                    return v[len(base):]
+            return None  # чужой URL — оставить как есть
+        if v.startswith("/static/"):
+            v = v[len("/static/"):]
+        return v.lstrip("/")
+
     def build_url(self, key: str) -> str:
         """
         Build public URL for an S3 object.
         Example: "products/abc/def.jpg"
-          → "https://s3.twcstorage.ru/90acb72e-dd6d-4433-b2b3-3105b08551ea/products/abc/def.jpg"
+          → "https://s3.twcstorage.ru/<bucket>/products/abc/def.jpg"
+        При IMAGE_PROXY=true → относительный «/api/media/products/abc/def.jpg»
+        (раздаётся нашим бэкендом — доступно из-за рубежа, в отличие от S3).
         """
-        # Already a full URL — return as-is
-        if key.startswith("http"):
-            return key
-        # Strip legacy /static/ prefix from old DB entries
-        if key.startswith("/static/"):
-            key = key[len("/static/"):]
-        elif key.startswith("/"):
-            key = key.lstrip("/")
+        bare = self._bare_key(key)
+        if bare is None:
+            return key  # внешний URL — без изменений
+        if settings.IMAGE_PROXY:
+            return f"/api/media/{bare}"
         if settings.S3_PUBLIC_URL:
             base = settings.S3_PUBLIC_URL.rstrip("/")
         else:
             base = f"{settings.S3_ENDPOINT_URL}/{settings.S3_BUCKET_NAME}"
-        return f"{base}/{key}"
+        return f"{base}/{bare}"
 
     def build_url_or_none(self, key: str | None) -> str | None:
         if not key:
             return None
         return self.build_url(key)
+
+    def fetch_object(self, key: str) -> tuple[bytes, str] | tuple[None, None]:
+        """Скачивает объект из S3 (для прокси /api/media). (bytes, content_type) или (None, None)."""
+        bare = self._bare_key(key)
+        if not bare:
+            return None, None
+        try:
+            obj = self.client.get_object(Bucket=settings.S3_BUCKET_NAME, Key=bare)
+            return obj["Body"].read(), obj.get("ContentType") or "application/octet-stream"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("s3_fetch_failed", key=bare, error=str(exc)[:160])
+            return None, None
 
     # ------------------------------------------------------------------ #
     #  Private                                                             #

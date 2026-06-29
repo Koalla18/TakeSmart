@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class WeeklySlideOut(BaseModel):
@@ -24,6 +24,14 @@ class WeeklySlideOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator("image", mode="after")
+    @classmethod
+    def _normalize_image(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return v
+        from src.app.core.static_service import static_service
+        return static_service.build_url(v)
 
 
 class WeeklySlideCreate(BaseModel):

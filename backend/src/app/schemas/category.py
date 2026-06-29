@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class QuickFilter(BaseModel):
@@ -60,6 +60,14 @@ class CategoryOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator("image_url", mode="after")
+    @classmethod
+    def _normalize_image(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return v
+        from src.app.core.static_service import static_service
+        return static_service.build_url(v)
 
 
 class CategoryWithChildrenOut(CategoryOut):
