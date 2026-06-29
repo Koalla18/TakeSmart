@@ -55,6 +55,23 @@ def _price(value) -> str:
         return f"{value} ₽"
 
 
+_FALLBACK_SUBJECT = "mailto:admin@takesmart.ru"
+
+
+def _vapid_subject() -> str:
+    """Нормализуем VAPID sub: py_vapid требует строго 'mailto:...@...' или 'https://...'.
+    Пустой/кривой env (или голый email) → корректный mailto, иначе подпись падает
+    с 'Missing sub from claims' и НИ ОДИН пуш не уходит."""
+    sub = (settings.VAPID_SUBJECT or "").strip()
+    if not sub:
+        return _FALLBACK_SUBJECT
+    if sub.startswith(("mailto:", "https://", "http://")):
+        return sub
+    if "@" in sub:
+        return "mailto:" + sub
+    return _FALLBACK_SUBJECT
+
+
 def _send_one(sub_info: dict, payload: str) -> dict | None:
     """Синхронная отправка одного пуша. None при успехе, иначе {'status':int|None,'detail':str}.
 
@@ -65,7 +82,7 @@ def _send_one(sub_info: dict, payload: str) -> dict | None:
             subscription_info=sub_info,
             data=payload,
             vapid_private_key=settings.VAPID_PRIVATE_KEY,
-            vapid_claims={"sub": settings.VAPID_SUBJECT},
+            vapid_claims={"sub": _vapid_subject()},
             ttl=PUSH_TTL,
             headers=dict(PUSH_HEADERS),
             timeout=SEND_TIMEOUT,
