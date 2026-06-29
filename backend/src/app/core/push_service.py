@@ -26,7 +26,7 @@ import json
 from typing import TYPE_CHECKING
 
 from pywebpush import webpush, WebPushException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from src.app.core.config import settings
 from src.app.core.logger import get_logger
@@ -108,6 +108,12 @@ async def send_push_to_all(title: str, body: str, url: str = "/app", tag: str = 
 
     logger.info("push_sent", title=title, sent=sent, total=len(rows), pruned=len(dead))
     return {"sent": sent, "total": len(rows), "pruned": len(dead)}
+
+
+async def count_subscriptions() -> int:
+    """Сколько активных подписок сейчас (для обратной связи в UI «Тест»)."""
+    async with AsyncSessionFactory() as session:
+        return int((await session.execute(select(func.count(PushSubscription.id)))).scalar() or 0)
 
 
 async def send_order_push(order: "Order") -> None:

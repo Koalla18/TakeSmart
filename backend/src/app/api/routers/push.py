@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, BackgroundTasks, Depends, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.api.admin.endpoints import get_current_admin
 from src.app.core.config import settings
 from src.app.core.logger import get_logger
-from src.app.core.push_service import send_push_to_all
+from src.app.core.push_service import count_subscriptions, send_push_to_all
 from src.app.database.models.admin import Admin
 from src.app.database.models.push_subscription import PushSubscription
 from src.app.database.session import get_db
@@ -59,7 +61,22 @@ async def unsubscribe(body: PushUnsubscribeIn, db: AsyncSession = Depends(get_db
     return {"ok": True}
 
 
+async def _delayed_test(delay: int) -> None:
+    await asyncio.sleep(delay)
+    await send_push_to_all(
+        "Тест уведомления", "Пуш в фоне работает ✅", "/app", tag="takesmart-test"
+    )
+
+
 @router.post("/test", summary="Отправить тестовый push", dependencies=[Depends(get_current_admin)])
-async def test_push() -> dict:
+async def test_push(background_tasks: BackgroundTasks, delay: int = 0) -> dict:
+    # delay>0 — отправить позже (чтобы успеть закрыть приложение и проверить
+    # доставку при ЗАКРЫТОМ приложении). Возвращаем число подписок сразу.
+    if delay and delay > 0:
+        delay = min(delay, 60)
+        background_tasks.add_task(_delayed_test, delay)
+        return {"scheduled": True, "delay": delay, "total": await count_subscriptions()}
     # await напрямую — чтобы вернуть, скольким устройствам ушло (для обратной связи в UI)
-    return await send_push_to_all("Тест уведомления", "Если вы это видите — пуши работают ✅", "/app")
+    return await send_push_to_all(
+        "Тест уведомления", "Если вы это видите — пуши работают ✅", "/app", tag="takesmart-test"
+    )
