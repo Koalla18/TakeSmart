@@ -57,6 +57,17 @@ function timeAgo(iso: string): string {
 }
 const fmtDateTime = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' })
 function isToday(iso: string): boolean { const d = new Date(iso), n = new Date(); return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate() }
+// Ключ дня (локальный) и человеческая подпись — для группировки ленты по дням.
+function dayKey(iso: string): string { const d = new Date(iso); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` }
+function dayLabel(iso: string): string {
+  const d = new Date(iso), n = new Date()
+  const dk = dayKey(iso)
+  if (dk === dayKey(n.toISOString())) return 'Сегодня'
+  const y = new Date(n); y.setDate(n.getDate() - 1)
+  if (dk === dayKey(y.toISOString())) return 'Вчера'
+  const sameYear = d.getFullYear() === n.getFullYear()
+  return d.toLocaleDateString('ru-RU', sameYear ? { day: 'numeric', month: 'long' } : { day: 'numeric', month: 'long', year: 'numeric' })
+}
 
 function usePwaSetup() {
   useEffect(() => {
@@ -328,12 +339,13 @@ function OrderCard({ o, fresh, onOpen, onConfirm }: { o: AppOrder; fresh: boolea
 }
 
 // ── Детальный экран заказа (слайд-овер) ──────────────────────────────────────────
-function OrderDetailSheet({ orderId, onClose, onStatusChange }: { orderId: string; onClose: () => void; onStatusChange: (id: string, s: string) => void }) {
+function OrderDetailSheet({ orderId, onClose, onStatusChange, onDeleted }: { orderId: string; onClose: () => void; onStatusChange: (id: string, s: string) => void; onDeleted: (id: string) => void }) {
   const { logout } = useAuth()
   const [order, setOrder] = useState<OrderDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [images, setImages] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [show, setShow] = useState(false)
 
   useEffect(() => { setShow(true); document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } }, [])
@@ -373,6 +385,20 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange }: { orderId: strin
       const r = await fetch(`${API_BASE_URL}/api/orders/${order.id}/status`, { method: 'PATCH', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ status: s }) })
       if (r.ok) { setOrder({ ...order, status: s }); onStatusChange(order.id, s) }
     } finally { setSaving(false) }
+  }
+
+  const remove = async () => {
+    if (!order || deleting) return
+    if (!window.confirm(`Удалить заказ ${order.order_number}? Это действие нельзя отменить.`)) return
+    setDeleting(true)
+    try {
+      const r = await fetch(`${API_BASE_URL}/api/orders/${order.id}`, { method: 'DELETE', headers: getAuthHeaders() })
+      if (r.status === 204 || r.ok) { onDeleted(order.id); close() }
+      else if (r.status === 401) { logout() }
+      else if (r.status === 409) { const d = await r.json().catch(() => ({} as { detail?: string })); alert(d.detail || 'Нельзя удалить заказ в этом статусе. Сначала отмените его (статус «Отменён»).') }
+      else alert(`Не удалось удалить заказ (HTTP ${r.status}).`)
+    } catch { alert('Ошибка сети при удалении.') }
+    finally { setDeleting(false) }
   }
 
   const phone = order?.customer_phone || ''
@@ -505,6 +531,15 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange }: { orderId: strin
                     )
                   })}
                 </div>
+              </section>
+
+              {/* Удаление заказа */}
+              <section className="border-t border-white/10 pt-4">
+                <button onClick={remove} disabled={deleting}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-500/30 bg-rose-500/10 py-3 text-sm font-semibold text-rose-300 transition active:scale-[0.98] hover:bg-rose-500/20 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60">
+                  {deleting ? 'Удаляю…' : '🗑 Удалить заказ'}
+                </button>
+                <p className="mt-2 px-1 text-[11px] text-slate-500">Заказы в обработке/отправленные/доставленные удалить нельзя — сначала отмените.</p>
               </section>
             </div>
           )}
@@ -699,6 +734,23 @@ function OrdersFeed() {
     return list
   }, [orders, filter, query])
 
+  // Группируем отсортированную ленту по дням (Сегодня / Вчера / дата) — для разделителей.
+  const groups = useMemo(() => {
+    const out: { key: string; label: string; items: AppOrder[] }[] = []
+    for (const o of visible) {
+      const key = dayKey(o.created_at)
+      const last = out[out.length - 1]
+      if (last && last.key === key) last.items.push(o)
+      else out.push({ key, label: dayLabel(o.created_at), items: [o] })
+    }
+    return out
+  }, [visible])
+
+  const removeOrder = useCallback((id: string) => {
+    setOrders((prev) => prev.filter((o) => o.id !== id))
+    if (seenIds.current) seenIds.current.delete(id)
+  }, [])
+
   return (
     <div className="min-h-[100dvh] bg-slate-950 text-white" style={SAFE_BOTTOM}>
       <header className="sticky top-0 z-20 border-b border-white/10 bg-slate-950/80 backdrop-blur-xl" style={SAFE_TOP}>
@@ -804,18 +856,27 @@ function OrdersFeed() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-xl space-y-3 px-4 pb-8 pt-3">
+      <div className="mx-auto max-w-xl space-y-6 px-4 pb-8 pt-3">
         {error && <div className="rounded-2xl border border-rose-500/20 bg-rose-500/[0.06] px-4 py-2.5 text-sm text-rose-300">{error}</div>}
         {loading ? (
-          Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-[104px] animate-pulse rounded-2xl bg-white/[0.04]" />)
+          <div className="space-y-3">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-[104px] animate-pulse rounded-2xl bg-white/[0.04]" />)}</div>
         ) : visible.length === 0 ? (
           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-14 text-center"><div className="mb-3 text-5xl">📭</div><div className="font-semibold text-white">{filter === 'all' ? 'Заказов пока нет' : 'Нет заказов в этом фильтре'}</div></div>
         ) : (
-          visible.map((o) => <OrderCard key={o.id} o={o} fresh={freshIds.has(o.id)} onOpen={() => setSelectedId(o.id)} onConfirm={() => quickConfirm(o.id)} />)
+          groups.map((g) => (
+            <section key={g.key} className="space-y-3">
+              <div className="flex items-center gap-3 px-1">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">{g.label}</h2>
+                <span className="text-[11px] font-medium text-slate-600">{g.items.length}</span>
+                <span className="h-px flex-1 bg-white/10" />
+              </div>
+              {g.items.map((o) => <OrderCard key={o.id} o={o} fresh={freshIds.has(o.id)} onOpen={() => setSelectedId(o.id)} onConfirm={() => quickConfirm(o.id)} />)}
+            </section>
+          ))
         )}
       </div>
 
-      {selectedId && <OrderDetailSheet orderId={selectedId} onClose={() => setSelectedId(null)} onStatusChange={patchStatus} />}
+      {selectedId && <OrderDetailSheet orderId={selectedId} onClose={() => setSelectedId(null)} onStatusChange={patchStatus} onDeleted={removeOrder} />}
     </div>
   )
 }
