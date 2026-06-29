@@ -107,6 +107,7 @@ async function subscribeToPush(): Promise<boolean> {
     }
     const j = sub.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } }
     if (!j.endpoint || !j.keys?.p256dh || !j.keys?.auth) return false
+    try { const tk = localStorage.getItem('takesmart_admin_token'); if (tk) await idbPutToken(tk) } catch { /* */ }
     const r = await fetch(`${API_BASE_URL}/api/push/subscribe`, {
       method: 'POST',
       headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
@@ -116,8 +117,24 @@ async function subscribeToPush(): Promise<boolean> {
   } catch { return false }
 }
 
-// Постоянный AudioContext: разблокируется по жесту (клик «Включить»), после чего
-// звук работает и из таймера опроса (браузеры блокируют звук без жеста).
+// ── Звук уведомления ────────────────────────────────────────────────────────────
+// Реальные аудиофайлы (public/sounds) играем через WebAudio: AudioContext
+// разблокируется по жесту (клик), после чего звук работает и из таймера опроса.
+// ВАЖНО: при ЗАКРЫТОМ приложении звук уведомления играет сама система (iOS/macOS) —
+// выбор ниже влияет на звук, только пока приложение открыто.
+const SOUNDS: { id: string; label: string; file: string }[] = [
+  { id: 'tri-tone', label: 'Три тона', file: '/sounds/tri-tone.wav' },
+  { id: 'ding', label: 'Колокольчик', file: '/sounds/ding.wav' },
+  { id: 'chime', label: 'Перезвон', file: '/sounds/chime.wav' },
+  { id: 'marimba', label: 'Маримба', file: '/sounds/marimba.wav' },
+  { id: 'glass', label: 'Стекло', file: '/sounds/glass.wav' },
+]
+const DEFAULT_SOUND_ID = 'tri-tone'
+function getSoundId(): string {
+  try { return localStorage.getItem('takesmart_app_sound_id') || DEFAULT_SOUND_ID } catch { return DEFAULT_SOUND_ID }
+}
+function soundFile(id: string): string { return (SOUNDS.find((s) => s.id === id) || SOUNDS[0]).file }
+
 let _audioCtx: AudioContext | null = null
 function getAudioCtx(): AudioContext | null {
   try {
@@ -127,32 +144,68 @@ function getAudioCtx(): AudioContext | null {
     return _audioCtx
   } catch { return null }
 }
-function unlockAudio() { const c = getAudioCtx(); if (c && c.state === 'suspended') c.resume().catch(() => {}) }
-// Звук + вибрация при новом заказе — звонкая громкая трель (восходящее трезвучие ×2).
-function tone(ctx: AudioContext, freq: number, start: number, dur: number, vol: number) {
-  const o = ctx.createOscillator(); const g = ctx.createGain()
-  o.connect(g); g.connect(ctx.destination)
-  o.type = 'triangle'; o.frequency.value = freq
-  g.gain.setValueAtTime(0.0001, start)
-  g.gain.exponentialRampToValueAtTime(vol, start + 0.015)
-  g.gain.exponentialRampToValueAtTime(0.0001, start + dur)
-  o.start(start); o.stop(start + dur + 0.03)
+const _buffers = new Map<string, AudioBuffer>()
+async function loadSound(id: string): Promise<AudioBuffer | null> {
+  if (_buffers.has(id)) return _buffers.get(id)!
+  const ctx = getAudioCtx(); if (!ctx) return null
+  try {
+    const res = await fetch(soundFile(id)); const arr = await res.arrayBuffer()
+    const buf = await ctx.decodeAudioData(arr)
+    _buffers.set(id, buf); return buf
+  } catch { return null }
 }
-function playAlert() {
+function unlockAudio() {
+  const c = getAudioCtx(); if (c && c.state === 'suspended') c.resume().catch(() => {})
+  void loadSound(getSoundId())
+}
+// Проиграть звук (буфер через WebAudio, фолбэк — HTMLAudio) + вибрация.
+async function playSound(id: string, vibrate = true) {
   const ctx = getAudioCtx()
+  let played = false
   if (ctx) {
     try {
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {})
-      const t = ctx.currentTime; const v = 0.5
-      tone(ctx, 1047, t, 0.16, v)
-      tone(ctx, 1319, t + 0.16, 0.16, v)
-      tone(ctx, 1568, t + 0.32, 0.30, v)
-      tone(ctx, 1047, t + 0.72, 0.16, v)
-      tone(ctx, 1319, t + 0.88, 0.16, v)
-      tone(ctx, 1568, t + 1.04, 0.36, v)
+      if (ctx.state === 'suspended') await ctx.resume().catch(() => {})
+      const buf = await loadSound(id)
+      if (buf) {
+        const src = ctx.createBufferSource(); const g = ctx.createGain()
+        g.gain.value = 0.9; src.buffer = buf; src.connect(g); g.connect(ctx.destination); src.start()
+        played = true
+      }
     } catch { /* */ }
   }
-  try { navigator.vibrate?.([200, 90, 200, 90, 250]) } catch { /* */ }
+  if (!played) { try { const a = new Audio(soundFile(id)); a.volume = 1; void a.play().catch(() => {}) } catch { /* */ } }
+  if (vibrate) { try { navigator.vibrate?.([180, 80, 180]) } catch { /* */ } }
+}
+function playAlert() { void playSound(getSoundId(), true) }
+
+// Установлено ли как приложение (Home Screen / Dock) — от этого зависит доставка
+// уведомлений при ЗАКРЫТОМ приложении (особенно на iOS).
+function isStandalone(): boolean {
+  try {
+    return window.matchMedia?.('(display-mode: standalone)').matches === true
+      || (window.navigator as unknown as { standalone?: boolean }).standalone === true
+  } catch { return false }
+}
+
+// Кладём токен в IndexedDB, чтобы service worker мог переподписаться в фоне
+// (событие pushsubscriptionchange) даже без открытого приложения.
+function idbPutToken(token: string): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open('takesmart-app', 1)
+      req.onupgradeneeded = () => { try { req.result.createObjectStore('kv') } catch { /* */ } }
+      req.onsuccess = () => {
+        try {
+          const db = req.result
+          const tx = db.transaction('kv', 'readwrite')
+          tx.objectStore('kv').put(token, 'authToken')
+          tx.oncomplete = () => { db.close(); resolve() }
+          tx.onerror = () => { try { db.close() } catch { /* */ } ; resolve() }
+        } catch { resolve() }
+      }
+      req.onerror = () => resolve()
+    } catch { resolve() }
+  })
 }
 
 const SAFE_TOP = { paddingTop: 'max(env(safe-area-inset-top), 0px)' }
@@ -442,6 +495,9 @@ function useNotifyPermission() {
     playAlert()
     if (ok) {
       await showOrderNotification('Уведомления включены', 'Будем присылать «У вас новый заказ!» — даже когда приложение закрыто.')
+      if (!isStandalone()) {
+        alert('Уведомления включены ✅\n\nЧтобы они приходили и при ЗАКРЫТОМ приложении, установите его:\n• iPhone: Safari → «Поделиться» → «На экран Домой», затем запускайте С ИКОНКИ.\n• Mac: Safari → меню «Файл» → «Добавить в Dock».\nИ один раз нажмите «Включить» уже внутри установленного приложения.')
+      }
     } else {
       alert('Разрешение получено, но подписка не оформилась.\n\nНа iPhone это работает только в приложении, установленном на экран «Домой» (Safari → Поделиться → На экран Домой). Открой его с иконки и нажми «Включить» ещё раз.')
     }
@@ -468,6 +524,8 @@ function OrdersFeed() {
   const [soundOn, setSoundOn] = useState(() => { try { return localStorage.getItem('takesmart_app_sound') !== '0' } catch { return true } })
   const soundOnRef = useRef(soundOn)
   useEffect(() => { soundOnRef.current = soundOn; try { localStorage.setItem('takesmart_app_sound', soundOn ? '1' : '0') } catch { /* */ } }, [soundOn])
+  const [soundId, setSoundId] = useState<string>(() => getSoundId())
+  useEffect(() => { try { localStorage.setItem('takesmart_app_sound_id', soundId) } catch { /* */ } ; void loadSound(soundId) }, [soundId])
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true)
@@ -528,6 +586,21 @@ function OrdersFeed() {
     } catch { alert('Ошибка сети при отправке теста.') }
   }, [])
 
+  // Фоновый тест: сервер пришлёт пуш через ~10 секунд — чтобы проверить доставку
+  // при ЗАКРЫТОМ приложении (закрой приложение сразу после нажатия).
+  const testPushBackground = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_BASE_URL}/api/push/test?delay=10`, { method: 'POST', headers: getAuthHeaders() })
+      if (!r.ok) { alert(`Не удалось запланировать тест (HTTP ${r.status}).`); return }
+      const d = await r.json().catch(() => ({} as { total?: number }))
+      if (typeof d.total === 'number' && d.total === 0) {
+        alert('Нет активных подписок. Сначала нажми «Включить» (на iPhone/Mac — внутри установленного приложения).')
+        return
+      }
+      alert('Тест запланирован через 10 секунд.\n\nСейчас ЗАКРОЙ приложение полностью — уведомление должно прийти при закрытом приложении.')
+    } catch { alert('Ошибка сети при отправке теста.') }
+  }, [])
+
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: orders.length }
     for (const f of FILTERS) if (f.statuses) c[f.key] = orders.filter((o) => f.statuses!.includes(o.status as StatusKey)).length
@@ -570,18 +643,42 @@ function OrdersFeed() {
             <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Настройки</div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-white">Звук нового заказа</span>
-              <button onClick={() => setSoundOn((v) => !v)} aria-label="Звук" className={`relative h-6 w-11 rounded-full transition ${soundOn ? 'bg-yellow-400' : 'bg-white/15'}`}>
+              <button onClick={() => { unlockAudio(); setSoundOn((v) => !v) }} aria-label="Звук" className={`relative h-6 w-11 rounded-full transition ${soundOn ? 'bg-yellow-400' : 'bg-white/15'}`}>
                 <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${soundOn ? 'left-[22px]' : 'left-0.5'}`} />
               </button>
             </div>
-            <div className="flex items-center justify-between">
+            {soundOn && (
+              <div className="space-y-1.5">
+                <div className="text-[11px] text-slate-500">Мелодия (нажми — прослушать). При закрытом приложении звук ставит сама система.</div>
+                {SOUNDS.map((s) => {
+                  const active = soundId === s.id
+                  return (
+                    <button key={s.id} onClick={() => { unlockAudio(); setSoundId(s.id); void playSound(s.id, false) }}
+                      className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition active:scale-[0.99] ${active ? 'bg-yellow-400/15 text-yellow-100 ring-1 ring-inset ring-yellow-400/30' : 'bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]'}`}>
+                      <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs ${active ? 'bg-yellow-400 text-gray-950' : 'bg-white/10 text-slate-300'}`}>{active ? '✓' : '▶'}</span>
+                      <span className="flex-1 text-left">{s.label}</span>
+                      {active && <span className="text-[11px] text-yellow-200/70">выбрано</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+            <div className="flex items-center justify-between border-t border-white/10 pt-3">
               <span className="text-sm text-white">Уведомления</span>
               {perm === 'granted'
-                ? <button onClick={testPush} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-white/15">Тест</button>
+                ? <div className="flex gap-1.5">
+                    <button onClick={testPush} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-white/15">Тест</button>
+                    <button onClick={testPushBackground} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-white/15">В фоне</button>
+                  </div>
                 : perm === 'denied'
                   ? <span className="text-xs text-rose-300">заблокированы</span>
                   : <button onClick={request} className="rounded-lg bg-yellow-400 px-3 py-1.5 text-xs font-semibold text-gray-950 transition hover:bg-yellow-300">Включить</button>}
             </div>
+            {perm === 'granted' && !isStandalone() && (
+              <div className="rounded-xl border border-yellow-400/20 bg-yellow-400/[0.06] px-3 py-2.5 text-[11px] leading-relaxed text-yellow-100/90">
+                ⚠️ Чтобы уведомления приходили при <b>закрытом</b> приложении — установите его: iPhone «Поделиться → На экран Домой», Mac «Файл → Добавить в Dock», и запускайте с иконки.
+              </div>
+            )}
             <button onClick={logout} className="w-full rounded-xl bg-white/5 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-white/10">Выйти</button>
           </div>
         )}
