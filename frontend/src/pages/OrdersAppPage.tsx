@@ -506,6 +506,19 @@ function useNotifyPermission() {
 }
 
 // ── Лента ───────────────────────────────────────────────────────────────────────
+interface PushResult { sent?: number; total?: number; pruned?: number; errors?: { status: number | null; detail?: string }[] }
+// Человеческое объяснение кода ошибки push-сервиса (Apple/Mozilla/FCM).
+function pushStatusHint(status: number | null): string {
+  if (status === 403 || status === 401) return 'push-сервис отклонил подпись (403). Скорее всего, на сервере НЕ совпадают VAPID-ключи (public ≠ private) — нужно перегенерировать пару и заново задать оба ключа.'
+  if (status === 400) return 'неверный запрос (400) — проблема с подпиской или ключами.'
+  if (status === 410 || status === 404) return 'подписка устарела — нажми «Включить» заново.'
+  if (status === 413) return 'уведомление слишком большое (413).'
+  if (status === 429) return 'слишком часто (429) — попробуй позже.'
+  if (typeof status === 'number' && status >= 500) return `push-сервис временно недоступен (${status}).`
+  if (status === null) return 'нет ответа от push-сервиса (сетевая ошибка/таймаут).'
+  return `код ${status}.`
+}
+
 function OrdersFeed() {
   const { logout } = useAuth()
   const { perm, request } = useNotifyPermission()
@@ -577,12 +590,18 @@ function OrdersFeed() {
     try {
       const r = await fetch(`${API_BASE_URL}/api/push/test`, { method: 'POST', headers: getAuthHeaders() })
       if (!r.ok) { alert(`Не удалось отправить тест (HTTP ${r.status}).`); return }
-      const d = await r.json().catch(() => ({} as { sent?: number }))
-      if (typeof d.sent === 'number') {
-        alert(d.sent > 0
-          ? `Тест отправлен на ${d.sent} устройств(а) — уведомление должно прийти.`
-          : 'Нет активных подписок на этом аккаунте. Сначала нажми «Включить уведомления» (на iPhone — в приложении, установленном на экран «Домой»).')
-      } else { alert('Тест отправлен.') }
+      const d = await r.json().catch(() => ({} as PushResult))
+      const sent = d.sent ?? 0, total = d.total ?? 0, errors = d.errors ?? []
+      if (total === 0) {
+        alert('Нет активных подписок на этом устройстве.\n\nНажми «Включить» — на iPhone/Mac это нужно делать ВНУТРИ установленного приложения (с «Домой» / из Dock), не во вкладке браузера.')
+        return
+      }
+      if (sent > 0) {
+        alert(`Отправлено на ${sent} из ${total} устройств(а) ✅\n\nЕсли при ЗАКРЫТОМ приложении уведомление не появляется — проблема не на нашем сервере, а в системе: macOS должна быть Sonoma 14+ (на старее закрытому веб-приложению пуши не приходят); проверь Системные настройки → Уведомления для приложения и режим «Не беспокоить».`)
+        return
+      }
+      const e = errors[0]
+      alert(`Не доставлено (0 из ${total}).\n\nПричина: ${e ? pushStatusHint(e.status) : 'неизвестна'}${e?.detail ? `\n\nОтвет сервиса: ${e.detail}` : ''}`)
     } catch { alert('Ошибка сети при отправке теста.') }
   }, [])
 
