@@ -117,6 +117,36 @@ async function subscribeToPush(): Promise<boolean> {
   } catch { return false }
 }
 
+// Снять подписку (и удалить её с сервера). Нужно в обычной вкладке браузера,
+// чтобы не было ДУБЛЕЙ уведомлений (вкладка + установленное приложение).
+async function unsubscribePush(): Promise<void> {
+  try {
+    if (!('serviceWorker' in navigator)) return
+    const reg = await navigator.serviceWorker.ready
+    const sub = await reg.pushManager.getSubscription()
+    if (!sub) return
+    const ep = (sub.toJSON() as { endpoint?: string }).endpoint
+    if (ep) {
+      try {
+        await fetch(`${API_BASE_URL}/api/push/unsubscribe`, {
+          method: 'POST',
+          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: ep }),
+        })
+      } catch { /* */ }
+    }
+    try { await sub.unsubscribe() } catch { /* */ }
+  } catch { /* */ }
+}
+
+// Держим подписку только в установленном приложении (иначе дубли уведомлений:
+// вкладка Safari + приложение). В обычной вкладке — снимаем.
+function syncPush(): void {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+  if (isStandalone()) void subscribeToPush()
+  else void unsubscribePush()
+}
+
 // ── Звук уведомления ────────────────────────────────────────────────────────────
 // Реальные аудиофайлы (public/sounds) играем через WebAudio: AudioContext
 // разблокируется по жесту (клик), после чего звук работает и из таймера опроса.
@@ -491,15 +521,20 @@ function useNotifyPermission() {
       alert('Уведомления не разрешены.\n\nНа iPhone: открой сайт в Safari → «Поделиться» → «На экран Домой», затем запусти приложение С ИКОНКИ и включи уведомления (в обычной вкладке Safari iOS их не даёт).')
       return
     }
+    // Подписку создаём ТОЛЬКО в установленном приложении — иначе вкладка Safari
+    // и приложение дают ДВА уведомления на один заказ.
+    if (!isStandalone()) {
+      await unsubscribePush()
+      playAlert()
+      alert('Уведомления нужно включать в УСТАНОВЛЕННОМ приложении (иначе будут дубли):\n• iPhone: Safari → «Поделиться» → «На экран Домой», запусти С ИКОНКИ.\n• Mac: Safari → меню «Файл» → «Добавить в Dock».\nОткрой его и нажми «Включить» уже там.')
+      return
+    }
     const ok = await subscribeToPush()
     playAlert()
     if (ok) {
       await showOrderNotification('Уведомления включены', 'Будем присылать «У вас новый заказ!» — даже когда приложение закрыто.')
-      if (!isStandalone()) {
-        alert('Уведомления включены ✅\n\nЧтобы они приходили и при ЗАКРЫТОМ приложении, установите его:\n• iPhone: Safari → «Поделиться» → «На экран Домой», затем запускайте С ИКОНКИ.\n• Mac: Safari → меню «Файл» → «Добавить в Dock».\nИ один раз нажмите «Включить» уже внутри установленного приложения.')
-      }
     } else {
-      alert('Разрешение получено, но подписка не оформилась.\n\nНа iPhone это работает только в приложении, установленном на экран «Домой» (Safari → Поделиться → На экран Домой). Открой его с иконки и нажми «Включить» ещё раз.')
+      alert('Разрешение получено, но подписка не оформилась. Попробуй ещё раз нажать «Включить».')
     }
   }, [supported])
   return { perm, request }
@@ -568,13 +603,14 @@ function OrdersFeed() {
   useEffect(() => {
     load()
     const t = window.setInterval(() => load(), 20000)
-    const onVis = () => { if (document.visibilityState === 'visible') { load(); if (typeof Notification !== 'undefined' && Notification.permission === 'granted') void subscribeToPush() } }
+    const onVis = () => { if (document.visibilityState === 'visible') { load(); syncPush() } }
     document.addEventListener('visibilitychange', onVis)
     return () => { window.clearInterval(t); document.removeEventListener('visibilitychange', onVis) }
   }, [load])
 
-  // Если разрешение на уведомления уже выдано — тихо (пере)подписываемся на бэкенде.
-  useEffect(() => { if (typeof Notification !== 'undefined' && Notification.permission === 'granted') void subscribeToPush() }, [])
+  // Подписка живёт ТОЛЬКО в установленном приложении; в обычной вкладке Safari её
+  // снимаем — иначе на один заказ приходят ДВА уведомления (вкладка + приложение).
+  useEffect(() => { syncPush() }, [])
 
   const patchStatus = useCallback((id: string, s: string) => setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status: s } : o))), [])
 
