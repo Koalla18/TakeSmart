@@ -115,14 +115,18 @@ class StaticFileService:
         Build public URL for an S3 object.
         Example: "products/abc/def.jpg"
           → "https://s3.twcstorage.ru/<bucket>/products/abc/def.jpg"
-        При IMAGE_PROXY=true → относительный «/api/media/products/abc/def.jpg»
+        При IMAGE_PROXY=true → относительный «/api/media?key=products/abc/def.jpg»
         (раздаётся нашим бэкендом — доступно из-за рубежа, в отличие от S3).
+        Ключ передаём query-параметром, а НЕ в пути: prod-nginx перехватывает любые
+        пути с расширениями картинок (.webp/.jpg) и отдаёт как статику с диска (404),
+        не доходя до бэкенда. Путь «/api/media» без расширения он пропускает.
         """
         bare = self._bare_key(key)
         if bare is None:
             return key  # внешний URL — без изменений
         if settings.IMAGE_PROXY:
-            return f"/api/media/{bare}"
+            from urllib.parse import quote
+            return f"/api/media?key={quote(bare, safe='/')}"
         if settings.S3_PUBLIC_URL:
             base = settings.S3_PUBLIC_URL.rstrip("/")
         else:
