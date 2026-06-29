@@ -466,14 +466,18 @@ export function CatalogPage() {
           }
         }
 
-        // Грузим товары порциями: первую показываем сразу, остальные догружаем в фоне
-        // (нужны для клиентских фильтров/поиска/сортировки), не блокируя первый рендер.
-        const chunkSize = 200
+        // Грузим товары порциями: ПЕРВУЮ делаем маленькой (≈экран) — чтобы каталог
+        // отрисовался почти мгновенно даже на медленном/далёком канале (VPN/заграница);
+        // остальное догружаем крупными порциями в фоне (для клиентских фильтров/поиска),
+        // не блокируя первый рендер.
+        const FIRST_CHUNK = 36
+        const CHUNK = 200
         let offset = 0
+        let limit = FIRST_CHUNK
         const allRaw: ApiProductOut[] = []
         let chunkIndex = 0
         while (true) {
-          const prodResp = await fetch(`${API_BASE_URL}/api/products?limit=${chunkSize}&offset=${offset}&only_active=true`)
+          const prodResp = await fetch(`${API_BASE_URL}/api/products?limit=${limit}&offset=${offset}&only_active=true`)
           if (!prodResp.ok) break
 
           const raw = await prodResp.json() as ApiPaginatedResponse<ApiProductOut> | ApiProductOut[]
@@ -486,9 +490,10 @@ export function CatalogPage() {
             chunkIndex++
           }
 
-          const hasNext = Array.isArray(raw) ? items.length === chunkSize : Boolean(raw.has_next)
+          const hasNext = Array.isArray(raw) ? items.length === limit : Boolean(raw.has_next)
           if (!hasNext || items.length === 0) break
           offset += items.length
+          limit = CHUNK
         }
 
         if (chunkIndex === 0) setIsLoading(false)
