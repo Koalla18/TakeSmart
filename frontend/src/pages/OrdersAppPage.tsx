@@ -76,10 +76,11 @@ function usePwaSetup() {
     return () => { if (link) link.href = createdLink ? '' : prevHref; if (theme) theme.content = createdTheme ? '' : prevTheme; if (apple) apple.href = createdApple ? '' : prevApple }
   }, [])
 }
-async function showOrderNotification(title: string, body: string) {
+async function showOrderNotification(title: string, body: string, tag = 'takesmart-order') {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-  try { const reg = await navigator.serviceWorker?.ready; if (reg) { await reg.showNotification(title, { body, icon: '/app-icon-192.png', badge: '/app-icon-192.png', tag: 'takesmart-order', data: { url: '/app' } }); return } } catch { /* */ }
-  try { new Notification(title, { body, icon: '/app-icon-192.png' }) } catch { /* */ }
+  const opts = { body, icon: '/app-icon-192.png', badge: '/app-icon-192.png', tag, renotify: true, data: { url: '/app' } } as NotificationOptions
+  try { const reg = await navigator.serviceWorker?.ready; if (reg) { await reg.showNotification(title, opts); return } } catch { /* */ }
+  try { new Notification(title, { body, icon: '/app-icon-192.png', tag }) } catch { /* */ }
 }
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -483,7 +484,7 @@ function OrdersFeed() {
           setFreshIds((prev) => { const n = new Set(prev); fresh.forEach((o) => n.add(o.id)); return n })
           const ids = fresh.map((o) => o.id)
           window.setTimeout(() => setFreshIds((prev) => { const n = new Set(prev); ids.forEach((id) => n.delete(id)); return n }), 8000)
-          if (fresh.length === 1) void showOrderNotification(`Новый заказ ${fresh[0].order_number}`, `${fresh[0].customer_name} · ${fmtRub(fresh[0].total_amount)}`)
+          if (fresh.length === 1) void showOrderNotification(`Новый заказ ${fresh[0].order_number}`, `${fresh[0].customer_name} · ${fmtRub(fresh[0].total_amount)}`, fresh[0].order_number)
           else void showOrderNotification(`Новых заказов: ${fresh.length}`, 'Откройте приложение, чтобы посмотреть.')
         }
       }
@@ -496,7 +497,7 @@ function OrdersFeed() {
   useEffect(() => {
     load()
     const t = window.setInterval(() => load(), 20000)
-    const onVis = () => { if (document.visibilityState === 'visible') load() }
+    const onVis = () => { if (document.visibilityState === 'visible') { load(); if (typeof Notification !== 'undefined' && Notification.permission === 'granted') void subscribeToPush() } }
     document.addEventListener('visibilitychange', onVis)
     return () => { window.clearInterval(t); document.removeEventListener('visibilitychange', onVis) }
   }, [load])
