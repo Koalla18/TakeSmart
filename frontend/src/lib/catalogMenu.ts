@@ -84,6 +84,39 @@ export interface MenuBrandGroup {
   models: MenuModel[]
 }
 
+// Ранг модели для сортировки «актуальное → первым». Порядок ключей:
+//   series (флагман выше среднего класса) → gen (поколение, число) → tier (линейка).
+// iPhone: 17 Pro Max → 17 Pro → 17 → 16 → Air (без числа — в конец).
+// Samsung: S/Z/Note (флагман) выше A/M/F, чтобы Galaxy A55 не обгонял Galaxy S24.
+function modelRank(name: string): { series: number; gen: number; tier: number } {
+  const s = name.toLowerCase()
+  // серия (только Samsung Galaxy; остальные бренды нейтральны → 0, iPhone не затрагивается)
+  let series = 0
+  if (/\bgalaxy\b/.test(s)) {
+    if (/\bgalaxy\s+(s|z|note)/.test(s)) series = 1
+    else if (/\bgalaxy\s+(a|m|f)\s*\d/.test(s)) series = -1
+  }
+  // поколение: максимальное «модельное» число (годы/ёмкости >999 игнорируем)
+  const nums = (s.match(/\d+/g) || []).map(Number).filter((n) => n > 0 && n < 1000)
+  const gen = nums.length ? Math.max(...nums) : -1
+  let tier = 2 // база
+  if (/pro\s*max|\bultra\b|\bmax\b/.test(s)) tier = 5
+  else if (/\bpro\b/.test(s)) tier = 4
+  else if (/\bplus\b|\+/.test(s)) tier = 3
+  else if (/\b(fe|se|mini|lite|neo|air)\b/.test(s)) tier = 1
+  return { series, gen, tier }
+}
+
+/** Сортировка модельных семейств: актуальнее и выше по линейке — первым. */
+export function compareModels(a: { name: string }, b: { name: string }): number {
+  const ra = modelRank(a.name)
+  const rb = modelRank(b.name)
+  if (rb.series !== ra.series) return rb.series - ra.series
+  if (rb.gen !== ra.gen) return rb.gen - ra.gen
+  if (rb.tier !== ra.tier) return rb.tier - ra.tier
+  return a.name.localeCompare(b.name, 'ru')
+}
+
 /**
  * Извлекает «модельное семейство» из полного названия товара: срезает ведущее
  * слово-категорию, бренд, ёмкость (512ГБ / 12/256ГБ), цвет/скобки и SIM-хвост.
@@ -141,7 +174,7 @@ export async function fetchCategoryBrandGroups(categoryId: string): Promise<Menu
       .map(([name, g]) => ({
         name,
         count: g.count,
-        models: [...g.models.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ru')),
+        models: [...g.models.values()].sort(compareModels),
       }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ru'))
   } catch {
