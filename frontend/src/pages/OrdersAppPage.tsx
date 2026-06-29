@@ -153,15 +153,20 @@ function syncPush(): void {
 // ВАЖНО: при ЗАКРЫТОМ приложении звук уведомления играет сама система (iOS/macOS) —
 // выбор ниже влияет на звук, только пока приложение открыто.
 const SOUNDS: { id: string; label: string; file: string }[] = [
-  { id: 'tri-tone', label: 'Три тона', file: '/sounds/tri-tone.wav' },
-  { id: 'ding', label: 'Колокольчик', file: '/sounds/ding.wav' },
-  { id: 'chime', label: 'Перезвон', file: '/sounds/chime.wav' },
-  { id: 'marimba', label: 'Маримба', file: '/sounds/marimba.wav' },
-  { id: 'glass', label: 'Стекло', file: '/sounds/glass.wav' },
+  { id: 'notify', label: 'Уведомление', file: '/sounds/plyus_org-z_uk-u_edomleniya-4.mp3' },
+  { id: 'vk', label: 'ВКонтакте', file: '/sounds/u_edomlenie-vkontakte.mp3' },
+  { id: 'ding', label: 'Динь', file: '/sounds/u_edomlenie-9.mp3' },
+  { id: 'signal', label: 'Сигнал', file: '/sounds/3380422.mp3' },
+  { id: 'chord', label: 'Аккорд', file: '/sounds/chord.mp3' },
+  { id: 'note', label: 'Нота', file: '/sounds/note.mp3' },
 ]
-const DEFAULT_SOUND_ID = 'tri-tone'
+const DEFAULT_SOUND_ID = 'notify'
 function getSoundId(): string {
-  try { return localStorage.getItem('takesmart_app_sound_id') || DEFAULT_SOUND_ID } catch { return DEFAULT_SOUND_ID }
+  try {
+    const v = localStorage.getItem('takesmart_app_sound_id')
+    if (v && SOUNDS.some((s) => s.id === v)) return v
+  } catch { /* */ }
+  return DEFAULT_SOUND_ID
 }
 function soundFile(id: string): string { return (SOUNDS.find((s) => s.id === id) || SOUNDS[0]).file }
 
@@ -273,9 +278,9 @@ function LoginScreen() {
         <p className="mt-1 text-sm text-slate-400">Заказы · вход для сотрудников</p>
       </div>
       <form onSubmit={submit} className="relative w-full max-w-xs space-y-3">
-        <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Логин" autoCapitalize="none" autoCorrect="off"
+        <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Логин" aria-label="Логин" autoComplete="username" autoCapitalize="none" autoCorrect="off"
           className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-white placeholder-slate-500 outline-none transition focus:border-yellow-400/60 focus:bg-white/10" />
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Пароль"
+        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Пароль" aria-label="Пароль" autoComplete="current-password"
           className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-white placeholder-slate-500 outline-none transition focus:border-yellow-400/60 focus:bg-white/10" />
         {err && <p className="px-1 text-sm text-rose-400">{err}</p>}
         <button type="submit" disabled={busy || !username || !password}
@@ -292,7 +297,10 @@ function OrderCard({ o, fresh, onOpen, onConfirm }: { o: AppOrder; fresh: boolea
   const cfg = STATUS[o.status]
   const initial = (o.customer_name || '?').trim().charAt(0).toUpperCase()
   return (
-    <div role="button" tabIndex={0} onClick={onOpen} className={`w-full cursor-pointer rounded-2xl border bg-white/[0.04] p-4 text-left transition-all duration-500 active:scale-[0.99] ${fresh ? 'border-yellow-400/50 bg-yellow-400/[0.07] shadow-lg shadow-yellow-400/10' : 'border-white/10 hover:border-white/20'}`}>
+    <div role="button" tabIndex={0} onClick={onOpen}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen() } }}
+      aria-label={`Заказ ${o.order_number}, ${o.customer_name || 'клиент'}, ${fmtRub(o.total_amount)}, ${cfg?.label || o.status}`}
+      className={`w-full cursor-pointer rounded-2xl border bg-white/[0.04] p-4 text-left transition-all duration-500 active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${fresh ? 'border-yellow-400/50 bg-yellow-400/[0.07] shadow-lg shadow-yellow-400/10' : 'border-white/10 hover:border-white/20'}`}>
       <div className="flex items-center justify-between gap-2">
         <span className="font-mono text-[13px] font-bold tracking-tight text-yellow-400">{o.order_number}</span>
         <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
@@ -330,6 +338,12 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange }: { orderId: strin
 
   useEffect(() => { setShow(true); document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } }, [])
   const close = useCallback(() => { setShow(false); window.setTimeout(onClose, 250) }, [onClose])
+  // Закрытие по Esc (доступность модального окна)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [close])
 
   useEffect(() => {
     let cancelled = false
@@ -368,10 +382,10 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange }: { orderId: strin
   return (
     <div className="fixed inset-0 z-50">
       <div className={`absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${show ? 'opacity-100' : 'opacity-0'}`} onClick={close} />
-      <div className={`absolute inset-x-0 bottom-0 top-0 flex flex-col bg-slate-950 transition-transform duration-300 ease-out sm:left-1/2 sm:top-6 sm:bottom-6 sm:w-[440px] sm:-translate-x-1/2 sm:rounded-3xl sm:border sm:border-white/10 ${show ? 'translate-y-0' : 'translate-y-full'}`}>
+      <div role="dialog" aria-modal="true" aria-label={`Заказ ${order?.order_number || ''}`} className={`absolute inset-x-0 bottom-0 top-0 flex flex-col bg-slate-950 transition-transform duration-300 ease-out sm:left-1/2 sm:top-6 sm:bottom-6 sm:w-[440px] sm:-translate-x-1/2 sm:rounded-3xl sm:border sm:border-white/10 ${show ? 'translate-y-0' : 'translate-y-full'}`}>
         {/* Header */}
         <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-3" style={SAFE_TOP}>
-          <button onClick={close} className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-lg text-slate-300 transition hover:bg-white/10 active:scale-95">✕</button>
+          <button onClick={close} aria-label="Закрыть" className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-lg text-slate-300 transition hover:bg-white/10 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/70">✕</button>
           <span className="font-mono text-sm font-bold text-yellow-400">{order?.order_number || '…'}</span>
           <span className="w-9" />
         </div>
@@ -664,6 +678,19 @@ function OrdersFeed() {
   const todayOrders = useMemo(() => orders.filter((o) => isToday(o.created_at)), [orders])
   const todayRevenue = useMemo(() => todayOrders.reduce((s, o) => s + (Number(o.total_amount) || 0), 0), [todayOrders])
   const newCount = counts['pending'] ?? 0
+
+  // Бейдж с числом новых заказов на иконке приложения (Dock/Домой) и в заголовке —
+  // сразу видно, что есть необработанные заказы, даже не открывая ленту.
+  useEffect(() => {
+    const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> }
+    try { if (newCount > 0) nav.setAppBadge?.(newCount); else nav.clearAppBadge?.() } catch { /* */ }
+    document.title = newCount > 0 ? `(${newCount}) Заказы` : 'Заказы'
+  }, [newCount])
+  useEffect(() => () => {
+    try { (navigator as { clearAppBadge?: () => Promise<void> }).clearAppBadge?.() } catch { /* */ }
+    document.title = 'TakeSmart'
+  }, [])
+
   const visible = useMemo(() => {
     const f = FILTERS.find((x) => x.key === filter)
     let list = !f || !f.statuses ? orders : orders.filter((o) => f.statuses!.includes(o.status as StatusKey))
@@ -685,9 +712,9 @@ function OrdersFeed() {
             </div>
           </div>
           <div className="flex items-center gap-1.5">
-            {perm === 'granted' && <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300">🔔</span>}
-            <button onClick={() => load(true)} aria-label="Обновить" className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-slate-300 transition hover:bg-white/10 active:scale-95"><span className={refreshing ? 'inline-block animate-spin' : ''}>↻</span></button>
-            <button onClick={() => setSettingsOpen((v) => !v)} aria-label="Настройки" className={`flex h-9 w-9 items-center justify-center rounded-xl transition active:scale-95 ${settingsOpen ? 'bg-yellow-400 text-gray-950' : 'bg-white/5 text-slate-300 hover:bg-white/10'}`}>⚙</button>
+            {perm === 'granted' && <span title="Уведомления включены" aria-label="Уведомления включены" className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300">🔔</span>}
+            <button onClick={() => load(true)} aria-label="Обновить" className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-slate-300 transition hover:bg-white/10 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/70"><span className={refreshing ? 'inline-block animate-spin' : ''}>↻</span></button>
+            <button onClick={() => setSettingsOpen((v) => !v)} aria-label="Настройки" aria-expanded={settingsOpen} className={`flex h-9 w-9 items-center justify-center rounded-xl transition active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/70 ${settingsOpen ? 'bg-yellow-400 text-gray-950' : 'bg-white/5 text-slate-300 hover:bg-white/10'}`}>⚙</button>
           </div>
         </div>
       </header>
