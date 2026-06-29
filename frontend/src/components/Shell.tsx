@@ -16,6 +16,38 @@ import {
   type MenuCategory,
   type MenuBrandGroup,
 } from '../lib/catalogMenu'
+import { API_BASE_URL } from '../lib/config'
+
+// Подсказка о медленной загрузке: замеряем реальную задержку до нашего сервера
+// и, если медленно (часто из-за VPN с дальним выходом), мягко предлагаем выключить VPN.
+function SlowConnectionHint() {
+  const [show, setShow] = useState(false)
+  useEffect(() => {
+    try { if (sessionStorage.getItem('ts_slow_hint_off') === '1') return } catch { /* */ }
+    let done = false
+    const t0 = (performance?.now?.() ?? Date.now())
+    const timer = window.setTimeout(() => { if (!done) setShow(true) }, 6000) // нет ответа за 6с — точно медленно
+    fetch(`${API_BASE_URL}/api/health`, { cache: 'no-store' })
+      .then(() => { done = true; const dt = (performance?.now?.() ?? Date.now()) - t0; if (dt > 3500) setShow(true) })
+      .catch(() => { /* офлайн/ошибку не считаем «медленным VPN» */ })
+      .finally(() => window.clearTimeout(timer))
+    return () => window.clearTimeout(timer)
+  }, [])
+  const dismiss = () => { setShow(false); try { sessionStorage.setItem('ts_slow_hint_off', '1') } catch { /* */ } }
+  if (!show) return null
+  return (
+    <div role="status" className="fixed inset-x-3 bottom-3 z-[60] mx-auto max-w-md rounded-2xl border border-yellow-300 bg-white p-3.5 shadow-xl shadow-black/10 sm:left-1/2 sm:right-auto sm:-translate-x-1/2">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-yellow-100 text-lg">⚡</span>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-gray-900">Сайт грузится медленно?</div>
+          <div className="mt-0.5 text-[13px] leading-snug text-gray-600">Если включён VPN — попробуйте его выключить, так будет быстрее.</div>
+        </div>
+        <button onClick={dismiss} aria-label="Скрыть" className="flex-shrink-0 rounded-lg p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700">✕</button>
+      </div>
+    </div>
+  )
+}
 
 function NavItem({ to, label, onClick }: { to: string; label: string; onClick?: () => void }) {
   return (
@@ -772,7 +804,10 @@ export function Shell({ children }: PropsWithChildren) {
       
       {/* Main content */}
       <main className="flex-1">{children}</main>
-      
+
+      {/* Подсказка при медленной загрузке (часто VPN) */}
+      <SlowConnectionHint />
+
       {/* Footer */}
       <footer className="bg-[#111] text-white">
 
