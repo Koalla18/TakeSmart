@@ -471,7 +471,7 @@ interface ApiVariant {
 
 function isImageUrl(url?: string): boolean {
   if (!url) return false
-  return url.startsWith('http') || url.startsWith('/products') || url.startsWith('/uploads') || url.startsWith('/static')
+  return url.startsWith('http') || url.startsWith('/api/media') || url.startsWith('/products') || url.startsWith('/uploads') || url.startsWith('/static')
 }
 
 function getImageUrl(url?: string): string {
