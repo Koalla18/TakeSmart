@@ -96,6 +96,15 @@ class StaticFileService:
         v = (value or "").strip()
         if not v:
             return None
+        # Уже НАША прокси-ссылка (/api/media?key=...) — возможно вложенная (двойная).
+        # Рекурсивно достаём настоящий ключ → build_url становится идемпотентным, а из
+        # «битых» двойных URL фото всё равно отдаётся. (Двойной прокси возникал из-за
+        # повторной валидации схемы в _build_detail.)
+        low = v.lstrip("/")
+        if low.startswith("api/media") or low.startswith("api/v1/media"):
+            from urllib.parse import urlparse, parse_qs, unquote
+            inner = (parse_qs(urlparse("/" + low).query).get("key") or [""])[0]
+            return self._bare_key(unquote(inner)) if inner else None
         if v.startswith("http"):
             marker = f"/{settings.S3_BUCKET_NAME}/"
             idx = v.find(marker)
