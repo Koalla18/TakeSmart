@@ -33,6 +33,7 @@ const DEFAULT_QUICK_FILTERS: Record<string, { label: string; query: string; bran
     { label: 'iPhone 17 Pro Max', query: 'iPhone 17 Pro Max', brand: 'apple' },
     { label: 'iPhone 17 Pro', query: 'iPhone 17 Pro', brand: 'apple' },
     { label: 'iPhone 17', query: 'iPhone 17', brand: 'apple' },
+    { label: 'iPhone Air', query: 'iPhone Air', brand: 'apple' },
     { label: 'iPhone 16 Pro Max', query: 'iPhone 16 Pro Max', brand: 'apple' },
     { label: 'iPhone 16 Pro', query: 'iPhone 16 Pro', brand: 'apple' },
     { label: 'iPhone 16', query: 'iPhone 16', brand: 'apple' },
@@ -770,10 +771,10 @@ export function CatalogPage() {
               </div>
             </div>
 
-            {/* Quick filter tags */}
+            {/* Quick filter tags — на десктопе переносятся (всё видно), на мобиле горизонтальный скролл */}
             {currentCategory && currentCategory.quickFilters.length > 0 && (
               <div className="mb-4">
-                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
+                <div className="flex flex-nowrap gap-2 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1 lg:flex-wrap lg:overflow-x-visible">
                   <button
                     onClick={() => { setSearchQuery(''); setSelectedBrand('all') }}
                     className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-all ${
