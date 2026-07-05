@@ -57,7 +57,7 @@ export function DeliveryPage() {
               </div>
               <h3 className="mb-4 text-2xl font-bold text-gray-900">Курьер по Москве</h3>
               <div className="mb-4 inline-flex rounded-full bg-yellow-100 px-4 py-2 text-yellow-700 font-semibold">
-                от 500 ₽
+                от 1000 ₽
               </div>
               <p className="mb-6 text-gray-600">
                 Доставим в удобное для вас время. Возможна доставка в день заказа.
