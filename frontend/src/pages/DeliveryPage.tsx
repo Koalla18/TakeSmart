@@ -76,11 +76,6 @@ export function DeliveryPage() {
                   Оплата при получении
                 </li>
               </ul>
-              <div className="mt-4 rounded-xl bg-yellow-50 p-4 text-sm">
-                <span className="font-semibold">🎁 При заказе от 200 000 ₽</span>
-                <br/>
-                доставка бесплатно
-              </div>
             </div>
 
             {/* Shipping */}
