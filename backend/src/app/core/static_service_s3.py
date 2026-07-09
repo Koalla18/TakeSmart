@@ -133,6 +133,11 @@ class StaticFileService:
         bare = self._bare_key(key)
         if bare is None:
             return key  # внешний URL — без изменений
+        # Ассет фронтенда (в public/), напр. "/iphone-17-pro.png" — НЕ S3-объект.
+        # Реальные S3-ключи всегда с папкой (products/.., slides/.., categories/..),
+        # поэтому «ключ без слэша» отдаём как корневой путь фронта, не трогая.
+        if "/" not in bare:
+            return "/" + bare
         if settings.IMAGE_PROXY:
             from urllib.parse import quote
             return f"/api/media?key={quote(bare, safe='/')}"
