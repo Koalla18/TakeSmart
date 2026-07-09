@@ -17,6 +17,7 @@ from src.app.api.routers import (
     product_groups_router,
     orders_router,
     weekly_slides_router,
+    hero_banners_router,
     push_router,
     media_router,
 )
@@ -148,6 +149,7 @@ def create_app() -> FastAPI:
     app.include_router(product_images_router, prefix=prefix)
     app.include_router(orders_router,         prefix=prefix)
     app.include_router(weekly_slides_router,  prefix=prefix)
+    app.include_router(hero_banners_router,   prefix=prefix)
     app.include_router(push_router,           prefix=prefix)
     app.include_router(media_router,          prefix=prefix)
     app.include_router(admin_router,          prefix=f"{prefix}/admin", tags=["admin"])
