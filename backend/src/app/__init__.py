@@ -20,6 +20,7 @@ from src.app.api.routers import (
     hero_banners_router,
     push_router,
     media_router,
+    feed_router,
 )
 from src.app.api.admin.endpoints import router as admin_router
 
@@ -152,6 +153,7 @@ def create_app() -> FastAPI:
     app.include_router(hero_banners_router,   prefix=prefix)
     app.include_router(push_router,           prefix=prefix)
     app.include_router(media_router,          prefix=prefix)
+    app.include_router(feed_router,           prefix=prefix)
     app.include_router(admin_router,          prefix=f"{prefix}/admin", tags=["admin"])
 
     return app

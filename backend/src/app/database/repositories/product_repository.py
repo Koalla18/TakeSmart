@@ -77,6 +77,18 @@ class ProductRepository(BaseRepository[Product]):
         )
         return result.scalars().all()
 
+    async def list_for_feed(self) -> Sequence[Product]:
+        """Все активные НОВЫЕ товары с подгруженной категорией — для товарного
+        фида (YML для Яндекс.Директа). Только condition='new': б/у живут на
+        отдельном маршруте /used/{slug}, их ссылки /product/{slug} были бы битые."""
+        result = await self.session.execute(
+            select(Product)
+            .where(Product.is_active.is_(True), Product.condition == "new")
+            .options(selectinload(Product.category))
+            .order_by(Product.created_at.desc())
+        )
+        return result.scalars().all()
+
     async def get_featured(self, *, limit: int = 20) -> Sequence[Product]:
         """Получить товары на витрине (is_featured=True)."""
         result = await self.session.execute(

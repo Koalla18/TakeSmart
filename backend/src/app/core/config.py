@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     APP_DEBUG: bool = False
     BASE_URL: str = "http://localhost:8000"
+    # Публичный адрес витрины (для абсолютных ссылок в товарном фиде YML и т.п.).
+    PUBLIC_SITE_URL: str = "https://takesmart.ru"
 
     # PostgreSQL
     DB_HOST: str = "localhost"
