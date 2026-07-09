@@ -114,7 +114,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   refunded:   { label: 'Возврат',     color: 'text-gray-600',   bg: 'bg-gray-200',   icon: '💸' },
 }
 
-type TabType = 'orders' | 'products' | 'categories' | 'slides' | 'used'
+type TabType = 'orders' | 'products' | 'categories' | 'banners' | 'slides' | 'used'
 
 // ============ HELPERS ============
 
@@ -129,6 +129,21 @@ interface WeeklySlide {
   tags: string[] | null
   link_url: string | null
   is_new: boolean
+  sort_order: number
+  is_active: boolean
+}
+
+interface HeroBanner {
+  id: string
+  badge: string | null
+  title: string
+  highlight: string | null
+  description: string | null
+  image: string | null
+  cta_label: string | null
+  cta_link: string | null
+  secondary_label: string | null
+  secondary_link: string | null
   sort_order: number
   is_active: boolean
 }
@@ -180,6 +195,9 @@ export function AdminPage() {
   const [slides, setSlides] = useState<WeeklySlide[]>([])
   const [editingSlide, setEditingSlide] = useState<WeeklySlide | null>(null)
   const [isSlideModalOpen, setIsSlideModalOpen] = useState(false)
+  const [banners, setBanners] = useState<HeroBanner[]>([])
+  const [editingBanner, setEditingBanner] = useState<HeroBanner | null>(null)
+  const [isBannerModalOpen, setIsBannerModalOpen] = useState(false)
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [_error, setError] = useState<string | null>(null)
@@ -244,11 +262,18 @@ export function AdminPage() {
     } catch (err) { console.error(err) }
   }
 
+  const loadBanners = async () => {
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/hero-banners/all`)
+      if (res.ok) setBanners(await res.json())
+    } catch (err) { console.error(err) }
+  }
+
   const loadAllData = async () => {
     setIsLoading(true)
     setError(null)
     try {
-      await Promise.all([loadOrders(), loadProducts(), loadCategories(), loadSlides()])
+      await Promise.all([loadOrders(), loadProducts(), loadCategories(), loadSlides(), loadBanners()])
     } catch { setError('Ошибка загрузки') }
     finally { setIsLoading(false) }
   }
@@ -430,6 +455,55 @@ export function AdminPage() {
     } catch { toast('Ошибка', 'error') }
   }
 
+  // Hero banners actions
+  const saveBanner = async (data: Record<string, unknown>, bannerId?: string): Promise<string | null> => {
+    try {
+      const url = bannerId ? `${API_BASE_URL}/api/hero-banners/${bannerId}` : `${API_BASE_URL}/api/hero-banners`
+      const res = await authFetch(url, {
+        method: bannerId ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Ошибка') }
+      const saved = await res.json()
+      loadBanners()
+      return saved.id as string
+    } catch (err) { toast(err instanceof Error ? err.message : 'Ошибка', 'error'); return null }
+  }
+
+  const deleteBanner = async (bannerId: string) => {
+    if (!(await confirmDialog({ title: 'Удалить баннер?', message: 'Баннер главной страницы будет удалён.', confirmLabel: 'Удалить' }))) return
+    try {
+      await authFetch(`${API_BASE_URL}/api/hero-banners/${bannerId}`, { method: 'DELETE' })
+      loadBanners()
+    } catch { toast('Ошибка', 'error') }
+  }
+
+  const toggleBannerActive = async (banner: HeroBanner) => {
+    try {
+      await authFetch(`${API_BASE_URL}/api/hero-banners/${banner.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !banner.is_active }),
+      })
+      loadBanners()
+    } catch { toast('Ошибка', 'error') }
+  }
+
+  const moveBanner = async (banner: HeroBanner, dir: -1 | 1) => {
+    const sorted = [...banners].sort((a, b) => a.sort_order - b.sort_order)
+    const idx = sorted.findIndex(b => b.id === banner.id)
+    const swap = sorted[idx + dir]
+    if (!swap) return
+    try {
+      await Promise.all([
+        authFetch(`${API_BASE_URL}/api/hero-banners/${banner.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: swap.sort_order }) }),
+        authFetch(`${API_BASE_URL}/api/hero-banners/${swap.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: banner.sort_order }) }),
+      ])
+      loadBanners()
+    } catch { toast('Ошибка', 'error') }
+  }
+
   // Filtering
   const filterProducts = (list: Product[]) => {
     return list.filter(p => {
@@ -568,6 +642,7 @@ export function AdminPage() {
             { id: 'orders' as TabType, label: '📋 Заказы', count: orders.length },
             { id: 'products' as TabType, label: '📦 Товары', count: products.filter(p => (p.condition || 'new') === 'new').length },
             { id: 'categories' as TabType, label: '📁 Категории', count: categories.length },
+            { id: 'banners' as TabType, label: '🖼 Баннеры', count: banners.length },
             { id: 'slides' as TabType, label: '🏞 Слайды недели', count: slides.length },
           ].map(tab => (
             <button
@@ -890,6 +965,77 @@ export function AdminPage() {
           </>
         )}
 
+        {/* ============ BANNERS TAB ============ */}
+        {activeTab === 'banners' && (
+          <>
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white">🖼 Баннеры главной страницы</h2>
+                <p className="text-sm text-slate-400">Большой слайдер вверху главной. Порядок — стрелками, показ — «Активен».</p>
+              </div>
+              <button
+                onClick={() => { setEditingBanner(null); setIsBannerModalOpen(true) }}
+                className="rounded-xl bg-yellow-400 px-5 py-3 font-semibold text-gray-900 hover:bg-yellow-300"
+              >
+                + Новый баннер
+              </button>
+            </div>
+
+            {banners.length === 0 ? (
+              <div className="rounded-2xl bg-white/5 p-16 text-center">
+                <div className="text-5xl mb-4">🖼</div>
+                <div className="text-xl font-semibold text-white">Баннеров нет</div>
+                <div className="mt-2 text-slate-400">Создайте первый баннер для главной страницы</div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {[...banners].sort((a, b) => a.sort_order - b.sort_order).map((banner, i, arr) => (
+                  <div key={banner.id} className={`overflow-hidden rounded-2xl border bg-white/5 ${banner.is_active ? 'border-white/10' : 'border-white/5 opacity-60'}`}>
+                    <div className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center">
+                      {/* Мини-превью — как на сайте */}
+                      <div className="flex min-w-0 flex-1 items-center gap-4 rounded-xl bg-gradient-to-br from-gray-50 via-white to-gray-100 p-4">
+                        <div className="min-w-0 flex-1">
+                          {banner.badge && (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-medium text-gray-700">
+                              <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" />{banner.badge}
+                            </span>
+                          )}
+                          <div className="mt-1 text-lg font-bold leading-tight text-gray-900">
+                            {banner.title} {banner.highlight && <span className="text-yellow-500">{banner.highlight}</span>}
+                          </div>
+                          {banner.description && <div className="mt-0.5 line-clamp-1 text-xs text-gray-500">{banner.description}</div>}
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {banner.cta_label && <span className="rounded-md bg-gray-900 px-2 py-0.5 text-[10px] font-semibold text-white">{banner.cta_label}</span>}
+                            {banner.secondary_label && <span className="rounded-md border border-gray-300 px-2 py-0.5 text-[10px] font-semibold text-gray-700">{banner.secondary_label}</span>}
+                          </div>
+                        </div>
+                        {banner.image
+                          ? <img src={getImageUrl(banner.image)} alt="" className="h-16 w-16 flex-shrink-0 rounded-lg object-contain" />
+                          : <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100 text-2xl">🖼</div>}
+                      </div>
+
+                      {/* Управление */}
+                      <div className="flex items-center justify-between gap-2 lg:flex-col lg:items-end">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] ${banner.is_active ? 'bg-green-400/20 text-green-300' : 'bg-red-400/20 text-red-300'}`}>{banner.is_active ? 'Активен' : 'Скрыт'}</span>
+                          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-slate-400">#{i + 1}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          <button onClick={() => moveBanner(banner, -1)} disabled={i === 0} className="rounded-lg bg-white/10 px-2.5 py-2 text-xs text-white hover:bg-white/20 disabled:opacity-30" title="Выше">↑</button>
+                          <button onClick={() => moveBanner(banner, 1)} disabled={i === arr.length - 1} className="rounded-lg bg-white/10 px-2.5 py-2 text-xs text-white hover:bg-white/20 disabled:opacity-30" title="Ниже">↓</button>
+                          <button onClick={() => toggleBannerActive(banner)} className="rounded-lg bg-white/10 px-3 py-2 text-xs text-slate-300 hover:bg-white/20">{banner.is_active ? '⬛ Скрыть' : '✅ Включить'}</button>
+                          <button onClick={() => { setEditingBanner(banner); setIsBannerModalOpen(true) }} className="rounded-lg bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/20">✏️ Изменить</button>
+                          <button onClick={() => deleteBanner(banner.id)} className="rounded-lg bg-red-900/30 px-3 py-2 text-xs text-red-400 hover:bg-red-900/60">🗑</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
         {/* ============ SLIDES TAB ============ */}
         {activeTab === 'slides' && (
           <>
@@ -1019,6 +1165,15 @@ export function AdminPage() {
           slide={editingSlide}
           onSave={saveSlide}
           onClose={() => { setIsSlideModalOpen(false); setEditingSlide(null) }}
+          authFetch={authFetch}
+        />
+      )}
+
+      {isBannerModalOpen && (
+        <BannerModal
+          banner={editingBanner}
+          onSave={saveBanner}
+          onClose={() => { setIsBannerModalOpen(false); setEditingBanner(null) }}
           authFetch={authFetch}
         />
       )}
@@ -2791,6 +2946,193 @@ function ProductModal({
 }
 
 // ============ SLIDE MODAL COMPONENT ============
+
+function BannerModal({
+  banner, onSave, onClose, authFetch
+}: {
+  banner: HeroBanner | null
+  onSave: (data: Record<string, unknown>, id?: string) => Promise<string | null>
+  onClose: () => void
+  authFetch: AuthFetchFn
+}) {
+  const [badge, setBadge] = useState(banner?.badge || '')
+  const [title, setTitle] = useState(banner?.title || '')
+  const [highlight, setHighlight] = useState(banner?.highlight || '')
+  const [description, setDescription] = useState(banner?.description || '')
+  const [image, setImage] = useState(banner?.image || '')
+  const [ctaLabel, setCtaLabel] = useState(banner?.cta_label || '')
+  const [ctaLink, setCtaLink] = useState(banner?.cta_link || '')
+  const [secondaryLabel, setSecondaryLabel] = useState(banner?.secondary_label || '')
+  const [secondaryLink, setSecondaryLink] = useState(banner?.secondary_link || '')
+  const [sortOrder, setSortOrder] = useState(String(banner?.sort_order ?? 0))
+  const [isActive, setIsActive] = useState(banner?.is_active ?? true)
+  const [uploading, setUploading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [createdId, setCreatedId] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const buildPayload = (): Record<string, unknown> => ({
+    badge: badge.trim() || null,
+    title: title.trim(),
+    highlight: highlight.trim() || null,
+    description: description.trim() || null,
+    image: image.trim() || null,
+    cta_label: ctaLabel.trim() || null,
+    cta_link: ctaLink.trim() || null,
+    secondary_label: secondaryLabel.trim() || null,
+    secondary_link: secondaryLink.trim() || null,
+    sort_order: parseInt(sortOrder) || 0,
+    is_active: isActive,
+  })
+
+  const uploadImage = async (bannerId: string, file: File) => {
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await authFetch(`${API_BASE_URL}/api/hero-banners/${bannerId}/image`, { method: 'POST', body: fd })
+      if (res.ok) { const data = await res.json(); setImage(data.url) }
+      else { const err = await res.json().catch(() => ({})); toast(`Ошибка загрузки: ${err.detail || res.status}`, 'error') }
+    } catch { toast('Ошибка загрузки изображения', 'error') }
+    finally { setUploading(false) }
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const existingId = banner?.id || createdId
+    if (existingId) {
+      await uploadImage(existingId, file)
+    } else {
+      // Новый баннер — сначала сохраняем (нужен id), потом грузим фото
+      setSaving(true)
+      const savedId = await onSave({ ...buildPayload(), title: title.trim() || 'Новый баннер' })
+      setSaving(false)
+      if (savedId) { setCreatedId(savedId); await uploadImage(savedId, file) }
+    }
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    await onSave(buildPayload(), banner?.id || createdId || undefined)
+    setSaving(false)
+    onClose()
+  }
+
+  const inputCls = "w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none"
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-slate-800 p-6" onClick={e => e.stopPropagation()}>
+        <div className="mb-4 flex items-start justify-between">
+          <h2 className="text-2xl font-bold text-white">{banner?.id ? 'Редактировать баннер' : 'Новый баннер'}</h2>
+          <button onClick={onClose} className="text-2xl text-slate-400 hover:text-white">×</button>
+        </div>
+
+        {/* Живой предпросмотр — как будет выглядеть на сайте */}
+        <div className="mb-5">
+          <div className="mb-1.5 text-xs font-medium uppercase tracking-wider text-slate-500">Предпросмотр</div>
+          <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-gray-50 via-white to-gray-100 p-5 ring-1 ring-black/5">
+            <div className="grid items-center gap-4 sm:grid-cols-2">
+              <div className="min-w-0">
+                {badge && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" />{badge}
+                  </span>
+                )}
+                <div className="mt-2 text-2xl font-bold leading-tight text-gray-900">
+                  {title || <span className="text-gray-400">Заголовок</span>}{highlight ? ' ' : ''}
+                  {highlight && <span className="text-yellow-500">{highlight}</span>}
+                </div>
+                {description && <div className="mt-1.5 line-clamp-2 text-sm text-gray-500">{description}</div>}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {ctaLabel && <span className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white">{ctaLabel}</span>}
+                  {secondaryLabel && <span className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700">{secondaryLabel}</span>}
+                </div>
+              </div>
+              <div className="flex items-center justify-center">
+                {image
+                  ? <img src={getImageUrl(image)} alt="" className="h-28 w-auto object-contain drop-shadow-xl" />
+                  : <div className="flex h-28 w-28 items-center justify-center rounded-xl bg-gray-100 text-4xl text-gray-300">🖼</div>}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm text-slate-400">Плашка сверху (badge)</label>
+            <input type="text" value={badge} onChange={e => setBadge(e.target.value)} className={inputCls} placeholder="Новая коллекция 2026" />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm text-slate-400">Заголовок * (чёрный)</label>
+              <input type="text" required value={title} onChange={e => setTitle(e.target.value)} className={inputCls} placeholder="Умная техника" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm text-slate-400">Вторая строка (жёлтая)</label>
+              <input type="text" value={highlight} onChange={e => setHighlight(e.target.value)} className={inputCls} placeholder="будущего" />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm text-slate-400">Описание</label>
+            <textarea rows={2} value={description} onChange={e => setDescription(e.target.value)} className={inputCls} placeholder="Короткий текст под заголовком" />
+          </div>
+
+          {/* Изображение */}
+          <div>
+            <label className="mb-1 block text-sm text-slate-400">Изображение (PNG без фона — лучше всего)</label>
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading || saving}
+                className="rounded-xl bg-yellow-400 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-yellow-300 disabled:opacity-50">
+                {uploading ? '⏳ Загрузка…' : '📁 Загрузить фото'}
+              </button>
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+              {image && <button type="button" onClick={() => setImage('')} className="text-xs text-red-400 hover:text-red-300">Убрать фото</button>}
+            </div>
+            <input type="text" value={image} onChange={e => setImage(e.target.value)} className={`${inputCls} mt-2 text-sm`} placeholder="или путь/URL: /iphone-17-pro.png" />
+          </div>
+
+          {/* Кнопки баннера */}
+          <div className="rounded-xl bg-white/5 p-4">
+            <div className="mb-3 text-sm font-medium text-white">Основная кнопка</div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <input type="text" value={ctaLabel} onChange={e => setCtaLabel(e.target.value)} className={inputCls} placeholder="Текст: Смотреть каталог" />
+              <input type="text" value={ctaLink} onChange={e => setCtaLink(e.target.value)} className={inputCls} placeholder="Ссылка: /catalog" />
+            </div>
+            <div className="mb-3 mt-4 text-sm font-medium text-white">Вторая кнопка (необязательно)</div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <input type="text" value={secondaryLabel} onChange={e => setSecondaryLabel(e.target.value)} className={inputCls} placeholder="Текст: В каталог" />
+              <input type="text" value={secondaryLink} onChange={e => setSecondaryLink(e.target.value)} className={inputCls} placeholder="Ссылка: /catalog или https://t.me/…" />
+            </div>
+            <p className="mt-2 text-[11px] text-slate-500">Ссылка с http(s):// открывается как внешняя, остальные — как страницы сайта (напр. /catalog, /trade-in).</p>
+          </div>
+
+          {/* Порядок + активность */}
+          <div className="flex flex-wrap items-center gap-6 rounded-xl bg-white/5 p-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-400">Порядок:</label>
+              <input type="text" inputMode="numeric" value={sortOrder} onChange={e => setSortOrder(e.target.value.replace(/\D/g, ''))} className="w-16 rounded-lg bg-white/10 px-3 py-2 text-center text-white focus:bg-white/20 focus:outline-none" />
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 text-white">
+              <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="h-5 w-5 rounded" />
+              <span>👁 Показывать на сайте</span>
+            </label>
+          </div>
+
+          <div className="flex gap-4 pt-1">
+            <button type="button" onClick={onClose} className="flex-1 rounded-xl bg-white/10 py-3 text-white hover:bg-white/20">Отмена</button>
+            <button type="submit" disabled={saving || uploading} className="flex-1 rounded-xl bg-yellow-400 py-3 font-semibold text-gray-900 hover:bg-yellow-300 disabled:opacity-50">
+              {saving ? '⏳ Сохранение…' : banner?.id ? 'Сохранить' : 'Создать'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
 
 function SlideModal({
   slide, onSave, onClose, authFetch

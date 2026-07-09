@@ -121,13 +121,48 @@ const HERO_BANNERS: Banner[] = [
   },
 ]
 
+// Баннер из API (управляется в админке). Ссылка с http(s) — внешняя, иначе — маршрут сайта.
+interface ApiHeroBanner {
+  badge: string | null; title: string; highlight: string | null; description: string | null
+  image: string | null; cta_label: string | null; cta_link: string | null
+  secondary_label: string | null; secondary_link: string | null
+}
+function bannerLink(link?: string | null): { to?: string; href?: string } {
+  if (!link) return { to: '/catalog' }
+  return /^https?:\/\//i.test(link) ? { href: link } : { to: link }
+}
+function mapApiBanner(b: ApiHeroBanner): Banner {
+  return {
+    badge: b.badge || '',
+    title: b.title || '',
+    highlight: b.highlight || '',
+    description: b.description || '',
+    image: b.image || '',
+    cta: { label: b.cta_label || 'Смотреть каталог', ...bannerLink(b.cta_link) },
+    secondary: b.secondary_label ? { label: b.secondary_label, ...bannerLink(b.secondary_link) } : undefined,
+  }
+}
+
 function HeroBannerSlider() {
+  const [banners, setBanners] = useState<Banner[]>(HERO_BANNERS)
   const [current, setCurrent] = useState(0)
   const [touchStartX, setTouchStartX] = useState<number | null>(null)
-  const count = HERO_BANNERS.length
+  const count = banners.length
 
   const next = useCallback(() => setCurrent(p => (p + 1) % count), [count])
   const prev = useCallback(() => setCurrent(p => (p - 1 + count) % count), [count])
+
+  // Баннеры из админки (/api/hero-banners). Если пусто/ошибка — остаётся хардкод-фолбэк.
+  useEffect(() => {
+    let cancelled = false
+    fetch(`${API_BASE_URL}/api/hero-banners`)
+      .then(r => (r.ok ? r.json() : Promise.reject()))
+      .then((data: ApiHeroBanner[]) => {
+        if (!cancelled && Array.isArray(data) && data.length) { setBanners(data.map(mapApiBanner)); setCurrent(0) }
+      })
+      .catch(() => { /* оставляем HERO_BANNERS как фолбэк */ })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     const timer = setInterval(next, 6000)
@@ -149,7 +184,7 @@ function HeroBannerSlider() {
           onTouchStart={e => setTouchStartX(e.touches[0].clientX)}
           onTouchEnd={e => onTouchEnd(e.changedTouches[0].clientX)}
         >
-          {HERO_BANNERS.map((b, idx) => (
+          {banners.map((b, idx) => (
             <div
               key={idx}
               aria-hidden={idx !== current}
@@ -229,7 +264,7 @@ function HeroBannerSlider() {
 
           {/* Точки */}
           <div className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 gap-2">
-            {HERO_BANNERS.map((_, i) => (
+            {banners.map((_, i) => (
               <button
                 key={i}
                 onClick={() => setCurrent(i)}
