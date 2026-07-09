@@ -6,6 +6,7 @@ import { Button } from '../components/ui/Button'
 import { useCart, MAX_QUANTITY_PER_ITEM, MAX_TOTAL_ITEMS } from '../lib/cart'
 import { formatPrice } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
+import { ymEcommercePurchase, ymReachGoal } from '../lib/metrika'
 
 function isImageUrl(url?: string): boolean {
   if (!url) return false
@@ -289,6 +290,23 @@ export function CartPage() {
     }
 
     const order = await res.json()
+
+    // Аналитика: успешный заказ (цель + e-commerce purchase). Считаем до clearCart,
+    // пока items/total ещё актуальны в этом замыкании.
+    ymReachGoal('order_success', { revenue: total })
+    ymEcommercePurchase(
+      String(order.order_number ?? order.id ?? ''),
+      items.map(item => ({
+        id: item.product.id,
+        name: item.product.name,
+        price: item.product.price,
+        brand: item.product.brand || undefined,
+        category: item.product.category || undefined,
+        quantity: item.quantity,
+      })),
+      total,
+    )
+
     clearCart()
     setOrderNumber(order.order_number ?? null)
     setIsSuccess(true)

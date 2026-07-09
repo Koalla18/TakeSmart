@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 import type { Product } from '../data/products'
+import { ymEcommerceAdd, ymReachGoal } from './metrika'
 
 export interface CartItem {
   product: Product
@@ -83,6 +84,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
       }
       return [...current, { product, quantity: Math.min(quantity, effectiveMax) }]
     })
+
+    // Аналитика: добавление в корзину (цель + e-commerce)
+    ymReachGoal('add_to_cart', { id: product.id, name: product.name, price: product.price })
+    ymEcommerceAdd({
+      id: product.id,
+      name: product.name,
+      price: product.price,
+      brand: product.brand || undefined,
+      category: product.category || undefined,
+      quantity,
+    })
+
     return true
   }
 

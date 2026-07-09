@@ -1,8 +1,9 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { Suspense, lazy, useEffect } from 'react'
+import { Suspense, lazy, useEffect, useRef } from 'react'
 import { Shell } from './components/Shell'
 import { AuthProvider } from './lib/auth'
 import { CartProvider } from './lib/cart'
+import { ymHit } from './lib/metrika'
 import { HomePage } from './pages/HomePage'
 
 // HomePage остаётся eager — это лендинг, не хотим второй сетевой round-trip на "/".
@@ -31,6 +32,28 @@ function ScrollToTop() {
   return null
 }
 
+/**
+ * SPA-трекинг для Яндекс.Метрики: первый просмотр отправляет сам сниппет в
+ * index.html при загрузке, а каждый последующий переход по роуту (без
+ * перезагрузки страницы) отправляем вручную через ym('hit').
+ */
+const METRIKA_IGNORED_PREFIXES = ['/admin', '/app', '/login']
+
+function MetrikaRouteTracker() {
+  const location = useLocation()
+  const isFirstRender = useRef(true)
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      return
+    }
+    // Не считаем внутренние инструменты (админка/PWA-заказы/вход) — только витрину.
+    if (METRIKA_IGNORED_PREFIXES.some(p => location.pathname.startsWith(p))) return
+    ymHit(location.pathname + location.search)
+  }, [location.pathname, location.search])
+  return null
+}
+
 /** Лёгкий плейсхолдер во время подгрузки чанка ленивой страницы. */
 function RouteFallback() {
   return (
@@ -45,6 +68,7 @@ export default function App() {
     <AuthProvider>
       <CartProvider>
         <ScrollToTop />
+        <MetrikaRouteTracker />
         <Suspense fallback={<RouteFallback />}>
           <Routes>
             {/* Admin routes (no Shell) */}
