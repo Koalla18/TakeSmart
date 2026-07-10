@@ -164,6 +164,16 @@ class StaticFileService:
             logger.warning("s3_fetch_failed", key=bare, error=str(exc)[:160])
             return None, None
 
+    def bare_key(self, value: str | None) -> str | None:
+        """Публичный доступ к нормализации ключа (полный S3-URL/legacy → голый ключ)."""
+        if not value:
+            return None
+        return self._bare_key(value)
+
+    def store_bytes(self, key: str, content: bytes, content_type: str) -> None:
+        """Публичная запись готовых байтов в S3 (напр. кэш нормализованных фото фида)."""
+        self._upload(key, content, content_type)
+
     # ------------------------------------------------------------------ #
     #  Private                                                             #
     # ------------------------------------------------------------------ #
