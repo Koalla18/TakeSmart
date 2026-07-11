@@ -112,7 +112,7 @@ const HERO_BANNERS: Banner[] = [
   {
     badge: 'Доставка по Москве',
     title: 'Привезём',
-    highlight: 'за 30 минут',
+    highlight: 'от 30 минут',
     description:
       'Быстрая доставка и удобные способы оплаты — наличными, картой или в рассрочку.',
     image: '/iphone-15-blue.png',
