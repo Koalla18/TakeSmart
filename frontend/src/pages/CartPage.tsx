@@ -85,12 +85,9 @@ const PAYMENT_METHODS = [
 
 const DELIVERY_METHODS = [
   { id: 'pickup', label: 'Самовывоз', icon: '🏪', desc: 'Бесплатно', price: 0 },
-  { id: 'courier', label: 'Курьер', icon: '🚗', desc: 'По Москве', price: 500 },
+  { id: 'courier', label: 'Курьер', icon: '🚗', desc: 'По Москве', price: 1000 },
   { id: 'post', label: 'Почта', icon: '📦', desc: 'По России', price: 800 },
 ]
-
-// При заказе от этой суммы - доставка бесплатно
-const FREE_DELIVERY_THRESHOLD = 200_000
 
 const STORE_ADDRESS = 'г. Москва, ул. Барклая, д. 10, ТЦ «Багратионовский», павильон А60'
 
@@ -220,9 +217,7 @@ export function CartPage() {
   }
 
   const subtotal = getTotal()
-  const isFreeDelivery = deliveryMethod !== 'pickup' && subtotal >= FREE_DELIVERY_THRESHOLD
-  const rawDeliveryPrice = DELIVERY_METHODS.find(d => d.id === deliveryMethod)?.price || 0
-  const deliveryPrice = isFreeDelivery ? 0 : rawDeliveryPrice
+  const deliveryPrice = DELIVERY_METHODS.find(d => d.id === deliveryMethod)?.price || 0
   const paymentMarkup = PAYMENT_METHODS.find(p => p.id === paymentMethod)?.markup || 0
   const cardMarkupAmount = paymentMarkup > 0 ? Math.round(subtotal * paymentMarkup) : 0
   const total = subtotal + deliveryPrice + cardMarkupAmount
@@ -561,16 +556,10 @@ export function CartPage() {
               <div className="rounded-2xl bg-white p-6 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="text-xl font-bold">🚚 Способ доставки</h2>
-                  {subtotal >= FREE_DELIVERY_THRESHOLD && (
-                    <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-semibold text-green-700">
-                      🎁 Доставка бесплатно от {formatPrice(FREE_DELIVERY_THRESHOLD)}
-                    </span>
-                  )}
                 </div>
-                
+
                 <div className="grid gap-4 sm:grid-cols-3">
                   {DELIVERY_METHODS.map(method => {
-                    const effectiveFree = method.id !== 'pickup' && subtotal >= FREE_DELIVERY_THRESHOLD
                     return (
                       <label
                         key={method.id}
@@ -589,8 +578,8 @@ export function CartPage() {
                         <span className="text-3xl">{method.icon}</span>
                         <span className="font-semibold">{method.label}</span>
                         <span className="text-sm text-gray-500">{method.desc}</span>
-                        <span className={`font-medium ${effectiveFree ? 'text-green-600' : 'text-yellow-600'}`}>
-                          {method.price === 0 || effectiveFree ? 'Бесплатно' : `+${formatPrice(method.price)}`}
+                        <span className="font-medium text-yellow-600">
+                          {method.price === 0 ? 'Бесплатно' : `+${formatPrice(method.price)}`}
                         </span>
                         {deliveryMethod === method.id && (
                           <span className="absolute right-2 top-2 text-yellow-500">✓</span>
@@ -802,11 +791,7 @@ export function CartPage() {
                   )}
                   <div className="flex justify-between">
                     <span className="text-gray-500">Доставка</span>
-                    {isFreeDelivery ? (
-                      <span className="font-semibold text-green-600">Бесплатно 🎁</span>
-                    ) : (
-                      <span>{deliveryPrice === 0 ? 'Бесплатно' : formatPrice(deliveryPrice)}</span>
-                    )}
+                    <span>{deliveryPrice === 0 ? 'Бесплатно' : formatPrice(deliveryPrice)}</span>
                   </div>
                   <div className="border-t pt-3">
                     <div className="flex justify-between text-lg font-bold">
@@ -815,13 +800,6 @@ export function CartPage() {
                     </div>
                   </div>
                 </div>
-                
-                {/* Подсказка о бесплатной доставке */}
-                {!isFreeDelivery && deliveryMethod !== 'pickup' && subtotal < FREE_DELIVERY_THRESHOLD && (
-                  <div className="mt-3 rounded-xl bg-green-50 p-3 text-sm text-green-700">
-                    🎁 До бесплатной доставки ещё {formatPrice(FREE_DELIVERY_THRESHOLD - subtotal)}
-                  </div>
-                )}
                 
                 {cardMarkupAmount > 0 && (
                   <div className="mt-3 rounded-xl bg-orange-50 p-3 text-sm text-orange-700">
