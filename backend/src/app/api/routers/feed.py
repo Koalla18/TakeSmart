@@ -188,9 +188,21 @@ def _build_yml(products) -> str:
 
 
 @router.get("/yandex.yml", summary="Товарный фид YML для Яндекс.Директа")
-async def yandex_feed() -> Response:
+async def yandex_feed(
+    slugs: str | None = Query(
+        None,
+        description="Опционально: только эти товары (slug через запятую) — для точечного фида под отдельную кампанию.",
+    ),
+) -> Response:
     async with UnitOfWork() as uow:
         products = await uow.products.list_for_feed()
+
+    # Точечный фид: оставляем только выбранные товары, в заданном порядке.
+    if slugs:
+        wanted = [s.strip().lower() for s in slugs.split(",") if s.strip()]
+        by_slug = {p.slug.lower(): p for p in products}
+        products = [by_slug[s] for s in wanted if s in by_slug]
+
     xml = _build_yml(products)
     return Response(
         content=xml,
