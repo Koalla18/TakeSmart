@@ -1101,7 +1101,8 @@ export function ProductPage() {
                   // Detect laptop group: any card name contains "N ГБ SSD"
                   const isLaptopGroup = allCards.some(c => /\d+\s*(?:ГБ|GB|ТБ|TB)\s+SSD/i.test(c.name))
                   const isMonoblokGroup = apiProduct.category?.slug === 'monobloki'
-                  const isSmartGlassesGroup = apiProduct.category?.slug === 'umnye-ochki'
+                  // Очки распознаём и по названию — часть карточек может быть без проставленной категории.
+                  const isSmartGlassesGroup = apiProduct.category?.slug === 'umnye-ochki' || /умные\s*очки/i.test(apiProduct.name || '')
                   const isWatchGroup = apiProduct.category?.slug === 'watches' || apiProduct.category?.slug === 'smart-bands' || /watch/i.test(apiProduct.name || '')
                   const isTvGroup = apiProduct.category?.slug === 'tv'
 
@@ -1490,6 +1491,7 @@ export function ProductPage() {
                   const isMonoblok = catSlug === 'monobloki'
                   const isLaptop = catSlug === 'laptops' || /macbook|ноутбук/i.test(apiProduct.name || '')
                   const isTablet = catSlug === 'tablets'
+                  const isGlasses = catSlug === 'umnye-ochki' || /умные\s*очки/i.test(apiProduct.name || '')
                   const rows: { label: string; value: string | null }[] = []
 
                   if (apiProduct.color) rows.push({ label: 'Цвет', value: apiProduct.color })
@@ -1502,7 +1504,7 @@ export function ProductPage() {
                     if (attrs.connectivity) rows.push({ label: 'ОЗУ', value: normalizeMemoryValue(attrs.connectivity) || attrs.connectivity })
                     if (attrs.storage) rows.push({ label: 'Память', value: normalizeMemoryValue(attrs.storage) || attrs.storage })
                     if (attrs.processor) rows.push({ label: 'Связь', value: attrs.processor })
-                  } else if (catSlug === 'umnye-ochki') {
+                  } else if (isGlasses) {
                     if (attrs.processor) rows.push({ label: 'Оправа', value: attrs.processor })
                     if (attrs.storage) rows.push({ label: 'Линзы', value: attrs.storage })
                     if (attrs.connectivity) rows.push({ label: 'Размер', value: attrs.connectivity })

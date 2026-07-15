@@ -1785,7 +1785,7 @@ const BRANDS = [
   'DJI', 'GoPro', 'Dyson', 'Pitaka', 'Whoop',
   'JBL', 'Bose', 'Beats', 'Marshall', 'Sennheiser',
   'Nintendo', 'Microsoft', 'Asus', 'Lenovo', 'HP', 'Dell', 'Acer', 'LG',
-  'Яндекс', 'Canon', 'Ray-Ban',
+  'Яндекс', 'Canon', 'Ray-Ban', 'Meta',
 ]
 
 const MAX_DESC = 3000
