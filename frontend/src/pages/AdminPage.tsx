@@ -1988,7 +1988,11 @@ function ProductModal({
     const files = Array.from(e.target.files || [])
     if (!files.length || !savedProductId) return
     setUploading(true)
-    for (const file of files) {
+    for (const raw of files) {
+      // Сжимаем до загрузки — уложиться в лимит nginx (~1 МБ) и грузить быстро.
+      const file = await compressImageForUpload(raw)
+      const controller = new AbortController()
+      const timeoutId = window.setTimeout(() => controller.abort(), 45_000)
       try {
         const fd = new FormData()
         fd.append('file', file)
@@ -1998,12 +2002,18 @@ function ProductModal({
         const res = await authFetch(url, {
           method: 'POST',
           body: fd,
+          signal: controller.signal,
         })
         if (!res.ok) {
           const err = await res.json().catch(() => ({}))
-          toast(`Ошибка загрузки «${file.name}»: ${err.detail || res.status}`, 'error')
+          toast(`Ошибка загрузки «${raw.name}»: ${err.detail || res.status}`, 'error')
         }
-      } catch { toast(`Ошибка загрузки «${file.name}»`, 'error') }
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') toast(`«${raw.name}»: загрузка не ответила за 45 сек`, 'error')
+        else toast(`Ошибка загрузки «${raw.name}»`, 'error')
+      } finally {
+        window.clearTimeout(timeoutId)
+      }
     }
     setUploading(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
