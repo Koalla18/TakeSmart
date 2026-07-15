@@ -155,6 +155,54 @@ function getImageUrl(url?: string | null): string {
   return url
 }
 
+/**
+ * Ужимает изображение в браузере ПЕРЕД загрузкой: даунскейл до maxDim по большей
+ * стороне и кодирование в WebP (сохраняет прозрачность) до размера < maxBytes.
+ * Нужно, т.к. nginx на проде режет тело запроса > ~1 МБ (413 Request Entity Too Large),
+ * а hero-баннеры/фото часто весят больше — из-за чего загрузка «висла». Если это не
+ * растровое изображение или что-то пошло не так — возвращаем исходный файл без изменений.
+ */
+async function compressImageForUpload(file: File, maxDim = 1600, maxBytes = 900_000): Promise<File> {
+  if (!file.type.startsWith('image/') || file.type === 'image/svg+xml') return file
+  try {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader()
+      fr.onload = () => resolve(fr.result as string)
+      fr.onerror = () => reject(new Error('read failed'))
+      fr.readAsDataURL(file)
+    })
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const im = new Image()
+      im.onload = () => resolve(im)
+      im.onerror = () => reject(new Error('decode failed'))
+      im.src = dataUrl
+    })
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+    // Уже маленькая и лёгкая — не трогаем.
+    if (scale === 1 && file.size <= maxBytes) return file
+    const w = Math.max(1, Math.round(img.width * scale))
+    const h = Math.max(1, Math.round(img.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return file
+    ctx.drawImage(img, 0, 0, w, h)
+    const toBlob = (q: number) => new Promise<Blob | null>(res => canvas.toBlob(res, 'image/webp', q))
+    let quality = 0.92
+    let blob = await toBlob(quality)
+    while (blob && blob.size > maxBytes && quality > 0.4) {
+      quality -= 0.12
+      blob = await toBlob(quality)
+    }
+    if (!blob || blob.size >= file.size) return file // сжатие не помогло — оставляем оригинал
+    const name = file.name.replace(/\.[^.]+$/, '') + '.webp'
+    return new File([blob], name, { type: 'image/webp' })
+  } catch {
+    return file
+  }
+}
+
 /** Module-level fetch wrapper that auto-logouts on 401/403 */
 function makeAuthFetch(logoutFn: () => void) {
   return async (url: string, init?: RequestInit): Promise<Response> => {
@@ -643,7 +691,6 @@ export function AdminPage() {
             { id: 'products' as TabType, label: '📦 Товары', count: products.filter(p => (p.condition || 'new') === 'new').length },
             { id: 'categories' as TabType, label: '📁 Категории', count: categories.length },
             { id: 'banners' as TabType, label: '🖼 Баннеры', count: banners.length },
-            { id: 'slides' as TabType, label: '🏞 Слайды недели', count: slides.length },
           ].map(tab => (
             <button
               key={tab.id}
@@ -658,6 +705,16 @@ export function AdminPage() {
           {/* Б/У — скрыто, недоступно */}
           <div className="group relative rounded-xl px-5 py-3 text-sm font-medium bg-white/5 text-white/30 cursor-not-allowed select-none">
             <span>♻️ Б/У</span>
+            <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-200 bg-white/5 backdrop-blur-sm flex items-center justify-center gap-1.5">
+              <svg className="h-3.5 w-3.5 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              <span className="text-white/50 text-xs">Скоро</span>
+            </div>
+          </div>
+          {/* Слайды недели — скрыто, недоступно */}
+          <div className="group relative rounded-xl px-5 py-3 text-sm font-medium bg-white/5 text-white/30 cursor-not-allowed select-none">
+            <span>🏞 Слайды недели</span>
             <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-200 bg-white/5 backdrop-blur-sm flex items-center justify-center gap-1.5">
               <svg className="h-3.5 w-3.5 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
@@ -2986,20 +3043,38 @@ function BannerModal({
   })
 
   const uploadImage = async (bannerId: string, file: File) => {
+    // Клиентская защита: фото > 5 МБ бэкенд не примет — отсекаем сразу с понятной ошибкой.
+    if (file.size > 5 * 1024 * 1024) {
+      toast(`Фото ${(file.size / 1024 / 1024).toFixed(1)} МБ — слишком большое. Максимум 5 МБ.`, 'error')
+      return
+    }
     setUploading(true)
+    // Таймаут, чтобы загрузка не могла «висеть вечно», если сервер не отвечает.
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), 45_000)
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const res = await authFetch(`${API_BASE_URL}/api/hero-banners/${bannerId}/image`, { method: 'POST', body: fd })
+      const res = await authFetch(`${API_BASE_URL}/api/hero-banners/${bannerId}/image`, { method: 'POST', body: fd, signal: controller.signal })
       if (res.ok) { const data = await res.json(); setImage(data.url) }
-      else { const err = await res.json().catch(() => ({})); toast(`Ошибка загрузки: ${err.detail || res.status}`, 'error') }
-    } catch { toast('Ошибка загрузки изображения', 'error') }
-    finally { setUploading(false) }
+      else { const err = await res.json().catch(() => ({})); toast(`Ошибка загрузки (${res.status}): ${err.detail || 'проверьте формат и размер фото'}`, 'error') }
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        toast('Загрузка не ответила за 45 сек. Попробуйте фото меньшего размера или ещё раз.', 'error')
+      } else {
+        toast('Не удалось загрузить фото. Проверьте соединение и попробуйте снова.', 'error')
+      }
+    } finally {
+      window.clearTimeout(timeoutId)
+      setUploading(false)
+    }
   }
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const raw = e.target.files?.[0]
+    if (!raw) return
+    // Сжимаем до загрузки, чтобы уложиться в лимит nginx (~1 МБ) и грузить быстро.
+    const file = await compressImageForUpload(raw)
     const existingId = banner?.id || createdId
     if (existingId) {
       await uploadImage(existingId, file)
