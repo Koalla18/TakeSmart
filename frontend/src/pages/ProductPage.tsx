@@ -1251,6 +1251,41 @@ export function ProductPage() {
                                   (p.storage === currentParsed.storage || !currentParsed.storage)
                                 ) || cardsWithAttrs.find(p => p.ram === ramVal)
                                 const isAvailable = !!target
+                                // Очки: оправа — главный визуальный вариант, рисуем миниатюрой (как цвет у телефонов).
+                                if (isSmartGlassesGroup) {
+                                  const thumb = target?.main_image_url
+                                  return (
+                                    <button
+                                      key={ramVal}
+                                      title={ramVal}
+                                      disabled={!isAvailable}
+                                      onClick={() => isAvailable && !isCurrent && goTo(undefined, undefined, undefined, ramVal)}
+                                      className={`group relative flex flex-col items-center gap-1 rounded-xl border-2 p-1.5 transition-all ${
+                                        isCurrent
+                                          ? 'border-gray-900 bg-gray-50 shadow-sm'
+                                          : isAvailable
+                                            ? 'border-gray-200 bg-white hover:border-gray-400 hover:shadow-sm cursor-pointer'
+                                            : 'cursor-not-allowed border-gray-100 bg-gray-50 opacity-50'
+                                      }`}
+                                      style={{ minWidth: 56 }}
+                                    >
+                                      {thumb && isImageUrl(thumb) ? (
+                                        <div className="h-12 w-12 overflow-hidden rounded-lg bg-gray-100">
+                                          <img src={getImageUrl(thumb)} alt={ramVal} className="h-full w-full object-contain" />
+                                        </div>
+                                      ) : (
+                                        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-100 text-xs text-gray-400">
+                                          {ramVal.slice(0, 3)}
+                                        </div>
+                                      )}
+                                      <span className={`max-w-[70px] truncate text-[10px] leading-tight ${
+                                        isCurrent ? 'font-semibold text-gray-900' : 'text-gray-500 group-hover:text-gray-700'
+                                      }`}>
+                                        {ramVal}
+                                      </span>
+                                    </button>
+                                  )
+                                }
                                 return (
                                   <button
                                     key={ramVal}
