@@ -44,9 +44,12 @@ _FALLBACK_CATEGORY_NAME = "Товары"
 # не меньше 450 и отдаём JPEG. Результат кэшируем в S3 (feed/<hash>.jpg), чтобы
 # обрабатывать каждое фото один раз и не грузить сервер на каждый обход робота.
 _MIN_SIDE = 450          # минимум Яндекса по каждой стороне
+_UPSCALE_MIN = 500       # мелкие фото апскейлим до этого по меньшей стороне (запас над 450)
+_MAX_UPSCALE = 2.0       # но не более чем в 2x, чтобы не мылить сильно
 _MAX_SIDE = 2000         # верхняя граница, чтобы не раздувать вес/память
 _JPEG_QUALITY = 88
-_FEED_IMG_CACHE_PREFIX = "feed"
+_IMG_VERSION = 2         # версия обработки: меняем → и URL, и кэш-ключ обновляются, Яндекс перекачивает
+_FEED_IMG_CACHE_PREFIX = f"feed/v{_IMG_VERSION}"
 _WHITE = (255, 255, 255)
 
 
@@ -83,7 +86,7 @@ def _picture_url(base: str, raw: str | None) -> str | None:
         return None
     bare = static_service.bare_key(raw)
     if bare and bare.startswith(settings.PRODUCTS_IMAGES_DIR + "/"):
-        return f"{base}/api/v1/feed/img?key={quote(bare, safe='/')}"
+        return f"{base}/api/v1/feed/img?key={quote(bare, safe='/')}&v={_IMG_VERSION}"
     return _abs_image(raw)
 
 
@@ -101,6 +104,13 @@ def _normalize_image(data: bytes) -> bytes:
             im = im.convert("RGB")
 
         w, h = im.size
+        # Мелкие фото апскейлим, чтобы карточка была чёткой и с запасом над 450px
+        # (не более чем в _MAX_UPSCALE раз — иначе сильно мылит).
+        if min(w, h) < _UPSCALE_MIN:
+            scale = min(_UPSCALE_MIN / min(w, h), _MAX_UPSCALE)
+            if scale > 1.0:
+                im = im.resize((round(w * scale), round(h * scale)), Image.LANCZOS)
+                w, h = im.size
         # Слишком большие — ужимаем, чтобы квадрат не раздувал вес.
         if max(w, h) > _MAX_SIDE:
             im.thumbnail((_MAX_SIDE, _MAX_SIDE), Image.LANCZOS)
