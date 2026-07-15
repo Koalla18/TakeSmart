@@ -1087,6 +1087,18 @@ export function ProductPage() {
                         // Clear out generic fallback that put "32" into ram earlier
                         if (parsed.ram === wConn) parsed.ram = null;
                     }
+
+                    // ── Очки: у сиблингов нет attributes → достаём оправу/линзы/размер из
+                    // названия «… (FRAME оправа, линзы LENS) SIZE». Значения совпадают с
+                    // attributes текущей карточки, поэтому переключатель группы собирает все.
+                    if (/оправа/i.test(item.name || '') && Object.keys(attrs).length === 0) {
+                        const frameM = item.name.match(/\(\s*([^,()]*?)\s*оправа/i)
+                        const lensM = item.name.match(/линз[а-я]*\s*([^)]*)\)/i)
+                        const sizeM = item.name.match(/\)\s*(XXL|XL|S\/M|M\/L|ONE\s*SIZE|Единый|S|M|L)\s*$/i)
+                        if (frameM) parsed.ram = frameM[1].trim()
+                        if (lensM) parsed.storage = lensM[1].trim()
+                        if (sizeM) parsed.connectivity = sizeM[1].trim()
+                    }
                     return parsed;
                   }
 
@@ -1101,8 +1113,9 @@ export function ProductPage() {
                   // Detect laptop group: any card name contains "N ГБ SSD"
                   const isLaptopGroup = allCards.some(c => /\d+\s*(?:ГБ|GB|ТБ|TB)\s+SSD/i.test(c.name))
                   const isMonoblokGroup = apiProduct.category?.slug === 'monobloki'
-                  // Очки распознаём и по названию — часть карточек может быть без проставленной категории.
-                  const isSmartGlassesGroup = apiProduct.category?.slug === 'umnye-ochki' || /умные\s*очки/i.test(apiProduct.name || '')
+                  // Очки распознаём и по названию (у части карточек не проставлена категория):
+                  // «умные очки» / «оправа» встречаются в названии всех очков.
+                  const isSmartGlassesGroup = apiProduct.category?.slug === 'umnye-ochki' || /умные\s*очки|оправа/i.test(apiProduct.name || '')
                   const isWatchGroup = apiProduct.category?.slug === 'watches' || apiProduct.category?.slug === 'smart-bands' || /watch/i.test(apiProduct.name || '')
                   const isTvGroup = apiProduct.category?.slug === 'tv'
 
@@ -1491,7 +1504,7 @@ export function ProductPage() {
                   const isMonoblok = catSlug === 'monobloki'
                   const isLaptop = catSlug === 'laptops' || /macbook|ноутбук/i.test(apiProduct.name || '')
                   const isTablet = catSlug === 'tablets'
-                  const isGlasses = catSlug === 'umnye-ochki' || /умные\s*очки/i.test(apiProduct.name || '')
+                  const isGlasses = catSlug === 'umnye-ochki' || /умные\s*очки|оправа/i.test(apiProduct.name || '')
                   const rows: { label: string; value: string | null }[] = []
 
                   if (apiProduct.color) rows.push({ label: 'Цвет', value: apiProduct.color })
