@@ -620,15 +620,10 @@ export function ProductPage() {
       .catch(() => {})
   }, [apiProduct?.id])
 
-  // Derived values: use selected variant's price/stock when available
-  // Derived values: use selected variant's price/stock when available
-  // If discount_price exists — it's the real price, price is the old/struck-through one
-  const effectivePrice = selectedVariant
-    ? (selectedVariant.discount_price ?? selectedVariant.price ?? apiProduct?.discount_price ?? apiProduct?.price ?? 0)
-    : (apiProduct?.discount_price ?? apiProduct?.price ?? 0)
-  const effectiveOldPrice = selectedVariant
-    ? (selectedVariant.discount_price && selectedVariant.price ? selectedVariant.price : null)
-    : (apiProduct?.discount_price ? apiProduct.price : null)
+  // The catalog price is the source of truth for the whole purchase flow.
+  // Variants only change the selected configuration, stock and image.
+  const effectivePrice = apiProduct?.discount_price ?? apiProduct?.price ?? 0
+  const effectiveOldPrice = apiProduct?.discount_price ? apiProduct.price : null
   const effectiveStock = selectedVariant?.stock_quantity ?? apiProduct?.stock_quantity ?? 0
   // Image: first look for a color-specific photo, then fall back to product main photo
   const effectiveImage = useMemo(() => {
