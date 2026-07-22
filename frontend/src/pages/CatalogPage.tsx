@@ -398,7 +398,7 @@ export function CatalogPage() {
           apple: '🍎', samsung: '📱', xiaomi: '📱', sony: '🎮',
           google: '🔍', huawei: '📱', oppo: '📱', lg: '📺',
           microsoft: '💻', asus: '💻', lenovo: '💻', hp: '💻',
-          dell: '💻', nintendo: '🎮', whoop: '⌚',
+          dell: '💻', nintendo: '🎮', whoop: '⌚', lego: '🧱',
         }
         const catMap = new Map<string, { slug: string; name: string }>(
           catData.map(c => [c.id, { slug: c.slug, name: c.name }])
