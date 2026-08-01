@@ -1,10 +1,10 @@
 import type { FormEvent } from 'react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
 import { useCart, MAX_QUANTITY_PER_ITEM, MAX_TOTAL_ITEMS } from '../lib/cart'
-import { formatPrice } from '../data/products'
+import { formatPrice, mapApiProduct, type ApiProductOut } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
 import { ymEcommercePurchase, ymReachGoal } from '../lib/metrika'
 
@@ -92,7 +92,27 @@ const DELIVERY_METHODS = [
 const STORE_ADDRESS = 'г. Москва, ул. Барклая, д. 10, ТЦ «Багратионовский», павильон А60'
 
 export function CartPage() {
-  const { items, removeItem, updateQuantity, clearCart, getTotal } = useCart()
+  const { items, removeItem, updateQuantity, clearCart, getTotal, refreshProducts } = useCart()
+
+  useEffect(() => {
+    if (items.length === 0) return
+
+    let cancelled = false
+
+    Promise.all(items.map(async ({ product }) => {
+      const response = await fetch(`${API_BASE_URL}/api/products/${product.id}`)
+      if (!response.ok) return null
+      return mapApiProduct(await response.json() as ApiProductOut)
+    }))
+      .then(products => {
+        if (!cancelled) {
+          refreshProducts(products.filter((product): product is NonNullable<typeof product> => product !== null))
+        }
+      })
+      .catch(() => {})
+
+    return () => { cancelled = true }
+  }, [items, refreshProducts])
   
   const [formData, setFormData] = useState({
     name: '',

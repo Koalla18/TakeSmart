@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useState, useEffect, type ReactNode } from 'react'
 import type { Product } from '../data/products'
 import { ymEcommerceAdd, ymReachGoal } from './metrika'
 
@@ -18,6 +18,7 @@ interface CartContextType {
   items: CartItem[]
   addItem: (product: Product, quantity?: number) => boolean // false если превышен лимит
   removeItem: (productId: string) => void
+  refreshProducts: (products: Product[]) => void
   updateQuantity: (productId: string, quantity: number) => boolean // false если превышен лимит
   clearCart: () => void
   getItemCount: () => number
@@ -127,6 +128,35 @@ export function CartProvider({ children }: { children: ReactNode }) {
     return true
   }
 
+  const refreshProducts = useCallback((products: Product[]) => {
+    const productsById = new Map(products.map(product => [product.id, product]))
+
+    setItems(current => {
+      let hasChanges = false
+      const nextItems = current.map(item => {
+        const currentProduct = productsById.get(item.product.id)
+        if (!currentProduct) return item
+
+        const product = {
+          ...item.product,
+          price: currentProduct.price,
+          oldPrice: currentProduct.oldPrice,
+          inStock: currentProduct.inStock,
+          stockQuantity: currentProduct.stockQuantity,
+        }
+
+        const isUnchanged = product.price === item.product.price
+          && product.oldPrice === item.product.oldPrice
+          && product.inStock === item.product.inStock
+          && product.stockQuantity === item.product.stockQuantity
+        if (isUnchanged) return item
+        hasChanges = true
+        return { ...item, product }
+      })
+      return hasChanges ? nextItems : current
+    })
+  }, [])
+
   const clearCart = () => {
     setItems([])
   }
@@ -149,6 +179,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       addItem,
       removeItem,
       updateQuantity,
+      refreshProducts,
       clearCart,
       getItemCount,
       getTotal,
