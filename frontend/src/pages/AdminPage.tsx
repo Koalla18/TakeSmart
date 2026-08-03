@@ -72,6 +72,71 @@ interface CategoryProductField {
   is_variant: boolean
 }
 
+const categoryField = (
+  key: string,
+  label: string,
+  placeholder: string,
+  isVariant = true,
+  hint = '',
+): CategoryProductField => ({
+  key, label, placeholder, hint, is_required: false, is_variant: isVariant, field_type: 'text', options: [],
+})
+
+// Стартовые схемы повторяют прежние поля конструктора групп. Они используются
+// для пустых категорий, пока серверная миграция не записала их в БД.
+const DEFAULT_CATEGORY_PRODUCT_FIELDS: CategoryProductField[] = [
+  categoryField('color', 'Цвета', 'Чёрный', true, 'Каждый цвет = отдельная карточка товара'),
+  categoryField('storage', 'Параметр 1', '256 ГБ'),
+  categoryField('connectivity', 'Параметр 2', 'SIM + eSIM'),
+]
+
+const CATEGORY_PRODUCT_FIELD_TEMPLATES: Record<string, CategoryProductField[]> = {
+  smartphones: [
+    categoryField('color', 'Цвета', 'Белый', true, 'Каждый цвет = отдельная карточка товара'),
+    categoryField('storage', 'Память', '256 ГБ', true, 'Объём встроенной памяти'),
+    categoryField('ram', 'ОЗУ', '12 ГБ', true, 'Объём оперативной памяти'),
+    categoryField('sim', 'Связь (SIM)', 'SIM + eSIM', true, 'Тип SIM-карт'),
+  ],
+  laptops: [
+    categoryField('color', 'Цвет', 'Серебристый', true, 'Каждый цвет = отдельная карточка'),
+    categoryField('processor', 'Процессор', 'M4 Pro', true, 'Модель чипа'),
+    categoryField('ram', 'ОЗУ', '16 ГБ', true, 'Объём оперативной памяти'),
+    categoryField('storage', 'Память SSD', '512 ГБ', true, 'Объём накопителя'),
+  ],
+  monobloki: [
+    categoryField('color', 'Цвет', 'Серебристый', true, 'Каждый цвет = отдельная карточка'),
+    categoryField('processor', 'Процессор', 'M4 Pro', true, 'Модель чипа'),
+    categoryField('ram', 'ОЗУ', '16 ГБ', true, 'Объём оперативной памяти'),
+    categoryField('storage', 'Память SSD', '512 ГБ', true, 'Объём накопителя'),
+  ],
+  tablets: [
+    categoryField('color', 'Цвета', 'Space Gray'),
+    categoryField('ram', 'ОЗУ', '8 ГБ', true, 'Объём оперативной памяти'),
+    categoryField('storage', 'Память', '256 ГБ', true, 'Объём встроенной памяти'),
+    categoryField('connectivity', 'Связь', 'WiFi + Cellular', true, 'Тип связи'),
+  ],
+  watches: [
+    categoryField('color', 'Цвета', 'Титан'),
+    categoryField('strap_type', 'Тип ремешка', 'Sport Band'),
+    categoryField('strap_size', 'Размер ремешка', 'S/M'),
+    categoryField('case_size', 'Размер циферблата', '42 мм'),
+  ],
+  'umnye-ochki': [
+    categoryField('frame', 'Оправа', 'Матовая чёрная', true, 'Цвет и тип оправы'),
+    categoryField('lenses', 'Линзы', 'Прозрачные', true, 'Тип линз'),
+    categoryField('size', 'Размер', 'S, M, L', true, 'Размер оправы'),
+  ],
+  headphones: [categoryField('color', 'Цвета', 'Чёрный')],
+  tv: [categoryField('color', 'Цвета', 'Чёрный'), categoryField('diagonal', 'Диагональ', '55 дюймов')],
+  gaming: [categoryField('color', 'Цвета', 'Чёрный'), categoryField('bundle', 'Комплектация', 'Digital'), categoryField('storage', 'Память', '512 ГБ', true, 'Объём встроенного накопителя')],
+  accessories: [categoryField('color', 'Цвета', 'Чёрный'), categoryField('size', 'Размер / тип', 'M')],
+}
+
+function getCategoryProductFields(category?: Pick<Category, 'slug' | 'product_fields'> | null): CategoryProductField[] {
+  if (category?.product_fields && category.product_fields.length > 0) return category.product_fields
+  return CATEGORY_PRODUCT_FIELD_TEMPLATES[category?.slug || ''] ?? DEFAULT_CATEGORY_PRODUCT_FIELDS
+}
+
 interface Brand {
   id: string
   name: string
@@ -689,7 +754,7 @@ export function AdminPage() {
   const featuredProduct = products.find(p => p.is_featured)
   const pendingCount = orders.filter(o => o.status === 'pending').length
   const quickFiltersCount = categories.reduce((total, category) => total + (category.quick_filters?.length || 0), 0)
-  const configuredFieldsCount = categories.reduce((total, category) => total + (category.product_fields?.length || 0), 0)
+  const configuredFieldsCount = categories.reduce((total, category) => total + getCategoryProductFields(category).length, 0)
   const openCategorySettings = (category: Category | null, section: CategorySettingsSection = null) => {
     setEditingCategory(category)
     setCategorySettingsSection(section)
@@ -1062,7 +1127,7 @@ export function AdminPage() {
             <div className="mb-6"><h2 className="text-xl font-bold text-white">⚙️ Поля и варианты товара</h2><p className="mt-1 text-sm text-slate-400">Схема карточки и варианты создаваемой группы. Настраивается отдельно для каждой категории.</p></div>
             <div className="grid gap-3 lg:grid-cols-2">
               {categories.map(category => {
-                const fields = category.product_fields ?? []
+                const fields = getCategoryProductFields(category)
                 const variants = fields.filter(field => field.is_variant)
                 return <div key={category.id} className="rounded-2xl border border-white/10 bg-white/5 p-5"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-white">{category.name}</h3><p className="mt-1 text-xs text-slate-500">{fields.length ? `${fields.length} полей · ${variants.length} в вариантах` : 'Схема ещё не настроена'}</p></div><button onClick={() => openCategorySettings(category, 'fields')} className="rounded-xl bg-yellow-400 px-3 py-2 text-xs font-semibold text-gray-900 hover:bg-yellow-300">Настроить</button></div><div className="mt-4 flex flex-wrap gap-1.5">{fields.length ? fields.map(field => <span key={field.key} className={`rounded-lg px-2 py-1 text-xs ${field.is_variant ? 'bg-yellow-400/15 text-yellow-300' : 'bg-white/10 text-slate-300'}`}>{field.label}{field.is_variant ? ' · вариант' : ''}</span>) : <span className="text-sm text-slate-500">Добавьте нужные характеристики — никаких предустановленных ОЗУ или процессоров.</span>}</div></div>
               })}
@@ -2137,7 +2202,7 @@ function ProductModal({
       return
     }
 
-    const categoryFields = categories.find(category => category.id === categoryId)?.product_fields ?? []
+    const categoryFields = getCategoryProductFields(categories.find(category => category.id === categoryId))
     const missingRequired = categoryFields.find(field => {
       const value = field.key === 'color' ? color : attributes[field.key]
       return field.is_required && (value === undefined || value === null || value === '')
@@ -2659,7 +2724,7 @@ function ProductModal({
 
           {/* Dynamic category fields */}
           {(() => {
-            const categoryFields = categories.find(category => category.id === categoryId)?.product_fields ?? []
+            const categoryFields = getCategoryProductFields(categories.find(category => category.id === categoryId))
             if (categoryFields.length === 0) return null
             const setFieldValue = (field: CategoryProductField, value: string | number | boolean | null) => {
               if (field.key === 'color') setColor(String(value || ''))
@@ -3728,7 +3793,7 @@ function CategoryModal({
   const [newFilterLabel, setNewFilterLabel] = useState('')
   const [newFilterQuery, setNewFilterQuery] = useState('')
   const [newFilterBrand, setNewFilterBrand] = useState('')
-  const [productFields, setProductFields] = useState<CategoryProductField[]>(category?.product_fields ?? [])
+  const [productFields, setProductFields] = useState<CategoryProductField[]>(getCategoryProductFields(category))
   const [newField, setNewField] = useState<CategoryProductField>({
     key: '', label: '', field_type: 'text', placeholder: '', options: [], hint: '', is_required: false, is_variant: false,
   })
@@ -4140,8 +4205,9 @@ function GroupCreationModal({
 
   // Category
   const selectedCat = categories.find(c => c.id === categoryId)
-  const axesDef = selectedCat?.product_fields?.filter(field => field.is_variant) ?? []
-  const sharedFields = selectedCat?.product_fields?.filter(field => !field.is_variant) ?? []
+  const selectedCategoryFields = getCategoryProductFields(selectedCat)
+  const axesDef = selectedCategoryFields.filter(field => field.is_variant)
+  const sharedFields = selectedCategoryFields.filter(field => !field.is_variant)
 
   // Matrix
   const buildMatrix = (): GroupProductRow[] => {
@@ -4217,7 +4283,7 @@ function GroupCreationModal({
 
   // ── Create products ──
   const handleCreate = async () => {
-    const missingRequired = selectedCat?.product_fields?.find(field =>
+    const missingRequired = selectedCategoryFields.find(field =>
       field.is_required && (field.is_variant
         ? !(axisValues[field.key]?.length)
         : sharedFieldValues[field.key] === undefined || sharedFieldValues[field.key] === '')
@@ -4430,10 +4496,8 @@ function GroupCreationModal({
                       {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
                     </select>
                     {selectedCat && (
-                      <p className={`mt-1 text-[10px] ${selectedCat.product_fields?.length ? 'text-green-400' : 'text-yellow-300'}`}>
-                        {selectedCat.product_fields?.length
-                          ? `Схема категории: ${selectedCat.product_fields.length} полей, ${axesDef.length} в вариантах`
-                          : 'Схема ещё не настроена: будет создан один товар без лишних полей.'}
+                      <p className="mt-1 text-[10px] text-green-400">
+                        {`Схема категории: ${selectedCategoryFields.length} полей, ${axesDef.length} в вариантах`}
                       </p>
                     )}
                   </div>
