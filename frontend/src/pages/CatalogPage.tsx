@@ -17,6 +17,7 @@ import {
   mapApiCategory,
 } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
+import { getDefaultCatalogQuickFilters } from '../data/catalogQuickFilters'
 import { 
   ChevronDownIcon, 
   FilterIcon, 
@@ -433,7 +434,9 @@ export function CatalogPage() {
               return {
                 ...base,
                 count: mapped.filter(p => p.categorySlug === c.slug).length,
-                quickFilters: base.quickFiltersConfigured ? base.quickFilters : (DEFAULT_QUICK_FILTERS[c.slug] ?? []),
+                quickFilters: base.quickFilters.length > 0
+                  ? base.quickFilters
+                  : (DEFAULT_QUICK_FILTERS[c.slug] ?? getDefaultCatalogQuickFilters(c.slug)),
               }
             })
             .filter(c => (activeSlugs.has(c.id) || c.count > 0) && !c.name.toLowerCase().includes('б/у'))

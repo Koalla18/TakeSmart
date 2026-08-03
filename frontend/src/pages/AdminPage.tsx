@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth, getAuthHeaders } from '../lib/auth'
 import { API_BASE_URL } from '../lib/config'
 import { formatPrice } from '../data/products'
+import { getDefaultCatalogQuickFilters } from '../data/catalogQuickFilters'
 import { toast, ToastHost } from '../lib/toast'
 import { confirmDialog, ConfirmHost } from '../lib/confirm'
 
@@ -135,6 +136,11 @@ const CATEGORY_PRODUCT_FIELD_TEMPLATES: Record<string, CategoryProductField[]> =
 function getCategoryProductFields(category?: Pick<Category, 'slug' | 'product_fields'> | null): CategoryProductField[] {
   if (category?.product_fields && category.product_fields.length > 0) return category.product_fields
   return CATEGORY_PRODUCT_FIELD_TEMPLATES[category?.slug || ''] ?? DEFAULT_CATEGORY_PRODUCT_FIELDS
+}
+
+function getCategoryQuickFilters(category?: Pick<Category, 'slug' | 'quick_filters'> | null): QuickFilter[] {
+  if (category?.quick_filters && category.quick_filters.length > 0) return category.quick_filters
+  return getDefaultCatalogQuickFilters(category?.slug)
 }
 
 interface Brand {
@@ -753,7 +759,7 @@ export function AdminPage() {
 
   const featuredProduct = products.find(p => p.is_featured)
   const pendingCount = orders.filter(o => o.status === 'pending').length
-  const quickFiltersCount = categories.reduce((total, category) => total + (category.quick_filters?.length || 0), 0)
+  const quickFiltersCount = categories.reduce((total, category) => total + getCategoryQuickFilters(category).length, 0)
   const configuredFieldsCount = categories.reduce((total, category) => total + getCategoryProductFields(category).length, 0)
   const openCategorySettings = (category: Category | null, section: CategorySettingsSection = null) => {
     setEditingCategory(category)
@@ -879,8 +885,40 @@ export function AdminPage() {
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="mb-6 flex flex-wrap gap-2">
+        <nav aria-label="Разделы админки" className="mb-7 rounded-2xl border border-white/10 bg-slate-950/30 p-2 shadow-xl shadow-black/10 backdrop-blur">
+          <div className="flex min-w-max items-stretch gap-1 overflow-x-auto pb-1 scrollbar-hide">
+            {[
+              { id: 'orders' as TabType, label: 'Заказы', icon: '📋', count: orders.length },
+              { id: 'products' as TabType, label: 'Товары', icon: '📦', count: products.filter(p => (p.condition || 'new') === 'new').length },
+              { id: 'categories' as TabType, label: 'Категории', icon: '📁', count: categories.length },
+              { id: 'fields' as TabType, label: 'Поля и варианты', icon: '⚙️', count: configuredFieldsCount },
+              { id: 'quickfilters' as TabType, label: 'Модели', icon: '⚡', count: quickFiltersCount },
+              { id: 'banners' as TabType, label: 'Баннеры', icon: '🖼', count: banners.length },
+              { id: 'brands' as TabType, label: 'Бренды', icon: '🏷️', count: brands.length },
+              { id: 'tradein' as TabType, label: 'Trade-in', icon: '🔄', count: tradeInOffers.length },
+            ].map(tab => {
+              const isActive = activeTab === tab.id
+              return <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`group flex min-h-12 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium transition-all sm:px-4 ${
+                  isActive
+                    ? 'bg-gradient-to-br from-yellow-300 to-yellow-500 text-slate-950 shadow-lg shadow-yellow-500/15'
+                    : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-base ${isActive ? 'bg-black/10' : 'bg-white/8 group-hover:bg-white/12'}`}>{tab.icon}</span>
+                <span className="whitespace-nowrap">{tab.label}</span>
+                <span className={`min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] font-bold ${isActive ? 'bg-slate-950/15 text-slate-900' : 'bg-white/10 text-slate-400 group-hover:text-slate-200'}`}>{tab.count}</span>
+              </button>
+            })}
+            <div className="mx-1 w-px self-stretch bg-white/10" />
+            <span className="flex items-center gap-1.5 px-2 text-xs text-slate-500"><span>♻️</span> Скоро</span>
+          </div>
+        </nav>
+
+        {/* Legacy tabs kept mounted for the disabled future sections. */}
+        <div className="hidden">
           {[
             { id: 'orders' as TabType, label: '📋 Заказы', count: orders.length },
             { id: 'products' as TabType, label: '📦 Товары', count: products.filter(p => (p.condition || 'new') === 'new').length },
@@ -1138,9 +1176,9 @@ export function AdminPage() {
         {/* ============ QUICK CATALOG MODELS TAB ============ */}
         {activeTab === 'quickfilters' && (
           <>
-            <div className="mb-6"><h2 className="text-xl font-bold text-white">⚡ Модели в каталоге</h2><p className="mt-1 text-sm text-slate-400">Кнопки над товарами: например, iPhone 16 или Galaxy S25. Их порядок и набор задаются по категориям.</p></div>
+            <div className="mb-6"><h2 className="text-xl font-bold text-white">⚡ Модели в каталоге</h2><p className="mt-1 text-sm text-slate-400">Кнопки над товарами: например, iPhone 16 или Galaxy S25. Стартовые наборы уже восстановлены — откройте категорию, чтобы изменить их порядок, поиск или бренд.</p></div>
             <div className="grid gap-3 lg:grid-cols-2">
-              {categories.map(category => { const filters = category.quick_filters ?? []; return <div key={category.id} className="rounded-2xl border border-white/10 bg-white/5 p-5"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-white">{category.name}</h3><p className="mt-1 text-xs text-slate-500">{filters.length ? `${filters.length} кнопок отображается` : 'Кнопки не настроены'}</p></div><button onClick={() => openCategorySettings(category, 'filters')} className="rounded-xl bg-yellow-400 px-3 py-2 text-xs font-semibold text-gray-900 hover:bg-yellow-300">Настроить</button></div><div className="mt-4 flex flex-wrap gap-1.5">{filters.length ? filters.map((filter, index) => <span key={`${filter.label}-${index}`} className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white">{filter.label}</span>) : <span className="text-sm text-slate-500">Ни одной быстрой модели для этой категории.</span>}</div></div> })}
+              {categories.map(category => { const filters = getCategoryQuickFilters(category); return <div key={category.id} className="rounded-2xl border border-white/10 bg-white/5 p-5"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-white">{category.name}</h3><p className="mt-1 text-xs text-slate-500">{filters.length ? `${filters.length} кнопок отображается` : 'Для этой категории пока нет готового набора'}</p></div><button onClick={() => openCategorySettings(category, 'filters')} className="rounded-xl bg-yellow-400 px-3 py-2 text-xs font-semibold text-gray-900 hover:bg-yellow-300">Настроить</button></div><div className="mt-4 flex flex-wrap gap-1.5">{filters.length ? filters.map((filter, index) => <span key={`${filter.label}-${index}`} className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white">{filter.label}</span>) : <span className="text-sm text-slate-500">Добавьте первую быструю модель для этой категории.</span>}</div></div> })}
             </div>
           </>
         )}
@@ -3787,9 +3825,7 @@ function CategoryModal({
     image_url: category?.image_url || '',
     is_active: category?.is_active ?? true,
   })
-  const [quickFilters, setQuickFilters] = useState<QuickFilter[]>(
-    category?.quick_filters ?? []
-  )
+  const [quickFilters, setQuickFilters] = useState<QuickFilter[]>(getCategoryQuickFilters(category))
   const [newFilterLabel, setNewFilterLabel] = useState('')
   const [newFilterQuery, setNewFilterQuery] = useState('')
   const [newFilterBrand, setNewFilterBrand] = useState('')
