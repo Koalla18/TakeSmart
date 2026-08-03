@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -10,6 +10,26 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 class QuickFilter(BaseModel):
     label: str = Field(..., min_length=1, max_length=100)
     query: str = Field(..., min_length=1, max_length=200)
+    brand: Optional[str] = Field(None, min_length=1, max_length=100)
+
+
+class ProductField(BaseModel):
+    """Полностью настраиваемое поле карточки товара для одной категории."""
+
+    key: str = Field(..., pattern=r"^[a-z][a-z0-9_]{0,49}$", examples=["ram"])
+    label: str = Field(..., min_length=1, max_length=100)
+    field_type: Literal["text", "number", "select", "boolean"] = "text"
+    placeholder: str = Field("", max_length=150)
+    options: list[str] = Field(default_factory=list, max_length=100)
+    hint: Optional[str] = Field(None, max_length=250)
+    is_required: bool = False
+    is_variant: bool = False
+
+    @model_validator(mode="after")
+    def select_requires_options(self) -> "ProductField":
+        if self.field_type == "select" and not self.options:
+            raise ValueError("Для поля типа «список» добавьте хотя бы один вариант")
+        return self
 
 
 class CategoryBase(BaseModel):
@@ -19,6 +39,18 @@ class CategoryBase(BaseModel):
     is_active: bool = Field(True)
     parent_id: Optional[uuid.UUID] = Field(None, description="UUID родительской категории (не передавать или null — корневая категория)")
     quick_filters: Optional[list[QuickFilter]] = Field(None, description="Теги для быстрой фильтрации в каталоге")
+    product_fields: Optional[list[ProductField]] = Field(
+        None,
+        description="Полная схема характеристик и вариантов товара для этой категории",
+    )
+
+    @model_validator(mode="after")
+    def unique_product_field_keys(self) -> "CategoryBase":
+        if self.product_fields:
+            keys = [field.key for field in self.product_fields]
+            if len(keys) != len(set(keys)):
+                raise ValueError("Ключи полей категории не должны повторяться")
+        return self
 
 
 class CategoryCreate(CategoryBase):
@@ -37,6 +69,7 @@ class CategoryUpdate(BaseModel):
     is_active: Optional[bool] = None
     parent_id: Optional[uuid.UUID] = None
     quick_filters: Optional[list[QuickFilter]] = None
+    product_fields: Optional[list[ProductField]] = None
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> "CategoryUpdate":
@@ -44,6 +77,10 @@ class CategoryUpdate(BaseModel):
         # а не по значениям (parent_id: null — валидный запрос для снятия родителя)
         if not self.model_fields_set:
             raise ValueError("Необходимо передать хотя бы одно поле для обновления")
+        if self.product_fields is not None:
+            keys = [field.key for field in self.product_fields]
+            if len(keys) != len(set(keys)):
+                raise ValueError("Ключи полей категории не должны повторяться")
         return self
 
 
@@ -56,6 +93,7 @@ class CategoryOut(BaseModel):
     is_active: bool
     parent_id: Optional[uuid.UUID]
     quick_filters: Optional[list[QuickFilter]] = None
+    product_fields: Optional[list[ProductField]] = None
     created_at: datetime
     updated_at: datetime
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -27,6 +27,7 @@ class ProductGroupSiblingOut(BaseModel):
     price: Decimal
     discount_price: Optional[Decimal] = None
     is_active: bool
+    attributes: Optional[dict[str, Any]] = None
 
     model_config = {"from_attributes": True}
 
@@ -43,6 +44,7 @@ class ProductGroupSiblingOut(BaseModel):
             price=product.price,
             discount_price=product.discount_price,
             is_active=product.is_active,
+            attributes=product.attributes,
         )
 
 

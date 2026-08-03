@@ -36,6 +36,14 @@ class Category(Base):
         comment="Массив тегов [{label, query}] для быстрых фильтров в каталоге"
     )
 
+    # Полная схема карточки товара для конкретной категории. Поля могут быть
+    # текстом, числом, списком вариантов или флагом; часть из них можно
+    # использовать как оси массового создания вариаций.
+    product_fields: Mapped[Any | None] = mapped_column(
+        JSONB, nullable=True, default=list,
+        comment="Схема полей товара [{key, label, field_type, options, is_variant}]",
+    )
+
     # Вложенные категории (Электроника → Смартфоны → iPhone)
     parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),

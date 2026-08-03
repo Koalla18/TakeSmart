@@ -9,6 +9,8 @@ from src.app.api.routers.hero_banners import router as hero_banners_router
 from src.app.api.routers.push import router as push_router
 from src.app.api.routers.media import router as media_router
 from src.app.api.routers.feed import router as feed_router
+from src.app.api.routers.brands import router as brands_router
+from src.app.api.routers.trade_in import router as trade_in_router
 from src.app.api.admin.endpoints import router as admin_router
 
 __all__ = [
@@ -23,6 +25,8 @@ __all__ = [
     "push_router",
     "media_router",
     "feed_router",
+    "brands_router",
+    "trade_in_router",
 ]
 
 __all__.append("admin_router")

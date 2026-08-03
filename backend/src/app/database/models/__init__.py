@@ -8,9 +8,12 @@ from src.app.database.models.hero_banner import HeroBanner
 from src.app.database.models.order import Order, OrderItem
 from src.app.database.models.admin import Admin
 from src.app.database.models.push_subscription import PushSubscription
+from src.app.database.models.brand import Brand
+from src.app.database.models.trade_in_offer import TradeInOffer
 
 __all__ = [
     "Category", "Product", "ProductSpec",
     "ProductImage", "ProductVariant", "ProductGroup",
     "WeeklySlide", "HeroBanner", "Order", "OrderItem", "Admin", "PushSubscription",
+    "Brand", "TradeInOffer",
 ]
