@@ -1,7 +1,7 @@
 """catalog management: brands, category axes and trade-in offers
 
-Revision ID: i9j0k1l2m3n4
-Revises: h8i9j0k1l2m3
+Revision ID: k1l2m3n4o5p6
+Revises: j0k1l2m3n4o5
 Create Date: 2026-08-03 12:00:00.000000
 """
 from typing import Sequence, Union
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision: str = "i9j0k1l2m3n4"
-down_revision: Union[str, None] = "h8i9j0k1l2m3"
+revision: str = "k1l2m3n4o5p6"
+down_revision: Union[str, None] = "j0k1l2m3n4o5"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
