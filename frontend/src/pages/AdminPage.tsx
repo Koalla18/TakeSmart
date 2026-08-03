@@ -156,7 +156,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   refunded:   { label: 'Возврат',     color: 'text-gray-600',   bg: 'bg-gray-200',   icon: '💸' },
 }
 
-type TabType = 'orders' | 'products' | 'catalog' | 'categories' | 'banners' | 'brands' | 'tradein' | 'slides' | 'used'
+type TabType = 'orders' | 'products' | 'categories' | 'fields' | 'quickfilters' | 'banners' | 'brands' | 'tradein' | 'slides' | 'used'
 type CategorySettingsSection = 'filters' | 'fields' | null
 
 // ============ HELPERS ============
@@ -819,8 +819,9 @@ export function AdminPage() {
           {[
             { id: 'orders' as TabType, label: '📋 Заказы', count: orders.length },
             { id: 'products' as TabType, label: '📦 Товары', count: products.filter(p => (p.condition || 'new') === 'new').length },
-            { id: 'catalog' as TabType, label: '⚙️ Настройка каталога', count: configuredFieldsCount },
             { id: 'categories' as TabType, label: '📁 Категории', count: categories.length },
+            { id: 'fields' as TabType, label: '⚙️ Поля и варианты', count: configuredFieldsCount },
+            { id: 'quickfilters' as TabType, label: '⚡ Модели в каталоге', count: quickFiltersCount },
             { id: 'banners' as TabType, label: '🖼 Баннеры', count: banners.length },
             { id: 'brands' as TabType, label: '🏷️ Бренды', count: brands.length },
             { id: 'tradein' as TabType, label: '🔄 Trade-in', count: tradeInOffers.length },
@@ -1055,53 +1056,27 @@ export function AdminPage() {
           />
         )}
 
-        {/* ============ CATALOG SETTINGS TAB ============ */}
-        {activeTab === 'catalog' && (
+        {/* ============ PRODUCT FIELDS TAB ============ */}
+        {activeTab === 'fields' && (
           <>
-            <div className="mb-6 rounded-3xl border border-yellow-400/20 bg-gradient-to-r from-yellow-400/10 via-orange-400/5 to-transparent p-5 sm:p-6">
-              <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-                <div>
-                  <p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-yellow-300">Единый кабинет каталога</p>
-                  <h2 className="text-2xl font-bold text-white">Настройка категорий без шаблонов «ОЗУ» и «Процессор»</h2>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">Для каждой категории задаются собственные поля карточки и варианты. Например, у моноблока можно оставить экран, процессор и накопитель, а у очков — линзы, цвет оправы и защиту. Форма создания группы возьмёт только эти настройки.</p>
-                </div>
-                <button onClick={() => openCategorySettings(null)} className="shrink-0 rounded-xl bg-yellow-400 px-5 py-3 text-sm font-semibold text-gray-900 transition hover:bg-yellow-300">+ Новая категория</button>
-              </div>
+            <div className="mb-6"><h2 className="text-xl font-bold text-white">⚙️ Поля и варианты товара</h2><p className="mt-1 text-sm text-slate-400">Схема карточки и варианты создаваемой группы. Настраивается отдельно для каждой категории.</p></div>
+            <div className="grid gap-3 lg:grid-cols-2">
+              {categories.map(category => {
+                const fields = category.product_fields ?? []
+                const variants = fields.filter(field => field.is_variant)
+                return <div key={category.id} className="rounded-2xl border border-white/10 bg-white/5 p-5"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-white">{category.name}</h3><p className="mt-1 text-xs text-slate-500">{fields.length ? `${fields.length} полей · ${variants.length} в вариантах` : 'Схема ещё не настроена'}</p></div><button onClick={() => openCategorySettings(category, 'fields')} className="rounded-xl bg-yellow-400 px-3 py-2 text-xs font-semibold text-gray-900 hover:bg-yellow-300">Настроить</button></div><div className="mt-4 flex flex-wrap gap-1.5">{fields.length ? fields.map(field => <span key={field.key} className={`rounded-lg px-2 py-1 text-xs ${field.is_variant ? 'bg-yellow-400/15 text-yellow-300' : 'bg-white/10 text-slate-300'}`}>{field.label}{field.is_variant ? ' · вариант' : ''}</span>) : <span className="text-sm text-slate-500">Добавьте нужные характеристики — никаких предустановленных ОЗУ или процессоров.</span>}</div></div>
+              })}
             </div>
+          </>
+        )}
 
-            <div className="mb-6 grid gap-3 md:grid-cols-3">
-              <button onClick={() => setActiveTab('brands')} className="rounded-2xl border border-white/10 bg-white/5 p-4 text-left transition hover:bg-white/10">
-                <div className="text-2xl">🏷️</div><div className="mt-2 font-semibold text-white">Бренды</div><p className="mt-1 text-xs text-slate-400">{brands.length} в справочнике · добавить, скрыть или изменить логотип</p>
-              </button>
-              <button onClick={() => setActiveTab('tradein')} className="rounded-2xl border border-white/10 bg-white/5 p-4 text-left transition hover:bg-white/10">
-                <div className="text-2xl">🔄</div><div className="mt-2 font-semibold text-white">Цены trade-in</div><p className="mt-1 text-xs text-slate-400">{tradeInOffers.length} моделей · диапазоны цен прямо из админки</p>
-              </button>
-              <button onClick={() => setActiveTab('categories')} className="rounded-2xl border border-white/10 bg-white/5 p-4 text-left transition hover:bg-white/10">
-                <div className="text-2xl">📂</div><div className="mt-2 font-semibold text-white">Структура каталога</div><p className="mt-1 text-xs text-slate-400">{categories.length} категорий · {configuredFieldsCount} настроенных полей</p>
-              </button>
+        {/* ============ QUICK CATALOG MODELS TAB ============ */}
+        {activeTab === 'quickfilters' && (
+          <>
+            <div className="mb-6"><h2 className="text-xl font-bold text-white">⚡ Модели в каталоге</h2><p className="mt-1 text-sm text-slate-400">Кнопки над товарами: например, iPhone 16 или Galaxy S25. Их порядок и набор задаются по категориям.</p></div>
+            <div className="grid gap-3 lg:grid-cols-2">
+              {categories.map(category => { const filters = category.quick_filters ?? []; return <div key={category.id} className="rounded-2xl border border-white/10 bg-white/5 p-5"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-white">{category.name}</h3><p className="mt-1 text-xs text-slate-500">{filters.length ? `${filters.length} кнопок отображается` : 'Кнопки не настроены'}</p></div><button onClick={() => openCategorySettings(category, 'filters')} className="rounded-xl bg-yellow-400 px-3 py-2 text-xs font-semibold text-gray-900 hover:bg-yellow-300">Настроить</button></div><div className="mt-4 flex flex-wrap gap-1.5">{filters.length ? filters.map((filter, index) => <span key={`${filter.label}-${index}`} className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white">{filter.label}</span>) : <span className="text-sm text-slate-500">Ни одной быстрой модели для этой категории.</span>}</div></div> })}
             </div>
-
-            <div className="mb-4 flex items-end justify-between gap-4">
-              <div><h3 className="text-xl font-bold text-white">Схемы товаров и быстрые кнопки</h3><p className="mt-1 text-sm text-slate-400">Настройка одной категории не влияет на остальные.</p></div>
-              <div className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-slate-400">⚡ {quickFiltersCount} кнопок в каталоге</div>
-            </div>
-
-            {categories.length === 0 ? (
-              <div className="rounded-2xl bg-white/5 p-12 text-center"><div className="text-5xl">📂</div><p className="mt-3 text-white">Сначала создайте категорию, затем задайте её поля.</p></div>
-            ) : (
-              <div className="grid gap-3 lg:grid-cols-2">
-                {categories.map(category => {
-                  const fields = category.product_fields ?? []
-                  const variants = fields.filter(field => field.is_variant)
-                  const filters = category.quick_filters ?? []
-                  return <div key={category.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="font-semibold text-white">{category.name}</div><div className="mt-1 text-xs text-slate-500">/{category.slug}</div></div>{!category.is_active && <span className="rounded-full bg-red-900/40 px-2 py-1 text-[10px] font-bold text-red-300">СКРЫТА</span>}</div>
-                    <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-xl bg-white/5 p-2"><div className="font-bold text-white">{fields.length}</div><div className="mt-0.5 text-slate-500">полей</div></div><div className="rounded-xl bg-white/5 p-2"><div className="font-bold text-white">{variants.length}</div><div className="mt-0.5 text-slate-500">вариантов</div></div><div className="rounded-xl bg-white/5 p-2"><div className="font-bold text-white">{filters.length}</div><div className="mt-0.5 text-slate-500">кнопок</div></div></div>
-                    <div className="mt-3 flex flex-wrap gap-2"><button onClick={() => openCategorySettings(category, 'fields')} className="rounded-xl bg-yellow-400 px-3 py-2 text-xs font-semibold text-gray-900 hover:bg-yellow-300">⚙️ Поля и варианты</button><button onClick={() => openCategorySettings(category, 'filters')} className="rounded-xl bg-white/10 px-3 py-2 text-xs font-medium text-white hover:bg-white/20">⚡ Быстрые модели</button></div>
-                  </div>
-                })}
-              </div>
-            )}
           </>
         )}
 
@@ -1110,8 +1085,8 @@ export function AdminPage() {
           <>
             <div className="mb-6 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-bold text-white">📂 Категории и схемы товаров</h2>
-                <p className="text-sm text-slate-400">{categories.length} категорий • поля, варианты и быстрые кнопки настраиваются отдельно для каждой</p>
+                <h2 className="text-xl font-bold text-white">📂 Категории</h2>
+                <p className="text-sm text-slate-400">{categories.length} категорий • название, URL, изображение и видимость на сайте</p>
               </div>
               <button
                 onClick={() => openCategorySettings(null)}
@@ -1161,16 +1136,6 @@ export function AdminPage() {
                           {category.description && (
                             <p className="mt-1 text-xs text-slate-400 line-clamp-1">{category.description}</p>
                           )}
-                          {category.quick_filters && category.quick_filters.length > 0 && (
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {category.quick_filters.slice(0, 4).map((qf, i) => (
-                                <span key={i} className="rounded-full bg-yellow-400/10 px-2 py-0.5 text-[10px] font-medium text-yellow-400">{qf.label}</span>
-                              ))}
-                              {category.quick_filters.length > 4 && (
-                                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-400">+{category.quick_filters.length - 4}</span>
-                              )}
-                            </div>
-                          )}
                         </div>
 
                         {/* Product count */}
@@ -1182,25 +1147,11 @@ export function AdminPage() {
                         {/* Actions */}
                         <div className="flex flex-shrink-0 flex-wrap justify-end gap-2">
                           <button
-                            onClick={() => openCategorySettings(category, 'fields')}
-                            className="rounded-xl bg-yellow-400/15 px-3 py-2 text-xs font-semibold text-yellow-300 hover:bg-yellow-400/25 transition-colors"
-                            title="Настроить поля и варианты"
-                          >
-                            ⚙️ Схема
-                          </button>
-                          <button
-                            onClick={() => openCategorySettings(category, 'filters')}
-                            className="rounded-xl bg-white/10 px-3 py-2 text-xs font-medium text-white hover:bg-white/20 transition-colors"
-                            title="Настроить быстрые кнопки в каталоге"
-                          >
-                            ⚡ Кнопки
-                          </button>
-                          <button
                             onClick={() => openCategorySettings(category)}
                             className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20 transition-colors"
                             title="Редактировать"
                           >
-                            ✏️
+                            ✏️ Изменить
                           </button>
                           <button
                             onClick={() => deleteCategory(category.id)}
@@ -3782,19 +3733,6 @@ function CategoryModal({
     key: '', label: '', field_type: 'text', placeholder: '', options: [], hint: '', is_required: false, is_variant: false,
   })
   const [editingProductFieldKey, setEditingProductFieldKey] = useState<string | null>(null)
-  const filtersRef = useRef<HTMLDivElement>(null)
-  const fieldsRef = useRef<HTMLDivElement>(null)
-
-  const scrollToSection = (section: Exclude<CategorySettingsSection, null>) => {
-    const target = section === 'filters' ? filtersRef.current : fieldsRef.current
-    target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
-
-  useEffect(() => {
-    if (!initialSection) return
-    const timer = window.setTimeout(() => scrollToSection(initialSection), 100)
-    return () => window.clearTimeout(timer)
-  }, [initialSection])
 
   const generateSlug = (name: string) => {
     const map: Record<string, string> = {
@@ -3881,19 +3819,14 @@ function CategoryModal({
       <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl bg-slate-800 p-6 sm:p-8" onClick={e => e.stopPropagation()}>
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold text-white">{category ? '✏️ Редактировать' : '📂 Новая'} категория</h2>
-            <p className="text-sm text-slate-400 mt-1">{category ? 'У каждой категории — собственные поля, варианты и кнопки каталога.' : 'После создания настройте поля карточки и варианты.'}</p>
+            <h2 className="text-xl font-bold text-white">{initialSection === 'fields' ? `⚙️ Поля и варианты: ${category?.name}` : initialSection === 'filters' ? `⚡ Модели в каталоге: ${category?.name}` : `${category ? '✏️ Редактировать' : '📂 Новая'} категория`}</h2>
+            <p className="mt-1 text-sm text-slate-400">{initialSection === 'fields' ? 'Только характеристики карточки и варианты создаваемой группы.' : initialSection === 'filters' ? 'Только быстрые кнопки над товарами этой категории.' : 'Название, адрес, изображение и видимость категории на сайте.'}</p>
           </div>
           <button onClick={onClose} className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-slate-400 hover:bg-white/20 hover:text-white transition-colors">×</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {category && (
-            <div className="sticky top-0 z-10 -mx-1 flex gap-2 overflow-x-auto rounded-xl bg-slate-800/95 px-1 py-2 backdrop-blur">
-              <button type="button" onClick={() => scrollToSection('filters')} className="shrink-0 rounded-lg bg-white/10 px-3 py-2 text-xs font-medium text-white hover:bg-white/20">⚡ Кнопки каталога</button>
-              <button type="button" onClick={() => scrollToSection('fields')} className="shrink-0 rounded-lg bg-yellow-400/15 px-3 py-2 text-xs font-semibold text-yellow-300 hover:bg-yellow-400/25">⚙️ Поля и варианты</button>
-            </div>
-          )}
+          {initialSection === null && (<>
           {/* Preview */}
           {formData.image_url && (
             <div className="flex justify-center rounded-2xl bg-white/5 p-4">
@@ -3963,9 +3896,10 @@ function CategoryModal({
               <div className="text-xs text-slate-400">Категория видна на сайте</div>
             </div>
           </label>
+          </>)}
 
           {/* Quick Filters */}
-          <div ref={filtersRef} className="scroll-mt-4">
+          {initialSection === 'filters' && (<div>
             <label className="mb-1.5 block text-xs font-semibold text-slate-400 uppercase tracking-wider">Быстрые фильтры (теги)</label>
             <p className="mb-2 text-xs text-slate-500">Кнопки над товарами этой категории — например, «iPhone 16» и «Galaxy S25». Меняйте порядок стрелками; пустой список скроет кнопки.</p>
             
@@ -4015,10 +3949,10 @@ function CategoryModal({
               </select>
               <button type="button" onClick={addFilter} className="rounded-xl bg-yellow-400/20 px-4 py-2.5 text-sm font-medium text-yellow-400 hover:bg-yellow-400/30 transition-colors flex-shrink-0">+</button>
             </div>
-          </div>
+          </div>)}
 
           {/* Category-specific product fields */}
-          <div ref={fieldsRef} className="scroll-mt-4 rounded-2xl border border-yellow-400/15 bg-yellow-400/[0.03] p-4">
+          {initialSection === 'fields' && (<div className="rounded-2xl border border-yellow-400/15 bg-yellow-400/[0.03] p-4">
             <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Конструктор карточки товара</label>
             <p className="mb-3 text-xs text-slate-500">Добавляйте только характеристики этой категории. Поля с отметкой «Использовать в вариантах» попадут в создание группы; остальные будут общими для всех её товаров. Так у моноблоков не появятся поля от телефонов, а у очков — ОЗУ, если вы его не добавите.</p>
             {productFields.length > 0 && (
@@ -4062,7 +3996,7 @@ function CategoryModal({
             </div>
             <div className="mt-2 flex flex-wrap gap-4 text-xs text-slate-300"><label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={newField.is_required} onChange={e => setNewField(prev => ({ ...prev, is_required: e.target.checked }))} className="accent-yellow-400" />Обязательное</label><label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={newField.is_variant} onChange={e => setNewField(prev => ({ ...prev, is_variant: e.target.checked }))} className="accent-yellow-400" />Использовать в вариантах</label></div>
             <button type="button" onClick={addProductField} className="mt-3 rounded-xl bg-white/10 px-4 py-2 text-sm font-medium text-yellow-300 hover:bg-white/15">+ Добавить поле</button>
-          </div>
+          </div>)}
 
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 rounded-xl bg-white/10 py-3 font-medium text-white hover:bg-white/20 transition-colors">Отмена</button>
