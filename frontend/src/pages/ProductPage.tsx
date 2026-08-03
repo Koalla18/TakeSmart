@@ -431,7 +431,7 @@ interface ApiProduct {
   is_featured: boolean
   main_image_url: string | null
   images?: ProductImage[]
-  attributes?: Record<string, string>
+  attributes?: Record<string, string | number | boolean | null>
   description: string | null
   short_description: string | null
   sku: string | null
@@ -444,6 +444,16 @@ interface ApiProduct {
   siblings?: ApiSibling[]
 }
 
+interface CategoryProductField {
+  key: string
+  label: string
+  field_type: 'text' | 'number' | 'select' | 'boolean'
+  placeholder: string
+  options: string[]
+  is_required: boolean
+  is_variant: boolean
+}
+
 interface ApiSibling {
   id: string
   name: string
@@ -453,6 +463,7 @@ interface ApiSibling {
   price: number
   discount_price: number | null
   is_active: boolean
+  attributes?: Record<string, string | number | boolean | null> | null
 }
 
 interface ApiVariant {
@@ -498,6 +509,7 @@ export function ProductPage() {
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [lightboxStartIndex, setLightboxStartIndex] = useState(0)
   const [variants, setVariants] = useState<ApiVariant[]>([])
+  const [categoryFields, setCategoryFields] = useState<CategoryProductField[]>([])
   // Independent selection state — each attribute is chosen separately
   const [selectedColor, setSelectedColor] = useState<string | null>(null)
   const [selectedStorage, setSelectedStorage] = useState<string | null>(null)
@@ -619,6 +631,17 @@ export function ProductPage() {
       })
       .catch(() => {})
   }, [apiProduct?.id])
+
+  useEffect(() => {
+    if (!apiProduct?.category_id) {
+      setCategoryFields([])
+      return
+    }
+    fetch(`${API_BASE_URL}/api/categories/${apiProduct.category_id}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(category => setCategoryFields(category?.product_fields ?? []))
+      .catch(() => setCategoryFields([]))
+  }, [apiProduct?.category_id])
 
   // The catalog price is the source of truth for the whole purchase flow.
   // Variants only change the selected configuration, stock and image.
@@ -975,6 +998,48 @@ export function ProductPage() {
                       category: (s as any).category ?? apiProduct.category,
                     })),
                   ]
+
+                  // Categories configured in the admin panel use a universal
+                  // selector. It reads exactly the fields defined for that
+                  // category instead of guessing RAM/storage from product names.
+                  if (categoryFields.length > 0) {
+                    const variantFields = categoryFields.filter(field => field.is_variant)
+                    const getValue = (card: typeof allCards[number], key: string): string => {
+                      const value = key === 'color' ? card.color : card.attributes?.[key]
+                      if (value === null || value === undefined || value === '') return ''
+                      return typeof value === 'boolean' ? (value ? 'Да' : 'Нет') : String(value)
+                    }
+                    const currentValues = Object.fromEntries(variantFields.map(field => [field.key, getValue(allCards[0], field.key)]))
+                    const goToValue = (fieldKey: string, value: string) => {
+                      const wanted = { ...currentValues, [fieldKey]: value }
+                      const match = allCards.find(card => card.id !== apiProduct.id && variantFields.every(field => {
+                        const expected = wanted[field.key]
+                        return !expected || getValue(card, field.key) === expected
+                      })) || allCards.find(card => card.id !== apiProduct.id && getValue(card, fieldKey) === value)
+                      if (match) navigate(`/product/${match.slug}`)
+                    }
+                    if (variantFields.length === 0) return null
+                    return (
+                      <div className="mb-6 space-y-4">
+                        {variantFields.map(field => {
+                          const values = [...new Set(allCards.map(card => getValue(card, field.key)).filter(Boolean))]
+                          const current = currentValues[field.key]
+                          if (values.length === 0) return null
+                          return (
+                            <div key={field.key}>
+                              <p className="mb-2 text-sm text-gray-500">{field.label}: <span className="font-semibold text-gray-900">{current || '—'}</span></p>
+                              <div className="flex flex-wrap gap-2">
+                                {values.map(value => {
+                                  const isCurrent = value === current
+                                  return <button key={value} onClick={() => !isCurrent && goToValue(field.key, value)} className={`rounded-xl border px-4 py-2 text-sm font-medium transition-all ${isCurrent ? 'border-gray-900 bg-gray-900 text-white shadow-sm' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>{value}</button>
+                                })}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  }
 
                   // Parse attributes from names (or use JSON attributes if present)
                   const getParsed = (item: any) => {
@@ -1530,28 +1595,14 @@ export function ProductPage() {
                 {/* Standalone product attrs (no group, no variants) */}
                 {variants.length === 0 && !(apiProduct.siblings && apiProduct.siblings.length > 0) && (() => {
                   const attrs = apiProduct.attributes || {}
-                  const catSlug = apiProduct.category?.slug || ''
-                  const isMonoblok = catSlug === 'monobloki'
-                  const isLaptop = catSlug === 'laptops' || /macbook|ноутбук/i.test(apiProduct.name || '')
-                  const isTablet = catSlug === 'tablets'
-                  const isGlasses = catSlug === 'umnye-ochki' || /умные\s*очки|оправа/i.test(apiProduct.name || '')
                   const rows: { label: string; value: string | null }[] = []
 
                   if (apiProduct.color) rows.push({ label: 'Цвет', value: apiProduct.color })
-
-                  if (isMonoblok || isLaptop) {
-                    if (attrs.processor) rows.push({ label: 'Процессор', value: attrs.processor })
-                    if (attrs.connectivity) rows.push({ label: 'ОЗУ', value: normalizeMemoryValue(attrs.connectivity) || attrs.connectivity })
-                    if (attrs.storage) rows.push({ label: 'Память SSD', value: normalizeMemoryValue(attrs.storage) || attrs.storage })
-                  } else if (isTablet) {
-                    if (attrs.connectivity) rows.push({ label: 'ОЗУ', value: normalizeMemoryValue(attrs.connectivity) || attrs.connectivity })
-                    if (attrs.storage) rows.push({ label: 'Память', value: normalizeMemoryValue(attrs.storage) || attrs.storage })
-                    if (attrs.processor) rows.push({ label: 'Связь', value: attrs.processor })
-                  } else if (isGlasses) {
-                    if (attrs.processor) rows.push({ label: 'Оправа', value: attrs.processor })
-                    if (attrs.storage) rows.push({ label: 'Линзы', value: attrs.storage })
-                    if (attrs.connectivity) rows.push({ label: 'Размер', value: attrs.connectivity })
-                  }
+                  const labels = new Map(categoryFields.map(field => [field.key, field.label]))
+                  Object.entries(attrs).forEach(([key, value]) => {
+                    if (value === null || value === undefined || value === '') return
+                    rows.push({ label: labels.get(key) || key.replace(/_/g, ' '), value: typeof value === 'boolean' ? (value ? 'Да' : 'Нет') : String(value) })
+                  })
 
                   if (rows.length === 0) return null
                   return (

@@ -433,7 +433,7 @@ export function CatalogPage() {
               return {
                 ...base,
                 count: mapped.filter(p => p.categorySlug === c.slug).length,
-                quickFilters: base.quickFilters.length > 0 ? base.quickFilters : (DEFAULT_QUICK_FILTERS[c.slug] ?? []),
+                quickFilters: base.quickFiltersConfigured ? base.quickFilters : (DEFAULT_QUICK_FILTERS[c.slug] ?? []),
               }
             })
             .filter(c => (activeSlugs.has(c.id) || c.count > 0) && !c.name.toLowerCase().includes('б/у'))

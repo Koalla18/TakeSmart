@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Container, Section } from '../components/ui/Layout'
+import { API_BASE_URL } from '../lib/config'
 
 /* ── Trade-in device catalog (frontend-only) ─────────────────────────── */
 
@@ -8,7 +9,7 @@ interface DeviceOption {
   models: { name: string; tradeValue: [number, number] }[]
 }
 
-const deviceCatalog: Record<string, DeviceOption> = {
+const FALLBACK_DEVICE_CATALOG: Record<string, DeviceOption> = {
   iphone: {
     label: 'iPhone',
     models: [
@@ -104,6 +105,17 @@ const deviceCatalog: Record<string, DeviceOption> = {
   },
 }
 
+interface TradeInOffer {
+  id: string
+  device_type: string
+  device_label: string
+  name: string
+  min_price: number
+  max_price: number
+  sort_order: number
+  is_active: boolean
+}
+
 const conditionMultipliers: { id: string; label: string; emoji: string; desc: string; mult: number }[] = [
   { id: 'perfect', label: 'Идеальное', emoji: '✨', desc: 'Как новое, без следов использования', mult: 1.0 },
   { id: 'good', label: 'Хорошее', emoji: '👍', desc: 'Мелкие следы использования', mult: 0.85 },
@@ -158,6 +170,41 @@ export function TradeInPage() {
   const [selectedType, setSelectedType] = useState<string | null>(null)
   const [selectedModel, setSelectedModel] = useState<string | null>(null)
   const [selectedCondition, setSelectedCondition] = useState<string | null>(null)
+  const [offers, setOffers] = useState<TradeInOffer[]>([])
+  const [hasRemoteCatalog, setHasRemoteCatalog] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`${API_BASE_URL}/api/trade-in`)
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
+      .then((data: TradeInOffer[]) => {
+        if (!cancelled) {
+          setOffers(data)
+          setHasRemoteCatalog(true)
+        }
+      })
+      .catch(() => {
+        // Пока миграция не применена либо сеть недоступна, калькулятор остаётся рабочим.
+        if (!cancelled) setOffers([])
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  const deviceCatalog = useMemo<Record<string, DeviceOption>>(() => {
+    if (!hasRemoteCatalog) return FALLBACK_DEVICE_CATALOG
+    return offers.reduce<Record<string, DeviceOption>>((catalog, offer) => {
+      const entry = catalog[offer.device_type] ?? {
+        label: offer.device_label,
+        models: [],
+      }
+      entry.models.push({
+        name: offer.name,
+        tradeValue: [Number(offer.min_price), Number(offer.max_price)],
+      })
+      catalog[offer.device_type] = entry
+      return catalog
+    }, {})
+  }, [hasRemoteCatalog, offers])
 
   const device = selectedType ? deviceCatalog[selectedType] : null
   const model = device?.models.find(m => m.name === selectedModel)

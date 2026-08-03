@@ -49,7 +49,48 @@ interface Category {
   image_url: string | null
   is_active: boolean
   parent_id: string | null
-  quick_filters: { label: string; query: string }[] | null
+  quick_filters: QuickFilter[] | null
+  product_fields: CategoryProductField[] | null
+  created_at: string
+  updated_at: string
+}
+
+interface QuickFilter {
+  label: string
+  query: string
+  brand?: string | null
+}
+
+interface CategoryProductField {
+  key: string
+  label: string
+  field_type: 'text' | 'number' | 'select' | 'boolean'
+  placeholder: string
+  options: string[]
+  hint?: string | null
+  is_required: boolean
+  is_variant: boolean
+}
+
+interface Brand {
+  id: string
+  name: string
+  slug: string
+  logo_url: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+interface TradeInOffer {
+  id: string
+  device_type: string
+  device_label: string
+  name: string
+  min_price: number
+  max_price: number
+  sort_order: number
+  is_active: boolean
   created_at: string
   updated_at: string
 }
@@ -74,6 +115,7 @@ interface Product {
   is_featured: boolean
   category_id: string | null
   group_id: string | null
+  attributes?: Record<string, string | number | boolean | null> | null
   created_at: string
   updated_at: string
 }
@@ -114,7 +156,8 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   refunded:   { label: 'Возврат',     color: 'text-gray-600',   bg: 'bg-gray-200',   icon: '💸' },
 }
 
-type TabType = 'orders' | 'products' | 'categories' | 'banners' | 'slides' | 'used'
+type TabType = 'orders' | 'products' | 'catalog' | 'categories' | 'banners' | 'brands' | 'tradein' | 'slides' | 'used'
+type CategorySettingsSection = 'filters' | 'fields' | null
 
 // ============ HELPERS ============
 
@@ -240,6 +283,13 @@ export function AdminPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
+  const [categorySettingsSection, setCategorySettingsSection] = useState<CategorySettingsSection>(null)
+  const [brands, setBrands] = useState<Brand[]>([])
+  const [editingBrand, setEditingBrand] = useState<Brand | null>(null)
+  const [isBrandModalOpen, setIsBrandModalOpen] = useState(false)
+  const [tradeInOffers, setTradeInOffers] = useState<TradeInOffer[]>([])
+  const [editingTradeInOffer, setEditingTradeInOffer] = useState<TradeInOffer | null>(null)
+  const [isTradeInModalOpen, setIsTradeInModalOpen] = useState(false)
   const [slides, setSlides] = useState<WeeklySlide[]>([])
   const [editingSlide, setEditingSlide] = useState<WeeklySlide | null>(null)
   const [isSlideModalOpen, setIsSlideModalOpen] = useState(false)
@@ -317,11 +367,25 @@ export function AdminPage() {
     } catch (err) { console.error(err) }
   }
 
+  const loadBrands = async () => {
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/brands/all`)
+      if (res.ok) setBrands(await res.json())
+    } catch (err) { console.error(err) }
+  }
+
+  const loadTradeInOffers = async () => {
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/trade-in/all`)
+      if (res.ok) setTradeInOffers(await res.json())
+    } catch (err) { console.error(err) }
+  }
+
   const loadAllData = async () => {
     setIsLoading(true)
     setError(null)
     try {
-      await Promise.all([loadOrders(), loadProducts(), loadCategories(), loadSlides(), loadBanners()])
+      await Promise.all([loadOrders(), loadProducts(), loadCategories(), loadSlides(), loadBanners(), loadBrands(), loadTradeInOffers()])
     } catch { setError('Ошибка загрузки') }
     finally { setIsLoading(false) }
   }
@@ -436,6 +500,7 @@ export function AdminPage() {
       }
       setIsCategoryModalOpen(false)
       setEditingCategory(null)
+      setCategorySettingsSection(null)
       loadCategories()
     } catch (err) { toast(err instanceof Error ? err.message : 'Ошибка', 'error') }
   }
@@ -464,6 +529,64 @@ export function AdminPage() {
       loadCategories()
       loadProducts()
     } catch { toast('Ошибка сети', 'error') }
+  }
+
+  // Brand actions
+  const saveBrand = async (data: Record<string, unknown>) => {
+    try {
+      const url = editingBrand ? `${API_BASE_URL}/api/brands/${editingBrand.id}` : `${API_BASE_URL}/api/brands`
+      const res = await authFetch(url, {
+        method: editingBrand ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || 'Не удалось сохранить бренд')
+      }
+      setIsBrandModalOpen(false)
+      setEditingBrand(null)
+      loadBrands()
+    } catch (err) { alert(err instanceof Error ? err.message : 'Ошибка') }
+  }
+
+  const deleteBrand = async (brand: Brand) => {
+    if (!confirm(`Удалить бренд «${brand.name}»? Товары с этим названием останутся в каталоге.`)) return
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/brands/${brand.id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Ошибка')
+      loadBrands()
+    } catch { alert('Не удалось удалить бренд') }
+  }
+
+  // Trade-in actions
+  const saveTradeInOffer = async (data: Record<string, unknown>) => {
+    try {
+      const url = editingTradeInOffer
+        ? `${API_BASE_URL}/api/trade-in/${editingTradeInOffer.id}`
+        : `${API_BASE_URL}/api/trade-in`
+      const res = await authFetch(url, {
+        method: editingTradeInOffer ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || 'Не удалось сохранить цену trade-in')
+      }
+      setIsTradeInModalOpen(false)
+      setEditingTradeInOffer(null)
+      loadTradeInOffers()
+    } catch (err) { alert(err instanceof Error ? err.message : 'Ошибка') }
+  }
+
+  const deleteTradeInOffer = async (offer: TradeInOffer) => {
+    if (!confirm(`Удалить «${offer.name}» из trade-in?`)) return
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/trade-in/${offer.id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Ошибка')
+      loadTradeInOffers()
+    } catch { alert('Не удалось удалить позицию trade-in') }
   }
 
   // Weekly slides actions
@@ -565,6 +688,13 @@ export function AdminPage() {
 
   const featuredProduct = products.find(p => p.is_featured)
   const pendingCount = orders.filter(o => o.status === 'pending').length
+  const quickFiltersCount = categories.reduce((total, category) => total + (category.quick_filters?.length || 0), 0)
+  const configuredFieldsCount = categories.reduce((total, category) => total + (category.product_fields?.length || 0), 0)
+  const openCategorySettings = (category: Category | null, section: CategorySettingsSection = null) => {
+    setEditingCategory(category)
+    setCategorySettingsSection(section)
+    setIsCategoryModalOpen(true)
+  }
 
   if (!isAuthenticated) return null
 
@@ -689,8 +819,11 @@ export function AdminPage() {
           {[
             { id: 'orders' as TabType, label: '📋 Заказы', count: orders.length },
             { id: 'products' as TabType, label: '📦 Товары', count: products.filter(p => (p.condition || 'new') === 'new').length },
+            { id: 'catalog' as TabType, label: '⚙️ Настройка каталога', count: configuredFieldsCount },
             { id: 'categories' as TabType, label: '📁 Категории', count: categories.length },
             { id: 'banners' as TabType, label: '🖼 Баннеры', count: banners.length },
+            { id: 'brands' as TabType, label: '🏷️ Бренды', count: brands.length },
+            { id: 'tradein' as TabType, label: '🔄 Trade-in', count: tradeInOffers.length },
           ].map(tab => (
             <button
               key={tab.id}
@@ -922,16 +1055,66 @@ export function AdminPage() {
           />
         )}
 
+        {/* ============ CATALOG SETTINGS TAB ============ */}
+        {activeTab === 'catalog' && (
+          <>
+            <div className="mb-6 rounded-3xl border border-yellow-400/20 bg-gradient-to-r from-yellow-400/10 via-orange-400/5 to-transparent p-5 sm:p-6">
+              <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+                <div>
+                  <p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-yellow-300">Единый кабинет каталога</p>
+                  <h2 className="text-2xl font-bold text-white">Настройка категорий без шаблонов «ОЗУ» и «Процессор»</h2>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">Для каждой категории задаются собственные поля карточки и варианты. Например, у моноблока можно оставить экран, процессор и накопитель, а у очков — линзы, цвет оправы и защиту. Форма создания группы возьмёт только эти настройки.</p>
+                </div>
+                <button onClick={() => openCategorySettings(null)} className="shrink-0 rounded-xl bg-yellow-400 px-5 py-3 text-sm font-semibold text-gray-900 transition hover:bg-yellow-300">+ Новая категория</button>
+              </div>
+            </div>
+
+            <div className="mb-6 grid gap-3 md:grid-cols-3">
+              <button onClick={() => setActiveTab('brands')} className="rounded-2xl border border-white/10 bg-white/5 p-4 text-left transition hover:bg-white/10">
+                <div className="text-2xl">🏷️</div><div className="mt-2 font-semibold text-white">Бренды</div><p className="mt-1 text-xs text-slate-400">{brands.length} в справочнике · добавить, скрыть или изменить логотип</p>
+              </button>
+              <button onClick={() => setActiveTab('tradein')} className="rounded-2xl border border-white/10 bg-white/5 p-4 text-left transition hover:bg-white/10">
+                <div className="text-2xl">🔄</div><div className="mt-2 font-semibold text-white">Цены trade-in</div><p className="mt-1 text-xs text-slate-400">{tradeInOffers.length} моделей · диапазоны цен прямо из админки</p>
+              </button>
+              <button onClick={() => setActiveTab('categories')} className="rounded-2xl border border-white/10 bg-white/5 p-4 text-left transition hover:bg-white/10">
+                <div className="text-2xl">📂</div><div className="mt-2 font-semibold text-white">Структура каталога</div><p className="mt-1 text-xs text-slate-400">{categories.length} категорий · {configuredFieldsCount} настроенных полей</p>
+              </button>
+            </div>
+
+            <div className="mb-4 flex items-end justify-between gap-4">
+              <div><h3 className="text-xl font-bold text-white">Схемы товаров и быстрые кнопки</h3><p className="mt-1 text-sm text-slate-400">Настройка одной категории не влияет на остальные.</p></div>
+              <div className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-slate-400">⚡ {quickFiltersCount} кнопок в каталоге</div>
+            </div>
+
+            {categories.length === 0 ? (
+              <div className="rounded-2xl bg-white/5 p-12 text-center"><div className="text-5xl">📂</div><p className="mt-3 text-white">Сначала создайте категорию, затем задайте её поля.</p></div>
+            ) : (
+              <div className="grid gap-3 lg:grid-cols-2">
+                {categories.map(category => {
+                  const fields = category.product_fields ?? []
+                  const variants = fields.filter(field => field.is_variant)
+                  const filters = category.quick_filters ?? []
+                  return <div key={category.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="font-semibold text-white">{category.name}</div><div className="mt-1 text-xs text-slate-500">/{category.slug}</div></div>{!category.is_active && <span className="rounded-full bg-red-900/40 px-2 py-1 text-[10px] font-bold text-red-300">СКРЫТА</span>}</div>
+                    <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-xl bg-white/5 p-2"><div className="font-bold text-white">{fields.length}</div><div className="mt-0.5 text-slate-500">полей</div></div><div className="rounded-xl bg-white/5 p-2"><div className="font-bold text-white">{variants.length}</div><div className="mt-0.5 text-slate-500">вариантов</div></div><div className="rounded-xl bg-white/5 p-2"><div className="font-bold text-white">{filters.length}</div><div className="mt-0.5 text-slate-500">кнопок</div></div></div>
+                    <div className="mt-3 flex flex-wrap gap-2"><button onClick={() => openCategorySettings(category, 'fields')} className="rounded-xl bg-yellow-400 px-3 py-2 text-xs font-semibold text-gray-900 hover:bg-yellow-300">⚙️ Поля и варианты</button><button onClick={() => openCategorySettings(category, 'filters')} className="rounded-xl bg-white/10 px-3 py-2 text-xs font-medium text-white hover:bg-white/20">⚡ Быстрые модели</button></div>
+                  </div>
+                })}
+              </div>
+            )}
+          </>
+        )}
+
         {/* ============ CATEGORIES TAB ============ */}
         {activeTab === 'categories' && (
           <>
             <div className="mb-6 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-bold text-white">📂 Категории</h2>
-                <p className="text-sm text-slate-400">{categories.length} категорий • управление каталогом</p>
+                <h2 className="text-xl font-bold text-white">📂 Категории и схемы товаров</h2>
+                <p className="text-sm text-slate-400">{categories.length} категорий • поля, варианты и быстрые кнопки настраиваются отдельно для каждой</p>
               </div>
               <button
-                onClick={() => { setEditingCategory(null); setIsCategoryModalOpen(true) }}
+                onClick={() => openCategorySettings(null)}
                 className="rounded-xl bg-yellow-400 px-5 py-3 font-semibold text-gray-900 hover:bg-yellow-300 transition-colors"
               >
                 + Новая категория
@@ -944,7 +1127,7 @@ export function AdminPage() {
                 <div className="text-xl font-semibold text-white mb-2">Категорий пока нет</div>
                 <p className="text-slate-400 mb-6">Создайте первую категорию для организации товаров</p>
                 <button
-                  onClick={() => { setEditingCategory(null); setIsCategoryModalOpen(true) }}
+                  onClick={() => openCategorySettings(null)}
                   className="rounded-xl bg-yellow-400 px-6 py-3 font-semibold text-gray-900 hover:bg-yellow-300"
                 >
                   + Создать категорию
@@ -997,9 +1180,23 @@ export function AdminPage() {
                         </div>
 
                         {/* Actions */}
-                        <div className="flex-shrink-0 flex gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
+                        <div className="flex flex-shrink-0 flex-wrap justify-end gap-2">
                           <button
-                            onClick={() => { setEditingCategory(category); setIsCategoryModalOpen(true) }}
+                            onClick={() => openCategorySettings(category, 'fields')}
+                            className="rounded-xl bg-yellow-400/15 px-3 py-2 text-xs font-semibold text-yellow-300 hover:bg-yellow-400/25 transition-colors"
+                            title="Настроить поля и варианты"
+                          >
+                            ⚙️ Схема
+                          </button>
+                          <button
+                            onClick={() => openCategorySettings(category, 'filters')}
+                            className="rounded-xl bg-white/10 px-3 py-2 text-xs font-medium text-white hover:bg-white/20 transition-colors"
+                            title="Настроить быстрые кнопки в каталоге"
+                          >
+                            ⚡ Кнопки
+                          </button>
+                          <button
+                            onClick={() => openCategorySettings(category)}
                             className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20 transition-colors"
                             title="Редактировать"
                           >
@@ -1093,6 +1290,84 @@ export function AdminPage() {
           </>
         )}
 
+        {/* ============ BRANDS TAB ============ */}
+        {activeTab === 'brands' && (
+          <>
+            <div className="mb-6 flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-white">🏷️ Бренды</h2>
+                <p className="text-sm text-slate-400">Справочник брендов для товаров и быстрых кнопок каталога</p>
+              </div>
+              <button
+                onClick={() => { setEditingBrand(null); setIsBrandModalOpen(true) }}
+                className="rounded-xl bg-yellow-400 px-5 py-3 font-semibold text-gray-900 hover:bg-yellow-300"
+              >
+                + Новый бренд
+              </button>
+            </div>
+
+            {brands.length === 0 ? (
+              <div className="rounded-2xl bg-white/5 p-16 text-center text-slate-400">Добавьте первый бренд — он появится в форме товара.</div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {brands.map(brand => (
+                  <div key={brand.id} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
+                    <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl bg-white/10 text-xl">
+                      {brand.logo_url ? <img src={getImageUrl(brand.logo_url)} alt="" className="h-full w-full object-contain p-1" /> : '🏷️'}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-semibold text-white">{brand.name}</div>
+                      <div className="text-xs text-slate-500">/{brand.slug}</div>
+                      {!brand.is_active && <span className="text-xs text-red-400">Скрыт</span>}
+                    </div>
+                    <div className="flex gap-1">
+                      <button onClick={() => { setEditingBrand(brand); setIsBrandModalOpen(true) }} className="rounded-lg bg-white/10 px-2.5 py-2 text-sm hover:bg-white/20">✏️</button>
+                      <button onClick={() => deleteBrand(brand)} className="rounded-lg bg-red-900/30 px-2.5 py-2 text-sm text-red-400 hover:bg-red-900/60">🗑</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ============ TRADE-IN TAB ============ */}
+        {activeTab === 'tradein' && (
+          <>
+            <div className="mb-6 flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-white">🔄 Цены trade-in</h2>
+                <p className="text-sm text-slate-400">Диапазоны оценки в калькуляторе на странице Trade-in</p>
+              </div>
+              <button
+                onClick={() => { setEditingTradeInOffer(null); setIsTradeInModalOpen(true) }}
+                className="rounded-xl bg-yellow-400 px-5 py-3 font-semibold text-gray-900 hover:bg-yellow-300"
+              >
+                + Устройство
+              </button>
+            </div>
+
+            {tradeInOffers.length === 0 ? (
+              <div className="rounded-2xl bg-white/5 p-16 text-center text-slate-400">Добавьте устройства и диапазоны оценки. После публикации они появятся в калькуляторе.</div>
+            ) : (
+              <div className="overflow-hidden rounded-2xl border border-white/10">
+                <div className="grid grid-cols-[1fr_1.4fr_0.8fr_0.8fr_90px_110px] gap-3 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  <span>Группа</span><span>Модель</span><span>От</span><span>До</span><span>Статус</span><span className="text-right">Действия</span>
+                </div>
+                {tradeInOffers.map(offer => (
+                  <div key={offer.id} className="grid grid-cols-[1fr_1.4fr_0.8fr_0.8fr_90px_110px] items-center gap-3 border-t border-white/5 px-4 py-3 text-sm">
+                    <div><div className="font-medium text-white">{offer.device_label}</div><div className="text-xs text-slate-500">{offer.device_type}</div></div>
+                    <span className="truncate text-slate-200">{offer.name}</span>
+                    <span className="font-medium text-yellow-300">{formatPrice(Number(offer.min_price))}</span>
+                    <span className="font-medium text-yellow-300">{formatPrice(Number(offer.max_price))}</span>
+                    <span className={offer.is_active ? 'text-green-400' : 'text-red-400'}>{offer.is_active ? 'Активна' : 'Скрыта'}</span>
+                    <div className="flex justify-end gap-1"><button onClick={() => { setEditingTradeInOffer(offer); setIsTradeInModalOpen(true) }} className="rounded-lg bg-white/10 px-2.5 py-2 hover:bg-white/20">✏️</button><button onClick={() => deleteTradeInOffer(offer)} className="rounded-lg bg-red-900/30 px-2.5 py-2 text-red-400 hover:bg-red-900/60">🗑</button></div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
         {/* ============ SLIDES TAB ============ */}
         {activeTab === 'slides' && (
           <>
@@ -1189,6 +1464,7 @@ export function AdminPage() {
         <ProductModal
           product={editingProduct}
           categories={categories}
+          brands={brands}
           onSave={saveProduct}
           onRefresh={loadProducts}
           onClose={() => { setIsProductModalOpen(false); setEditingProduct(null); setIsUsedProductMode(false) }}
@@ -1201,8 +1477,10 @@ export function AdminPage() {
       {isCategoryModalOpen && (
         <CategoryModal
           category={editingCategory}
+          brands={brands}
+          initialSection={categorySettingsSection}
           onSave={saveCategory}
-          onClose={() => { setIsCategoryModalOpen(false); setEditingCategory(null) }}
+          onClose={() => { setIsCategoryModalOpen(false); setEditingCategory(null); setCategorySettingsSection(null) }}
         />
       )}
 
@@ -1210,6 +1488,7 @@ export function AdminPage() {
       {isGroupModalOpen && (
         <GroupCreationModal
           categories={categories}
+          brands={brands}
           onClose={() => setIsGroupModalOpen(false)}
           onCreated={() => { setIsGroupModalOpen(false); loadProducts() }}
           authFetch={authFetch}
@@ -1232,6 +1511,22 @@ export function AdminPage() {
           onSave={saveBanner}
           onClose={() => { setIsBannerModalOpen(false); setEditingBanner(null) }}
           authFetch={authFetch}
+        />
+      )}
+
+      {isBrandModalOpen && (
+        <BrandModal
+          brand={editingBrand}
+          onSave={saveBrand}
+          onClose={() => { setIsBrandModalOpen(false); setEditingBrand(null) }}
+        />
+      )}
+
+      {isTradeInModalOpen && (
+        <TradeInOfferModal
+          offer={editingTradeInOffer}
+          onSave={saveTradeInOffer}
+          onClose={() => { setIsTradeInModalOpen(false); setEditingTradeInOffer(null) }}
         />
       )}
     </div>
@@ -1778,16 +2073,6 @@ function OrderModal({
   )
 }
 
-// ─── Brand list ──────────────────────────────────────────────────────────────
-const BRANDS = [
-  'Apple', 'Samsung', 'Xiaomi', 'Sony', 'Google', 'Huawei', 'Nothing',
-  'OnePlus', 'Realme', 'OPPO', 'Vivo', 'Motorola',
-  'DJI', 'GoPro', 'Dyson', 'Pitaka', 'Whoop', 'LEGO', 'Fujifilm Instax',
-  'JBL', 'Bose', 'Beats', 'Marshall', 'Sennheiser',
-  'Nintendo', 'Microsoft', 'Asus', 'Lenovo', 'HP', 'Dell', 'Acer', 'LG',
-  'Яндекс', 'Canon', 'Ray-Ban', 'Meta',
-]
-
 const MAX_DESC = 3000
 
 interface ImageRecord {
@@ -1810,55 +2095,25 @@ interface VariantAxis {
   placeholder: string
 }
 
-const CATEGORY_AXES: Record<string, VariantAxis[]> = {
-  smartphones: [
-    { field: 'storage', label: 'Память', placeholder: '256 ГБ, 512 ГБ, 1 ТБ…' },
-    { field: 'size', label: 'SIM', placeholder: 'SIM + eSIM, Только SIM…' },
-  ],
-  tablets: [
-    { field: 'storage', label: 'Память', placeholder: '128 ГБ, 256 ГБ, 512 ГБ…' },
-    { field: 'size', label: 'Связь', placeholder: 'WiFi, WiFi + Cellular…' },
-  ],
-  laptops: [
-    { field: 'storage', label: 'Память (SSD)', placeholder: '512 ГБ, 1 ТБ…' },
-    { field: 'size', label: 'ОЗУ', placeholder: '8 ГБ, 16 ГБ, 32 ГБ…' },
-  ],
-  watches: [
-    { field: 'storage', label: 'Размер ремешка', placeholder: 'S/M, M/L…' },
-    { field: 'size', label: 'Размер циферблата', placeholder: '42 мм, 46 мм…' },
-  ],
-  headphones: [],
-  tv: [
-    { field: 'size', label: 'Диагональ', placeholder: '55", 65", 75"…' },
-  ],
-  gaming: [
-    { field: 'storage', label: 'Комплектация', placeholder: 'Digital, Disc…' },
-    { field: 'size', label: 'Память', placeholder: '512 ГБ, 1 ТБ…' },
-  ],
-  accessories: [
-    { field: 'size', label: 'Размер / тип', placeholder: 'S, M, L…' },
-  ],
-  monobloki: [
-    { field: 'storage', label: 'Память (SSD)', placeholder: '512 ГБ, 1 ТБ…' },
-    { field: 'size', label: 'ОЗУ', placeholder: '16 ГБ, 24 ГБ…' },
-  ],
-  'umnye-ochki': [
-    { field: 'size', label: 'Размер', placeholder: 'S, M, L…' },
-    { field: 'storage', label: 'Линзы', placeholder: 'прозрачные, поляризованные…' },
-  ],
-}
-
-// Fallback: generic axes for unknown categories
-const DEFAULT_AXES: VariantAxis[] = [
+const DEFAULT_VARIANT_AXES: VariantAxis[] = [
   { field: 'storage', label: 'Вариант 1', placeholder: 'Значение…' },
   { field: 'size', label: 'Вариант 2', placeholder: 'Значение…' },
 ]
 
+function resolveVariantAxes(category?: Category): VariantAxis[] {
+  // The legacy SKU matrix has only two database columns. Configured categories
+  // use the universal group creator below, which supports any number of axes.
+  // `null` means an intentionally empty schema: do not fall back to unrelated
+  // legacy fields. `undefined` is only the compatibility path for an old API.
+  return category?.product_fields !== undefined ? [] : DEFAULT_VARIANT_AXES
+}
+
 function ProductModal({
-  product, categories, onSave, onRefresh, onClose, isUsedMode, authFetch
+  product, categories, brands, onSave, onRefresh, onClose, isUsedMode, authFetch
 }: {
   product: Product | null
   categories: Category[]
+  brands: Brand[]
   onSave: (data: Record<string, unknown>, productId?: string) => Promise<Product | null>
   onRefresh: () => void
   onClose: () => void
@@ -1869,7 +2124,7 @@ function ProductModal({
   const [name, setName] = useState(product?.name || '')
   const [brand, setBrand] = useState(product?.brand || '')
   const [brandMode, setBrandMode] = useState<'select' | 'custom'>(
-    product?.brand && !BRANDS.includes(product.brand) ? 'custom' : 'select'
+    product?.brand && !brands.some(b => b.name === product.brand) ? 'custom' : 'select'
   )
   const [model, setModel] = useState(product?.model || '')
   const [categoryId, setCategoryId] = useState(product?.category_id || '')
@@ -1884,6 +2139,9 @@ function ProductModal({
   const [color, setColor] = useState(product?.color || '')
   const [shortDesc, setShortDesc] = useState(product?.short_description || '')
   const [description, setDescription] = useState(product?.description || '')
+  const [attributes, setAttributes] = useState<Record<string, string | number | boolean | null>>(
+    product?.attributes ?? {}
+  )
   const [isActive, setIsActive] = useState(product?.is_active ?? true)
   const [isFeatured, setIsFeatured] = useState(product?.is_featured ?? false)
 
@@ -1928,6 +2186,29 @@ function ProductModal({
       return
     }
 
+    const categoryFields = categories.find(category => category.id === categoryId)?.product_fields ?? []
+    const missingRequired = categoryFields.find(field => {
+      const value = field.key === 'color' ? color : attributes[field.key]
+      return field.is_required && (value === undefined || value === null || value === '')
+    })
+    if (missingRequired) {
+      setSaveError(`Заполните обязательное поле «${missingRequired.label}»`)
+      return
+    }
+
+    const fieldsByKey = new Map(categoryFields.map(field => [field.key, field]))
+    const cleanAttributes = Object.fromEntries(
+      Object.entries(attributes)
+        .filter(([key, value]) => key !== 'color' && value !== '' && value !== null && value !== undefined)
+        .map(([key, value]) => {
+          const field = fieldsByKey.get(key)
+          const typedValue = field?.field_type === 'number' && typeof value === 'string' && value !== '' && Number.isFinite(Number(value))
+            ? Number(value)
+            : value
+          return [key, typedValue]
+        })
+    )
+
     const payload: Record<string, unknown> = {
       name: name.trim(),
       price,
@@ -1942,6 +2223,7 @@ function ProductModal({
       model: model.trim() || null,
       color: color.trim() || null,
       category_id: categoryId || null,
+      attributes: Object.keys(cleanAttributes).length > 0 ? cleanAttributes : null,
     }
     if (discountStr) {
       const dp = parseFloat(discountStr)
@@ -2372,7 +2654,8 @@ function ProductModal({
                   className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
                 >
                   <option value="">— не указан —</option>
-                  {BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                  {brand && !brands.some(b => b.name === brand) && <option value={brand}>{brand}</option>}
+                  {brands.filter(b => b.is_active).map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
                   <option value="__custom__">Другой…</option>
                 </select>
               ) : (
@@ -2422,6 +2705,36 @@ function ProductModal({
             />
             <p className="mt-1 text-xs text-slate-500">Цвет для карточки. Товары разных цветов объединяйте через галочки в списке.</p>
           </div>
+
+          {/* Dynamic category fields */}
+          {(() => {
+            const categoryFields = categories.find(category => category.id === categoryId)?.product_fields ?? []
+            if (categoryFields.length === 0) return null
+            const setFieldValue = (field: CategoryProductField, value: string | number | boolean | null) => {
+              if (field.key === 'color') setColor(String(value || ''))
+              else setAttributes(prev => ({ ...prev, [field.key]: value }))
+            }
+            const getFieldValue = (field: CategoryProductField) => field.key === 'color' ? color : attributes[field.key]
+            return (
+              <div className="rounded-2xl border border-yellow-400/20 bg-yellow-400/[0.03] p-4">
+                <div className="mb-1 text-sm font-semibold text-yellow-200">Характеристики категории</div>
+                <p className="mb-4 text-xs text-slate-400">Набор полей задаётся в настройках категории и сохраняется в карточке товара.</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {categoryFields.map(field => {
+                    const value = getFieldValue(field)
+                    const label = <label className="mb-1 block text-xs text-slate-400">{field.label}{field.is_required && <span className="text-yellow-300"> *</span>}</label>
+                    if (field.field_type === 'boolean') {
+                      return <label key={field.key} className="flex cursor-pointer items-center gap-3 rounded-xl bg-white/5 px-3 py-3"><input type="checkbox" checked={Boolean(value)} onChange={e => setFieldValue(field, e.target.checked)} className="h-4 w-4 accent-yellow-400" /><span className="text-sm text-white">{field.label}</span>{field.hint && <span className="text-xs text-slate-500">{field.hint}</span>}</label>
+                    }
+                    if (field.field_type === 'select') {
+                      return <div key={field.key}>{label}<select value={String(value ?? '')} onChange={e => setFieldValue(field, e.target.value)} className="w-full rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white focus:bg-white/15 focus:outline-none"><option value="">Выберите…</option>{field.options.map(option => <option key={option} value={option}>{option}</option>)}</select>{field.hint && <p className="mt-1 text-[10px] text-slate-500">{field.hint}</p>}</div>
+                    }
+                    return <div key={field.key}>{label}<input type={field.field_type === 'number' ? 'number' : 'text'} inputMode={field.field_type === 'number' ? 'decimal' : undefined} value={String(value ?? '')} onChange={e => setFieldValue(field, e.target.value)} placeholder={field.placeholder} className="w-full rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" />{field.hint && <p className="mt-1 text-[10px] text-slate-500">{field.hint}</p>}</div>
+                  })}
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Price + Discount + Stock */}
           <div className="grid gap-4 sm:grid-cols-3">
@@ -2703,8 +3016,7 @@ function ProductModal({
           {savedProductId && (() => {
             // ─── Resolve axes for current category ───
             const selectedCat = categories.find(c => c.id === categoryId)
-            const catSlug = selectedCat?.slug || ''
-            const axes = CATEGORY_AXES[catSlug] || DEFAULT_AXES
+            const axes = resolveVariantAxes(selectedCat)
             const hasStorageAxis = axes.some(a => a.field === 'storage')
             const hasSizeAxis = axes.some(a => a.field === 'size')
 
@@ -3444,9 +3756,11 @@ function SlideModal({
 // ============ CATEGORY MODAL COMPONENT ============
 
 function CategoryModal({
-  category, onSave, onClose
+  category, brands, initialSection, onSave, onClose
 }: {
   category: Category | null
+  brands: Brand[]
+  initialSection: Exclude<CategorySettingsSection, null> | null
   onSave: (data: Record<string, unknown>) => void
   onClose: () => void
 }) {
@@ -3457,11 +3771,30 @@ function CategoryModal({
     image_url: category?.image_url || '',
     is_active: category?.is_active ?? true,
   })
-  const [quickFilters, setQuickFilters] = useState<{ label: string; query: string }[]>(
+  const [quickFilters, setQuickFilters] = useState<QuickFilter[]>(
     category?.quick_filters ?? []
   )
   const [newFilterLabel, setNewFilterLabel] = useState('')
   const [newFilterQuery, setNewFilterQuery] = useState('')
+  const [newFilterBrand, setNewFilterBrand] = useState('')
+  const [productFields, setProductFields] = useState<CategoryProductField[]>(category?.product_fields ?? [])
+  const [newField, setNewField] = useState<CategoryProductField>({
+    key: '', label: '', field_type: 'text', placeholder: '', options: [], hint: '', is_required: false, is_variant: false,
+  })
+  const [editingProductFieldKey, setEditingProductFieldKey] = useState<string | null>(null)
+  const filtersRef = useRef<HTMLDivElement>(null)
+  const fieldsRef = useRef<HTMLDivElement>(null)
+
+  const scrollToSection = (section: Exclude<CategorySettingsSection, null>) => {
+    const target = section === 'filters' ? filtersRef.current : fieldsRef.current
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  useEffect(() => {
+    if (!initialSection) return
+    const timer = window.setTimeout(() => scrollToSection(initialSection), 100)
+    return () => window.clearTimeout(timer)
+  }, [initialSection])
 
   const generateSlug = (name: string) => {
     const map: Record<string, string> = {
@@ -3478,9 +3811,10 @@ function CategoryModal({
     const label = newFilterLabel.trim()
     if (!label) return
     const query = newFilterQuery.trim() || label
-    setQuickFilters(prev => [...prev, { label, query }])
+    setQuickFilters(prev => [...prev, { label, query, brand: newFilterBrand || null }])
     setNewFilterLabel('')
     setNewFilterQuery('')
+    setNewFilterBrand('')
   }
 
   const removeFilter = (index: number) => {
@@ -3495,13 +3829,47 @@ function CategoryModal({
     setQuickFilters(arr)
   }
 
+  const keyFromLabel = (label: string) => label
+    .toLowerCase()
+    .trim()
+    .replace(/[а-яё]/g, char => ({ а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya' } as Record<string, string>)[char] || char)
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 50)
+
+  const addProductField = () => {
+    const label = newField.label.trim()
+    const key = (newField.key.trim() || keyFromLabel(label)).replace(/[^a-z0-9_]/g, '')
+    const options = newField.options.map(option => option.trim()).filter(Boolean)
+    if (!label || !key || productFields.some(field => field.key === key)) return
+    if (newField.field_type === 'select' && options.length === 0) return
+    setProductFields(prev => [...prev, { ...newField, key, label, options, placeholder: newField.placeholder.trim(), hint: newField.hint?.trim() || null }])
+    setNewField({ key: '', label: '', field_type: 'text', placeholder: '', options: [], hint: '', is_required: false, is_variant: false })
+  }
+
+  const removeProductField = (key: string) => {
+    setProductFields(prev => prev.filter(field => field.key !== key))
+    if (editingProductFieldKey === key) setEditingProductFieldKey(null)
+  }
+
+  const updateProductField = (key: string, patch: Partial<CategoryProductField>) => {
+    setProductFields(prev => prev.map(field => field.key === key ? { ...field, ...patch } : field))
+  }
+
+  const moveProductField = (index: number, direction: -1 | 1) => {
+    const next = index + direction
+    if (next < 0 || next >= productFields.length) return
+    const fields = [...productFields]
+    ;[fields[index], fields[next]] = [fields[next], fields[index]]
+    setProductFields(fields)
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const payload: Record<string, unknown> = {
       name: formData.name,
       slug: formData.slug,
       is_active: formData.is_active,
-      quick_filters: quickFilters.length > 0 ? quickFilters : null,
+      quick_filters: quickFilters,
+      product_fields: productFields,
     }
     if (formData.description) payload.description = formData.description
     if (formData.image_url) payload.image_url = formData.image_url
@@ -3514,12 +3882,18 @@ function CategoryModal({
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-white">{category ? '✏️ Редактировать' : '📂 Новая'} категория</h2>
-            <p className="text-sm text-slate-400 mt-1">{category ? 'Измените данные категории' : 'Заполните информацию о категории'}</p>
+            <p className="text-sm text-slate-400 mt-1">{category ? 'У каждой категории — собственные поля, варианты и кнопки каталога.' : 'После создания настройте поля карточки и варианты.'}</p>
           </div>
           <button onClick={onClose} className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-slate-400 hover:bg-white/20 hover:text-white transition-colors">×</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {category && (
+            <div className="sticky top-0 z-10 -mx-1 flex gap-2 overflow-x-auto rounded-xl bg-slate-800/95 px-1 py-2 backdrop-blur">
+              <button type="button" onClick={() => scrollToSection('filters')} className="shrink-0 rounded-lg bg-white/10 px-3 py-2 text-xs font-medium text-white hover:bg-white/20">⚡ Кнопки каталога</button>
+              <button type="button" onClick={() => scrollToSection('fields')} className="shrink-0 rounded-lg bg-yellow-400/15 px-3 py-2 text-xs font-semibold text-yellow-300 hover:bg-yellow-400/25">⚙️ Поля и варианты</button>
+            </div>
+          )}
           {/* Preview */}
           {formData.image_url && (
             <div className="flex justify-center rounded-2xl bg-white/5 p-4">
@@ -3591,9 +3965,9 @@ function CategoryModal({
           </label>
 
           {/* Quick Filters */}
-          <div>
+          <div ref={filtersRef} className="scroll-mt-4">
             <label className="mb-1.5 block text-xs font-semibold text-slate-400 uppercase tracking-wider">Быстрые фильтры (теги)</label>
-            <p className="mb-2 text-xs text-slate-500">Теги для быстрой фильтрации в каталоге (напр. «iPhone 17 Pro Max», «Galaxy S26 Ultra»)</p>
+            <p className="mb-2 text-xs text-slate-500">Кнопки над товарами этой категории — например, «iPhone 16» и «Galaxy S25». Меняйте порядок стрелками; пустой список скроет кнопки.</p>
             
             {quickFilters.length > 0 && (
               <div className="mb-3 space-y-1.5">
@@ -3603,6 +3977,7 @@ function CategoryModal({
                     {qf.label !== qf.query && (
                       <span className="text-xs text-slate-500 truncate max-w-[120px]">→ {qf.query}</span>
                     )}
+                    {qf.brand && <span className="rounded bg-blue-400/10 px-1.5 py-0.5 text-[10px] text-blue-300">{qf.brand}</span>}
                     <div className="flex items-center gap-1 ml-auto flex-shrink-0">
                       <button type="button" onClick={() => moveFilter(i, -1)} disabled={i === 0} className="text-slate-500 hover:text-white disabled:opacity-30 text-xs px-1">↑</button>
                       <button type="button" onClick={() => moveFilter(i, 1)} disabled={i === quickFilters.length - 1} className="text-slate-500 hover:text-white disabled:opacity-30 text-xs px-1">↓</button>
@@ -3630,8 +4005,63 @@ function CategoryModal({
                 placeholder="Поиск (опц.)"
                 className="w-28 rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none focus:ring-1 focus:ring-yellow-400/50"
               />
+              <select
+                value={newFilterBrand}
+                onChange={(e) => setNewFilterBrand(e.target.value)}
+                className="w-28 rounded-xl bg-white/10 px-2 py-2.5 text-sm text-white focus:bg-white/15 focus:outline-none"
+              >
+                <option value="">Все бренды</option>
+                {brands.filter(brand => brand.is_active).map(brand => <option key={brand.id} value={brand.name.toLowerCase()}>{brand.name}</option>)}
+              </select>
               <button type="button" onClick={addFilter} className="rounded-xl bg-yellow-400/20 px-4 py-2.5 text-sm font-medium text-yellow-400 hover:bg-yellow-400/30 transition-colors flex-shrink-0">+</button>
             </div>
+          </div>
+
+          {/* Category-specific product fields */}
+          <div ref={fieldsRef} className="scroll-mt-4 rounded-2xl border border-yellow-400/15 bg-yellow-400/[0.03] p-4">
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Конструктор карточки товара</label>
+            <p className="mb-3 text-xs text-slate-500">Добавляйте только характеристики этой категории. Поля с отметкой «Использовать в вариантах» попадут в создание группы; остальные будут общими для всех её товаров. Так у моноблоков не появятся поля от телефонов, а у очков — ОЗУ, если вы его не добавите.</p>
+            {productFields.length > 0 && (
+              <div className="mb-3 space-y-1.5">
+                {productFields.map((field, index) => (
+                  <div key={field.key} className="rounded-lg bg-white/5 px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-20 truncate font-mono text-[10px] text-yellow-300">{field.key}</span>
+                      <span className="min-w-0 flex-1 truncate text-sm text-white">{field.label}</span>
+                      <span className="hidden rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-400 sm:block">{field.field_type}</span>
+                      {field.is_required && <span className="text-[10px] text-red-300">обяз.</span>}
+                      {field.is_variant && <span className="text-[10px] text-blue-300">вариант</span>}
+                      <button type="button" onClick={() => setEditingProductFieldKey(editingProductFieldKey === field.key ? null : field.key)} className="px-1 text-xs text-slate-400 hover:text-white">✏️</button>
+                      <button type="button" onClick={() => moveProductField(index, -1)} disabled={index === 0} className="px-1 text-xs text-slate-500 hover:text-white disabled:opacity-30">↑</button>
+                      <button type="button" onClick={() => moveProductField(index, 1)} disabled={index === productFields.length - 1} className="px-1 text-xs text-slate-500 hover:text-white disabled:opacity-30">↓</button>
+                      <button type="button" onClick={() => removeProductField(field.key)} className="px-1 text-sm text-red-400 hover:text-red-300">×</button>
+                    </div>
+                    {editingProductFieldKey === field.key && (
+                      <div className="mt-3 grid gap-2 border-t border-white/10 pt-3 sm:grid-cols-2">
+                        <input value={field.label} onChange={e => updateProductField(field.key, { label: e.target.value })} placeholder="Название" className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white focus:bg-white/15 focus:outline-none" />
+                        <select value={field.field_type} onChange={e => updateProductField(field.key, { field_type: e.target.value as CategoryProductField['field_type'], options: e.target.value === 'select' ? field.options : [] })} className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white focus:bg-white/15 focus:outline-none"><option value="text">Текст</option><option value="number">Число</option><option value="select">Список вариантов</option><option value="boolean">Да / нет</option></select>
+                        <input value={field.placeholder} onChange={e => updateProductField(field.key, { placeholder: e.target.value })} placeholder="Пример значения" className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white focus:bg-white/15 focus:outline-none" />
+                        <input value={field.hint || ''} onChange={e => updateProductField(field.key, { hint: e.target.value || null })} placeholder="Подсказка" className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white focus:bg-white/15 focus:outline-none" />
+                        {field.field_type === 'select' && <input value={field.options.join(', ')} onChange={e => updateProductField(field.key, { options: e.target.value.split(',').map(option => option.trim()).filter(Boolean) })} placeholder="Варианты через запятую" className="sm:col-span-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-white focus:bg-white/15 focus:outline-none" />}
+                        <div className="sm:col-span-2 flex gap-4 text-xs text-slate-300"><label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={field.is_required} onChange={e => updateProductField(field.key, { is_required: e.target.checked })} className="accent-yellow-400" />Обязательное</label><label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={field.is_variant} onChange={e => updateProductField(field.key, { is_variant: e.target.checked })} className="accent-yellow-400" />Использовать в вариантах</label></div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <input value={newField.label} onChange={e => setNewField(prev => ({ ...prev, label: e.target.value, key: prev.key || keyFromLabel(e.target.value) }))} placeholder="Название: Диагональ" className="rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" />
+              <input value={newField.key} onChange={e => setNewField(prev => ({ ...prev, key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') }))} placeholder="Ключ: screen_size" className="rounded-xl bg-white/10 px-3 py-2.5 font-mono text-sm text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" />
+              <select value={newField.field_type} onChange={e => setNewField(prev => ({ ...prev, field_type: e.target.value as CategoryProductField['field_type'], options: e.target.value === 'select' ? prev.options : [] }))} className="rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white focus:bg-white/15 focus:outline-none">
+                <option value="text">Текст</option><option value="number">Число</option><option value="select">Список вариантов</option><option value="boolean">Да / нет</option>
+              </select>
+              <input value={newField.placeholder} onChange={e => setNewField(prev => ({ ...prev, placeholder: e.target.value }))} placeholder="Пример значения" className="rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" />
+              {newField.field_type === 'select' && <input value={newField.options.join(', ')} onChange={e => setNewField(prev => ({ ...prev, options: e.target.value.split(',') }))} placeholder="Варианты через запятую" className="sm:col-span-2 rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" />}
+              <input value={newField.hint || ''} onChange={e => setNewField(prev => ({ ...prev, hint: e.target.value }))} placeholder="Подсказка (необязательно)" className="sm:col-span-2 rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" />
+            </div>
+            <div className="mt-2 flex flex-wrap gap-4 text-xs text-slate-300"><label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={newField.is_required} onChange={e => setNewField(prev => ({ ...prev, is_required: e.target.checked }))} className="accent-yellow-400" />Обязательное</label><label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={newField.is_variant} onChange={e => setNewField(prev => ({ ...prev, is_variant: e.target.checked }))} className="accent-yellow-400" />Использовать в вариантах</label></div>
+            <button type="button" onClick={addProductField} className="mt-3 rounded-xl bg-white/10 px-4 py-2 text-sm font-medium text-yellow-300 hover:bg-white/15">+ Добавить поле</button>
           </div>
 
           <div className="flex gap-3 pt-2">
@@ -3646,95 +4076,87 @@ function CategoryModal({
   )
 }
 
+function BrandModal({ brand, onSave, onClose }: {
+  brand: Brand | null
+  onSave: (data: Record<string, unknown>) => void
+  onClose: () => void
+}) {
+  const [name, setName] = useState(brand?.name || '')
+  const [logoUrl, setLogoUrl] = useState(brand?.logo_url || '')
+  const [isActive, setIsActive] = useState(brand?.is_active ?? true)
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    onSave({ name: name.trim(), logo_url: logoUrl.trim() || null, is_active: isActive })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-3xl bg-slate-800 p-6 sm:p-8" onClick={e => e.stopPropagation()}>
+        <div className="mb-6 flex items-start justify-between"><div><h2 className="text-xl font-bold text-white">{brand ? 'Редактировать бренд' : 'Новый бренд'}</h2><p className="mt-1 text-sm text-slate-400">Бренд появится в выборе товара и быстрых тегах.</p></div><button onClick={onClose} className="text-2xl text-slate-400 hover:text-white">×</button></div>
+        <form onSubmit={submit} className="space-y-4">
+          <div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Название *</label><input required value={name} onChange={e => setName(e.target.value)} placeholder="Apple" className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" /></div>
+          <div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">URL логотипа</label><input value={logoUrl} onChange={e => setLogoUrl(e.target.value)} placeholder="https://…" className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" /></div>
+          <label className="flex cursor-pointer items-center gap-3 rounded-xl bg-white/5 p-3"><input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="h-5 w-5 accent-yellow-400" /><span className="text-sm text-white">Бренд активен</span></label>
+          <div className="flex gap-3 pt-2"><button type="button" onClick={onClose} className="flex-1 rounded-xl bg-white/10 py-3 font-medium text-white hover:bg-white/20">Отмена</button><button className="flex-1 rounded-xl bg-yellow-400 py-3 font-bold text-gray-900 hover:bg-yellow-300">Сохранить</button></div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function TradeInOfferModal({ offer, onSave, onClose }: {
+  offer: TradeInOffer | null
+  onSave: (data: Record<string, unknown>) => void
+  onClose: () => void
+}) {
+  const [deviceType, setDeviceType] = useState(offer?.device_type || '')
+  const [deviceLabel, setDeviceLabel] = useState(offer?.device_label || '')
+  const [name, setName] = useState(offer?.name || '')
+  const [minPrice, setMinPrice] = useState(offer ? String(offer.min_price) : '')
+  const [maxPrice, setMaxPrice] = useState(offer ? String(offer.max_price) : '')
+  const [sortOrder, setSortOrder] = useState(offer ? String(offer.sort_order) : '0')
+  const [isActive, setIsActive] = useState(offer?.is_active ?? true)
+  const [error, setError] = useState('')
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const min = Number(minPrice)
+    const max = Number(maxPrice)
+    if (!deviceType.trim() || !deviceLabel.trim() || !name.trim() || !Number.isFinite(min) || !Number.isFinite(max) || min < 0 || max <= 0 || min > max) {
+      setError('Заполните данные и укажите корректный диапазон цен.')
+      return
+    }
+    onSave({ device_type: deviceType.trim(), device_label: deviceLabel.trim(), name: name.trim(), min_price: min, max_price: max, sort_order: Number(sortOrder) || 0, is_active: isActive })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-3xl bg-slate-800 p-6 sm:p-8" onClick={e => e.stopPropagation()}>
+        <div className="mb-6 flex items-start justify-between"><div><h2 className="text-xl font-bold text-white">{offer ? 'Редактировать цену trade-in' : 'Новое устройство trade-in'}</h2><p className="mt-1 text-sm text-slate-400">Группа объединяет модели в калькуляторе.</p></div><button onClick={onClose} className="text-2xl text-slate-400 hover:text-white">×</button></div>
+        <form onSubmit={submit} className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Ключ группы *</label><input required value={deviceType} onChange={e => setDeviceType(e.target.value.replace(/\s+/g, '-').toLowerCase())} placeholder="iphone" className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" /></div><div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Название группы *</label><input required value={deviceLabel} onChange={e => setDeviceLabel(e.target.value)} placeholder="iPhone" className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" /></div></div>
+          <div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Модель *</label><input required value={name} onChange={e => setName(e.target.value)} placeholder="iPhone 16 Pro" className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" /></div>
+          <div className="grid gap-3 sm:grid-cols-3"><div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">От, ₽ *</label><input required inputMode="numeric" value={minPrice} onChange={e => setMinPrice(e.target.value.replace(/\D/g, ''))} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/15 focus:outline-none" /></div><div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">До, ₽ *</label><input required inputMode="numeric" value={maxPrice} onChange={e => setMaxPrice(e.target.value.replace(/\D/g, ''))} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/15 focus:outline-none" /></div><div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Порядок</label><input inputMode="numeric" value={sortOrder} onChange={e => setSortOrder(e.target.value.replace(/\D/g, ''))} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/15 focus:outline-none" /></div></div>
+          <label className="flex cursor-pointer items-center gap-3 rounded-xl bg-white/5 p-3"><input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="h-5 w-5 accent-yellow-400" /><span className="text-sm text-white">Показывать в калькуляторе</span></label>
+          {error && <div className="rounded-xl border border-red-500/40 bg-red-900/30 p-3 text-sm text-red-300">{error}</div>}
+          <div className="flex gap-3 pt-2"><button type="button" onClick={onClose} className="flex-1 rounded-xl bg-white/10 py-3 font-medium text-white hover:bg-white/20">Отмена</button><button className="flex-1 rounded-xl bg-yellow-400 py-3 font-bold text-gray-900 hover:bg-yellow-300">Сохранить</button></div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // ============ GROUP CREATION MODAL ============
 // Полноценное создание группы товаров с загрузкой фото прямо при создании.
 // Шаг 1: Заполняешь основу + варианты → жмёшь «Создать» → товары создаются.
 // Шаг 2: Сразу после создания — загружай фото на каждый цвет/товар из той же модалки.
 
-interface GroupAxis {
-  field: 'color' | 'storage' | 'connectivity' | 'processor'
-  label: string
-  placeholder: string
-  hint?: string
-}
-
-const GROUP_CATEGORY_AXES: Record<string, GroupAxis[]> = {
-  smartphones: [
-    { field: 'color', label: 'Цвета', placeholder: 'Белый', hint: 'Каждый цвет = отдельная карточка товара' },
-    { field: 'storage', label: 'Память', placeholder: '256 ГБ', hint: 'Объём встроенной памяти' },
-    { field: 'connectivity', label: 'Связь (SIM)', placeholder: 'SIM + eSIM', hint: 'Тип SIM-карт' },
-  ],
-  'smartphones:samsung': [
-    { field: 'color', label: 'Цвета', placeholder: 'Серый титан', hint: 'Каждый цвет = отдельная карточка товара' },
-    { field: 'connectivity', label: 'ОЗУ', placeholder: '12 ГБ', hint: 'Объём оперативной памяти' },
-    { field: 'storage', label: 'Память', placeholder: '256 ГБ', hint: 'Объём встроенной памяти' },
-    { field: 'processor', label: 'SIM', placeholder: 'SIM + eSIM', hint: 'Тип SIM-карт' },
-  ],
-  'smartphones:xiaomi': [
-    { field: 'color', label: 'Цвета', placeholder: 'Черный', hint: 'Каждый цвет = отдельная карточка товара' },
-    { field: 'connectivity', label: 'ОЗУ', placeholder: '12 ГБ', hint: 'Объём оперативной памяти' },
-    { field: 'storage', label: 'Память', placeholder: '256 ГБ', hint: 'Объём встроенной памяти' },
-    { field: 'processor', label: 'SIM', placeholder: 'SIM + eSIM', hint: 'Тип SIM-карт' },
-  ],
-  tablets: [
-    { field: 'color', label: 'Цвета', placeholder: 'Space Gray' },
-    { field: 'connectivity', label: 'ОЗУ', placeholder: '8 ГБ', hint: 'Объём оперативной памяти' },
-    { field: 'storage', label: 'Память', placeholder: '256 ГБ', hint: 'Объём встроенной памяти' },
-    { field: 'processor', label: 'Связь', placeholder: 'WiFi + Cellular', hint: 'Тип связи (WiFi, 5G...)' },
-  ],
-  laptops: [
-    { field: 'color', label: 'Цвет', placeholder: 'серебристый', hint: 'Каждый цвет = отдельная карточка' },
-    { field: 'processor', label: 'Процессор', placeholder: 'M4 Pro, 14C CPU, 20C GPU', hint: 'Модель чипа + ядра, например: M4 Pro, 14C CPU, 20C GPU' },
-    { field: 'connectivity', label: 'ОЗУ', placeholder: '24 ГБ', hint: 'Объём оперативной памяти' },
-    { field: 'storage', label: 'Память SSD', placeholder: '512 ГБ', hint: 'Объём накопителя' },
-  ],
-  watches: [
-    { field: 'color', label: 'Цвета', placeholder: 'Титан' },
-    { field: 'processor', label: 'Тип ремешка', placeholder: 'Sport Band' },
-    { field: 'storage', label: 'Размер ремешка', placeholder: 'S/M' },
-    { field: 'connectivity', label: 'Размер циферблата', placeholder: '42 мм' },
-  ],
-  headphones: [
-    { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
-  ],
-  tv: [
-    { field: 'color', label: 'Цвета', placeholder: 'Черный' },
-    { field: 'storage', label: 'Диагональ', placeholder: '55"' },
-  ],
-  gaming: [
-    { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
-    { field: 'storage', label: 'Комплектация', placeholder: 'Digital' },
-    { field: 'connectivity', label: 'Память', placeholder: '512 ГБ', hint: 'Объём встроенного накопителя' },
-  ],
-  accessories: [
-    { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
-    { field: 'storage', label: 'Размер / тип', placeholder: 'M' },
-  ],
-  monobloki: [
-    { field: 'color', label: 'Цвет', placeholder: 'серебристый', hint: 'Каждый цвет = отдельная карточка' },
-    { field: 'processor', label: 'Процессор', placeholder: 'M4, M4 Pro…', hint: 'Модель чипа' },
-    { field: 'connectivity', label: 'ОЗУ', placeholder: '16 ГБ', hint: 'Объём оперативной памяти' },
-    { field: 'storage', label: 'Память SSD', placeholder: '512 ГБ', hint: 'Объём накопителя' },
-  ],
-  'umnye-ochki': [
-    { field: 'processor', label: 'Оправа', placeholder: 'матовая черная', hint: 'Цвет и тип оправы' },
-    { field: 'storage', label: 'Линзы', placeholder: 'прозрачные', hint: 'Тип линз' },
-    { field: 'connectivity', label: 'Размер', placeholder: 'S, M, L', hint: 'Размер оправы' },
-  ],
-}
-
-const GROUP_DEFAULT_AXES: GroupAxis[] = [
-  { field: 'color', label: 'Цвета', placeholder: 'Чёрный' },
-  { field: 'storage', label: 'Параметр 1', placeholder: '256 ГБ' },
-  { field: 'connectivity', label: 'Параметр 2', placeholder: 'SIM + eSIM' },
-]
-
 interface GroupProductRow {
   name: string
   color: string
-  storage: string
-  connectivity: string
-  processor: string
+  attributes: Record<string, string | number | boolean>
+  key: string
   price: string
   stock: string
   enabled: boolean
@@ -3748,9 +4170,10 @@ interface CreatedProduct {
 }
 
 function GroupCreationModal({
-  categories, onClose, onCreated, authFetch
+  categories, brands, onClose, onCreated, authFetch
 }: {
   categories: Category[]
+  brands: Brand[]
   onClose: () => void
   onCreated: () => void
   authFetch: AuthFetchFn
@@ -3766,12 +4189,9 @@ function GroupCreationModal({
   const [description, setDescription] = useState('')
   const [warranty, setWarranty] = useState('')
 
-  const [axisValues, setAxisValues] = useState<Record<string, string[]>>({
-    color: [], storage: [], connectivity: [], processor: [],
-  })
-  const [newInputs, setNewInputs] = useState<Record<string, string>>({
-    color: '', storage: '', connectivity: '', processor: '',
-  })
+  const [axisValues, setAxisValues] = useState<Record<string, string[]>>({})
+  const [newInputs, setNewInputs] = useState<Record<string, string>>({})
+  const [sharedFieldValues, setSharedFieldValues] = useState<Record<string, string | boolean>>({})
   const [overrides, setOverrides] = useState<Record<string, { price: string; stock: string; enabled: boolean }>>({})
 
   const [creating, setCreating] = useState(false)
@@ -3783,80 +4203,53 @@ function GroupCreationModal({
   const [activeProductIdx, setActiveProductIdx] = useState(0)
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [modelCodes, setModelCodes] = useState<Record<string, string>>({})
-  const [savingCode, setSavingCode] = useState<string | null>(null)
 
   // Category
   const selectedCat = categories.find(c => c.id === categoryId)
-  const catSlug = selectedCat?.slug || ''
-  const axisKey = brand && GROUP_CATEGORY_AXES[`${catSlug}:${brand.toLowerCase()}`]
-    ? `${catSlug}:${brand.toLowerCase()}`
-    : catSlug
-  const axesDef = GROUP_CATEGORY_AXES[axisKey] || GROUP_DEFAULT_AXES
+  const axesDef = selectedCat?.product_fields?.filter(field => field.is_variant) ?? []
+  const sharedFields = selectedCat?.product_fields?.filter(field => !field.is_variant) ?? []
 
   // Matrix
   const buildMatrix = (): GroupProductRow[] => {
-    const colors = axisValues.color.length > 0 ? axisValues.color : ['']
-    const storages = axisValues.storage.length > 0 ? axisValues.storage : ['']
-    const conns = axisValues.connectivity.length > 0 ? axisValues.connectivity : ['']
-    const processors = axisValues.processor.length > 0 ? axisValues.processor : ['']
-    const isLaptop = catSlug === 'laptops'
-    const isMonoblok = catSlug === 'monobloki'
-    const isSmartGlasses = catSlug === 'umnye-ochki'
-    const phoneBrand = brand?.toLowerCase() || ''
-    const isRamAxisPhone = catSlug === 'smartphones' && (phoneBrand === 'samsung' || phoneBrand === 'xiaomi')
-
-    const result: GroupProductRow[] = []
-    for (const c of colors) {
-      for (const proc of processors) {
-        for (const cn of conns) {
-          for (const s of storages) {
-            let fullName: string
-            if (isLaptop || isMonoblok) {
-              // Format: {baseName} ({processor}, {ram}, {storage} SSD), {color}
-              const specParts = [proc, cn, s ? `${s} SSD` : ''].filter(Boolean)
-              const specs = specParts.length > 0 ? ` (${specParts.join(', ')})` : ''
-              fullName = c ? `${baseName}${specs}, ${c}` : `${baseName}${specs}`
-            } else if (isSmartGlasses) {
-              // Format: Ray-Ban Meta Gen 2 (матовая черная оправа, линзы прозрачные) L
-              const specParts = [
-                proc ? `${proc} оправа` : '',
-                s ? `линзы ${s}` : '',
-              ].filter(Boolean)
-              const specs = specParts.length > 0 ? ` (${specParts.join(', ')})` : ''
-              fullName = cn ? `${baseName}${specs} ${cn}` : `${baseName}${specs}`
-            } else if (isRamAxisPhone) {
-              // Format: Samsung S25 Ultra 12ГБ/256ГБ SIM + eSIM, чёрный
-              const spec = [cn, s].filter(Boolean).join('/')
-              const parts = [baseName, spec, proc].filter(Boolean)
-              fullName = c ? `${parts.join(' ')}, ${c}` : parts.join(' ')
-            } else if (catSlug === 'tablets') {
-              const spec = [cn, s].filter(Boolean).map(v => v.replace(/(?:\s*ГБ|\s*ТБ)$/i, '')).join('/')
-              const unit = s ? (s.toLowerCase().includes('тб') ? ' ТБ' : ' ГБ') : ''
-              const memStr = spec ? `${spec}${unit}` : ''
-              const parts = [baseName, memStr, proc].filter(Boolean)
-              fullName = c ? `${parts.join(' ')}, ${c}` : parts.join(' ')
-            } else if (catSlug === 'watches') {
-              // proc = Тип ремешка, s = Размер ремешка, cn = Размер циферблата.
-              // New expected order: baseName + cn + Color (корпус) + proc (ремешок) + s (размер ремешка)
-              const parts = [baseName, cn, c, proc, s].filter(Boolean)
-              fullName = parts.join(' ')
-            } else {
-              const parts = [baseName, proc, s, cn].filter(Boolean)
-              fullName = c ? `${parts.join(' ')}, ${c}` : parts.join(' ')
-            }
-            const key = `${c}|${proc}|${s}|${cn}`
-            const ov = overrides[key]
-            result.push({
-              name: fullName, color: c, storage: s, connectivity: cn, processor: proc,
-              price: ov?.price || basePriceStr, stock: ov?.stock || '0',
-              enabled: ov?.enabled !== false,
-            })
-          }
-        }
+    const dimensions = axesDef.map(field => ({
+      field,
+      values: axisValues[field.key]?.length ? axisValues[field.key] : [''],
+    }))
+    const combinations = dimensions.reduce<Record<string, string>[]>(
+      (rows, dimension) => rows.flatMap(row => dimension.values.map(value => ({ ...row, [dimension.field.key]: value }))),
+      [{}],
+    )
+    return combinations.map(variantAttributes => {
+      const typedSharedAttributes = Object.fromEntries(sharedFields.map(field => [
+        field.key,
+        field.field_type === 'number' && typeof sharedFieldValues[field.key] === 'string' && sharedFieldValues[field.key] !== ''
+          ? Number(sharedFieldValues[field.key])
+          : sharedFieldValues[field.key],
+      ]).filter(([, value]) => value !== undefined && value !== '')) as Record<string, string | number | boolean>
+      const typedVariantAttributes = Object.fromEntries(axesDef.map(field => [
+        field.key,
+        field.field_type === 'boolean'
+          ? variantAttributes[field.key] === 'Да'
+          : field.field_type === 'number' && variantAttributes[field.key] !== ''
+            ? Number(variantAttributes[field.key])
+          : variantAttributes[field.key],
+      ])) as Record<string, string | number | boolean>
+      const attributes = { ...typedSharedAttributes, ...typedVariantAttributes }
+      const labels = axesDef
+        .map(field => variantAttributes[field.key] ? `${field.label}: ${variantAttributes[field.key]}` : '')
+        .filter(Boolean)
+      const key = axesDef.map(field => attributes[field.key] || '').join('|') || 'base'
+      const ov = overrides[key]
+      return {
+        key,
+        name: labels.length ? `${baseName} (${labels.join(', ')})` : baseName,
+        color: String(attributes.color || ''),
+        attributes,
+        price: ov?.price || basePriceStr,
+        stock: ov?.stock || '0',
+        enabled: ov?.enabled !== false,
       }
-    }
-    return result
+    })
   }
 
   const matrix = buildMatrix()
@@ -3867,6 +4260,11 @@ function GroupCreationModal({
     if (!val || axisValues[field]?.includes(val)) return
     setAxisValues(prev => ({ ...prev, [field]: [...(prev[field] || []), val] }))
     setNewInputs(prev => ({ ...prev, [field]: '' }))
+  }
+
+  const addPresetAxisValue = (field: string, value: string) => {
+    if (!value || axisValues[field]?.includes(value)) return
+    setAxisValues(prev => ({ ...prev, [field]: [...(prev[field] || []), value] }))
   }
 
   const removeAxisValue = (field: string, val: string) => {
@@ -3885,6 +4283,15 @@ function GroupCreationModal({
 
   // ── Create products ──
   const handleCreate = async () => {
+    const missingRequired = selectedCat?.product_fields?.find(field =>
+      field.is_required && (field.is_variant
+        ? !(axisValues[field.key]?.length)
+        : sharedFieldValues[field.key] === undefined || sharedFieldValues[field.key] === '')
+    )
+    if (missingRequired) {
+      alert(`Заполните обязательное поле «${missingRequired.label}»`)
+      return
+    }
     const toCreate = matrix.filter(m => m.enabled)
     if (toCreate.length === 0) return
     setCreating(true)
@@ -3907,7 +4314,7 @@ function GroupCreationModal({
           brand: brand || null, category_id: categoryId || null,
           description: description || null, color: item.color || null,
           warranty_months: warranty ? parseInt(warranty) || null : null,
-          attributes: { storage: item.storage || null, connectivity: item.connectivity || null, processor: item.processor || null }
+          attributes: Object.keys(item.attributes).length > 0 ? item.attributes : null,
         }
 
         const res = await authFetch(`${API_BASE_URL}/api/products`, {
@@ -4067,21 +4474,34 @@ function GroupCreationModal({
                     <input type="text" value={baseName} onChange={e => setBaseName(e.target.value)}
                       placeholder="Apple iPhone 17 Pro Max"
                       className="w-full rounded-xl bg-white/10 px-4 py-2.5 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" />
-                    <p className="mt-1 text-[10px] text-slate-600">Память, SIM и цвет добавятся автоматически из вариантов ниже</p>
+                    <p className="mt-1 text-[10px] text-slate-600">Название вариантов будет собрано из полей, отмеченных в настройках выбранной категории</p>
                   </div>
                   <div>
                     <label className="mb-1 block text-xs text-slate-400">Бренд</label>
                     <select value={brand} onChange={e => setBrand(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-2.5 text-white focus:bg-white/15 focus:outline-none">
                       <option value="">—</option>
-                      {BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                      {brands.filter(b => b.is_active).map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="mb-1 block text-xs text-slate-400">Категория</label>
-                    <select value={categoryId} onChange={e => setCategoryId(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-2.5 text-white focus:bg-white/15 focus:outline-none">
+                    <select value={categoryId} onChange={e => {
+                      setCategoryId(e.target.value)
+                      setAxisValues({})
+                      setNewInputs({})
+                      setSharedFieldValues({})
+                      setOverrides({})
+                    }} className="w-full rounded-xl bg-white/10 px-4 py-2.5 text-white focus:bg-white/15 focus:outline-none">
                       <option value="">—</option>
                       {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
                     </select>
+                    {selectedCat && (
+                      <p className={`mt-1 text-[10px] ${selectedCat.product_fields?.length ? 'text-green-400' : 'text-yellow-300'}`}>
+                        {selectedCat.product_fields?.length
+                          ? `Схема категории: ${selectedCat.product_fields.length} полей, ${axesDef.length} в вариантах`
+                          : 'Схема ещё не настроена: будет создан один товар без лишних полей.'}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="mb-1 block text-xs text-slate-400">Базовая цена * ₽</label>
@@ -4106,6 +4526,20 @@ function GroupCreationModal({
                 </div>
               </div>
 
+              {sharedFields.length > 0 && (
+                <div className="space-y-3">
+                  <div><h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Общие характеристики</h3><p className="mt-1 text-[10px] text-slate-600">Эти значения применятся ко всем товарам создаваемой группы.</p></div>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {sharedFields.map(field => {
+                      const value = sharedFieldValues[field.key]
+                      if (field.field_type === 'boolean') return <label key={field.key} className="flex cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white"><input type="checkbox" checked={Boolean(value)} onChange={e => setSharedFieldValues(prev => ({ ...prev, [field.key]: e.target.checked }))} className="accent-yellow-400" />{field.label}{field.is_required && <span className="text-yellow-300">*</span>}</label>
+                      if (field.field_type === 'select') return <div key={field.key}><label className="mb-1 block text-xs text-slate-400">{field.label}{field.is_required && <span className="text-yellow-300"> *</span>}</label><select value={String(value ?? '')} onChange={e => setSharedFieldValues(prev => ({ ...prev, [field.key]: e.target.value }))} className="w-full rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white focus:bg-white/15 focus:outline-none"><option value="">Выберите…</option>{field.options.map(option => <option key={option} value={option}>{option}</option>)}</select></div>
+                      return <div key={field.key}><label className="mb-1 block text-xs text-slate-400">{field.label}{field.is_required && <span className="text-yellow-300"> *</span>}</label><input type={field.field_type === 'number' ? 'number' : 'text'} value={String(value ?? '')} onChange={e => setSharedFieldValues(prev => ({ ...prev, [field.key]: e.target.value }))} placeholder={field.placeholder} className="w-full rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white placeholder-slate-600 focus:bg-white/15 focus:outline-none" /></div>
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Axes */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -4114,10 +4548,10 @@ function GroupCreationModal({
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {axesDef.map(axisDef => {
-                    const vals = axisValues[axisDef.field] || []
-                    const input = newInputs[axisDef.field] || ''
+                    const vals = axisValues[axisDef.key] || []
+                    const input = newInputs[axisDef.key] || ''
                     return (
-                      <div key={axisDef.field} className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-2.5">
+                      <div key={axisDef.key} className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-2.5">
                         <div>
                           <div className="text-sm font-semibold text-white">{axisDef.label}</div>
                           {axisDef.hint && <div className="text-[10px] text-slate-500">{axisDef.hint}</div>}
@@ -4126,20 +4560,24 @@ function GroupCreationModal({
                           {vals.map(val => (
                             <span key={val} className="group inline-flex items-center gap-1 rounded-lg bg-yellow-400/10 border border-yellow-400/20 px-2 py-0.5 text-xs font-medium text-yellow-300">
                               {val}
-                              <button onClick={() => removeAxisValue(axisDef.field, val)} className="text-yellow-400/60 hover:text-red-400">×</button>
+                              <button onClick={() => removeAxisValue(axisDef.key, val)} className="text-yellow-400/60 hover:text-red-400">×</button>
                             </span>
                           ))}
                           {vals.length === 0 && <span className="text-[10px] text-slate-600 italic">пусто</span>}
                         </div>
-                        <div className="flex gap-1.5">
-                          <input type="text" value={input}
-                            onChange={e => setNewInputs(prev => ({ ...prev, [axisDef.field]: e.target.value }))}
-                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addAxisValue(axisDef.field) } }}
-                            placeholder={axisDef.placeholder}
-                            className="flex-1 rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white placeholder-slate-600 focus:bg-white/15 focus:outline-none" />
-                          <button type="button" onClick={() => addAxisValue(axisDef.field)}
-                            className="rounded-lg bg-yellow-400/20 px-3 py-1.5 text-sm font-bold text-yellow-300 hover:bg-yellow-400/30">+</button>
-                        </div>
+                        {axisDef.field_type === 'boolean' ? (
+                          <div className="flex gap-2"><button type="button" onClick={() => addPresetAxisValue(axisDef.key, 'Да')} className="flex-1 rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/15">Да</button><button type="button" onClick={() => addPresetAxisValue(axisDef.key, 'Нет')} className="flex-1 rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/15">Нет</button></div>
+                        ) : (
+                          <div className="flex gap-1.5">
+                            {axisDef.field_type === 'select' ? <select value={input} onChange={e => setNewInputs(prev => ({ ...prev, [axisDef.key]: e.target.value }))} className="min-w-0 flex-1 rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white focus:bg-white/15 focus:outline-none"><option value="">Выберите…</option>{axisDef.options.map(option => <option key={option} value={option}>{option}</option>)}</select> : <input type={axisDef.field_type === 'number' ? 'number' : 'text'} value={input}
+                              onChange={e => setNewInputs(prev => ({ ...prev, [axisDef.key]: e.target.value }))}
+                              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addAxisValue(axisDef.key) } }}
+                              placeholder={axisDef.placeholder}
+                              className="flex-1 rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white placeholder-slate-600 focus:bg-white/15 focus:outline-none" />}
+                            <button type="button" onClick={() => addAxisValue(axisDef.key)}
+                              className="rounded-lg bg-yellow-400/20 px-3 py-1.5 text-sm font-bold text-yellow-300 hover:bg-yellow-400/30">+</button>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -4155,7 +4593,7 @@ function GroupCreationModal({
                     </h3>
                     <div className="text-[10px] text-slate-600">
                       {axesDef.map(a => {
-                        const count = (axisValues[a.field] || []).length
+                        const count = (axisValues[a.key] || []).length
                         return count > 0 ? `${count} ${a.label.toLowerCase()}` : null
                       }).filter(Boolean).join(' × ')}
                     </div>
@@ -4168,8 +4606,7 @@ function GroupCreationModal({
                             <input type="checkbox" checked={enabledCount === matrix.length} onChange={() => {
                               const allEnabled = enabledCount === matrix.length
                               matrix.forEach(m => {
-                                const key = `${m.color}|${m.processor}|${m.storage}|${m.connectivity}`
-                                updateOverride(key, 'enabled', !allEnabled)
+                                updateOverride(m.key, 'enabled', !allEnabled)
                               })
                             }} className="h-3.5 w-3.5 rounded accent-yellow-400 cursor-pointer" />
                           </th>
@@ -4180,7 +4617,7 @@ function GroupCreationModal({
                       </thead>
                       <tbody>
                         {matrix.map((item, i) => {
-                          const key = `${item.color}|${item.processor}|${item.storage}|${item.connectivity}`
+                          const key = item.key
                           return (
                             <tr key={i} className={`border-t border-white/5 ${item.enabled ? 'hover:bg-white/[0.02]' : 'opacity-35'}`}>
                               <td className="p-2">
@@ -4190,7 +4627,7 @@ function GroupCreationModal({
                               </td>
                               <td className="p-2">
                                 <div className="font-medium text-white text-xs">{item.name}</div>
-                                <div className="text-[10px] text-slate-600">{[item.color, item.processor, item.connectivity, item.storage].filter(Boolean).join(' · ')}</div>
+                                <div className="text-[10px] text-slate-600">{axesDef.map(field => item.attributes[field.key] ? `${field.label}: ${item.attributes[field.key]}` : '').filter(Boolean).join(' · ')}</div>
                               </td>
                               <td className="p-2">
                                 <input type="text" inputMode="decimal"
@@ -4308,51 +4745,6 @@ function GroupCreationModal({
                         </button>
                       </div>
                     </div>
-
-                    {/* Model code field (laptops/tablets) */}
-                    {(selectedCat?.slug === 'laptops' || selectedCat?.slug === 'tablets') && (
-                      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-2">
-                        <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Код модели (SKU)</div>
-                        <div className="text-[10px] text-slate-600">Например MX2F3 — добавится в скобках в конце названия</div>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={modelCodes[activeProduct.id] ?? ''}
-                            onChange={e => setModelCodes(prev => ({ ...prev, [activeProduct.id]: e.target.value }))}
-                            placeholder="MX2F3"
-                            className="flex-1 rounded-lg bg-white/10 px-3 py-2 text-sm text-white placeholder-slate-600 focus:bg-white/15 focus:outline-none"
-                          />
-                          <button
-                            disabled={savingCode === activeProduct.id}
-                            onClick={async () => {
-                              const code = (modelCodes[activeProduct.id] || '').trim()
-                              if (!code) return
-                              setSavingCode(activeProduct.id)
-                              // Build new name: strip old code if present, append new
-                              const baseName = activeProduct.name.replace(/\s*\([A-Z0-9]+\)$/, '').trim()
-                              const newName = `${baseName} (${code})`
-                              try {
-                                const res = await authFetch(`${API_BASE_URL}/api/products/${activeProduct.id}`, {
-                                  method: 'PATCH',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ name: newName }),
-                                })
-                                if (res.ok) {
-                                  setCreatedProducts(prev => prev.map((p, i) =>
-                                    i === activeProductIdx ? { ...p, name: newName } : p
-                                  ))
-                                }
-                              } finally {
-                                setSavingCode(null)
-                              }
-                            }}
-                            className="rounded-lg bg-yellow-400/20 px-4 py-2 text-sm font-semibold text-yellow-300 hover:bg-yellow-400/30 disabled:opacity-40"
-                          >
-                            {savingCode === activeProduct.id ? '…' : 'Сохранить'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
 
                     {/* Drop zone */}
                     <div

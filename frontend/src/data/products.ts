@@ -95,6 +95,7 @@ export interface ApiCategoryOut {
   is_active: boolean
   parent_id: string | null
   quick_filters: QuickFilter[] | null
+  product_fields: { key: string; label: string; field_type: 'text' | 'number' | 'select' | 'boolean'; placeholder: string; options: string[]; hint?: string | null; is_required: boolean; is_variant: boolean }[] | null
   created_at: string
   updated_at: string
 }
@@ -115,6 +116,8 @@ export interface CatalogCategory {
   count: number
   description: string
   quickFilters: QuickFilter[]
+  quickFiltersConfigured: boolean
+  productFields: { key: string; label: string; field_type: 'text' | 'number' | 'select' | 'boolean'; placeholder: string; options: string[]; hint?: string | null; is_required: boolean; is_variant: boolean }[]
 }
 
 /** Бренд в формате, совместимом с CatalogPage / FilterSidebar */
@@ -168,5 +171,7 @@ export function mapApiCategory(c: ApiCategoryOut): CatalogCategory {
     count: 0,
     description: c.description || '',
     quickFilters: c.quick_filters ?? [],
+    quickFiltersConfigured: c.quick_filters !== null,
+    productFields: c.product_fields ?? [],
   }
 }
