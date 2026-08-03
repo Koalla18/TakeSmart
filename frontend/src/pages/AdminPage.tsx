@@ -885,8 +885,8 @@ export function AdminPage() {
           </div>
         )}
 
-        <nav aria-label="Разделы админки" className="mb-7 rounded-2xl border border-white/10 bg-slate-950/30 p-2 shadow-xl shadow-black/10 backdrop-blur">
-          <div className="flex min-w-max items-stretch gap-1 overflow-x-auto pb-1 scrollbar-hide">
+        <nav aria-label="Разделы админки" className="mb-7 rounded-2xl border border-white/10 bg-slate-950/30 p-2.5 shadow-xl shadow-black/10 backdrop-blur">
+          <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">
             {[
               { id: 'orders' as TabType, label: 'Заказы', icon: '📋', count: orders.length },
               { id: 'products' as TabType, label: 'Товары', icon: '📦', count: products.filter(p => (p.condition || 'new') === 'new').length },
@@ -901,19 +901,17 @@ export function AdminPage() {
               return <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`group flex min-h-12 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium transition-all sm:px-4 ${
+                className={`group flex min-h-12 items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-all sm:px-4 ${
                   isActive
                     ? 'bg-gradient-to-br from-yellow-300 to-yellow-500 text-slate-950 shadow-lg shadow-yellow-500/15'
                     : 'text-slate-300 hover:bg-white/10 hover:text-white'
                 }`}
               >
                 <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-base ${isActive ? 'bg-black/10' : 'bg-white/8 group-hover:bg-white/12'}`}>{tab.icon}</span>
-                <span className="whitespace-nowrap">{tab.label}</span>
+                <span className="min-w-0 flex-1 truncate">{tab.label}</span>
                 <span className={`min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] font-bold ${isActive ? 'bg-slate-950/15 text-slate-900' : 'bg-white/10 text-slate-400 group-hover:text-slate-200'}`}>{tab.count}</span>
               </button>
             })}
-            <div className="mx-1 w-px self-stretch bg-white/10" />
-            <span className="flex items-center gap-1.5 px-2 text-xs text-slate-500"><span>♻️</span> Скоро</span>
           </div>
         </nav>
 
