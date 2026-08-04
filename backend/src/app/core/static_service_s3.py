@@ -19,6 +19,11 @@ from src.app.core.logger import get_logger
 
 logger = get_logger(__name__)
 
+KNOWN_S3_BUCKET_NAMES = (
+    "9fbee474-1fa2-419a-ab9e-e0f8ecde4b7e",
+    "90acb72e-dd6d-4433-b2b3-3105b08551ea",
+)
+
 
 def _get_s3_client():
     return boto3.client(
@@ -27,7 +32,10 @@ def _get_s3_client():
         aws_access_key_id=settings.S3_ACCESS_KEY,
         aws_secret_access_key=settings.S3_SECRET_KEY,
         region_name=settings.S3_REGION,
-        config=BotoConfig(s3={"addressing_style": "path"}),
+        config=BotoConfig(
+            max_pool_connections=50,
+            s3={"addressing_style": "path"},
+        ),
     )
 
 
@@ -126,7 +134,20 @@ class StaticFileService:
             for item in settings.S3_LEGACY_BUCKET_NAMES.split(",")
             if item.strip()
         }
-        return {settings.S3_BUCKET_NAME, *legacy}
+        return {settings.S3_BUCKET_NAME, *legacy, *KNOWN_S3_BUCKET_NAMES}
+
+    def _bucket_candidates(self, preferred_bucket: str | None = None) -> list[str]:
+        buckets: list[str] = []
+        for bucket in (
+            preferred_bucket,
+            settings.S3_BUCKET_NAME,
+            *settings.S3_LEGACY_BUCKET_NAMES.split(","),
+            *KNOWN_S3_BUCKET_NAMES,
+        ):
+            clean = (bucket or "").strip()
+            if clean and clean not in buckets:
+                buckets.append(clean)
+        return buckets
 
     def _object_ref(self, value: str, bucket: str | None = None) -> tuple[str, str] | None:
         v = (value or "").strip()
@@ -205,12 +226,25 @@ class StaticFileService:
         if not ref:
             return None, None
         obj_bucket, bare = ref
-        try:
-            obj = self.client.get_object(Bucket=obj_bucket, Key=bare)
-            return obj["Body"].read(), obj.get("ContentType") or "application/octet-stream"
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("s3_fetch_failed", bucket=obj_bucket, key=bare, error=str(exc)[:160])
-            return None, None
+        last_error = ""
+        attempted: list[str] = []
+        for candidate_bucket in self._bucket_candidates(obj_bucket):
+            attempted.append(candidate_bucket)
+            try:
+                obj = self.client.get_object(Bucket=candidate_bucket, Key=bare)
+                if candidate_bucket != obj_bucket:
+                    logger.info(
+                        "s3_fetch_fallback_ok",
+                        bucket=candidate_bucket,
+                        requested_bucket=obj_bucket,
+                        key=bare,
+                    )
+                return obj["Body"].read(), obj.get("ContentType") or "application/octet-stream"
+            except Exception as exc:  # noqa: BLE001
+                last_error = str(exc)[:160]
+                continue
+        logger.warning("s3_fetch_failed", buckets=attempted, key=bare, error=last_error)
+        return None, None
 
     def bare_key(self, value: str | None) -> str | None:
         """Публичный доступ к нормализации ключа (полный S3-URL/legacy → голый ключ)."""
