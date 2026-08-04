@@ -22,7 +22,7 @@ def upgrade() -> None:
     deliberate admin choice to create products without extra fields, so it is
     intentionally left unchanged.
     """
-    op.execute(
+    op.get_bind().exec_driver_sql(
         """
         UPDATE categories
         SET product_fields = CASE

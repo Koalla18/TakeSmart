@@ -17,7 +17,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Restore old visible group fields for both NULL and [] configurations."""
-    op.execute(
+    op.get_bind().exec_driver_sql(
         """
         UPDATE categories
         SET product_fields = CASE

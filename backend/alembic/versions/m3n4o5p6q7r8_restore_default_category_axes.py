@@ -22,7 +22,7 @@ def upgrade() -> None:
     no special scheme. Apply them only to NULL values so an admin's saved
     configuration, including an intentional empty list, is never overwritten.
     """
-    op.execute(
+    op.get_bind().exec_driver_sql(
         """
         UPDATE categories
         SET product_fields = '[

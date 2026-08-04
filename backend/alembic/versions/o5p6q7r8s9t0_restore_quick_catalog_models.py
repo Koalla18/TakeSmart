@@ -22,7 +22,7 @@ def upgrade() -> None:
     categories that had never had quick filters. Treat those values exactly as
     missing settings; non-empty lists are left untouched.
     """
-    op.execute(
+    op.get_bind().exec_driver_sql(
         """
         UPDATE categories
         SET quick_filters = CASE
