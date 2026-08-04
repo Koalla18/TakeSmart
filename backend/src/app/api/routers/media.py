@@ -27,8 +27,9 @@ _CACHE = "public, max-age=31536000, immutable"
 @router.get("", summary="Отдать картинку из S3 через наш домен")
 async def get_media(
     key: str = Query(..., description="S3-ключ объекта, напр. products/<id>/<uuid>.webp"),
+    bucket: str | None = Query(None, description="Разрешённый bucket для старых ссылок"),
 ) -> Response:
-    data, content_type = await run_in_threadpool(static_service.fetch_object, key)
+    data, content_type = await run_in_threadpool(static_service.fetch_object, key, bucket)
     if data is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Файл не найден")
     return Response(content=data, media_type=content_type, headers={"Cache-Control": _CACHE})

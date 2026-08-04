@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 import boto3
 from botocore.config import Config as BotoConfig
@@ -119,6 +120,49 @@ class StaticFileService:
             v = v[len("/static/"):]
         return v.lstrip("/")
 
+    def _allowed_buckets(self) -> set[str]:
+        legacy = {
+            item.strip()
+            for item in settings.S3_LEGACY_BUCKET_NAMES.split(",")
+            if item.strip()
+        }
+        return {settings.S3_BUCKET_NAME, *legacy}
+
+    def _object_ref(self, value: str, bucket: str | None = None) -> tuple[str, str] | None:
+        v = (value or "").strip()
+        if not v:
+            return None
+
+        allowed = self._allowed_buckets()
+        requested_bucket = (bucket or "").strip() or None
+        if requested_bucket and requested_bucket not in allowed:
+            return None
+
+        low = v.lstrip("/")
+        if low.startswith("api/media") or low.startswith("api/v1/media"):
+            parsed = urlparse("/" + low)
+            params = parse_qs(parsed.query)
+            inner = (params.get("key") or [""])[0]
+            inner_bucket = (params.get("bucket") or [requested_bucket or ""])[0] or None
+            return self._object_ref(unquote(inner), inner_bucket) if inner else None
+
+        if v.startswith("http"):
+            parsed = urlparse(v)
+            endpoint = urlparse(settings.S3_ENDPOINT_URL)
+            path_parts = parsed.path.lstrip("/").split("/", 1)
+            if parsed.netloc == endpoint.netloc and len(path_parts) == 2 and path_parts[0] in allowed:
+                return path_parts[0], path_parts[1]
+            if settings.S3_PUBLIC_URL:
+                base = settings.S3_PUBLIC_URL.rstrip("/") + "/"
+                if v.startswith(base):
+                    return requested_bucket or settings.S3_BUCKET_NAME, v[len(base):]
+            return None
+
+        bare = self._bare_key(v)
+        if not bare:
+            return None
+        return requested_bucket or settings.S3_BUCKET_NAME, bare
+
     def build_url(self, key: str) -> str:
         """
         Build public URL for an S3 object.
@@ -130,21 +174,24 @@ class StaticFileService:
         пути с расширениями картинок (.webp/.jpg) и отдаёт как статику с диска (404),
         не доходя до бэкенда. Путь «/api/media» без расширения он пропускает.
         """
-        bare = self._bare_key(key)
-        if bare is None:
+        ref = self._object_ref(key)
+        if ref is None:
             return key  # внешний URL — без изменений
+        bucket, bare = ref
         # Ассет фронтенда (в public/), напр. "/iphone-17-pro.png" — НЕ S3-объект.
         # Реальные S3-ключи всегда с папкой (products/.., slides/.., categories/..),
         # поэтому «ключ без слэша» отдаём как корневой путь фронта, не трогая.
         if "/" not in bare:
             return "/" + bare
         if settings.IMAGE_PROXY:
-            from urllib.parse import quote
-            return f"/api/media?key={quote(bare, safe='/')}"
-        if settings.S3_PUBLIC_URL:
+            params = {"key": bare}
+            if bucket != settings.S3_BUCKET_NAME:
+                params["bucket"] = bucket
+            return f"/api/media?{urlencode(params, quote_via=quote, safe='/')}"
+        if settings.S3_PUBLIC_URL and bucket == settings.S3_BUCKET_NAME:
             base = settings.S3_PUBLIC_URL.rstrip("/")
         else:
-            base = f"{settings.S3_ENDPOINT_URL}/{settings.S3_BUCKET_NAME}"
+            base = f"{settings.S3_ENDPOINT_URL}/{bucket}"
         return f"{base}/{bare}"
 
     def build_url_or_none(self, key: str | None) -> str | None:
@@ -152,16 +199,17 @@ class StaticFileService:
             return None
         return self.build_url(key)
 
-    def fetch_object(self, key: str) -> tuple[bytes, str] | tuple[None, None]:
+    def fetch_object(self, key: str, bucket: str | None = None) -> tuple[bytes, str] | tuple[None, None]:
         """Скачивает объект из S3 (для прокси /api/media). (bytes, content_type) или (None, None)."""
-        bare = self._bare_key(key)
-        if not bare:
+        ref = self._object_ref(key, bucket)
+        if not ref:
             return None, None
+        obj_bucket, bare = ref
         try:
-            obj = self.client.get_object(Bucket=settings.S3_BUCKET_NAME, Key=bare)
+            obj = self.client.get_object(Bucket=obj_bucket, Key=bare)
             return obj["Body"].read(), obj.get("ContentType") or "application/octet-stream"
         except Exception as exc:  # noqa: BLE001
-            logger.warning("s3_fetch_failed", key=bare, error=str(exc)[:160])
+            logger.warning("s3_fetch_failed", bucket=obj_bucket, key=bare, error=str(exc)[:160])
             return None, None
 
     def bare_key(self, value: str | None) -> str | None:
