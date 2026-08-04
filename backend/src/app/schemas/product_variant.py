@@ -32,12 +32,6 @@ class ProductVariantOut(BaseModel):
     def normalize_image_url(cls, v: Optional[str]) -> Optional[str]:
         if not v:
             return v
-        if v.startswith("http"):
-            return v
-        if v.startswith("/static/"):
-            v = v[len("/static/"):]
-        elif v.startswith("/"):
-            v = v.lstrip("/")
         from src.app.core.static_service import static_service
         return static_service.build_url(v)
 
