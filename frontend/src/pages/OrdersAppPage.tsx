@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo, type FormEvent } from 'react'
 import { useAuth, getAuthHeaders } from '../lib/auth'
 import { API_BASE_URL } from '../lib/config'
+import { PricesPanel } from './PricesPanel'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // «TakeSmart — Заказы»: отдельное премиальное мини-приложение (PWA) для владельца
@@ -881,8 +882,63 @@ function OrdersFeed() {
   )
 }
 
+// ── Нижний таб-бар PWA: «Заказы» + «Цены» ───────────────────────────────────────
+type AppTab = 'orders' | 'prices'
+const TAB_KEY = 'takesmart_app_tab'
+
+function AppTabBar({ tab, onTab, pricesBadge }: { tab: AppTab; onTab: (t: AppTab) => void; pricesBadge: number }) {
+  const tabs: { key: AppTab; icon: string; label: string }[] = [
+    { key: 'orders', icon: '📦', label: 'Заказы' },
+    { key: 'prices', icon: '🏷', label: 'Цены' },
+  ]
+  return (
+    <nav aria-label="Разделы приложения" className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-slate-950/90 backdrop-blur-xl" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <div className="mx-auto grid max-w-xl grid-cols-2">
+        {tabs.map((t) => {
+          const active = tab === t.key
+          return (
+            <button key={t.key} onClick={() => onTab(t.key)} aria-current={active ? 'page' : undefined}
+              className={`relative flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/70 ${active ? 'text-yellow-400' : 'text-slate-500 hover:text-slate-300'}`}>
+              <span className="relative text-xl leading-none">
+                {t.icon}
+                {t.key === 'prices' && pricesBadge > 0 && (
+                  <span aria-label={`Несохранённых правок: ${pricesBadge}`} className="absolute -right-4 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-yellow-400 px-1 text-[10px] font-bold text-gray-950">
+                    {pricesBadge > 99 ? '99+' : pricesBadge}
+                  </span>
+                )}
+              </span>
+              {t.label}
+            </button>
+          )
+        })}
+      </div>
+    </nav>
+  )
+}
+
 export function OrdersAppPage() {
   const { isAuthenticated } = useAuth()
   usePwaSetup()
-  return isAuthenticated ? <OrdersFeed /> : <LoginScreen />
+  const [tab, setTab] = useState<AppTab>(() => { try { return localStorage.getItem(TAB_KEY) === 'prices' ? 'prices' : 'orders' } catch { return 'orders' } })
+  useEffect(() => { try { localStorage.setItem(TAB_KEY, tab) } catch { /* */ } }, [tab])
+  // Панель цен маунтим при первом заходе и дальше не размонтируем: корзина правок и
+  // загруженный каталог живут при переключении вкладок. Лента заказов смонтирована
+  // ВСЕГДА (скрыта через display:none) — опрос заказов, звук и пуш-подписка
+  // работают независимо от активной вкладки.
+  const [pricesMounted, setPricesMounted] = useState(tab === 'prices')
+  useEffect(() => { if (tab === 'prices') setPricesMounted(true) }, [tab])
+  const [pricesDirty, setPricesDirty] = useState(0)
+
+  if (!isAuthenticated) return <LoginScreen />
+  return (
+    <div className="min-h-[100dvh] bg-slate-950">
+      <div className={tab === 'orders' ? 'pb-[calc(64px+env(safe-area-inset-bottom))]' : 'hidden'}><OrdersFeed /></div>
+      {pricesMounted && (
+        <div className={tab === 'prices' ? 'pb-[calc(64px+env(safe-area-inset-bottom))]' : 'hidden'}>
+          <PricesPanel onDirtyChange={setPricesDirty} />
+        </div>
+      )}
+      <AppTabBar tab={tab} onTab={setTab} pricesBadge={pricesDirty} />
+    </div>
+  )
 }
