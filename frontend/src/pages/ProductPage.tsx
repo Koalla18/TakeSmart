@@ -17,6 +17,24 @@ import {
 
 /* ───────────────────── Attribute Parsing ───────────────────── */
 
+// Категории, для которых допустима легаси-эвристика разбора осей из НАЗВАНИЯ товара
+// (механизм A2 ниже): их названия собирал админский конструктор групп по шаблону.
+// Для новых категорий (например, стайлеров) regex по названию выдумывает мусорные оси
+// («Память: 500» из «500 Вт») — они идут в простую ветку «цвет + атрибуты».
+const LEGACY_ATTR_SLUGS = new Set([
+  'smartphones',
+  'laptops',
+  'monobloki',
+  'tablets',
+  'watches',
+  'smart-bands',
+  'umnye-ochki',
+  'headphones',
+  'tv',
+  'gaming',
+  'accessories',
+])
+
 interface ParsedAttrs {
   storage: string | null
   connectivity: string | null
@@ -688,9 +706,12 @@ export function ProductPage() {
       const variantSpecs: Array<{label: string; value: string}> = []
       const isTvCategory = apiProduct?.category?.slug === 'tv'
       const isWatchCategory = apiProduct?.category?.slug === 'watches' || apiProduct?.category?.slug === 'smart-bands'
-      if (selectedVariant?.color) variantSpecs.push({ label: 'Цвет', value: selectedVariant.color })
-      if (selectedVariant?.storage) variantSpecs.push({ label: isTvCategory ? 'Диагональ' : isWatchCategory ? 'Размер ремешка' : 'Память', value: selectedVariant.storage })
-      if (selectedVariant?.size) variantSpecs.push({ label: isWatchCategory ? 'Размер корпуса' : 'Размер', value: selectedVariant.size })
+      // Лейблы осей — из схемы категории (product_fields), фолбэк на прежние захардкоженные.
+      const fieldLabel = (key: string, fallback: string): string =>
+        categoryFields.find(field => field.key === key)?.label || fallback
+      if (selectedVariant?.color) variantSpecs.push({ label: fieldLabel('color', 'Цвет'), value: selectedVariant.color })
+      if (selectedVariant?.storage) variantSpecs.push({ label: fieldLabel('storage', isTvCategory ? 'Диагональ' : isWatchCategory ? 'Размер ремешка' : 'Память'), value: selectedVariant.storage })
+      if (selectedVariant?.size) variantSpecs.push({ label: fieldLabel('size', isWatchCategory ? 'Размер корпуса' : 'Размер'), value: selectedVariant.size })
 
       const cartProduct: CartProduct = {
         id: apiProduct!.id,
@@ -999,11 +1020,10 @@ export function ProductPage() {
                     })),
                   ]
 
-                  // Categories configured in the admin panel use a universal
-                  // selector. It reads exactly the fields defined for that
-                  // category instead of guessing RAM/storage from product names.
-                  if (categoryFields.length > 0) {
-                    const variantFields = categoryFields.filter(field => field.is_variant)
+                  // Механизм A1: у категории в админке заданы вариантные поля (is_variant) —
+                  // универсальный селектор строго по схеме категории, без угадывания из названий.
+                  const variantFields = categoryFields.filter(field => field.is_variant)
+                  if (variantFields.length > 0) {
                     const getValue = (card: typeof allCards[number], key: string): string => {
                       const value = key === 'color' ? card.color : card.attributes?.[key]
                       if (value === null || value === undefined || value === '') return ''
@@ -1018,7 +1038,6 @@ export function ProductPage() {
                       })) || allCards.find(card => card.id !== apiProduct.id && getValue(card, fieldKey) === value)
                       if (match) navigate(`/product/${match.slug}`)
                     }
-                    if (variantFields.length === 0) return null
                     return (
                       <div className="mb-6 space-y-4">
                         {variantFields.map(field => {
@@ -1041,7 +1060,98 @@ export function ProductPage() {
                     )
                   }
 
-                  // Parse attributes from names (or use JSON attributes if present)
+                  // Гейт легаси-эвристики: разбор осей из названия (A2) — только для старых
+                  // категорий из LEGACY_ATTR_SLUGS. Пустой slug тоже оставляем в A2 — так
+                  // ведут себя старые товары без проставленной категории (например, очки).
+                  const categorySlugLower = String(apiProduct.category?.slug || '').toLowerCase()
+                  const isLegacyAttrCategory = categorySlugLower === '' || LEGACY_ATTR_SLUGS.has(categorySlugLower)
+
+                  if (!isLegacyAttrCategory) {
+                    // Новая категория без вариантных полей: честный переключатель только по
+                    // цвету (реальные card.color сиблингов) + остальные атрибуты простым
+                    // списком, как у одиночного товара. Никаких выдуманных осей из названия.
+                    const simpleColors = [...new Set(allCards.map(card => card.color).filter(Boolean))] as string[]
+                    const simpleCurrentColor = apiProduct.color || null
+                    const goToColor = (color: string) => {
+                      const match = allCards.find(card => card.id !== apiProduct.id && card.color === color)
+                      if (match) navigate(`/product/${match.slug}`)
+                    }
+                    const attrLabels = new Map(categoryFields.map(field => [field.key, field.label]))
+                    const attrRows: { label: string; value: string }[] = []
+                    Object.entries(apiProduct.attributes || {}).forEach(([key, value]) => {
+                      if (value === null || value === undefined || value === '') return
+                      attrRows.push({
+                        label: attrLabels.get(key) || key.replace(/_/g, ' '),
+                        value: typeof value === 'boolean' ? (value ? 'Да' : 'Нет') : String(value),
+                      })
+                    })
+                    if (simpleColors.length === 0 && attrRows.length === 0) return null
+                    return (
+                      <div className="mb-6 space-y-4">
+                        {simpleColors.length > 0 && (
+                          <div>
+                            <p className="mb-2 text-sm text-gray-500">
+                              Цвет: <span className="font-semibold text-gray-900">{simpleCurrentColor || '—'}</span>
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2.5">
+                              {simpleColors.map(color => {
+                                const isCurrent = color === simpleCurrentColor
+                                const swatch = getColorSwatch(color)
+                                const isLight = swatch ? parseInt(swatch.replace('#', '').slice(0, 2), 16) > 200 : false
+                                const sibForColor = allCards.find(card => card.color === color)
+                                const thumb = sibForColor?.main_image_url
+                                return (
+                                  <button
+                                    key={color}
+                                    title={color}
+                                    onClick={() => !isCurrent && goToColor(color)}
+                                    className={`group relative flex flex-col items-center gap-1 rounded-xl border-2 p-1.5 transition-all ${
+                                      isCurrent
+                                        ? 'border-gray-900 bg-gray-50 shadow-sm'
+                                        : 'border-gray-200 bg-white hover:border-gray-400 hover:shadow-sm cursor-pointer'
+                                    }`}
+                                    style={{ minWidth: 56 }}
+                                  >
+                                    {thumb && isImageUrl(thumb) ? (
+                                      <div className="h-12 w-12 overflow-hidden rounded-lg bg-gray-100">
+                                        <img src={getImageUrl(thumb)} alt={color} className="h-full w-full object-contain" />
+                                      </div>
+                                    ) : swatch ? (
+                                      <div
+                                        className={`h-12 w-12 rounded-lg ${isLight ? 'ring-1 ring-inset ring-gray-200' : ''}`}
+                                        style={{ backgroundColor: swatch }}
+                                      />
+                                    ) : (
+                                      <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-100 text-xs text-gray-400">
+                                        {color.slice(0, 3)}
+                                      </div>
+                                    )}
+                                    <span className={`max-w-[70px] truncate text-[10px] leading-tight ${
+                                      isCurrent ? 'font-semibold text-gray-900' : 'text-gray-500 group-hover:text-gray-700'
+                                    }`}>
+                                      {color}
+                                    </span>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {attrRows.length > 0 && (
+                          <div className="space-y-2">
+                            {attrRows.map(({ label, value }) => (
+                              <div key={label}>
+                                <span className="text-sm text-gray-500">{label}: </span>
+                                <span className="text-sm font-semibold text-gray-900">{value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  }
+
+                  // Механизм A2 (легаси): разбор осей из названия/attributes конструктора групп.
                   const getParsed = (item: any) => {
                     const attrs = item.attributes || {};
                     if (Object.keys(attrs).length > 0 && (attrs.storage || attrs.connectivity || attrs.processor)) {
@@ -1771,22 +1881,35 @@ export function ProductPage() {
                 </div>
               )}
               
-              {activeTab === 'specs' && (
-                <div className="divide-y divide-gray-100">
-                  {([
-                    apiProduct.brand ? { label: 'Бренд', value: apiProduct.brand } : null,
-                    apiProduct.model ? { label: 'Модель', value: apiProduct.model } : null,
-                    apiProduct.color ? { label: 'Цвет', value: apiProduct.color } : null,
-                    apiProduct.sku ? { label: 'Артикул', value: apiProduct.sku } : null,
-                    apiProduct.warranty_months ? { label: 'Гарантия', value: `${apiProduct.warranty_months} мес.` } : null,
-                  ] as Array<{label: string; value: string} | null>).filter((x): x is {label: string; value: string} => x !== null).map((spec, i) => (
-                    <div key={i} className="flex justify-between py-4 first:pt-0 last:pb-0">
-                      <span className="text-gray-500">{spec.label}</span>
-                      <span className="font-medium text-gray-900">{spec.value}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {activeTab === 'specs' && (() => {
+                // Схема категории даёт человеческие подписи атрибутам; color уже показан
+                // отдельной строкой, поэтому из attributes его не дублируем.
+                const labels = new Map(categoryFields.map(field => [field.key, field.label]))
+                const attrSpecs = Object.entries(apiProduct.attributes || {})
+                  .filter(([key, value]) => key !== 'color' && value !== null && value !== undefined && value !== '')
+                  .map(([key, value]) => ({
+                    label: labels.get(key) || key.replace(/_/g, ' '),
+                    value: typeof value === 'boolean' ? (value ? 'Да' : 'Нет') : String(value),
+                  }))
+                const rows = ([
+                  apiProduct.brand ? { label: 'Бренд', value: apiProduct.brand } : null,
+                  apiProduct.model ? { label: 'Модель', value: apiProduct.model } : null,
+                  apiProduct.color ? { label: 'Цвет', value: apiProduct.color } : null,
+                  ...attrSpecs,
+                  apiProduct.sku ? { label: 'Артикул', value: apiProduct.sku } : null,
+                  apiProduct.warranty_months ? { label: 'Гарантия', value: `${apiProduct.warranty_months} мес.` } : null,
+                ] as Array<{label: string; value: string} | null>).filter((x): x is {label: string; value: string} => x !== null)
+                return (
+                  <div className="divide-y divide-gray-100">
+                    {rows.map((spec, i) => (
+                      <div key={i} className="flex justify-between py-4 first:pt-0 last:pb-0">
+                        <span className="text-gray-500">{spec.label}</span>
+                        <span className="font-medium text-gray-900">{spec.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
             </div>
           </Container>
         </section>

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth, getAuthHeaders } from '../lib/auth'
 import { API_BASE_URL } from '../lib/config'
 import { formatPrice } from '../data/products'
-import { getDefaultCatalogQuickFilters } from '../data/catalogQuickFilters'
 import { toast, ToastHost } from '../lib/toast'
 import { confirmDialog, ConfirmHost } from '../lib/confirm'
 
@@ -50,6 +49,7 @@ interface Category {
   image_url: string | null
   is_active: boolean
   parent_id: string | null
+  sort_order?: number
   quick_filters: QuickFilter[] | null
   product_fields: CategoryProductField[] | null
   created_at: string
@@ -73,74 +73,50 @@ interface CategoryProductField {
   is_variant: boolean
 }
 
-const categoryField = (
-  key: string,
-  label: string,
-  placeholder: string,
-  isVariant = true,
-  hint = '',
-): CategoryProductField => ({
-  key, label, placeholder, hint, is_required: false, is_variant: isVariant, field_type: 'text', options: [],
-})
-
-// Стартовые схемы повторяют прежние поля конструктора групп. Они используются
-// для пустых категорий, пока серверная миграция не записала их в БД.
-const DEFAULT_CATEGORY_PRODUCT_FIELDS: CategoryProductField[] = [
-  categoryField('color', 'Цвета', 'Чёрный', true, 'Каждый цвет = отдельная карточка товара'),
-  categoryField('storage', 'Параметр 1', '256 ГБ'),
-  categoryField('connectivity', 'Параметр 2', 'SIM + eSIM'),
-]
-
-const CATEGORY_PRODUCT_FIELD_TEMPLATES: Record<string, CategoryProductField[]> = {
-  smartphones: [
-    categoryField('color', 'Цвета', 'Белый', true, 'Каждый цвет = отдельная карточка товара'),
-    categoryField('storage', 'Память', '256 ГБ', true, 'Объём встроенной памяти'),
-    categoryField('ram', 'ОЗУ', '12 ГБ', true, 'Объём оперативной памяти'),
-    categoryField('sim', 'Связь (SIM)', 'SIM + eSIM', true, 'Тип SIM-карт'),
-  ],
-  laptops: [
-    categoryField('color', 'Цвет', 'Серебристый', true, 'Каждый цвет = отдельная карточка'),
-    categoryField('processor', 'Процессор', 'M4 Pro', true, 'Модель чипа'),
-    categoryField('ram', 'ОЗУ', '16 ГБ', true, 'Объём оперативной памяти'),
-    categoryField('storage', 'Память SSD', '512 ГБ', true, 'Объём накопителя'),
-  ],
-  monobloki: [
-    categoryField('color', 'Цвет', 'Серебристый', true, 'Каждый цвет = отдельная карточка'),
-    categoryField('processor', 'Процессор', 'M4 Pro', true, 'Модель чипа'),
-    categoryField('ram', 'ОЗУ', '16 ГБ', true, 'Объём оперативной памяти'),
-    categoryField('storage', 'Память SSD', '512 ГБ', true, 'Объём накопителя'),
-  ],
-  tablets: [
-    categoryField('color', 'Цвета', 'Space Gray'),
-    categoryField('ram', 'ОЗУ', '8 ГБ', true, 'Объём оперативной памяти'),
-    categoryField('storage', 'Память', '256 ГБ', true, 'Объём встроенной памяти'),
-    categoryField('connectivity', 'Связь', 'WiFi + Cellular', true, 'Тип связи'),
-  ],
-  watches: [
-    categoryField('color', 'Цвета', 'Титан'),
-    categoryField('strap_type', 'Тип ремешка', 'Sport Band'),
-    categoryField('strap_size', 'Размер ремешка', 'S/M'),
-    categoryField('case_size', 'Размер циферблата', '42 мм'),
-  ],
-  'umnye-ochki': [
-    categoryField('frame', 'Оправа', 'Матовая чёрная', true, 'Цвет и тип оправы'),
-    categoryField('lenses', 'Линзы', 'Прозрачные', true, 'Тип линз'),
-    categoryField('size', 'Размер', 'S, M, L', true, 'Размер оправы'),
-  ],
-  headphones: [categoryField('color', 'Цвета', 'Чёрный')],
-  tv: [categoryField('color', 'Цвета', 'Чёрный'), categoryField('diagonal', 'Диагональ', '55 дюймов')],
-  gaming: [categoryField('color', 'Цвета', 'Чёрный'), categoryField('bundle', 'Комплектация', 'Digital'), categoryField('storage', 'Память', '512 ГБ', true, 'Объём встроенного накопителя')],
-  accessories: [categoryField('color', 'Цвета', 'Чёрный'), categoryField('size', 'Размер / тип', 'M')],
-}
-
+// Честные геттеры без тихих фолбэков: показываем ровно то, что лежит в БД.
+// Стартовые схемы теперь применяются ЯВНО — через пресеты в модалке категории
+// (GET /api/categories/field-presets), а не подставляются молча.
 function getCategoryProductFields(category?: Pick<Category, 'slug' | 'product_fields'> | null): CategoryProductField[] {
-  if (category?.product_fields && category.product_fields.length > 0) return category.product_fields
-  return CATEGORY_PRODUCT_FIELD_TEMPLATES[category?.slug || ''] ?? DEFAULT_CATEGORY_PRODUCT_FIELDS
+  return Array.isArray(category?.product_fields) ? category.product_fields : []
 }
 
 function getCategoryQuickFilters(category?: Pick<Category, 'slug' | 'quick_filters'> | null): QuickFilter[] {
-  if (category?.quick_filters && category.quick_filters.length > 0) return category.quick_filters
-  return getDefaultCatalogQuickFilters(category?.slug)
+  return Array.isArray(category?.quick_filters) ? category.quick_filters : []
+}
+
+// ── Пресеты полей категории (контракт GET /api/categories/field-presets) ──
+// product_fields повторяет Pydantic-модель ProductField; на всякий случай
+// допускаем null в необязательных полях и нормализуем перед применением.
+interface PresetProductField {
+  key: string
+  label: string
+  field_type: CategoryProductField['field_type']
+  placeholder?: string | null
+  options?: string[] | null
+  hint?: string | null
+  is_required?: boolean
+  is_variant?: boolean
+}
+
+interface FieldPreset {
+  id: string
+  label: string
+  description?: string | null
+  product_fields: PresetProductField[]
+  quick_filters?: QuickFilter[] | null
+}
+
+function normalizePresetField(field: PresetProductField): CategoryProductField {
+  return {
+    key: field.key,
+    label: field.label,
+    field_type: field.field_type,
+    placeholder: field.placeholder ?? '',
+    options: field.options ?? [],
+    hint: field.hint ?? null,
+    is_required: Boolean(field.is_required),
+    is_variant: Boolean(field.is_variant),
+  }
 }
 
 interface Brand {
@@ -149,6 +125,7 @@ interface Brand {
   slug: string
   logo_url: string | null
   is_active: boolean
+  products_count?: number
   created_at: string
   updated_at: string
 }
@@ -354,6 +331,8 @@ export function AdminPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
+  // Пресеты полей: null = ещё не загружали; грузим лениво при открытии модалки категории
+  const [fieldPresets, setFieldPresets] = useState<FieldPreset[] | null>(null)
   const [categorySettingsSection, setCategorySettingsSection] = useState<CategorySettingsSection>(null)
   const [brands, setBrands] = useState<Brand[]>([])
   const [editingBrand, setEditingBrand] = useState<Brand | null>(null)
@@ -422,6 +401,21 @@ export function AdminPage() {
         setCategories(data.items)
       }
     } catch (err) { console.error(err) }
+  }
+
+  // Лениво тянем готовые шаблоны полей (кэш живёт в стейте страницы —
+  // повторные открытия модалки категории не ходят в сеть)
+  const loadFieldPresets = async () => {
+    if (fieldPresets !== null) return
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/categories/field-presets`)
+      if (res.ok) {
+        const data = await res.json()
+        setFieldPresets(Array.isArray(data?.presets) ? data.presets : [])
+      } else {
+        setFieldPresets([])
+      }
+    } catch (err) { console.error(err); setFieldPresets([]) }
   }
 
   const loadSlides = async () => {
@@ -602,8 +596,30 @@ export function AdminPage() {
     } catch { toast('Ошибка сети', 'error') }
   }
 
+  // Порядок категорий — swap sort_order двух соседних (как у баннеров).
+  // Список приходит от API уже отсортированным по sort_order.
+  const moveCategory = async (category: Category, dir: -1 | 1) => {
+    const idx = categories.findIndex(c => c.id === category.id)
+    const swap = categories[idx + dir]
+    if (!swap) return
+    // Старые записи могут иметь одинаковый/пустой sort_order — тогда берём позиции в списке
+    let target = swap.sort_order ?? idx + dir
+    let own = category.sort_order ?? idx
+    if (target === own) { target = idx + dir; own = idx }
+    try {
+      await Promise.all([
+        authFetch(`${API_BASE_URL}/api/categories/${category.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: target }) }),
+        authFetch(`${API_BASE_URL}/api/categories/${swap.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: own }) }),
+      ])
+      loadCategories()
+    } catch { toast('Не удалось изменить порядок', 'error') }
+  }
+
   // Brand actions
   const saveBrand = async (data: Record<string, unknown>) => {
+    // Переименование бренда каскадно обновляет название у всех его товаров на бэке —
+    // честно сообщаем об этом и перезагружаем список товаров
+    const renamed = Boolean(editingBrand && typeof data.name === 'string' && data.name !== editingBrand.name)
     try {
       const url = editingBrand ? `${API_BASE_URL}/api/brands/${editingBrand.id}` : `${API_BASE_URL}/api/brands`
       const res = await authFetch(url, {
@@ -618,16 +634,39 @@ export function AdminPage() {
       setIsBrandModalOpen(false)
       setEditingBrand(null)
       loadBrands()
-    } catch (err) { alert(err instanceof Error ? err.message : 'Ошибка') }
+      if (renamed) {
+        toast('Название обновлено у всех товаров бренда', 'success')
+        loadProducts()
+      }
+    } catch (err) { toast(err instanceof Error ? err.message : 'Ошибка', 'error') }
   }
 
   const deleteBrand = async (brand: Brand) => {
-    if (!confirm(`Удалить бренд «${brand.name}»? Товары с этим названием останутся в каталоге.`)) return
+    if (!(await confirmDialog({ title: 'Удалить бренд?', message: `Удалить бренд «${brand.name}»?`, confirmLabel: 'Удалить' }))) return
     try {
       const res = await authFetch(`${API_BASE_URL}/api/brands/${brand.id}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error('Ошибка')
+      if (res.status === 409) {
+        // Бренд привязан к товарам — сервер объясняет, чем грозит удаление; спрашиваем ещё раз
+        const err = await res.json().catch(() => null)
+        const detail = typeof err?.detail === 'string' ? err.detail : `К бренду «${brand.name}» привязаны товары.`
+        if (!(await confirmDialog({ title: 'Бренд используется', message: `${detail}\n\nУдалить всё равно?`, confirmLabel: 'Удалить всё равно' }))) return
+        const forceRes = await authFetch(`${API_BASE_URL}/api/brands/${brand.id}?force=true`, { method: 'DELETE' })
+        if (!forceRes.ok) {
+          const forceErr = await forceRes.json().catch(() => null)
+          toast(typeof forceErr?.detail === 'string' ? forceErr.detail : 'Не удалось удалить бренд', 'error')
+          return
+        }
+        loadBrands()
+        loadProducts()
+        return
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => null)
+        toast(typeof err?.detail === 'string' ? err.detail : 'Не удалось удалить бренд', 'error')
+        return
+      }
       loadBrands()
-    } catch { alert('Не удалось удалить бренд') }
+    } catch { toast('Не удалось удалить бренд', 'error') }
   }
 
   // Trade-in actions
@@ -648,16 +687,16 @@ export function AdminPage() {
       setIsTradeInModalOpen(false)
       setEditingTradeInOffer(null)
       loadTradeInOffers()
-    } catch (err) { alert(err instanceof Error ? err.message : 'Ошибка') }
+    } catch (err) { toast(err instanceof Error ? err.message : 'Ошибка', 'error') }
   }
 
   const deleteTradeInOffer = async (offer: TradeInOffer) => {
-    if (!confirm(`Удалить «${offer.name}» из trade-in?`)) return
+    if (!(await confirmDialog({ title: 'Удалить позицию trade-in?', message: `«${offer.name}» пропадёт из калькулятора оценки.`, confirmLabel: 'Удалить' }))) return
     try {
       const res = await authFetch(`${API_BASE_URL}/api/trade-in/${offer.id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Ошибка')
       loadTradeInOffers()
-    } catch { alert('Не удалось удалить позицию trade-in') }
+    } catch { toast('Не удалось удалить позицию trade-in', 'error') }
   }
 
   // Weekly slides actions
@@ -1160,12 +1199,12 @@ export function AdminPage() {
         {/* ============ PRODUCT FIELDS TAB ============ */}
         {activeTab === 'fields' && (
           <>
-            <div className="mb-6"><h2 className="text-xl font-bold text-white">⚙️ Поля и варианты товара</h2><p className="mt-1 text-sm text-slate-400">Схема карточки и варианты создаваемой группы. Настраивается отдельно для каждой категории.</p></div>
+            <div className="mb-6"><h2 className="text-xl font-bold text-white">⚙️ Поля и варианты товара</h2><p className="mt-1 text-sm text-slate-400">Схема карточки и варианты создаваемой группы. Хранится в базе для каждой категории; у новой категории полей нет — их добавляют вручную или явно применяют готовый шаблон.</p></div>
             <div className="grid gap-3 lg:grid-cols-2">
               {categories.map(category => {
                 const fields = getCategoryProductFields(category)
                 const variants = fields.filter(field => field.is_variant)
-                return <div key={category.id} className="rounded-2xl border border-white/10 bg-white/5 p-5"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-white">{category.name}</h3><p className="mt-1 text-xs text-slate-500">{fields.length ? `${fields.length} полей · ${variants.length} в вариантах` : 'Схема ещё не настроена'}</p></div><button onClick={() => openCategorySettings(category, 'fields')} className="rounded-xl bg-yellow-400 px-3 py-2 text-xs font-semibold text-gray-900 hover:bg-yellow-300">Настроить</button></div><div className="mt-4 flex flex-wrap gap-1.5">{fields.length ? fields.map(field => <span key={field.key} className={`rounded-lg px-2 py-1 text-xs ${field.is_variant ? 'bg-yellow-400/15 text-yellow-300' : 'bg-white/10 text-slate-300'}`}>{field.label}{field.is_variant ? ' · вариант' : ''}</span>) : <span className="text-sm text-slate-500">Добавьте нужные характеристики — никаких предустановленных ОЗУ или процессоров.</span>}</div></div>
+                return <div key={category.id} className="rounded-2xl border border-white/10 bg-white/5 p-5"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-white">{category.name}</h3><p className="mt-1 text-xs text-slate-500">{fields.length ? `${fields.length} полей · ${variants.length} в вариантах` : 'Схема ещё не настроена'}</p></div><button onClick={() => openCategorySettings(category, 'fields')} className="rounded-xl bg-yellow-400 px-3 py-2 text-xs font-semibold text-gray-900 hover:bg-yellow-300">Настроить</button></div><div className="mt-4 flex flex-wrap gap-1.5">{fields.length ? fields.map(field => <span key={field.key} className={`rounded-lg px-2 py-1 text-xs ${field.is_variant ? 'bg-yellow-400/15 text-yellow-300' : 'bg-white/10 text-slate-300'}`}>{field.label}{field.is_variant ? ' · вариант' : ''}</span>) : <span className="text-sm text-slate-500">Полей пока нет. Нажмите «Настроить» — добавьте характеристики вручную или примените готовый шаблон.</span>}</div></div>
               })}
             </div>
           </>
@@ -1174,9 +1213,9 @@ export function AdminPage() {
         {/* ============ QUICK CATALOG MODELS TAB ============ */}
         {activeTab === 'quickfilters' && (
           <>
-            <div className="mb-6"><h2 className="text-xl font-bold text-white">⚡ Модели в каталоге</h2><p className="mt-1 text-sm text-slate-400">Кнопки над товарами: например, iPhone 16 или Galaxy S25. Стартовые наборы уже восстановлены — откройте категорию, чтобы изменить их порядок, поиск или бренд.</p></div>
+            <div className="mb-6"><h2 className="text-xl font-bold text-white">⚡ Модели в каталоге</h2><p className="mt-1 text-sm text-slate-400">Кнопки над товарами: например, iPhone 16 или Galaxy S25. Показывается ровно то, что сохранено у категории; пустой список скрывает кнопки в каталоге.</p></div>
             <div className="grid gap-3 lg:grid-cols-2">
-              {categories.map(category => { const filters = getCategoryQuickFilters(category); return <div key={category.id} className="rounded-2xl border border-white/10 bg-white/5 p-5"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-white">{category.name}</h3><p className="mt-1 text-xs text-slate-500">{filters.length ? `${filters.length} кнопок отображается` : 'Для этой категории пока нет готового набора'}</p></div><button onClick={() => openCategorySettings(category, 'filters')} className="rounded-xl bg-yellow-400 px-3 py-2 text-xs font-semibold text-gray-900 hover:bg-yellow-300">Настроить</button></div><div className="mt-4 flex flex-wrap gap-1.5">{filters.length ? filters.map((filter, index) => <span key={`${filter.label}-${index}`} className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white">{filter.label}</span>) : <span className="text-sm text-slate-500">Добавьте первую быструю модель для этой категории.</span>}</div></div> })}
+              {categories.map(category => { const filters = getCategoryQuickFilters(category); return <div key={category.id} className="rounded-2xl border border-white/10 bg-white/5 p-5"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-white">{category.name}</h3><p className="mt-1 text-xs text-slate-500">{filters.length ? `${filters.length} кнопок отображается` : 'Кнопки ещё не настроены'}</p></div><button onClick={() => openCategorySettings(category, 'filters')} className="rounded-xl bg-yellow-400 px-3 py-2 text-xs font-semibold text-gray-900 hover:bg-yellow-300">Настроить</button></div><div className="mt-4 flex flex-wrap gap-1.5">{filters.length ? filters.map((filter, index) => <span key={`${filter.label}-${index}`} className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white">{filter.label}</span>) : <span className="text-sm text-slate-500">Добавьте первую быструю модель для этой категории.</span>}</div></div> })}
             </div>
           </>
         )}
@@ -1211,7 +1250,7 @@ export function AdminPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {categories.map(category => {
+                {categories.map((category, catIdx) => {
                   const productCount = products.filter(p => p.category_id === category.id).length
                   return (
                     <div key={category.id} className="group rounded-2xl bg-white/5 hover:bg-white/[0.08] transition-colors overflow-hidden">
@@ -1247,6 +1286,22 @@ export function AdminPage() {
 
                         {/* Actions */}
                         <div className="flex flex-shrink-0 flex-wrap justify-end gap-2">
+                          <button
+                            onClick={() => moveCategory(category, -1)}
+                            disabled={catIdx === 0}
+                            className="rounded-xl bg-white/10 px-2.5 py-2 text-sm text-white hover:bg-white/20 disabled:opacity-30 transition-colors"
+                            title="Выше"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            onClick={() => moveCategory(category, 1)}
+                            disabled={catIdx === categories.length - 1}
+                            className="rounded-xl bg-white/10 px-2.5 py-2 text-sm text-white hover:bg-white/20 disabled:opacity-30 transition-colors"
+                            title="Ниже"
+                          >
+                            ↓
+                          </button>
                           <button
                             onClick={() => openCategorySettings(category)}
                             className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20 transition-colors"
@@ -1369,7 +1424,10 @@ export function AdminPage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-semibold text-white">{brand.name}</div>
-                      <div className="text-xs text-slate-500">/{brand.slug}</div>
+                      <div className="text-xs text-slate-500">
+                        /{brand.slug}
+                        {typeof brand.products_count === 'number' && <span className="text-slate-400"> · {brand.products_count} товар(ов)</span>}
+                      </div>
                       {!brand.is_active && <span className="text-xs text-red-400">Скрыт</span>}
                     </div>
                     <div className="flex gap-1">
@@ -1525,17 +1583,6 @@ export function AdminPage() {
         />
       )}
 
-      {/* ============ CATEGORY MODAL ============ */}
-      {isCategoryModalOpen && (
-        <CategoryModal
-          category={editingCategory}
-          brands={brands}
-          initialSection={categorySettingsSection}
-          onSave={saveCategory}
-          onClose={() => { setIsCategoryModalOpen(false); setEditingCategory(null); setCategorySettingsSection(null) }}
-        />
-      )}
-
       {/* ============ GROUP CREATION MODAL ============ */}
       {isGroupModalOpen && (
         <GroupCreationModal
@@ -1543,7 +1590,26 @@ export function AdminPage() {
           brands={brands}
           onClose={() => setIsGroupModalOpen(false)}
           onCreated={() => { setIsGroupModalOpen(false); loadProducts() }}
+          onConfigureCategory={cat => openCategorySettings(cat, 'fields')}
           authFetch={authFetch}
+        />
+      )}
+
+      {/* ============ CATEGORY MODAL ============ */}
+      {/* Рендерится ПОСЛЕ мастера группы: при открытии «Настроить категорию» из мастера
+          модалка категории должна оказаться поверх него */}
+      {isCategoryModalOpen && (
+        <CategoryModal
+          category={editingCategory}
+          brands={brands}
+          categories={categories}
+          initialSection={categorySettingsSection}
+          fieldPresets={fieldPresets}
+          onLoadPresets={loadFieldPresets}
+          authFetch={authFetch}
+          onRefresh={loadCategories}
+          onSave={saveCategory}
+          onClose={() => { setIsCategoryModalOpen(false); setEditingCategory(null); setCategorySettingsSection(null) }}
         />
       )}
 
@@ -1569,6 +1635,8 @@ export function AdminPage() {
       {isBrandModalOpen && (
         <BrandModal
           brand={editingBrand}
+          authFetch={authFetch}
+          onRefresh={loadBrands}
           onSave={saveBrand}
           onClose={() => { setIsBrandModalOpen(false); setEditingBrand(null) }}
         />
@@ -3808,11 +3876,16 @@ function SlideModal({
 // ============ CATEGORY MODAL COMPONENT ============
 
 function CategoryModal({
-  category, brands, initialSection, onSave, onClose
+  category, brands, categories, initialSection, fieldPresets, onLoadPresets, authFetch, onRefresh, onSave, onClose
 }: {
   category: Category | null
   brands: Brand[]
+  categories: Category[]
   initialSection: Exclude<CategorySettingsSection, null> | null
+  fieldPresets: FieldPreset[] | null
+  onLoadPresets: () => void
+  authFetch: AuthFetchFn
+  onRefresh: () => void
   onSave: (data: Record<string, unknown>) => void
   onClose: () => void
 }) {
@@ -3832,6 +3905,79 @@ function CategoryModal({
     key: '', label: '', field_type: 'text', placeholder: '', options: [], hint: '', is_required: false, is_variant: false,
   })
   const [editingProductFieldKey, setEditingProductFieldKey] = useState<string | null>(null)
+
+  // ── Шаблоны и копирование схемы ──
+  const [selectedPresetId, setSelectedPresetId] = useState('')
+  const [addPresetFilters, setAddPresetFilters] = useState(false)
+  const [copySourceId, setCopySourceId] = useState('')
+  const [starterOpen, setStarterOpen] = useState(false)
+
+  // ── Загрузка картинки категории ──
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const imageInputRef = useRef<HTMLInputElement>(null)
+
+  // Пресеты нужны в секции полей и при создании категории — грузим лениво при открытии
+  useEffect(() => { onLoadPresets() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selectedPreset = (fieldPresets ?? []).find(p => p.id === selectedPresetId)
+  // «Скопировать из категории» — только категории с реально настроенной схемой
+  const copySources = categories.filter(c => c.id !== category?.id && Array.isArray(c.product_fields) && c.product_fields.length > 0)
+
+  const applyPreset = async () => {
+    if (!selectedPreset) return
+    if (productFields.length > 0 && !(await confirmDialog({
+      title: 'Заменить поля шаблоном?',
+      message: 'Текущие поля в редакторе будут заменены. Изменения применятся только после кнопки «Сохранить».',
+      confirmLabel: 'Заменить',
+      danger: false,
+    }))) return
+    setProductFields(selectedPreset.product_fields.map(normalizePresetField))
+    if (addPresetFilters && (selectedPreset.quick_filters?.length ?? 0) > 0 && quickFilters.length === 0) {
+      setQuickFilters((selectedPreset.quick_filters ?? []).map(f => ({ label: f.label, query: f.query, brand: f.brand ?? null })))
+    }
+    toast(`Шаблон «${selectedPreset.label}» применён — проверьте поля и нажмите «Сохранить»`, 'info')
+  }
+
+  const copyFromCategory = async () => {
+    const source = copySources.find(c => c.id === copySourceId)
+    const sourceFields = getCategoryProductFields(source)
+    if (!source || sourceFields.length === 0) return
+    if (productFields.length > 0 && !(await confirmDialog({
+      title: 'Заменить поля копией?',
+      message: `Текущие поля в редакторе будут заменены схемой категории «${source.name}». Изменения применятся только после кнопки «Сохранить».`,
+      confirmLabel: 'Заменить',
+      danger: false,
+    }))) return
+    setProductFields(sourceFields.map(field => ({ ...field, options: [...(field.options ?? [])] })))
+    toast(`Схема скопирована из «${source.name}» — не забудьте сохранить`, 'info')
+  }
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !category) return
+    setUploadingImage(true)
+    try {
+      const compressed = await compressImageForUpload(file)
+      const fd = new FormData()
+      fd.append('file', compressed)
+      const res = await authFetch(`${API_BASE_URL}/api/categories/${category.id}/image`, { method: 'POST', body: fd })
+      if (!res.ok) {
+        const err = await res.json().catch(() => null)
+        throw new Error(typeof err?.detail === 'string' ? err.detail : 'Не удалось загрузить изображение')
+      }
+      const updated = await res.json().catch(() => null)
+      if (typeof updated?.image_url === 'string' && updated.image_url) {
+        setFormData(prev => ({ ...prev, image_url: updated.image_url }))
+      }
+      onRefresh() // обновляем превью в списке категорий
+      toast('Изображение категории обновлено', 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Ошибка загрузки изображения', 'error')
+    } finally {
+      setUploadingImage(false)
+      if (imageInputRef.current) imageInputRef.current.value = ''
+    }
+  }
 
   const generateSlug = (name: string) => {
     const map: Record<string, string> = {
@@ -3913,6 +4059,76 @@ function CategoryModal({
     onSave(payload)
   }
 
+  // Блок «Начать с шаблона»: применяет пресет/копию схемы в ЛОКАЛЬНЫЙ редактор
+  // (ничего не автосохраняет). Развёрнут, когда полей нет; при заполненной схеме —
+  // свёрнут, чтобы не мешать.
+  const starterExpanded = productFields.length === 0 || starterOpen
+  const templateStarter = (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-white">🧩 Начать с шаблона</div>
+          <p className="mt-0.5 text-xs text-slate-500">Готовый набор полей заполнит редактор — сохранится только после кнопки «{category ? 'Сохранить' : 'Создать'}».</p>
+        </div>
+        {productFields.length > 0 && (
+          <button type="button" onClick={() => setStarterOpen(open => !open)} className="flex-shrink-0 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-white/20">
+            {starterExpanded ? 'Свернуть' : 'Развернуть'}
+          </button>
+        )}
+      </div>
+      {starterExpanded && (
+        <div className="mt-3 space-y-3">
+          {fieldPresets === null ? (
+            <div className="text-xs text-slate-500">⏳ Загружаем шаблоны…</div>
+          ) : fieldPresets.length === 0 ? (
+            <div className="text-xs text-slate-500">Шаблоны недоступны — добавьте поля вручную.</div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={selectedPresetId}
+                  onChange={e => { setSelectedPresetId(e.target.value); setAddPresetFilters(false) }}
+                  className="min-w-0 flex-1 rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white focus:bg-white/15 focus:outline-none"
+                >
+                  <option value="">Выберите шаблон…</option>
+                  {fieldPresets.map(preset => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
+                </select>
+                <button type="button" onClick={applyPreset} disabled={!selectedPreset} className="flex-shrink-0 rounded-xl bg-yellow-400/20 px-4 py-2.5 text-sm font-medium text-yellow-300 hover:bg-yellow-400/30 disabled:opacity-40 transition-colors">
+                  Применить
+                </button>
+              </div>
+              {selectedPreset?.description && <p className="text-xs text-slate-500">{selectedPreset.description}</p>}
+              {selectedPreset && (selectedPreset.quick_filters?.length ?? 0) > 0 && quickFilters.length === 0 && (
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300">
+                  <input type="checkbox" checked={addPresetFilters} onChange={e => setAddPresetFilters(e.target.checked)} className="accent-yellow-400" />
+                  Добавить и модели каталога из шаблона ({selectedPreset.quick_filters?.length})
+                </label>
+              )}
+            </>
+          )}
+          {copySources.length > 0 && (
+            <div className="border-t border-white/10 pt-3">
+              <div className="mb-1.5 text-xs font-semibold text-slate-400">Скопировать из категории</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={copySourceId}
+                  onChange={e => setCopySourceId(e.target.value)}
+                  className="min-w-0 flex-1 rounded-xl bg-white/10 px-3 py-2.5 text-sm text-white focus:bg-white/15 focus:outline-none"
+                >
+                  <option value="">Выберите категорию…</option>
+                  {copySources.map(source => <option key={source.id} value={source.id}>{source.name} ({getCategoryProductFields(source).length} полей)</option>)}
+                </select>
+                <button type="button" onClick={copyFromCategory} disabled={!copySourceId} className="flex-shrink-0 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-medium text-slate-200 hover:bg-white/20 disabled:opacity-40 transition-colors">
+                  Скопировать
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
       <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl bg-slate-800 p-6 sm:p-8" onClick={e => e.stopPropagation()}>
@@ -3926,13 +4142,6 @@ function CategoryModal({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {initialSection === null && (<>
-          {/* Preview */}
-          {formData.image_url && (
-            <div className="flex justify-center rounded-2xl bg-white/5 p-4">
-              <img src={formData.image_url} alt="" className="h-20 w-20 rounded-xl object-cover" onError={(e) => { (e.target as HTMLElement).style.display = 'none' }} />
-            </div>
-          )}
-
           {/* Name + Slug row */}
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
@@ -3966,14 +4175,40 @@ function CategoryModal({
             </div>
           </div>
 
+          {/* Изображение категории: превью + загрузка файла (для существующей) + URL как запасной вариант */}
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-400 uppercase tracking-wider">URL изображения</label>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-400 uppercase tracking-wider">Изображение</label>
+            <div className="flex items-center gap-3 rounded-xl bg-white/5 p-3">
+              <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/10">
+                {formData.image_url
+                  ? <img src={getImageUrl(formData.image_url)} alt="" className="h-full w-full object-cover" onError={(e) => { (e.target as HTMLElement).style.display = 'none' }} />
+                  : <span className="text-2xl">📁</span>}
+              </div>
+              <div className="min-w-0 flex-1">
+                {category ? (
+                  <>
+                    <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={uploadingImage} />
+                    <button
+                      type="button"
+                      onClick={() => imageInputRef.current?.click()}
+                      disabled={uploadingImage}
+                      className="rounded-xl bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/20 disabled:opacity-50 transition-colors"
+                    >
+                      {uploadingImage ? '⏳ Загружаю…' : '📸 Загрузить файл'}
+                    </button>
+                    <p className="mt-1 text-[11px] text-slate-500">Файл сожмётся и загрузится сразу — либо укажите URL ниже.</p>
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-500">Сохраните категорию, затем загрузите фото файлом. Пока можно указать URL ниже.</p>
+                )}
+              </div>
+            </div>
             <input
               type="text"
               value={formData.image_url}
               onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-              placeholder="https://example.com/image.png"
-              className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none focus:ring-1 focus:ring-yellow-400/50"
+              placeholder="https://example.com/image.png (запасной вариант)"
+              className="mt-2 w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none focus:ring-1 focus:ring-yellow-400/50"
             />
           </div>
 
@@ -3995,6 +4230,31 @@ function CategoryModal({
               <div className="text-xs text-slate-400">Категория видна на сайте</div>
             </div>
           </label>
+
+          {/* При создании категории поля пустые — предлагаем стартовать с шаблона.
+              Полный редактор полей живёт в секции «Поля и варианты» после сохранения. */}
+          {!category && (
+            <>
+              {templateStarter}
+              {productFields.length > 0 && (
+                <div className="rounded-xl bg-white/5 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-slate-400">Будет создано полей: {productFields.length}</span>
+                    <button type="button" onClick={() => { setProductFields([]); setQuickFilters([]) }} className="text-xs text-red-400 hover:text-red-300">Очистить</button>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {productFields.map(field => (
+                      <span key={field.key} className={`rounded-lg px-2 py-1 text-xs ${field.is_variant ? 'bg-yellow-400/15 text-yellow-300' : 'bg-white/10 text-slate-300'}`}>
+                        {field.label}{field.is_variant ? ' · вариант' : ''}
+                      </span>
+                    ))}
+                  </div>
+                  {quickFilters.length > 0 && <p className="mt-2 text-[11px] text-slate-500">+ {quickFilters.length} моделей каталога из шаблона</p>}
+                  <p className="mt-2 text-[11px] text-slate-500">Отредактировать схему можно после создания — вкладка «Поля и варианты».</p>
+                </div>
+              )}
+            </>
+          )}
           </>)}
 
           {/* Quick Filters */}
@@ -4051,7 +4311,9 @@ function CategoryModal({
           </div>)}
 
           {/* Category-specific product fields */}
-          {initialSection === 'fields' && (<div className="rounded-2xl border border-yellow-400/15 bg-yellow-400/[0.03] p-4">
+          {initialSection === 'fields' && (<>
+          {templateStarter}
+          <div className="rounded-2xl border border-yellow-400/15 bg-yellow-400/[0.03] p-4">
             <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Конструктор карточки товара</label>
             <p className="mb-3 text-xs text-slate-500">Добавляйте только характеристики этой категории. Поля с отметкой «Использовать в вариантах» попадут в создание группы; остальные будут общими для всех её товаров. Так у моноблоков не появятся поля от телефонов, а у очков — ОЗУ, если вы его не добавите.</p>
             {productFields.length > 0 && (
@@ -4095,7 +4357,8 @@ function CategoryModal({
             </div>
             <div className="mt-2 flex flex-wrap gap-4 text-xs text-slate-300"><label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={newField.is_required} onChange={e => setNewField(prev => ({ ...prev, is_required: e.target.checked }))} className="accent-yellow-400" />Обязательное</label><label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={newField.is_variant} onChange={e => setNewField(prev => ({ ...prev, is_variant: e.target.checked }))} className="accent-yellow-400" />Использовать в вариантах</label></div>
             <button type="button" onClick={addProductField} className="mt-3 rounded-xl bg-white/10 px-4 py-2 text-sm font-medium text-yellow-300 hover:bg-white/15">+ Добавить поле</button>
-          </div>)}
+          </div>
+          </>)}
 
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 rounded-xl bg-white/10 py-3 font-medium text-white hover:bg-white/20 transition-colors">Отмена</button>
@@ -4109,14 +4372,43 @@ function CategoryModal({
   )
 }
 
-function BrandModal({ brand, onSave, onClose }: {
+function BrandModal({ brand, authFetch, onRefresh, onSave, onClose }: {
   brand: Brand | null
+  authFetch: AuthFetchFn
+  onRefresh: () => void
   onSave: (data: Record<string, unknown>) => void
   onClose: () => void
 }) {
   const [name, setName] = useState(brand?.name || '')
   const [logoUrl, setLogoUrl] = useState(brand?.logo_url || '')
   const [isActive, setIsActive] = useState(brand?.is_active ?? true)
+  const [uploadingLogo, setUploadingLogo] = useState(false)
+  const logoInputRef = useRef<HTMLInputElement>(null)
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !brand) return
+    setUploadingLogo(true)
+    try {
+      const compressed = await compressImageForUpload(file, 600)
+      const fd = new FormData()
+      fd.append('file', compressed)
+      const res = await authFetch(`${API_BASE_URL}/api/brands/${brand.id}/logo`, { method: 'POST', body: fd })
+      if (!res.ok) {
+        const err = await res.json().catch(() => null)
+        throw new Error(typeof err?.detail === 'string' ? err.detail : 'Не удалось загрузить логотип')
+      }
+      const updated = await res.json().catch(() => null)
+      if (typeof updated?.logo_url === 'string' && updated.logo_url) setLogoUrl(updated.logo_url)
+      onRefresh() // обновляем логотип в таблице брендов
+      toast('Логотип обновлён', 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Ошибка загрузки логотипа', 'error')
+    } finally {
+      setUploadingLogo(false)
+      if (logoInputRef.current) logoInputRef.current.value = ''
+    }
+  }
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -4128,8 +4420,37 @@ function BrandModal({ brand, onSave, onClose }: {
       <div className="w-full max-w-md rounded-3xl bg-slate-800 p-6 sm:p-8" onClick={e => e.stopPropagation()}>
         <div className="mb-6 flex items-start justify-between"><div><h2 className="text-xl font-bold text-white">{brand ? 'Редактировать бренд' : 'Новый бренд'}</h2><p className="mt-1 text-sm text-slate-400">Бренд появится в выборе товара и быстрых тегах.</p></div><button onClick={onClose} className="text-2xl text-slate-400 hover:text-white">×</button></div>
         <form onSubmit={submit} className="space-y-4">
-          <div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Название *</label><input required value={name} onChange={e => setName(e.target.value)} placeholder="Apple" className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" /></div>
-          <div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">URL логотипа</label><input value={logoUrl} onChange={e => setLogoUrl(e.target.value)} placeholder="https://…" className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" /></div>
+          <div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Название *</label><input required value={name} onChange={e => setName(e.target.value)} placeholder="Apple" className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" />
+            {brand && name.trim() !== brand.name && <p className="mt-1 text-[11px] text-yellow-300/80">После сохранения название обновится у всех товаров бренда.</p>}
+          </div>
+          {/* Логотип: превью + загрузка файла (для сохранённого бренда) + URL как запасной вариант */}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Логотип</label>
+            <div className="flex items-center gap-3 rounded-xl bg-white/5 p-3">
+              <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/10 text-xl">
+                {logoUrl ? <img src={getImageUrl(logoUrl)} alt="" className="h-full w-full object-contain p-1" onError={(e) => { (e.target as HTMLElement).style.display = 'none' }} /> : '🏷️'}
+              </div>
+              <div className="min-w-0 flex-1">
+                {brand ? (
+                  <>
+                    <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} disabled={uploadingLogo} />
+                    <button
+                      type="button"
+                      onClick={() => logoInputRef.current?.click()}
+                      disabled={uploadingLogo}
+                      className="rounded-xl bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/20 disabled:opacity-50 transition-colors"
+                    >
+                      {uploadingLogo ? '⏳ Загружаю…' : '📸 Загрузить файл'}
+                    </button>
+                    <p className="mt-1 text-[11px] text-slate-500">Логотип загрузится сразу — либо укажите URL ниже.</p>
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-500">Сохраните бренд, затем загрузите логотип файлом. Пока можно указать URL ниже.</p>
+                )}
+              </div>
+            </div>
+            <input value={logoUrl} onChange={e => setLogoUrl(e.target.value)} placeholder="https://… (запасной вариант)" className="mt-2 w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" />
+          </div>
           <label className="flex cursor-pointer items-center gap-3 rounded-xl bg-white/5 p-3"><input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="h-5 w-5 accent-yellow-400" /><span className="text-sm text-white">Бренд активен</span></label>
           <div className="flex gap-3 pt-2"><button type="button" onClick={onClose} className="flex-1 rounded-xl bg-white/10 py-3 font-medium text-white hover:bg-white/20">Отмена</button><button className="flex-1 rounded-xl bg-yellow-400 py-3 font-bold text-gray-900 hover:bg-yellow-300">Сохранить</button></div>
         </form>
@@ -4203,12 +4524,13 @@ interface CreatedProduct {
 }
 
 function GroupCreationModal({
-  categories, brands, onClose, onCreated, authFetch
+  categories, brands, onClose, onCreated, onConfigureCategory, authFetch
 }: {
   categories: Category[]
   brands: Brand[]
   onClose: () => void
   onCreated: () => void
+  onConfigureCategory?: (category: Category) => void
   authFetch: AuthFetchFn
 }) {
   // ── Step tracking ──
@@ -4323,7 +4645,7 @@ function GroupCreationModal({
         : sharedFieldValues[field.key] === undefined || sharedFieldValues[field.key] === '')
     )
     if (missingRequired) {
-      alert(`Заполните обязательное поле «${missingRequired.label}»`)
+      toast(`Заполните обязательное поле «${missingRequired.label}»`, 'error')
       return
     }
     const toCreate = matrix.filter(m => m.enabled)
@@ -4332,6 +4654,8 @@ function GroupCreationModal({
     setCreatedCount(0)
 
     const created: CreatedProduct[] = []
+    // Упавшие строки не глотаем молча — собираем и показываем итог тостом
+    const failures: string[] = []
 
     try {
       for (let i = 0; i < toCreate.length; i++) {
@@ -4339,7 +4663,7 @@ function GroupCreationModal({
         setProgress(`${i + 1}/${toCreate.length} — ${item.name}`)
 
         const price = parseFloat(item.price) || 0
-        if (price <= 0) continue
+        if (price <= 0) { failures.push(`${item.name} (не указана цена)`); continue }
 
         const payload: Record<string, unknown> = {
           name: item.name, price,
@@ -4364,7 +4688,19 @@ function GroupCreationModal({
         } else {
           const err = await res.json().catch(() => ({}))
           console.error(`Не удалось создать "${item.name}":`, err)
+          failures.push(item.name)
         }
+      }
+
+      if (created.length === 0) {
+        toast('Не удалось создать ни одного товара — проверьте цены и данные строк', 'error', 6000)
+        setCreating(false)
+        setProgress('')
+        return // остаёмся на шаге настройки, введённое не теряем
+      }
+
+      if (failures.length > 0) {
+        toast(`Создано ${created.length} из ${toCreate.length}. Не создались: ${failures.join(', ')}`, 'error', 8000)
       }
 
       if (created.length >= 2) {
@@ -4529,7 +4865,7 @@ function GroupCreationModal({
                       <option value="">—</option>
                       {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
                     </select>
-                    {selectedCat && (
+                    {selectedCat && selectedCategoryFields.length > 0 && (
                       <p className="mt-1 text-[10px] text-green-400">
                         {`Схема категории: ${selectedCategoryFields.length} полей, ${axesDef.length} в вариантах`}
                       </p>
@@ -4558,6 +4894,29 @@ function GroupCreationModal({
                 </div>
               </div>
 
+              {/* У категории нет схемы полей — честно предупреждаем и ведём в настройку.
+                  Создать одиночный товар без осей при этом можно. */}
+              {selectedCat && selectedCategoryFields.length === 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-orange-400/30 bg-orange-400/10 p-4">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className="text-xl">⚠️</span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-orange-200">У категории «{selectedCat.name}» не настроены поля и варианты</div>
+                      <p className="mt-0.5 text-xs text-orange-200/70">Осей (цвет, память и т.п.) не будет — создастся один товар. Настройте схему категории, и варианты появятся прямо здесь.</p>
+                    </div>
+                  </div>
+                  {onConfigureCategory && (
+                    <button
+                      type="button"
+                      onClick={() => onConfigureCategory(selectedCat)}
+                      className="flex-shrink-0 rounded-xl bg-orange-400/20 px-4 py-2 text-sm font-semibold text-orange-200 hover:bg-orange-400/30 transition-colors"
+                    >
+                      ⚙️ Настроить категорию
+                    </button>
+                  )}
+                </div>
+              )}
+
               {sharedFields.length > 0 && (
                 <div className="space-y-3">
                   <div><h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Общие характеристики</h3><p className="mt-1 text-[10px] text-slate-600">Эти значения применятся ко всем товарам создаваемой группы.</p></div>
@@ -4578,6 +4937,9 @@ function GroupCreationModal({
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Варианты</h3>
                   {selectedCat && <span className="text-[10px] text-slate-600">{selectedCat.name}</span>}
                 </div>
+                {axesDef.length === 0 && (
+                  <p className="text-xs text-slate-500">Осей вариантов нет — будет создан один товар с базовым названием и ценой.</p>
+                )}
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {axesDef.map(axisDef => {
                     const vals = axisValues[axisDef.key] || []

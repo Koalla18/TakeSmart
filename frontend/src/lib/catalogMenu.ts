@@ -10,6 +10,7 @@ export interface MenuCategory {
   id: string
   name: string
   slug: string
+  image_url: string | null
 }
 
 export interface MenuBrand {
@@ -26,7 +27,7 @@ export async function fetchMenuCategories(): Promise<MenuCategory[]> {
     const list = Array.isArray(data) ? data : (data.items ?? [])
     return list
       .filter((c: any) => !String(c.name).toLowerCase().includes('б/у'))
-      .map((c: any) => ({ id: c.id, name: c.name, slug: c.slug }))
+      .map((c: any) => ({ id: c.id, name: c.name, slug: c.slug, image_url: c.image_url ?? null }))
   } catch {
     return []
   }
@@ -182,6 +183,7 @@ export async function fetchCategoryBrandGroups(categoryId: string): Promise<Menu
   }
 }
 
+// Локальный фолбэк, пока справочник брендов не загружен (или бренда нет в API).
 const BRAND_LOGOS: Record<string, string> = {
   apple: '/logos/apple.svg',
   samsung: '/logos/samsung.svg',
@@ -197,9 +199,44 @@ const BRAND_LOGOS: Record<string, string> = {
   yandex: '/logos/yandex.svg',
 }
 
-/** Путь к логотипу бренда или null (тогда показываем текст). */
+// ─────────────────────────────────────────────────────────────────────────────
+// Справочник брендов из API (логотипы загружаются админом, приходят как
+// /api/media?key=...). Грузим один раз на сессию, кэшируем на уровне модуля.
+// ─────────────────────────────────────────────────────────────────────────────
+let brandLogosByName: Map<string, string> | null = null
+let brandsDirectoryPromise: Promise<Map<string, string>> | null = null
+
+/** Карта lower(name) → logo_url из публичного GET /api/brands. Один запрос на сессию. */
+export function fetchBrandsDirectory(): Promise<Map<string, string>> {
+  if (!brandsDirectoryPromise) {
+    brandsDirectoryPromise = (async () => {
+      const map = new Map<string, string>()
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/brands?limit=100`)
+        if (res.ok) {
+          const data = await res.json()
+          // Бэк отдаёт плоский список; на случай смены формы поддерживаем и {items:[...]}
+          const list = Array.isArray(data) ? data : (data.items ?? [])
+          for (const b of list) {
+            const name = String(b?.name ?? '').trim().toLowerCase()
+            const logo = typeof b?.logo_url === 'string' ? b.logo_url.trim() : ''
+            if (name && logo) map.set(name, logo)
+          }
+        }
+      } catch {
+        /* офлайн/ошибка сети — остаёмся на локальном фолбэке */
+      }
+      brandLogosByName = map
+      return map
+    })()
+  }
+  return brandsDirectoryPromise
+}
+
+/** Путь к логотипу бренда: справочник API → локальный фолбэк → null (тогда показываем текст). */
 export function brandLogo(name: string): string | null {
-  return BRAND_LOGOS[name.trim().toLowerCase()] ?? null
+  const key = name.trim().toLowerCase()
+  return brandLogosByName?.get(key) ?? BRAND_LOGOS[key] ?? null
 }
 
 /** Эмодзи-иконка категории по названию (для меню). */

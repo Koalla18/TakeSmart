@@ -12,6 +12,7 @@ import { GlobalSearch, MobileSearchButton } from './GlobalSearch'
 import {
   fetchMenuCategories,
   fetchCategoryBrandGroups,
+  fetchBrandsDirectory,
   brandLogo,
   type MenuCategory,
   type MenuBrandGroup,
@@ -94,10 +95,39 @@ function CategoryIcon({ name, className = 'h-5 w-5' }: { name: string; className
   return <SmartphoneIcon className={className} />
 }
 
-// Логотип бренда (из /logos/*.svg), при отсутствии/ошибке — текст названия.
+// Картинка категории из админки (image_url); фолбэк — SVG-иконка по названию.
+function CategoryVisual({ name, imageUrl, className = 'h-5 w-5' }: { name: string; imageUrl?: string | null; className?: string }) {
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [imageUrl])
+  if (imageUrl && !failed) {
+    return (
+      <img
+        src={imageUrl}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        className={`${className} rounded-md object-cover`}
+        onError={() => setFailed(true)}
+      />
+    )
+  }
+  return <CategoryIcon name={name} className={className} />
+}
+
+// Логотип бренда: справочник API (logo_url) → локальный /logos/*.svg,
+// при отсутствии/ошибке — текст названия.
 function BrandLogo({ name, className = 'h-5 w-auto max-w-[92px]' }: { name: string; className?: string }) {
+  // Догружаем справочник брендов один раз; после загрузки перерисовываемся,
+  // чтобы brandLogo() увидел логотипы из API.
+  const [, setDirectoryReady] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    fetchBrandsDirectory().then(() => { if (!cancelled) setDirectoryReady(true) })
+    return () => { cancelled = true }
+  }, [])
   const logo = brandLogo(name)
   const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [logo])
   if (!logo || failed) return <span className="text-sm font-bold text-gray-900">{name}</span>
   return (
     <img
@@ -231,7 +261,7 @@ function CatalogMegaMenu() {
                         }`}
                       >
                         <span className="flex items-center gap-2.5 truncate">
-                          <CategoryIcon name={cat.name} className={`h-5 w-5 flex-shrink-0 ${isActive ? 'text-yellow-600' : 'text-gray-400'}`} />
+                          <CategoryVisual name={cat.name} imageUrl={cat.image_url} className={`h-5 w-5 flex-shrink-0 ${isActive ? 'text-yellow-600' : 'text-gray-400'}`} />
                           <span className="truncate">{cat.name}</span>
                         </span>
                         <ChevronRightIcon className={`h-4 w-4 flex-shrink-0 transition-colors ${isActive ? 'text-yellow-500' : 'text-gray-300 group-hover:text-gray-400'}`} />
@@ -474,7 +504,7 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                         onClick={() => openCategory(cat)}
                         className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-base font-medium text-gray-700 transition-colors hover:bg-gray-50"
                       >
-                        <CategoryIcon name={cat.name} className="h-5 w-5 flex-shrink-0 text-gray-400" />
+                        <CategoryVisual name={cat.name} imageUrl={cat.image_url} className="h-5 w-5 flex-shrink-0 text-gray-400" />
                         <span className="flex-1 truncate">{cat.name}</span>
                         <ChevronRightIcon className="h-4 w-4 flex-shrink-0 text-gray-300" />
                       </button>
