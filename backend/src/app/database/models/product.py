@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Optional
 
-from sqlalchemy import String, Text, Boolean, Numeric, Integer, ForeignKey, func, Index
+from sqlalchemy import String, Text, Boolean, DateTime, Numeric, Integer, ForeignKey, func, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,6 +44,10 @@ class Product(Base):
     # Цена и скидка
     price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     discount_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    price_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="Когда сотрудник последний раз подтверждал/менял цену",
+    )
 
     # Склад
     stock_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

@@ -31,6 +31,45 @@ setup_logging()
 logger = get_logger(__name__)
 
 
+def _build_cors_origins() -> list[str]:
+    """Собирает белый список origin'ов для CORS.
+
+    Источники: settings.ALLOWED_ORIGINS (CSV), settings.PUBLIC_SITE_URL
+    (+ его www-вариант) и dev-дефолты для локальной разработки.
+    В проде фронт ходит через same-origin nginx-прокси, поэтому явный
+    список ничего не ломает — в отличие от wildcard с credentials.
+    """
+    origins: list[str] = []
+
+    def add(origin: str) -> None:
+        origin = origin.strip().rstrip("/")
+        if origin and origin not in origins:
+            origins.append(origin)
+
+    # 1. Явный CSV-список из настроек
+    for raw in settings.ALLOWED_ORIGINS.split(","):
+        add(raw)
+
+    # 2. Публичный сайт и его www-вариант
+    site = settings.PUBLIC_SITE_URL.strip().rstrip("/")
+    if site:
+        add(site)
+        scheme, sep, host = site.partition("://")
+        if sep and not host.startswith("www."):
+            add(f"{scheme}://www.{host}")
+
+    # 3. Dev-дефолты (Vite / CRA)
+    for dev_origin in (
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+    ):
+        add(dev_origin)
+
+    return origins
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("app_starting", env="debug" if settings.APP_DEBUG else "production")
@@ -133,9 +172,11 @@ def create_app() -> FastAPI:
     #  Middleware                                                          #
     # ------------------------------------------------------------------ #
     app.add_middleware(LoggingMiddleware)
+    cors_origins = _build_cors_origins()
+    logger.info("cors_configured", origins=cors_origins)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     PRODUCTS_IMAGES_DIR: str = "products"
     CATEGORIES_IMAGES_DIR: str = "categories"
     SLIDES_IMAGES_DIR: str = "slides"
+    BRANDS_IMAGES_DIR: str = "brands"
 
     # Telegram notifications
     TELEGRAM_BOT_TOKEN: str = ""

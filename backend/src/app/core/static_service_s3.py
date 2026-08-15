@@ -89,6 +89,15 @@ class StaticFileService:
         logger.info("slide_image_saved_s3", slide_id=str(slide_id), key=key, size=len(content))
         return key, len(content)
 
+    async def save_brand_image(
+        self, file: UploadFile, brand_id: uuid.UUID,
+    ) -> tuple[str, int]:
+        content = await self._validate_and_read(file)
+        key = self._make_key(settings.BRANDS_IMAGES_DIR, str(brand_id), file.filename or "")
+        self._upload(key, content, file.content_type or "image/jpeg")
+        logger.info("brand_image_saved_s3", brand_id=str(brand_id), key=key, size=len(content))
+        return key, len(content)
+
     async def delete_file(self, key: str) -> bool:
         try:
             self.client.delete_object(Bucket=settings.S3_BUCKET_NAME, Key=key)

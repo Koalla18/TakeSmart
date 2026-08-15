@@ -23,7 +23,7 @@ async def list_hero_banners() -> list[HeroBannerOut]:
     return list(banners)
 
 
-@router.get("/all", response_model=list[HeroBannerOut], summary="Все баннеры (для админки)")
+@router.get("/all", response_model=list[HeroBannerOut], summary="Все баннеры (для админки)", dependencies=[Depends(get_current_admin)])
 async def list_all_hero_banners() -> list[HeroBannerOut]:
     async with UnitOfWork() as uow:
         banners = await uow.hero_banners.get_all_sorted(limit=100)

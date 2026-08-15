@@ -109,6 +109,10 @@ class ProductOut(BaseModel):
     short_description: Optional[str]
     price: Decimal
     discount_price: Optional[Decimal]
+    price_updated_at: Optional[datetime] = Field(
+        None,
+        description="Когда сотрудник последний раз подтверждал/менял цену",
+    )
     stock_quantity: int
     sku: Optional[str]
     brand: Optional[str]
@@ -139,6 +143,36 @@ class ProductOut(BaseModel):
             return v
         from src.app.core.static_service import static_service
         return static_service.build_url(v)
+
+
+class BulkPriceItem(BaseModel):
+    """Одна позиция массового обновления цен.
+
+    Можно передать только id — это «подтверждаю текущую цену»,
+    товару лишь проставится price_updated_at. Явный discount_price=null
+    сбрасывает скидку (отличаем «не передано» от «передан null»
+    через model_fields_set в роутере).
+    """
+    id: uuid.UUID
+    price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+    discount_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
+
+
+class BulkPricesIn(BaseModel):
+    items: list[BulkPriceItem] = Field(
+        ...,
+        min_length=1,
+        max_length=1000,
+        description="Список позиций для обновления/подтверждения цен (до 1000)",
+    )
+
+
+class BulkPricesOut(BaseModel):
+    updated: int = Field(..., description="Сколько товаров обновлено/подтверждено")
+    not_found: list[uuid.UUID] = Field(
+        default_factory=list,
+        description="ID из запроса, которых нет в БД (не валят запрос)",
+    )
 
 
 class ProductDetailOut(ProductOut):

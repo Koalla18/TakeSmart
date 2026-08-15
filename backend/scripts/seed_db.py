@@ -10,12 +10,21 @@ Seeder: заполняет базу данных начальными данны
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import sys
 import uuid
 from decimal import Decimal
+from pathlib import Path
 
 import asyncpg
 from passlib.context import CryptContext
+
+# Запуск как `python scripts/seed_db.py` — sys.path[0] указывает на scripts/,
+# добавляем корень бэкенда, чтобы импортировался src.app.core.catalog_presets
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from src.app.core.catalog_presets import preset_for_slug  # noqa: E402
 
 # ─── Подключение ─────────────────────────────────────────────────────────────
 
@@ -84,6 +93,17 @@ CATEGORIES = [
         "image_url": None,
     },
 ]
+
+# Бренды-справочник для админ-панели (идемпотентно по name)
+BRANDS = [
+    {"name": "Apple", "slug": "apple"},
+    {"name": "Samsung", "slug": "samsung"},
+    {"name": "Xiaomi", "slug": "xiaomi"},
+    {"name": "Dyson", "slug": "dyson"},
+    {"name": "Sony", "slug": "sony"},
+    {"name": "JBL", "slug": "jbl"},
+]
+
 
 # Все изображения размещены в /static/products/ внутри контейнера
 def _img(path: str) -> str:
@@ -453,6 +473,25 @@ async def seed() -> None:
             )
             print(f"🔑 Администратор '{admin_username}' создан")
 
+        # ── Сидируем бренды (идемпотентно по name, независимо от товаров) ────
+        print("🏷️  Создаём бренды...")
+        brands_created = 0
+        for brand in BRANDS:
+            inserted = await conn.fetchval(
+                """
+                INSERT INTO brands (id, name, slug, logo_url, is_active, created_at, updated_at)
+                VALUES ($1, $2, $3, NULL, TRUE, NOW(), NOW())
+                ON CONFLICT (name) DO NOTHING
+                RETURNING id
+                """,
+                str(uuid.uuid4()),
+                brand["name"],
+                brand["slug"],
+            )
+            if inserted:
+                brands_created += 1
+        print(f"  ✅ Новых брендов: {brands_created} из {len(BRANDS)}")
+
         # ── Проверяем: уже засеяно? ───────────────────────────────────────────
         count = await conn.fetchval("SELECT COUNT(*) FROM products")
         skip_products = count and count > 0
@@ -465,13 +504,21 @@ async def seed() -> None:
             print("📁 Создаём категории...")
             cat_id_map: dict[str, uuid.UUID] = {}
 
-            for cat in CATEGORIES:
+            for sort_order, cat in enumerate(CATEGORIES):
                 cat_id = uuid.uuid4()
                 cat_id_map[cat["slug"]] = cat_id
+                # Стартовая схема полей и быстрые фильтры — из единого источника
+                # пресетов (src/app/core/catalog_presets.py); slug без пресета → generic.
+                # При конфликте slug существующая категория НЕ перезаписывается
+                # (правки менеджера в схеме сохраняются).
+                preset = preset_for_slug(cat["slug"])
                 await conn.execute(
                     """
-                    INSERT INTO categories (id, name, slug, description, image_url, is_active, created_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, TRUE, NOW(), NOW())
+                    INSERT INTO categories (
+                        id, name, slug, description, image_url, is_active,
+                        quick_filters, product_fields, sort_order, created_at, updated_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, TRUE, $6::jsonb, $7::jsonb, $8, NOW(), NOW())
                     ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
                     RETURNING id
                     """,
@@ -480,6 +527,9 @@ async def seed() -> None:
                     cat["slug"],
                     cat["description"],
                     cat["image_url"],
+                    json.dumps(preset["quick_filters"], ensure_ascii=False),
+                    json.dumps(preset["product_fields"], ensure_ascii=False),
+                    sort_order,
                 )
 
             # Перечитываем реальные ID из БД (на случай конфликтов ON CONFLICT)
@@ -589,8 +639,6 @@ async def seed() -> None:
             },
         ]
 
-        import json as _json
-
         slides_created = 0
         for slide in weekly_slides:
             s_id = uuid.uuid4()
@@ -614,7 +662,7 @@ async def seed() -> None:
                 slide["price"],
                 slide["image"],
                 slide["color"],
-                _json.dumps(slide["tags"], ensure_ascii=False),
+                json.dumps(slide["tags"], ensure_ascii=False),
                 slide["link_url"],
                 slide["is_new"],
                 slide["sort_order"],

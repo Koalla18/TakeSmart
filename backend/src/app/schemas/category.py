@@ -37,6 +37,7 @@ class CategoryBase(BaseModel):
     description: Optional[str] = Field(None, max_length=2000)
     image_url: Optional[str] = Field(None, max_length=500)
     is_active: bool = Field(True)
+    sort_order: int = Field(0, ge=0, description="Порядок отображения (меньше — выше в списке)")
     parent_id: Optional[uuid.UUID] = Field(None, description="UUID родительской категории (не передавать или null — корневая категория)")
     quick_filters: Optional[list[QuickFilter]] = Field(None, description="Теги для быстрой фильтрации в каталоге")
     product_fields: Optional[list[ProductField]] = Field(
@@ -67,6 +68,7 @@ class CategoryUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=2000)
     image_url: Optional[str] = Field(None, max_length=500)
     is_active: Optional[bool] = None
+    sort_order: Optional[int] = Field(None, ge=0, description="Порядок отображения (меньше — выше в списке)")
     parent_id: Optional[uuid.UUID] = None
     quick_filters: Optional[list[QuickFilter]] = None
     product_fields: Optional[list[ProductField]] = None
@@ -91,6 +93,7 @@ class CategoryOut(BaseModel):
     description: Optional[str]
     image_url: Optional[str]
     is_active: bool
+    sort_order: int
     parent_id: Optional[uuid.UUID]
     quick_filters: Optional[list[QuickFilter]] = None
     product_fields: Optional[list[ProductField]] = None
@@ -110,3 +113,17 @@ class CategoryOut(BaseModel):
 
 class CategoryWithChildrenOut(CategoryOut):
     children: list[CategoryOut] = []
+
+
+class CategoryFieldPreset(BaseModel):
+    """Готовый пресет схемы категории (стартовые поля + быстрые фильтры)."""
+
+    id: str
+    label: str
+    description: str
+    product_fields: list[ProductField]
+    quick_filters: list[QuickFilter]
+
+
+class CategoryFieldPresetsOut(BaseModel):
+    presets: list[CategoryFieldPreset]

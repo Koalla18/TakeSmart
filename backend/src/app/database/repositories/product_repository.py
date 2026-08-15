@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Any, Sequence
 from uuid import UUID
 
-from sqlalchemy import select, and_, cast
+from sqlalchemy import select, and_, cast, func, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -159,6 +159,30 @@ class ProductRepository(BaseRepository[Product]):
         )
         return result.scalars().all()
 
+    async def count_by_brand_name(self, brand_name: str) -> int:
+        """Количество товаров бренда (сравнение по lower, т.к. бренд — голая строка)."""
+        result = await self.session.execute(
+            select(func.count(Product.id)).where(
+                func.lower(Product.brand) == brand_name.lower()
+            )
+        )
+        return int(result.scalar_one())
+
+    async def rename_brand(self, old_name: str, new_name: str) -> int:
+        """Массово переписать products.brand при переименовании бренда.
+
+        Обновляет все товары, где lower(brand) = lower(старого имени),
+        на новое написание. Возвращает число обновлённых товаров (без commit —
+        вызывающий код коммитит в рамках своей транзакции).
+        """
+        result = await self.session.execute(
+            update(Product)
+            .where(func.lower(Product.brand) == old_name.lower())
+            .values(brand=new_name)
+            .execution_options(synchronize_session=False)
+        )
+        return int(result.rowcount or 0)
+
     async def slug_exists(self, slug: str, exclude_id: UUID | None = None) -> bool:
         """Проверить уникальность slug."""
         query = select(Product.id).where(Product.slug == slug)
@@ -199,6 +223,15 @@ class ProductRepository(BaseRepository[Product]):
             )
             .offset(offset)
             .limit(limit)
+        )
+        return result.scalars().all()
+
+    async def get_by_ids(self, ids: Sequence[UUID]) -> Sequence[Product]:
+        """Получить товары пачкой по списку ID (для массового обновления цен)."""
+        if not ids:
+            return []
+        result = await self.session.execute(
+            select(Product).where(Product.id.in_(ids))
         )
         return result.scalars().all()
 

@@ -2,15 +2,18 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 
 from src.app.api.admin.endpoints import get_current_admin
+from src.app.core.catalog_presets import PRESETS
 from src.app.core.logger import get_logger
 from src.app.core.slugify import build_unique_slug
+from src.app.core.static_service import static_service
 from src.app.database.unit_of_work import UnitOfWork
 from src.app.schemas.category import (
     CategoryCreate,
+    CategoryFieldPresetsOut,
     CategoryOut,
     CategoryUpdate,
     CategoryWithChildrenOut,
@@ -59,6 +62,19 @@ async def list_root_categories() -> list[CategoryWithChildrenOut]:
         items = await uow.categories.get_root_categories()
     logger.info("root_categories_listed", count=len(items))
     return items
+
+
+# ВАЖНО: роут объявлен РАНЬШЕ "/{category_id}" — иначе FastAPI
+# попытается распарсить "field-presets" как UUID и вернёт 422.
+@router.get(
+    "/field-presets",
+    response_model=CategoryFieldPresetsOut,
+    summary="Готовые пресеты схем категорий",
+    dependencies=[Depends(get_current_admin)],
+)
+async def list_field_presets() -> CategoryFieldPresetsOut:
+    """Стартовые схемы полей и быстрых фильтров для создания категории."""
+    return CategoryFieldPresetsOut(presets=PRESETS)
 
 
 @router.get(
@@ -212,6 +228,34 @@ async def update_category(category_id: UUID, body: CategoryUpdate) -> CategoryOu
     return updated
 
 
+@router.post(
+    "/{category_id}/image",
+    response_model=CategoryOut,
+    summary="Загрузить изображение категории",
+    responses={404: {"description": "Категория не найдена"}},
+    dependencies=[Depends(get_current_admin)],
+)
+async def upload_category_image(
+    category_id: UUID,
+    file: UploadFile = File(..., description="Изображение категории (JPEG / PNG / WebP, макс. 5 МБ)"),
+) -> CategoryOut:
+    async with UnitOfWork() as uow:
+        category = await uow.categories.get_by_id(category_id)
+        if not category:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Категория с id={category_id} не найдена",
+            )
+
+        # Храним «голый» S3-ключ; наружу CategoryOut сам строит /api/media-URL
+        relative_path, _ = await static_service.save_category_image(file, category_id)
+        updated = await uow.categories.update(category_id, image_url=relative_path)
+        await uow.commit()
+
+    logger.info("category_image_uploaded", category_id=str(category_id), key=relative_path)
+    return updated
+
+
 @router.delete(
     "/{category_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -221,6 +265,7 @@ async def update_category(category_id: UUID, body: CategoryUpdate) -> CategoryOu
         404: {"description": "Категория не найдена"},
         409: {"description": "Нельзя удалить — есть дочерние категории или товары"},
     },
+    dependencies=[Depends(get_current_admin)],
 )
 async def delete_category(category_id: UUID) -> None:
     async with UnitOfWork() as uow:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -16,6 +17,8 @@ from src.app.core.static_service import static_service
 from src.app.database.unit_of_work import UnitOfWork
 from src.app.schemas.common import PaginatedResponse
 from src.app.schemas.product import (
+    BulkPricesIn,
+    BulkPricesOut,
     ProductCreate,
     ProductDetailOut,
     ProductOut,
@@ -182,6 +185,66 @@ async def list_featured_products(
         items = await uow.products.get_featured(limit=limit)
     logger.info("featured_products_listed", count=len(items))
     return items
+
+
+# ВАЖНО: объявлен РАНЬШЕ роутов с /{product_id}, чтобы "prices" не парсился как UUID.
+@router.patch(
+    "/prices/bulk",
+    response_model=BulkPricesOut,
+    summary="Массовое обновление/подтверждение цен",
+    description=(
+        "Обновляет цены пачкой (до 1000 позиций) одной транзакцией.\n\n"
+        "- `price` и `discount_price` опциональны: можно передать только `id` — "
+        "это «подтверждаю текущую цену», товару лишь проставится `price_updated_at`.\n"
+        "- `discount_price: null` явно СБРАСЫВАЕТ скидку.\n"
+        "- Каждому товару из списка ставится `price_updated_at = now()` — "
+        "даже если цена не изменилась (семантика «цена подтверждена сегодня»).\n"
+        "- Несуществующие id не валят запрос — возвращаются в `not_found`."
+    ),
+    responses={422: {"description": "Скидка не меньше итоговой цены (с указанием id)"}},
+    dependencies=[Depends(get_current_admin)],
+)
+async def bulk_update_prices(body: BulkPricesIn) -> BulkPricesOut:
+    now = datetime.now(timezone.utc)
+    async with UnitOfWork() as uow:
+        ids = [item.id for item in body.items]
+        products = await uow.products.get_by_ids(ids)
+        by_id = {p.id: p for p in products}
+
+        invalid_ids: list[str] = []
+        for item in body.items:
+            product = by_id.get(item.id)
+            if product is None:
+                continue
+
+            if item.price is not None:
+                product.price = item.price
+            # Отличаем «поле не передано» от явного null (сброс скидки)
+            if "discount_price" in item.model_fields_set:
+                product.discount_price = item.discount_price
+
+            # Проверяем ИТОГОВЫЕ значения: новая цена если передана, иначе текущая
+            if product.discount_price is not None and product.discount_price >= product.price:
+                invalid_ids.append(str(item.id))
+
+            # Штамп подтверждения — даже если цена не изменилась
+            product.price_updated_at = now
+
+        if invalid_ids:
+            # Транзакция откатится в UnitOfWork.__aexit__ — ни одно изменение не применится
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Цена со скидкой должна быть меньше основной цены "
+                    f"у товаров: {', '.join(invalid_ids)}"
+                ),
+            )
+
+        await uow.commit()
+        not_found = [pid for pid in dict.fromkeys(ids) if pid not in by_id]
+
+    logger.info("bulk_prices_updated", count=len(by_id), not_found=len(not_found))
+    return BulkPricesOut(updated=len(by_id), not_found=not_found)
 
 
 @router.get(
@@ -375,6 +438,10 @@ async def update_product(product_id: UUID, body: ProductUpdate) -> ProductDetail
 
         update_data = body.model_dump(exclude_unset=True, exclude={"specs"})
 
+        # Сотрудник трогал цену или скидку — штампуем подтверждение цены
+        if "price" in body.model_fields_set or "discount_price" in body.model_fields_set:
+            update_data["price_updated_at"] = datetime.now(timezone.utc)
+
         # Если меняется name — пересчитываем slug автоматически
         if body.name:
             update_data["slug"] = await build_unique_slug(
@@ -412,6 +479,7 @@ async def update_product(product_id: UUID, body: ProductUpdate) -> ProductDetail
     responses={
         404: {"description": "Товар не найден"},
     },
+    dependencies=[Depends(get_current_admin)],
 )
 async def delete_product(product_id: UUID) -> None:
     async with UnitOfWork() as uow:

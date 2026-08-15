@@ -32,6 +32,8 @@ class BrandOut(BaseModel):
     slug: str
     logo_url: Optional[str]
     is_active: bool
+    # Количество товаров с этим брендом (COUNT по lower(products.brand)).
+    products_count: int = 0
     created_at: datetime
     updated_at: datetime
 

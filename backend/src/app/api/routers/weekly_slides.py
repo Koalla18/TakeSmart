@@ -31,6 +31,7 @@ async def list_weekly_slides() -> list[WeeklySlideOut]:
     "/all",
     response_model=list[WeeklySlideOut],
     summary="Все слайды (включая неактивные) — для админки",
+    dependencies=[Depends(get_current_admin)],
 )
 async def list_all_weekly_slides() -> list[WeeklySlideOut]:
     async with UnitOfWork() as uow:
@@ -43,6 +44,7 @@ async def list_all_weekly_slides() -> list[WeeklySlideOut]:
     response_model=WeeklySlideOut,
     status_code=status.HTTP_201_CREATED,
     summary="Создать слайд",
+    dependencies=[Depends(get_current_admin)],
 )
 async def create_weekly_slide(body: WeeklySlideCreate) -> WeeklySlideOut:
     async with UnitOfWork() as uow:
@@ -58,6 +60,7 @@ async def create_weekly_slide(body: WeeklySlideCreate) -> WeeklySlideOut:
     response_model=WeeklySlideOut,
     summary="Обновить слайд",
     responses={404: {"description": "Слайд не найден"}},
+    dependencies=[Depends(get_current_admin)],
 )
 async def update_weekly_slide(slide_id: UUID, body: WeeklySlideUpdate) -> WeeklySlideOut:
     async with UnitOfWork() as uow:
@@ -81,6 +84,7 @@ async def update_weekly_slide(slide_id: UUID, body: WeeklySlideUpdate) -> Weekly
     response_class=Response,
     summary="Удалить слайд",
     responses={404: {"description": "Слайд не найден"}},
+    dependencies=[Depends(get_current_admin)],
 )
 async def delete_weekly_slide(slide_id: UUID) -> None:
     async with UnitOfWork() as uow:

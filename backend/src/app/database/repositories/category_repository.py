@@ -16,6 +16,16 @@ class CategoryRepository(BaseRepository[Category]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Category, session)
 
+    async def get_all(self, *, offset: int = 0, limit: int = 100) -> Sequence[Category]:
+        """Все категории, отсортированные по sort_order, затем по имени."""
+        result = await self.session.execute(
+            select(Category)
+            .order_by(Category.sort_order.asc(), Category.name.asc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return result.scalars().all()
+
     async def get_by_slug(self, slug: str) -> Category | None:
         """Найти категорию по slug."""
         result = await self.session.execute(
@@ -54,6 +64,7 @@ class CategoryRepository(BaseRepository[Category]):
             select(Category)
             .where(Category.parent_id.is_(None), Category.is_active.is_(True))
             .options(selectinload(Category.children))
+            .order_by(Category.sort_order.asc(), Category.name.asc())
         )
         return result.scalars().all()
 
@@ -62,6 +73,7 @@ class CategoryRepository(BaseRepository[Category]):
         result = await self.session.execute(
             select(Category)
             .where(Category.is_active.is_(True))
+            .order_by(Category.sort_order.asc(), Category.name.asc())
             .offset(offset)
             .limit(limit)
         )

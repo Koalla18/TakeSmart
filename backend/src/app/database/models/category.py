@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
-from sqlalchemy import String, Text, Boolean, ForeignKey, func
+from sqlalchemy import String, Text, Boolean, ForeignKey, Integer, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,6 +29,12 @@ class Category(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     image_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # Порядок отображения категории в списках (меньше — выше)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0",
+        comment="Порядок отображения категории (меньше — выше)",
+    )
 
     # Быстрые фильтры-теги для каталога: [{"label": "iPhone 17 Pro Max", "query": "17 Pro Max"}, ...]
     quick_filters: Mapped[Any | None] = mapped_column(
@@ -60,7 +66,9 @@ class Category(Base):
     parent: Mapped[Optional["Category"]] = relationship(
         "Category", remote_side="Category.id", back_populates="children"
     )
-    children: Mapped[list["Category"]] = relationship("Category", back_populates="parent")
+    children: Mapped[list["Category"]] = relationship(
+        "Category", back_populates="parent", order_by="Category.sort_order"
+    )
     products: Mapped[list["Product"]] = relationship("Product", back_populates="category")
 
     def __repr__(self) -> str:

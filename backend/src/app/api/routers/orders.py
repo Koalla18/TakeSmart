@@ -101,6 +101,7 @@ order_id: UUID) -> OrderDetailOut:
     response_model=OrderDetailOut,
     summary="Получить заказ по номеру",
     responses={404: {"description": "Заказ не найден"}},
+    dependencies=[Depends(get_current_admin)],
 )
 async def get_order_by_number(order_number: str) -> OrderDetailOut:
     async with UnitOfWork() as uow:
