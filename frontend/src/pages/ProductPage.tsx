@@ -528,6 +528,7 @@ export function ProductPage() {
   const [lightboxStartIndex, setLightboxStartIndex] = useState(0)
   const [variants, setVariants] = useState<ApiVariant[]>([])
   const [categoryFields, setCategoryFields] = useState<CategoryProductField[]>([])
+  const [categoryDbSlug, setCategoryDbSlug] = useState('')
   // Independent selection state — each attribute is chosen separately
   const [selectedColor, setSelectedColor] = useState<string | null>(null)
   const [selectedStorage, setSelectedStorage] = useState<string | null>(null)
@@ -653,12 +654,18 @@ export function ProductPage() {
   useEffect(() => {
     if (!apiProduct?.category_id) {
       setCategoryFields([])
+      setCategoryDbSlug('')
       return
     }
     fetch(`${API_BASE_URL}/api/categories/${apiProduct.category_id}`)
       .then(res => res.ok ? res.json() : null)
-      .then(category => setCategoryFields(category?.product_fields ?? []))
-      .catch(() => setCategoryFields([]))
+      .then(category => {
+        setCategoryFields(category?.product_fields ?? [])
+        // Деталка товара отдаёт category: null (только category_id), поэтому slug
+        // категории для ветвления легаси-логики берём из этого же запроса.
+        setCategoryDbSlug(String(category?.slug || '').toLowerCase())
+      })
+      .catch(() => { setCategoryFields([]); setCategoryDbSlug('') })
   }, [apiProduct?.category_id])
 
   // The catalog price is the source of truth for the whole purchase flow.
@@ -1022,8 +1029,16 @@ export function ProductPage() {
 
                   // Механизм A1: у категории в админке заданы вариантные поля (is_variant) —
                   // универсальный селектор строго по схеме категории, без угадывания из названий.
+                  // ВАЖНО: A1 применим только к группам, созданным новым мастером — у них
+                  // значения осей лежат в attributes. У старых групп attributes пустые (всё
+                  // в названии), для них ниже работает прежняя эвристика A2 с фото-цветами.
                   const variantFields = categoryFields.filter(field => field.is_variant)
-                  if (variantFields.length > 0) {
+                  const hasAttrValue = (v: unknown) => v !== null && v !== undefined && v !== ''
+                  const nonColorVariantFields = variantFields.filter(field => field.key !== 'color')
+                  const schemaDataPresent = nonColorVariantFields.length === 0
+                    ? variantFields.length > 0
+                    : nonColorVariantFields.every(field => allCards.some(card => hasAttrValue(card.attributes?.[field.key])))
+                  if (variantFields.length > 0 && schemaDataPresent) {
                     const getValue = (card: typeof allCards[number], key: string): string => {
                       const value = key === 'color' ? card.color : card.attributes?.[key]
                       if (value === null || value === undefined || value === '') return ''
@@ -1044,6 +1059,46 @@ export function ProductPage() {
                           const values = [...new Set(allCards.map(card => getValue(card, field.key)).filter(Boolean))]
                           const current = currentValues[field.key]
                           if (values.length === 0) return null
+                          // Цвет — фото-плитками (как в легаси-селекторе), остальные оси — кнопками
+                          if (field.key === 'color') {
+                            return (
+                              <div key={field.key}>
+                                <p className="mb-2 text-sm text-gray-500">{field.label}: <span className="font-semibold text-gray-900">{current || '—'}</span></p>
+                                <div className="flex flex-wrap items-center gap-2.5">
+                                  {values.map(value => {
+                                    const isCurrent = value === current
+                                    const cardForColor = allCards.find(card => getValue(card, 'color') === value)
+                                    const thumb = cardForColor?.main_image_url
+                                    const swatch = getColorSwatch(value)
+                                    return (
+                                      <button
+                                        key={value}
+                                        title={value}
+                                        onClick={() => !isCurrent && goToValue(field.key, value)}
+                                        className={`group relative flex flex-col items-center gap-1 rounded-xl border-2 p-1.5 transition-all ${
+                                          isCurrent
+                                            ? 'border-gray-900 bg-gray-50 shadow-sm'
+                                            : 'border-gray-200 bg-white hover:border-gray-400 hover:shadow-sm cursor-pointer'
+                                        }`}
+                                        style={{ minWidth: 56 }}
+                                      >
+                                        {thumb && isImageUrl(thumb) ? (
+                                          <div className="h-12 w-12 overflow-hidden rounded-lg bg-gray-100">
+                                            <img src={getImageUrl(thumb)} alt={value} className="h-full w-full object-contain" />
+                                          </div>
+                                        ) : swatch ? (
+                                          <span className="h-12 w-12 rounded-lg border border-gray-200" style={{ backgroundColor: swatch }} />
+                                        ) : (
+                                          <span className="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-100 text-xs font-semibold text-gray-500">{value.slice(0, 2)}</span>
+                                        )}
+                                        <span className={`max-w-[72px] truncate text-[11px] leading-tight ${isCurrent ? 'font-semibold text-gray-900' : 'text-gray-500'}`}>{value}</span>
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            )
+                          }
                           return (
                             <div key={field.key}>
                               <p className="mb-2 text-sm text-gray-500">{field.label}: <span className="font-semibold text-gray-900">{current || '—'}</span></p>
@@ -1060,10 +1115,11 @@ export function ProductPage() {
                     )
                   }
 
-                  // Гейт легаси-эвристики: разбор осей из названия (A2) — только для старых
-                  // категорий из LEGACY_ATTR_SLUGS. Пустой slug тоже оставляем в A2 — так
-                  // ведут себя старые товары без проставленной категории (например, очки).
-                  const categorySlugLower = String(apiProduct.category?.slug || '').toLowerCase()
+                  // Гейт легаси-эвристики: разбор осей из названия (A2) — для старых категорий
+                  // из LEGACY_ATTR_SLUGS. Деталка товара отдаёт category: null, поэтому slug
+                  // берём из подгруженной категории (categoryDbSlug); пустой slug тоже
+                  // оставляем в A2 — так ведут себя товары без категории (например, очки).
+                  const categorySlugLower = categoryDbSlug || String(apiProduct.category?.slug || '').toLowerCase()
                   const isLegacyAttrCategory = categorySlugLower === '' || LEGACY_ATTR_SLUGS.has(categorySlugLower)
 
                   if (!isLegacyAttrCategory) {
