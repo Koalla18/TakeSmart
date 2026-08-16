@@ -49,7 +49,15 @@ interface RowState {
   dirty: boolean
 }
 
-interface GroupRow { p: PriceProduct; label: string }
+interface GroupRow {
+  p: PriceProduct
+  /** Главная строка подписи: цвет товара (надёжное поле color), иначе хвост имени */
+  main: string
+  /** Вторая строка: конфигурация без цвета; null = скрыта (одинакова у всей группы) */
+  config: string | null
+  /** Полный хвост имени — для title и защиты от неразличимых строк */
+  full: string
+}
 
 interface Group {
   key: string
@@ -58,7 +66,10 @@ interface Group {
   categoryName: string | null
   categoryIds: Set<string>
   rows: GroupRow[]
-  ids: string[]
+  /** id только активных (не скрытых) карточек — «✓ Актуально» работает по ним */
+  activeIds: string[]
+  activeCount: number
+  hiddenCount: number
   haystack: string
   hasNever: boolean
   minMs: number
@@ -146,8 +157,8 @@ function commonPrefix(names: string[]): string {
   return p
 }
 
-/** Подпись варианта: хвост имени после общего префикса, иначе цвет + оси из attributes */
-function variantLabel(p: PriceProduct, rawPrefix: string, diffKeys: string[]): string {
+/** Хвост имени варианта после общего префикса, иначе цвет + оси из attributes */
+function variantTail(p: PriceProduct, rawPrefix: string, diffKeys: string[]): string {
   let rest = p.name.length > rawPrefix.length ? p.name.slice(rawPrefix.length) : ''
   rest = rest.replace(/^[\s—–\-·,:]+/, '').trim()
   const paren = rest.match(/^\((.*)\)$/s)
@@ -162,13 +173,61 @@ function variantLabel(p: PriceProduct, rawPrefix: string, diffKeys: string[]): s
     const s = String(v)
     if (s !== p.color) parts.push(s)
   }
-  return parts.join(' · ') || '—'
+  return parts.join(' · ')
+}
+
+function escapeRegExp(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+
+/** Чистка конфигурации после вырезания цвета: «Цвет:», двойные запятые, мусорные разделители и непарные скобки по краям */
+function cleanConfigText(raw: string): string {
+  let s = raw.replace(/цвет:\s*/gi, ' ')
+  s = s.replace(/\s*,(\s*,)+\s*/g, ', ').replace(/\s{2,}/g, ' ')
+  for (;;) {
+    let t = s.replace(/^[\s,;:·—–-]+|[\s,;:·—–-]+$/g, '')
+    const open = (t.match(/\(/g) ?? []).length
+    const close = (t.match(/\)/g) ?? []).length
+    if (close > open && t.endsWith(')')) t = t.slice(0, -1)
+    else if (close > open && t.startsWith(')')) t = t.slice(1)
+    else if (open > close && t.startsWith('(')) t = t.slice(1)
+    else if (open > close && t.endsWith('(')) t = t.slice(0, -1)
+    if (t === s) break
+    s = t
+  }
+  return s.trim()
+}
+
+/** Конфигурация варианта = хвост имени без вхождений цвета (без учёта регистра) */
+function configFromTail(tail: string, color: string): string {
+  if (!tail) return ''
+  if (!color) return cleanConfigText(tail)
+  return cleanConfigText(tail.replace(new RegExp(escapeRegExp(color), 'gi'), ' '))
 }
 
 /** Пересчёт цены для групповой операции ±% / ±₽, округление до целого рубля */
 function adjustValue(v: number, mode: AdjustMode, dir: 1 | -1, value: number): number {
   const raw = mode === 'percent' ? v * (1 + (dir * value) / 100) : v + dir * value
   return Math.max(1, Math.round(raw))
+}
+
+// ── Иконка глаза для переключателя видимости ─────────────────────────────────
+function EyeIcon({ off }: { off?: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {off ? (
+        <>
+          <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a13.16 13.16 0 0 1-1.67 2.68" />
+          <path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3 8 10 8a9.74 9.74 0 0 0 5.39-1.61" />
+          <path d="M2 2l20 20" />
+          <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+        </>
+      ) : (
+        <>
+          <path d="M2 12s3-8 10-8 10 8 10 8-3 8-10 8-10-8-10-8Z" />
+          <circle cx="12" cy="12" r="3" />
+        </>
+      )}
+    </svg>
+  )
 }
 
 // ── Мини-диалог групповой операции «±%» ──────────────────────────────────────
@@ -359,16 +418,39 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
         })
       }
 
-      const rows: GroupRow[] = sorted.map((p) => ({ p, label: variantLabel(p, rawPrefix, diffKeys) }))
+      // Подписи вариантов: главная строка = цвет (цена зависит от него), вторая = конфигурация
+      const prelim = sorted.map((p) => {
+        const tail = variantTail(p, rawPrefix, diffKeys)
+        const color = (p.color ?? '').trim()
+        return { p, tail, color, config: configFromTail(tail, color) }
+      })
+      // Конфигурацию показываем, только если она различается между карточками группы (иначе шум)
+      const configsDiffer = new Set(prelim.map((r) => (r.color ? r.config : r.tail).toLowerCase())).size > 1
+      // Сортировка: сначала конфигурация, потом цвет — одинаковые конфиги с разными цветами рядом
+      prelim.sort((a, b) => a.config.localeCompare(b.config, 'ru') || (a.color || a.tail).localeCompare(b.color || b.tail, 'ru'))
+      let rows: GroupRow[] = prelim.map(({ p, tail, color, config }) => ({
+        p,
+        main: color || tail || '—',
+        config: configsDiffer && color && config ? config : null,
+        full: tail || p.name,
+      }))
+      // Защита от неразличимых строк: одинаковая подпись → показываем полный хвост имени
+      const sig = (r: GroupRow) => `${r.main}|${r.config ?? ''}`.toLowerCase()
+      const sigCount = new Map<string, number>()
+      for (const r of rows) sigCount.set(sig(r), (sigCount.get(sig(r)) ?? 0) + 1)
+      rows = rows.map((r) => ((sigCount.get(sig(r)) ?? 0) > 1 && r.full !== r.main ? { ...r, main: r.full, config: null } : r))
+
       const categoryIds = new Set<string>()
       for (const p of sorted) if (p.category_id) categoryIds.add(p.category_id)
       const firstCat = sorted.find((p) => p.category_id)?.category_id
       const brand = sorted.find((p) => p.brand)?.brand ?? null
 
+      // Свежесть и «всё подтверждено» считаем ТОЛЬКО по активным: скрытый товар не продаётся
+      const actives = sorted.filter((p) => p.is_active)
       let hasNever = false
       let minMs = Infinity
-      let allToday = sorted.length > 0
-      for (const p of sorted) {
+      let allToday = actives.length > 0
+      for (const p of actives) {
         if (!p.price_updated_at) { hasNever = true; allToday = false; continue }
         const ms = new Date(p.price_updated_at).getTime()
         if (ms < minMs) minMs = ms
@@ -379,7 +461,11 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
       return {
         key, title, brand,
         categoryName: firstCat ? catName.get(firstCat) ?? null : null,
-        categoryIds, rows, ids: sorted.map((p) => p.id), haystack, hasNever, minMs, allToday,
+        categoryIds, rows,
+        activeIds: actives.map((p) => p.id),
+        activeCount: actives.length,
+        hiddenCount: sorted.length - actives.length,
+        haystack, hasNever, minMs, allToday,
       }
     }
 
@@ -455,10 +541,11 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
 
   useEffect(() => { onDirtyChange?.(cart.items.length) }, [cart.items.length, onDirtyChange])
 
-  // ── Прогресс дня ──
+  // ── Прогресс дня ── (по группам с хотя бы одной активной карточкой: скрытое не продаётся)
   const totalGroups = groups.length
+  const sellableGroups = useMemo(() => groups.reduce((s, g) => s + (g.activeCount > 0 ? 1 : 0), 0), [groups])
   const confirmedToday = useMemo(() => groups.reduce((s, g) => s + (g.allToday ? 1 : 0), 0), [groups])
-  const progressPct = totalGroups ? Math.round((confirmedToday / totalGroups) * 100) : 0
+  const progressPct = sellableGroups ? Math.round((confirmedToday / sellableGroups) * 100) : 0
 
   // ── Фильтры и сортировка ──
   const filteredAll = useMemo(() => {
@@ -472,7 +559,8 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
       : (a, b) => (staleKey(a) - staleKey(b)) || a.title.localeCompare(b.title, 'ru'))
   }, [groups, query, categoryFilter, sortMode])
 
-  const filtered = useMemo(() => (staleOnly ? filteredAll.filter((g) => !g.allToday) : filteredAll), [filteredAll, staleOnly])
+  // В режиме «Только не обновлённые сегодня» полностью скрытые группы не показываем
+  const filtered = useMemo(() => (staleOnly ? filteredAll.filter((g) => g.activeCount > 0 && !g.allToday) : filteredAll), [filteredAll, staleOnly])
 
   useEffect(() => { setVisibleCount(PAGE_STEP) }, [query, categoryFilter, staleOnly, sortMode])
 
@@ -541,16 +629,89 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
     if (next) { next.focus(); next.select() } else cur.blur()
   }, [])
 
-  // «✓ Актуально»: вся группа в корзину без изменения цен (бэк штампует дату)
+  // «✓ Актуально»: активные карточки группы в корзину без изменения цен (бэк штампует дату);
+  // скрытые не подтверждаем — их цену подтверждать не нужно
   const toggleConfirmGroup = useCallback((g: Group) => {
+    if (g.activeIds.length === 0) return
     setConfirms((prev) => {
       const next = new Set(prev)
-      const allIn = g.ids.every((id) => next.has(id))
-      if (allIn) g.ids.forEach((id) => next.delete(id))
-      else g.ids.forEach((id) => next.add(id))
+      const allIn = g.activeIds.every((id) => next.has(id))
+      if (allIn) g.activeIds.forEach((id) => next.delete(id))
+      else g.activeIds.forEach((id) => next.add(id))
       return next
     })
   }, [])
+
+  // ── Видимость в каталоге (глаз) ──
+  // PATCH /api/products/{id} строго с телом {is_active} — цену не трогаем.
+  const togglingRef = useRef<Set<string>>(new Set())
+
+  const setActiveLocal = useCallback((ids: string[], value: boolean) => {
+    const idSet = new Set(ids)
+    setProducts((prev) => prev.map((p) => (idSet.has(p.id) ? { ...p, is_active: value } : p)))
+    // Скрытое не подтверждаем — выкидываем из корзины подтверждений
+    if (!value) setConfirms((prev) => {
+      if (!ids.some((id) => prev.has(id))) return prev
+      const next = new Set(prev)
+      ids.forEach((id) => next.delete(id))
+      return next
+    })
+  }, [])
+
+  const patchActive = useCallback(async (id: string, value: boolean): Promise<'ok' | 'fail' | 'auth'> => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/products/${id}`, {
+        method: 'PATCH',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: value }),
+      })
+      if (res.status === 401) { toast('Сессия истекла — войдите заново.', 'error'); logout(); return 'auth' }
+      return res.ok ? 'ok' : 'fail'
+    } catch { return 'fail' }
+  }, [logout])
+
+  const toggleRowActive = useCallback(async (p: PriceProduct) => {
+    if (togglingRef.current.has(p.id)) return
+    togglingRef.current.add(p.id)
+    const next = !p.is_active
+    setActiveLocal([p.id], next) // оптимистично
+    try {
+      const r = await patchActive(p.id, next)
+      if (r !== 'ok') {
+        setActiveLocal([p.id], p.is_active) // откат
+        if (r === 'fail') toast(next ? 'Не удалось скрыть товар — попробуйте ещё раз.' : 'Не удалось показать товар — попробуйте ещё раз.', 'error')
+      }
+    } finally { togglingRef.current.delete(p.id) }
+  }, [patchActive, setActiveLocal])
+
+  // Глаз на группе: хоть одна активна → скрываем все, иначе показываем все
+  const toggleGroupActive = useCallback(async (g: Group) => {
+    const target = g.activeCount === 0
+    const affected = g.rows.filter(({ p }) => p.is_active !== target).map(({ p }) => p.id)
+    if (affected.length === 0) return
+    if (affected.some((id) => togglingRef.current.has(id))) return
+    affected.forEach((id) => togglingRef.current.add(id))
+    setActiveLocal(affected, target) // оптимистично всей группой
+    const done: string[] = []
+    let auth = false
+    try {
+      for (const id of affected) {
+        const r = await patchActive(id, target) // последовательно, по одному
+        if (r === 'auth') { auth = true; break }
+        if (r !== 'ok') break
+        done.push(id)
+      }
+    } finally { affected.forEach((id) => togglingRef.current.delete(id)) }
+    const failed = affected.filter((id) => !done.includes(id))
+    if (failed.length > 0) {
+      setActiveLocal(failed, !target) // откат непрошедших; успешные остаются
+      if (!auth) toast(`Не удалось ${target ? 'показать' : 'скрыть'} ${failed.length} из ${affected.length} — попробуйте ещё раз.`, 'error')
+    } else {
+      toast(target
+        ? `Показано ${done.length} ${pluralRu(done.length, 'карточка', 'карточки', 'карточек')}`
+        : `Скрыто ${done.length} ${pluralRu(done.length, 'карточка', 'карточки', 'карточек')}`, 'success')
+    }
+  }, [patchActive, setActiveLocal])
 
   // Групповая операция ±% / ±₽ поверх текущих (в т.ч. уже правленных) цен
   const applyGroupAdjust = useCallback((g: Group, mode: AdjustMode, dir: 1 | -1, value: number) => {
@@ -669,7 +830,7 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
             <div className="truncate text-[11px] leading-tight text-slate-500">
               {loadState === 'loading' && products.length === 0
                 ? 'загружаю каталог…'
-                : <>Сегодня подтверждено <span className="font-semibold text-emerald-300">{confirmedToday}</span> из {totalGroups} моделей</>}
+                : <>Сегодня подтверждено <span className="font-semibold text-emerald-300">{confirmedToday}</span> из {sellableGroups} моделей</>}
             </div>
           </div>
           <button onClick={() => { if (!saving) void loadAll() }} aria-label="Обновить каталог"
@@ -765,7 +926,7 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
           <>
             {visibleGroups.map((g) => {
               const fresh = groupFreshness(g)
-              const confirmedAll = g.ids.every((id) => confirms.has(id))
+              const confirmedAll = g.activeCount > 0 && g.activeIds.every((id) => confirms.has(id))
               return (
                 <section key={g.key} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3.5">
                   {/* Шапка группы */}
@@ -776,29 +937,47 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
                         {[g.brand, g.categoryName, `${g.rows.length} ${pluralRu(g.rows.length, 'карточка', 'карточки', 'карточек')}`].filter(Boolean).join(' · ')}
                       </div>
                     </div>
-                    <span title={fresh.title} className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${fresh.pill}`}>{fresh.label}</span>
+                    <div className="flex flex-shrink-0 items-center gap-1.5">
+                      {g.activeCount === 0 ? (
+                        <span title="Все карточки группы скрыты из каталога" className="rounded-full bg-slate-500/15 px-2 py-0.5 text-[11px] font-medium text-slate-400">скрыта</span>
+                      ) : (
+                        <>
+                          {g.hiddenCount > 0 && (
+                            <span title={`Скрыто из каталога: ${g.hiddenCount}`} className="rounded-full bg-slate-500/15 px-2 py-0.5 text-[11px] font-medium text-slate-400">скрыто {g.hiddenCount}</span>
+                          )}
+                          <span title={fresh.title} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${fresh.pill}`}>{fresh.label}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
 
                   {/* Действия группы */}
                   <div className="mt-2.5 flex gap-2">
-                    <button onClick={() => toggleConfirmGroup(g)}
-                      className={`flex-1 rounded-xl py-2 text-sm font-semibold transition active:scale-[0.98] ${confirmedAll ? 'bg-emerald-500/25 text-emerald-200 ring-1 ring-inset ring-emerald-400/40' : 'bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'}`}>
+                    <button onClick={() => toggleConfirmGroup(g)} disabled={g.activeCount === 0}
+                      className={`flex-1 rounded-xl py-2 text-sm font-semibold transition active:scale-[0.98] disabled:opacity-40 ${confirmedAll ? 'bg-emerald-500/25 text-emerald-200 ring-1 ring-inset ring-emerald-400/40' : 'bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'}`}>
                       {confirmedAll ? '✓ Будет подтверждено' : '✓ Актуально'}
                     </button>
                     <button onClick={() => setAdjustGroupKey(g.key)} aria-label={`Изменить цены группы ${g.title} на процент или сумму`}
                       className="rounded-xl bg-white/5 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-white/10 active:scale-[0.98]">±%</button>
+                    <button onClick={() => void toggleGroupActive(g)}
+                      aria-label={g.activeCount > 0 ? `Скрыть все карточки группы ${g.title} из каталога` : `Показать все карточки группы ${g.title} в каталоге`}
+                      title={g.activeCount > 0 ? 'Скрыть всю группу из каталога' : 'Показать всю группу в каталоге'}
+                      className="flex items-center justify-center rounded-xl bg-white/5 px-3 py-2 text-slate-300 transition hover:bg-white/10 active:scale-[0.98]">
+                      <EyeIcon off={g.activeCount === 0} />
+                    </button>
                   </div>
 
-                  {/* Колонки */}
+                  {/* Колонки (хвостовой спейсер w-7 — под кнопку-глаз в строках) */}
                   <div className="mt-2 flex items-center gap-2">
                     <span className="flex-1" />
                     <span className="w-[104px] text-right text-[10px] font-semibold uppercase tracking-wider text-slate-500">Цена ₽</span>
                     <span className="w-[80px] text-right text-[10px] font-semibold uppercase tracking-wider text-slate-500">Скидка</span>
+                    <span className="w-7 flex-shrink-0" />
                   </div>
 
                   {/* Карточки-варианты */}
                   <div className="divide-y divide-white/5">
-                    {g.rows.map(({ p, label }) => {
+                    {g.rows.map(({ p, main, config, full }) => {
                       const st = rowStates.get(p.id)
                       const rowFresh = freshnessOf(p.price_updated_at)
                       const d = drafts[p.id]
@@ -807,18 +986,28 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
                       const confirmedRow = confirms.has(p.id) && !st?.dirty
                       const priceErr = st?.errorField === 'price' || st?.errorField === 'both'
                       const discErr = st?.errorField === 'discount' || st?.errorField === 'both'
+                      const rowName = config ? `${main}, ${config}` : main
+                      const dim = p.is_active ? '' : 'opacity-50'
                       return (
                         <div key={p.id} className="py-2">
-                          <div className="flex items-center gap-2">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex min-w-0 items-center gap-1.5">
-                                <span title={rowFresh.title} className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${rowFresh.dot}`} />
-                                <span className="truncate text-sm text-white">{label}</span>
-                                {!p.is_active && <span className="flex-shrink-0 rounded-full bg-slate-500/15 px-1.5 py-0.5 text-[10px] text-slate-400">скрыт</span>}
+                          <div className="flex items-start gap-2">
+                            <div className={`min-w-0 flex-1 ${dim}`}>
+                              <div className="flex min-w-0 items-start gap-1.5">
+                                <span title={rowFresh.title} className={`mt-[7px] h-1.5 w-1.5 flex-shrink-0 rounded-full ${rowFresh.dot}`} />
+                                <span className="min-w-0 break-words text-sm text-white">{main}</span>
                                 {confirmedRow && <span title="Будет подтверждена без изменения цены" className="flex-shrink-0 text-[11px] text-emerald-300">✓</span>}
                               </div>
+                              {/* Бейдж «Скрыт» отдельной строкой — иначе он сжимает подпись цвета до переносов по буквам */}
+                              {!p.is_active && (
+                                <div className="mt-0.5 pl-3">
+                                  <span className="rounded-full bg-slate-500/15 px-1.5 py-0.5 text-[10px] text-slate-400">Скрыт из каталога</span>
+                                </div>
+                              )}
+                              {config && (
+                                <div title={full} className="mt-0.5 truncate pl-3 text-[11px] text-slate-400">{config}</div>
+                              )}
                               {(st?.priceChanged || p.sku) && (
-                                <div className="mt-0.5 truncate text-[11px] text-slate-500">
+                                <div className="mt-0.5 truncate pl-3 text-[11px] text-slate-500">
                                   {st?.priceChanged
                                     ? <><span className="line-through">{fmtRub(Number(p.price))}</span> → <span className="text-yellow-300">{fmtRub(st.nextPrice)}</span></>
                                     : p.sku}
@@ -834,8 +1023,8 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
                               inputMode="decimal"
                               enterKeyHint="next"
                               data-price-nav="1"
-                              aria-label={`Цена: ${g.title}, ${label}`}
-                              className={`w-[104px] flex-shrink-0 rounded-xl border px-2.5 py-2.5 text-right text-[15px] font-bold text-white outline-none transition ${priceErr ? 'border-rose-500/70 bg-rose-500/10' : st?.priceChanged ? 'border-yellow-400/60 bg-yellow-400/10' : 'border-white/10 bg-white/5 focus:border-yellow-400/60'}`}
+                              aria-label={`Цена: ${g.title}, ${rowName}`}
+                              className={`w-[104px] flex-shrink-0 rounded-xl border px-2.5 py-2.5 text-right text-[15px] font-bold text-white outline-none transition ${dim} ${priceErr ? 'border-rose-500/70 bg-rose-500/10' : st?.priceChanged ? 'border-yellow-400/60 bg-yellow-400/10' : 'border-white/10 bg-white/5 focus:border-yellow-400/60'}`}
                             />
                             <input
                               value={discVal}
@@ -846,9 +1035,16 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
                               inputMode="decimal"
                               enterKeyHint="next"
                               placeholder="—"
-                              aria-label={`Скидочная цена: ${g.title}, ${label}`}
-                              className={`w-[80px] flex-shrink-0 rounded-xl border px-2 py-2.5 text-right text-[13px] font-semibold text-white placeholder-slate-600 outline-none transition ${discErr ? 'border-rose-500/70 bg-rose-500/10' : st?.discountChanged ? 'border-yellow-400/60 bg-yellow-400/10' : 'border-white/10 bg-white/5 focus:border-yellow-400/60'}`}
+                              aria-label={`Скидочная цена: ${g.title}, ${rowName}`}
+                              className={`w-[80px] flex-shrink-0 rounded-xl border px-2 py-2.5 text-right text-[13px] font-semibold text-white placeholder-slate-600 outline-none transition ${dim} ${discErr ? 'border-rose-500/70 bg-rose-500/10' : st?.discountChanged ? 'border-yellow-400/60 bg-yellow-400/10' : 'border-white/10 bg-white/5 focus:border-yellow-400/60'}`}
                             />
+                            <button
+                              onClick={() => void toggleRowActive(p)}
+                              aria-label={p.is_active ? `Скрыть из каталога: ${rowName}` : `Показать в каталоге: ${rowName}`}
+                              title={p.is_active ? 'Скрыть из каталога' : 'Показать в каталоге'}
+                              className={`flex h-11 w-7 flex-shrink-0 items-center justify-center rounded-lg transition active:scale-95 hover:bg-white/5 ${p.is_active ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-white'}`}>
+                              <EyeIcon off={!p.is_active} />
+                            </button>
                           </div>
                           {st?.error && <div className="mt-1 text-right text-[11px] text-rose-400">{st.error}</div>}
                         </div>
