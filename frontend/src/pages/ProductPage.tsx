@@ -107,18 +107,21 @@ function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs
         storage = `${num} ${unit}`
       }
     } else {
-      // Bare number as storage: "iPhone 18 pro 256 sim" → "256"
-      // Iterate ALL numbers and pick the first one that looks like a storage size (32+)
+      // Bare number as storage: "iPhone 18 pro 256 sim" → "256".
+      // ВАЖНО: без единицы измерения принимаем ТОЛЬКО реальные объёмы памяти.
+      // Раньше подходило любое число 32–9999, и номера моделей становились
+      // «Памятью»: «JBL Partybox 120 Чёрный» → «Память: 120», «стайлер 500 Вт»
+      // → «Память: 500». Реальные объёмы — степени двойки, номера моделей
+      // (110/120/320/500/720/1000) в этот набор не попадают.
+      const REAL_STORAGE_SIZES = new Set([32, 64, 128, 256, 512, 1024, 2048])
       const allNumbers = [...name.matchAll(/\b(\d{2,4})\b/g)]
       for (const m of allNumbers) {
         const n = parseInt(m[1])
-        // Typical storage values: 32, 64, 128, 256, 512, 1024, etc.
-        // Skip small numbers that are likely model numbers (e.g. "18" in "iPhone 18")
-        if (n >= 32 && n <= 9999) {
+        if (REAL_STORAGE_SIZES.has(n)) {
           // Make sure it's not followed by unit-like suffixes that indicate non-storage
           const afterIdx = (m.index ?? 0) + m[0].length
           const after = name.slice(afterIdx, afterIdx + 5)
-          if (!/^\s*(мм|mm|мес|"|\'|шт|₽)/i.test(after)) {
+          if (!/^\s*(мм|mm|мес|Вт|W|"|\'|шт|₽)/i.test(after)) {
             storage = m[1]
             break
           }
