@@ -2328,6 +2328,13 @@ function ProductModal({
           return [key, typedValue]
         })
     )
+    // Мастер групп кладёт цвет и в attributes (по нему витрина отличает
+    // мастерские группы от легаси). При редактировании не теряем этот маркер
+    // и синхронизируем его с полем «Цвет товара». Легаси-товары (без color
+    // в attributes) не трогаем.
+    if (attributes.color !== undefined && attributes.color !== null && color.trim()) {
+      cleanAttributes.color = color.trim()
+    }
 
     const payload: Record<string, unknown> = {
       name: name.trim(),
@@ -4582,6 +4589,8 @@ function GroupCreationModal({
           ? Number(sharedFieldValues[field.key])
           : sharedFieldValues[field.key],
       ]).filter(([, value]) => value !== undefined && value !== '')) as Record<string, string | number | boolean>
+      // Пустые оси в attributes не пишем — иначе в товаре копятся strap_size: ""
+      // и подобный мусор, который путает витрину.
       const typedVariantAttributes = Object.fromEntries(axesDef.map(field => [
         field.key,
         field.field_type === 'boolean'
@@ -4589,10 +4598,12 @@ function GroupCreationModal({
           : field.field_type === 'number' && variantAttributes[field.key] !== ''
             ? Number(variantAttributes[field.key])
           : variantAttributes[field.key],
-      ])) as Record<string, string | number | boolean>
+      ]).filter(([, value]) => value !== undefined && value !== '')) as Record<string, string | number | boolean>
       const attributes = { ...typedSharedAttributes, ...typedVariantAttributes }
+      // В названии — только значения, без «Метка: » (решение владельца:
+      // «Samsung Galaxy S26 (Розовый (Pink Gold), 256Гб, 2Sim+eSim)»).
       const labels = axesDef
-        .map(field => variantAttributes[field.key] ? `${field.label}: ${variantAttributes[field.key]}` : '')
+        .map(field => variantAttributes[field.key] ? String(variantAttributes[field.key]) : '')
         .filter(Boolean)
       const key = axesDef.map(field => attributes[field.key] || '').join('|') || 'base'
       const ov = overrides[key]

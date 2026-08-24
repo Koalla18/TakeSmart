@@ -80,7 +80,12 @@ function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs
     if (color && remainder.includes(color)) {
       remainder = remainder.replace(color, '');
     }
+    // Снимаем запятые и осиротевшие скобки: у имён вида «... 40mm)» хвостом
+    // оставалась голая «)», и она показывалась как «Размер ремешка: )».
     remainder = remainder.replace(/,/g, '').trim();
+    while (/^[)\]]/.test(remainder)) remainder = remainder.slice(1).trim();
+    while (/[(\[]$/.test(remainder)) remainder = remainder.slice(0, -1).trim();
+    if (/^[()\[\]\s]*$/.test(remainder)) remainder = '';
     stor = remainder || null;
     
     return { storage: stor, connectivity: conn, ram, color: color || null };
@@ -1038,9 +1043,15 @@ export function ProductPage() {
                   const variantFields = categoryFields.filter(field => field.is_variant)
                   const hasAttrValue = (v: unknown) => v !== null && v !== undefined && v !== ''
                   const nonColorVariantFields = variantFields.filter(field => field.key !== 'color')
+                  // Группа мастера распознаётся двумя способами: либо значения есть по
+                  // ВСЕМ nonColor-осям схемы, либо у карточек стоит маркер мастера —
+                  // attrs.color (легаси-скрипты писали storage/connectivity, но никогда
+                  // color). Иначе часы с пустыми «Тип/Размер ремешка» падали в легаси-
+                  // парсер имён, который вытаскивал «)» как размер ремешка.
+                  const wizardMarker = allCards.some(card => hasAttrValue(card.attributes?.color))
                   const schemaDataPresent = nonColorVariantFields.length === 0
                     ? variantFields.length > 0
-                    : nonColorVariantFields.every(field => allCards.some(card => hasAttrValue(card.attributes?.[field.key])))
+                    : (wizardMarker || nonColorVariantFields.every(field => allCards.some(card => hasAttrValue(card.attributes?.[field.key]))))
                   if (variantFields.length > 0 && schemaDataPresent) {
                     const getValue = (card: typeof allCards[number], key: string): string => {
                       const value = key === 'color' ? card.color : card.attributes?.[key]
