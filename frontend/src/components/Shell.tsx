@@ -743,7 +743,7 @@ export function Shell({ children }: PropsWithChildren) {
                 Ежедневно: 10:30 — 20:30
               </span>
               <a
-                href="https://t.me/take_smartt"
+                href="https://t.me/takesmart_manager"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 text-gray-400 transition-colors hover:text-yellow-400"
@@ -859,7 +859,7 @@ export function Shell({ children }: PropsWithChildren) {
                   <div className="hidden sm:block text-sm text-gray-400">Узнавайте о новинках первыми!</div>
                 </div>
                 <a
-                  href="https://t.me/c/1875029190/967"
+                  href="https://t.me/takesmart_manager"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-xl bg-blue-500 px-6 py-3 text-sm font-semibold text-white transition-all hover:bg-blue-400 hover:shadow-lg hover:shadow-blue-500/30"
