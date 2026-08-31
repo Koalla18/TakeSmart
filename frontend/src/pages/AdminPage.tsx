@@ -4600,8 +4600,9 @@ function GroupCreationModal({
           : variantAttributes[field.key],
       ]).filter(([, value]) => value !== undefined && value !== '')) as Record<string, string | number | boolean>
       const attributes = { ...typedSharedAttributes, ...typedVariantAttributes }
-      // В названии — только значения, без «Метка: » (решение владельца:
-      // «Samsung Galaxy S26 (Розовый (Pink Gold), 256Гб, 2Sim+eSim)»).
+      // В названии — только значения, без «Метка: » и без внешних скобок
+      // (решение владельца: «Samsung Galaxy S26 FE Синий (Blueberry), 256Гб,
+      // 2Sim+eSim»). Скобки внутри значений — часть самого значения.
       const labels = axesDef
         .map(field => variantAttributes[field.key] ? String(variantAttributes[field.key]) : '')
         .filter(Boolean)
@@ -4609,7 +4610,7 @@ function GroupCreationModal({
       const ov = overrides[key]
       return {
         key,
-        name: labels.length ? `${baseName} (${labels.join(', ')})` : baseName,
+        name: labels.length ? `${baseName} ${labels.join(', ')}`.replace(/\s{2,}/g, ' ').trim() : baseName,
         color: String(attributes.color || ''),
         attributes,
         price: ov?.price || basePriceStr,
