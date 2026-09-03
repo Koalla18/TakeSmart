@@ -48,6 +48,33 @@ interface ParsedAttrs {
  *   "Apple iPhone 17 Pro Max 256 ГБ SIM + eSIM, Cosmic Orange"
  *   "MacBook Pro 14 M4 Pro 16/512 ГБ, Space Black"
  */
+/**
+ * Единое написание значения оси, чтобы одно и то же значение из attributes и
+ * из названия не превращалось в две кнопки: «256Гб» / «256 ГБ» / «256 gb» и
+ * голое «12» у объёмов → «256 ГБ», «12 ГБ».
+ */
+function normalizeAxisValue(raw: string, key?: string): string {
+  const value = raw.trim().replace(/\s+/g, ' ')
+  const withUnit = value.match(/^(\d+)\s*(ГБ|GB|ТБ|TB|Гб|Тб|гб|тб)$/i)
+  if (withUnit) {
+    const unit = /ТБ|TB/i.test(withUnit[2]) ? 'ТБ' : 'ГБ'
+    return `${withUnit[1]} ${unit}`
+  }
+  // Голое число у оси памяти/ОЗУ: мастер сохраняет «12», парсер имени — «12 ГБ».
+  if ((key === 'storage' || key === 'ram') && /^\d+$/.test(value)) return `${value} ГБ`
+  return value
+}
+
+/**
+ * SIM-значение берём ПОДСТРОКОЙ из названия, а не из общего парсера: тот
+ * огрубляет «2Sim+eSim» до «SIM + eSIM», и в смешанной группе появлялись две
+ * кнопки вместо одной. Здесь возвращается ровно то, что написано в имени.
+ */
+function simValueFromName(name: string): string | null {
+  const m = name.match(/(\d\s*sim\s*\+\s*e-?sim|sim\s*\+\s*e-?sim|\d\s*sim|e-?sim|wi-?fi\s*\+\s*cellular|wi-?fi)/i)
+  return m ? m[1].replace(/\s+/g, '') : null
+}
+
 function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs {
   let ram: string | null = null
 
@@ -1053,10 +1080,23 @@ export function ProductPage() {
                     ? variantFields.length > 0
                     : (wizardMarker || nonColorVariantFields.every(field => allCards.some(card => hasAttrValue(card.attributes?.[field.key]))))
                   if (variantFields.length > 0 && schemaDataPresent) {
+                    // Значение оси: сначала из attributes, а если их нет (карточка
+                    // создана до мастера — характеристики только в названии), разбираем
+                    // имя. Без этого в смешанной группе у старых карточек показывалось
+                    // «Память: —», а выбор объёма перекидывал на чужой цвет.
                     const getValue = (card: typeof allCards[number], key: string): string => {
                       const value = key === 'color' ? card.color : card.attributes?.[key]
-                      if (value === null || value === undefined || value === '') return ''
-                      return typeof value === 'boolean' ? (value ? 'Да' : 'Нет') : String(value)
+                      if (value !== null && value !== undefined && value !== '') {
+                        return typeof value === 'boolean' ? (value ? 'Да' : 'Нет') : normalizeAxisValue(String(value), key)
+                      }
+                      if (key === 'color') return ''
+                      if (key === 'sim' || key === 'connectivity') {
+                        const sim = simValueFromName(card.name || '')
+                        return sim ? normalizeAxisValue(sim, key) : ''
+                      }
+                      const fromName = parseAttrsFromProduct(card.name || '', card.color)
+                      const fallback = key === 'storage' ? fromName.storage : key === 'ram' ? fromName.ram : null
+                      return fallback ? normalizeAxisValue(String(fallback), key) : ''
                     }
                     const currentValues = Object.fromEntries(variantFields.map(field => [field.key, getValue(allCards[0], field.key)]))
                     const goToValue = (fieldKey: string, value: string) => {
