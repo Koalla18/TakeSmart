@@ -24,6 +24,7 @@ from src.app.api.routers import (
     brands_router,
     trade_in_router,
 )
+from src.app.api.routers.analytics import router as analytics_router
 from src.app.api.admin.endpoints import router as admin_router
 
 # Логирование инициализируется ДО создания app — чтобы поймать все события старта
@@ -199,6 +200,7 @@ def create_app() -> FastAPI:
     app.include_router(feed_router,           prefix=prefix)
     app.include_router(brands_router,         prefix=prefix)
     app.include_router(trade_in_router,       prefix=prefix)
+    app.include_router(analytics_router,      prefix=prefix)
     app.include_router(admin_router,          prefix=f"{prefix}/admin", tags=["admin"])
 
     return app

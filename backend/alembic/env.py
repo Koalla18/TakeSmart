@@ -15,7 +15,7 @@ from src.app.database.session import Base
 from src.app.database.models import (  # noqa: F401
     Category, Product, ProductSpec, ProductImage,
     ProductVariant, WeeklySlide, Order, OrderItem, Admin,
-    Brand, TradeInOffer,
+    Brand, TradeInOffer, PageVisit,
 )
 
 # ── Alembic Config ───────────────────────────────────────────────────────────

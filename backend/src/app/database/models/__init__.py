@@ -10,10 +10,11 @@ from src.app.database.models.admin import Admin
 from src.app.database.models.push_subscription import PushSubscription
 from src.app.database.models.brand import Brand
 from src.app.database.models.trade_in_offer import TradeInOffer
+from src.app.database.models.page_visit import PageVisit
 
 __all__ = [
     "Category", "Product", "ProductSpec",
     "ProductImage", "ProductVariant", "ProductGroup",
     "WeeklySlide", "HeroBanner", "Order", "OrderItem", "Admin", "PushSubscription",
-    "Brand", "TradeInOffer",
+    "Brand", "TradeInOffer", "PageVisit",
 ]
