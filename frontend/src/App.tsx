@@ -4,6 +4,7 @@ import { Shell } from './components/Shell'
 import { AuthProvider } from './lib/auth'
 import { CartProvider } from './lib/cart'
 import { ymHit } from './lib/metrika'
+import { trackVisit } from './lib/visits'
 import { HomePage } from './pages/HomePage'
 
 // HomePage остаётся eager — это лендинг, не хотим второй сетевой round-trip на "/".
@@ -32,13 +33,14 @@ function ScrollToTop() {
   return null
 }
 
+/** Внутренние инструменты (админка/PWA-заказы/вход) в аналитику витрины не попадают. */
+const INTERNAL_ROUTE_PREFIXES = ['/admin', '/app', '/login']
+
 /**
  * SPA-трекинг для Яндекс.Метрики: первый просмотр отправляет сам сниппет в
  * index.html при загрузке, а каждый последующий переход по роуту (без
  * перезагрузки страницы) отправляем вручную через ym('hit').
  */
-const METRIKA_IGNORED_PREFIXES = ['/admin', '/app', '/login']
-
 function MetrikaRouteTracker() {
   const location = useLocation()
   const isFirstRender = useRef(true)
@@ -48,9 +50,34 @@ function MetrikaRouteTracker() {
       return
     }
     // Не считаем внутренние инструменты (админка/PWA-заказы/вход) — только витрину.
-    if (METRIKA_IGNORED_PREFIXES.some(p => location.pathname.startsWith(p))) return
+    if (INTERNAL_ROUTE_PREFIXES.some(p => location.pathname.startsWith(p))) return
     ymHit(location.pathname + location.search)
   }, [location.pathname, location.search])
+  return null
+}
+
+/**
+ * Собственный счётчик визитов — источник цифр «Визиты» и «Конверсия» в админской
+ * аналитике (Метрика свои данные внутрь панели не отдаёт). В отличие от Метрики
+ * считаем и самый первый просмотр — за нас его никто не отправляет. Источник
+ * перехода для первой страницы — внешний document.referrer, дальше — предыдущий
+ * путь внутри сайта.
+ */
+function VisitTracker() {
+  const location = useLocation()
+  const prevPath = useRef<string | null>(null)
+  useEffect(() => {
+    const path = location.pathname
+    if (INTERNAL_ROUTE_PREFIXES.some(p => path.startsWith(p))) {
+      prevPath.current = path
+      return
+    }
+    const referrer = prevPath.current
+      ? window.location.origin + prevPath.current
+      : document.referrer || null
+    trackVisit(path, referrer)
+    prevPath.current = path
+  }, [location.pathname])
   return null
 }
 
@@ -69,6 +96,7 @@ export default function App() {
       <CartProvider>
         <ScrollToTop />
         <MetrikaRouteTracker />
+        <VisitTracker />
         <Suspense fallback={<RouteFallback />}>
           <Routes>
             {/* Admin routes (no Shell) */}

@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../lib/config'
 import { formatPrice } from '../data/products'
 import { toast, ToastHost } from '../lib/toast'
 import { confirmDialog, ConfirmHost } from '../lib/confirm'
+import { AnalyticsTab } from './admin/AnalyticsTab'
 
 // ============ TYPES ============
 
@@ -204,7 +205,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   refunded:   { label: 'Возврат',     color: 'text-gray-600',   bg: 'bg-gray-200',   icon: '💸' },
 }
 
-type TabType = 'orders' | 'products' | 'categories' | 'fields' | 'quickfilters' | 'banners' | 'brands' | 'tradein' | 'slides' | 'used'
+type TabType = 'analytics' | 'orders' | 'products' | 'categories' | 'fields' | 'quickfilters' | 'banners' | 'brands' | 'tradein' | 'slides' | 'used'
 type CategorySettingsSection = 'filters' | 'fields' | null
 
 // ============ HELPERS ============
@@ -927,6 +928,8 @@ export function AdminPage() {
         <nav aria-label="Разделы админки" className="mb-7 rounded-2xl border border-white/10 bg-slate-950/30 p-2.5 shadow-xl shadow-black/10 backdrop-blur">
           <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">
             {[
+              // У аналитики счётчика нет — она не про количество сущностей, а про период.
+              { id: 'analytics' as TabType, label: 'Аналитика', icon: '📈', count: undefined as number | undefined },
               { id: 'orders' as TabType, label: 'Заказы', icon: '📋', count: orders.length },
               { id: 'products' as TabType, label: 'Товары', icon: '📦', count: products.filter(p => (p.condition || 'new') === 'new').length },
               { id: 'categories' as TabType, label: 'Категории', icon: '📁', count: categories.length },
@@ -948,7 +951,7 @@ export function AdminPage() {
               >
                 <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-base ${isActive ? 'bg-black/10' : 'bg-white/8 group-hover:bg-white/12'}`}>{tab.icon}</span>
                 <span className="min-w-0 flex-1 truncate">{tab.label}</span>
-                <span className={`min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] font-bold ${isActive ? 'bg-slate-950/15 text-slate-900' : 'bg-white/10 text-slate-400 group-hover:text-slate-200'}`}>{tab.count}</span>
+                {tab.count !== undefined && <span className={`min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] font-bold ${isActive ? 'bg-slate-950/15 text-slate-900' : 'bg-white/10 text-slate-400 group-hover:text-slate-200'}`}>{tab.count}</span>}
               </button>
             })}
           </div>
@@ -997,6 +1000,9 @@ export function AdminPage() {
             </div>
           </div>
         </div>
+
+        {/* ============ ANALYTICS TAB ============ */}
+        {activeTab === 'analytics' && <AnalyticsTab authFetch={authFetch} />}
 
         {/* ============ ORDERS TAB ============ */}
         {activeTab === 'orders' && (
