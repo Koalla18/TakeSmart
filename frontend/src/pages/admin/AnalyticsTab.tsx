@@ -733,7 +733,8 @@ function TrendChart({
 
 // ============ MAIN ============
 
-export function AnalyticsTab({ authFetch }: { authFetch?: AuthFetchFn }) {
+/** embedded — заголовок раздела рисует каркас админки, внутри остаётся только строка периода и «Обновить» */
+export function AnalyticsTab({ authFetch, embedded = false }: { authFetch?: AuthFetchFn; embedded?: boolean }) {
   const [period, setPeriod] = useState<PeriodKey>(() => {
     try {
       const saved = localStorage.getItem(LS_PERIOD)
@@ -862,8 +863,8 @@ export function AnalyticsTab({ authFetch }: { authFetch?: AuthFetchFn }) {
       {/* ── Шапка раздела ── */}
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-white">📈 Аналитика</h2>
-          <p className="mt-1 text-sm text-slate-400">
+          {!embedded && <h2 className="text-xl font-bold text-white">📈 Аналитика</h2>}
+          <p className={embedded ? 'text-sm text-slate-400' : 'mt-1 text-sm text-slate-400'}>
             {data
               ? `${formatRange(data.range)} · сравнение с ${formatRange(data.previous_range)}`
               : 'Продажи, визиты и конверсия с сравнением к прошлому периоду'}

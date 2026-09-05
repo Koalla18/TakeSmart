@@ -1,11 +1,16 @@
-import { useEffect, useState, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState, useRef } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth, getAuthHeaders } from '../lib/auth'
 import { API_BASE_URL } from '../lib/config'
 import { formatPrice } from '../data/products'
 import { toast, ToastHost } from '../lib/toast'
 import { confirmDialog, ConfirmHost } from '../lib/confirm'
 import { AnalyticsTab } from './admin/AnalyticsTab'
+import { AdminShell, AdminShellSkeleton, SegmentedTabs, BTN_PRIMARY, BTN_SECONDARY } from './admin/AdminShell'
+import { AdminIcon } from './admin/AdminIcons'
+import { ADMIN_NAV, ADMIN_SECTION_META, CATEGORY_SEGMENTS, isAdminSection, type AdminSection } from './admin/adminNav'
+import { CommandPalette, type PaletteItem } from './admin/CommandPalette'
+import { OverviewTab } from './admin/OverviewTab'
 
 // ============ TYPES ============
 
@@ -195,17 +200,25 @@ interface ProductVariant {
 
 // ============ CONSTANTS ============
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
-  pending:    { label: 'Новый',       color: 'text-blue-600',   bg: 'bg-blue-100',   icon: '🆕' },
-  confirmed:  { label: 'Подтверждён', color: 'text-cyan-600',   bg: 'bg-cyan-100',   icon: '✅' },
-  processing: { label: 'В обработке', color: 'text-orange-600', bg: 'bg-orange-100', icon: '⏳' },
-  shipped:    { label: 'Отправлен',   color: 'text-indigo-600', bg: 'bg-indigo-100', icon: '🚚' },
-  delivered:  { label: 'Доставлен',   color: 'text-green-600',  bg: 'bg-green-100',  icon: '📦' },
-  cancelled:  { label: 'Отменён',     color: 'text-red-600',    bg: 'bg-red-100',    icon: '❌' },
-  refunded:   { label: 'Возврат',     color: 'text-gray-600',   bg: 'bg-gray-200',   icon: '💸' },
+const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+  pending:    { label: 'Новый',       color: 'text-sky-300',     bg: 'bg-sky-400/15' },
+  confirmed:  { label: 'Подтверждён', color: 'text-cyan-300',    bg: 'bg-cyan-400/15' },
+  processing: { label: 'В обработке', color: 'text-amber-300',   bg: 'bg-amber-400/15' },
+  shipped:    { label: 'Отправлен',   color: 'text-indigo-300',  bg: 'bg-indigo-400/15' },
+  delivered:  { label: 'Доставлен',   color: 'text-emerald-300', bg: 'bg-emerald-400/15' },
+  cancelled:  { label: 'Отменён',     color: 'text-rose-300',    bg: 'bg-rose-400/15' },
+  refunded:   { label: 'Возврат',     color: 'text-slate-300',   bg: 'bg-white/10' },
 }
 
-type TabType = 'analytics' | 'orders' | 'products' | 'categories' | 'fields' | 'quickfilters' | 'banners' | 'brands' | 'tradein' | 'slides' | 'used'
+// Разделы админки описаны в ./admin/adminNav — там же группы бокового меню и заголовки
+type TabType = AdminSection
+
+function pluralRu(n: number, one: string, few: string, many: string): string {
+  const mod10 = n % 10, mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return one
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few
+  return many
+}
 type CategorySettingsSection = 'filters' | 'fields' | null
 
 // ============ HELPERS ============
@@ -317,10 +330,23 @@ type AuthFetchFn = ReturnType<typeof makeAuthFetch>
 export function AdminPage() {
   const navigate = useNavigate()
   const { isAuthenticated, logout } = useAuth()
-  const authFetch = makeAuthFetch(logout)
-  
-  const [activeTab, setActiveTab] = useState<TabType>('orders')
+  const authFetch = useMemo(() => makeAuthFetch(logout), [logout])
+
+  // Активный раздел живёт в адресе (?tab=…): обновление страницы и кнопка «назад»
+  // возвращают туда же, а ссылку на раздел можно отправить коллеге
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const activeTab: TabType = isAdminSection(tabParam) ? tabParam : 'overview'
+  const setActiveTab = (tab: TabType) => {
+    if (tab === activeTab) return
+    setSearchParams(tab === 'overview' ? {} : { tab })
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [orders, setOrders] = useState<Order[]>([])
+  // Новые заказы отдельным списком: основной список зависит от фильтра статуса,
+  // а бейдж в меню и «Обзор» должны показывать честное число всегда
+  const [pendingOrders, setPendingOrders] = useState<Order[]>([])
   const [statusFilter, setStatusFilter] = useState('all')
   const [orderSearch, setOrderSearch] = useState('')
   const [orderPage, setOrderPage] = useState(1)
@@ -358,6 +384,15 @@ export function AdminPage() {
     if (!isAuthenticated) navigate('/login', { replace: true })
   }, [isAuthenticated, navigate])
 
+  // ⌘K / Ctrl+K — палитра поиска. По физической клавише (code), чтобы работало и в русской раскладке
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.code === 'KeyK') { e.preventDefault(); setPaletteOpen(open => !open) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   // Data loading — all list endpoints return PaginatedResponse
   const loadOrders = async () => {
     try {
@@ -367,6 +402,15 @@ export function AdminPage() {
       if (!res.ok) throw new Error('Ошибка')
       const data: PaginatedResponse<Order> = await res.json()
       setOrders(data.items)
+    } catch (err) { console.error(err) }
+  }
+
+  const loadPendingOrders = async () => {
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/orders?limit=100&status=pending`, { headers: { Accept: 'application/json' } })
+      if (!res.ok) return
+      const data: PaginatedResponse<Order> = await res.json()
+      setPendingOrders(data.items)
     } catch (err) { console.error(err) }
   }
 
@@ -451,7 +495,7 @@ export function AdminPage() {
     setIsLoading(true)
     setError(null)
     try {
-      await Promise.all([loadOrders(), loadProducts(), loadCategories(), loadSlides(), loadBanners(), loadBrands(), loadTradeInOffers()])
+      await Promise.all([loadOrders(), loadPendingOrders(), loadProducts(), loadCategories(), loadSlides(), loadBanners(), loadBrands(), loadTradeInOffers()])
     } catch { setError('Ошибка загрузки') }
     finally { setIsLoading(false) }
   }
@@ -481,6 +525,7 @@ export function AdminPage() {
       if (!res.ok) throw new Error('Ошибка')
       setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o))
       if (selectedOrder?.id === orderId) setSelectedOrder({ ...selectedOrder, status: newStatus })
+      loadPendingOrders()
     } catch { toast('Ошибка', 'error') }
     finally { setUpdatingStatus(false) }
   }
@@ -491,6 +536,7 @@ export function AdminPage() {
       await authFetch(`${API_BASE_URL}/api/orders/${orderId}`, { method: 'DELETE' })
       setOrders(orders.filter(o => o.id !== orderId))
       setSelectedOrder(null)
+      loadPendingOrders()
     } catch { toast('Ошибка', 'error') }
   }
 
@@ -797,8 +843,6 @@ export function AdminPage() {
     })
   }
 
-  const featuredProduct = products.find(p => p.is_featured)
-  const pendingCount = orders.filter(o => o.status === 'pending').length
   const quickFiltersCount = categories.reduce((total, category) => total + getCategoryQuickFilters(category).length, 0)
   const configuredFieldsCount = categories.reduce((total, category) => total + getCategoryProductFields(category).length, 0)
   const openCategorySettings = (category: Category | null, section: CategorySettingsSection = null) => {
@@ -809,35 +853,7 @@ export function AdminPage() {
 
   if (!isAuthenticated) return null
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-        <header className="border-b border-white/10 bg-slate-900/90 px-4 py-4">
-          <div className="mx-auto flex max-w-7xl items-center gap-3">
-            <div className="h-10 w-10 animate-pulse rounded-xl bg-white/10" />
-            <div className="h-5 w-40 animate-pulse rounded bg-white/10" />
-          </div>
-        </header>
-        <div className="mx-auto max-w-7xl px-4 py-8">
-          <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-28 animate-pulse rounded-2xl bg-white/5" />
-            ))}
-          </div>
-          <div className="mb-6 flex flex-wrap gap-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-11 w-36 animate-pulse rounded-xl bg-white/10" />
-            ))}
-          </div>
-          <div className="space-y-2 rounded-2xl border border-white/10 p-4">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="h-12 animate-pulse rounded-lg bg-white/5" />
-            ))}
-          </div>
-        </div>
-      </div>
-    )
-  }
+  if (isLoading) return <AdminShellSkeleton />
 
   const ORDERS_PER_PAGE = 15
   const filteredOrders = orders.filter(o => {
@@ -851,158 +867,144 @@ export function AdminPage() {
   const safeOrderPage = Math.min(orderPage, orderPageCount)
   const pagedOrders = filteredOrders.slice((safeOrderPage - 1) * ORDERS_PER_PAGE, safeOrderPage * ORDERS_PER_PAGE)
 
+  const newProductsCount = products.filter(p => (p.condition || 'new') === 'new').length
+  const categoriesWithoutSchema = categories.filter(category => getCategoryProductFields(category).length === 0).length
+  const meta = ADMIN_SECTION_META[activeTab]
+  const todayLabel = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })
+  const pageDescription = activeTab === 'overview'
+    ? `${todayLabel.charAt(0).toUpperCase()}${todayLabel.slice(1)} · что требует внимания`
+    : activeTab === 'products'
+      ? `${newProductsCount} ${pluralRu(newProductsCount, 'товар', 'товара', 'товаров')} в каталоге · карточки, группы вариантов, цены и наличие`
+      : meta.description
+
+  // Главное действие раздела живёт в шапке, а не внутри списка — одна точка входа на экране
+  const pageActions = (() => {
+    switch (activeTab) {
+      case 'products':
+        return (
+          <>
+            <button type="button" onClick={() => setIsGroupModalOpen(true)} className={BTN_SECONDARY}><AdminIcon name="layers" className="h-4 w-4" />Создать группу</button>
+            <button type="button" onClick={() => { setEditingProduct(null); setIsUsedProductMode(false); setIsProductModalOpen(true) }} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Добавить товар</button>
+          </>
+        )
+      case 'used':
+        return <button type="button" onClick={() => { setEditingProduct(null); setIsUsedProductMode(true); setIsProductModalOpen(true) }} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Добавить Б/У товар</button>
+      case 'categories':
+      case 'fields':
+      case 'quickfilters':
+        return <button type="button" onClick={() => openCategorySettings(null)} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Новая категория</button>
+      case 'banners':
+        return <button type="button" onClick={() => { setEditingBanner(null); setIsBannerModalOpen(true) }} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Новый баннер</button>
+      case 'brands':
+        return <button type="button" onClick={() => { setEditingBrand(null); setIsBrandModalOpen(true) }} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Новый бренд</button>
+      case 'tradein':
+        return <button type="button" onClick={() => { setEditingTradeInOffer(null); setIsTradeInModalOpen(true) }} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Устройство</button>
+      case 'slides':
+        return <button type="button" onClick={() => { setEditingSlide(null); setIsSlideModalOpen(true) }} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Новый слайд</button>
+      case 'orders':
+        return <button type="button" onClick={() => { loadOrders(); loadPendingOrders() }} className={BTN_SECONDARY}><AdminIcon name="refresh" className="h-4 w-4" />Обновить</button>
+      default:
+        return null
+    }
+  })()
+
+  // Палитра ⌘K ищет по тому, что уже загружено на странице
+  const paletteSearch = (query: string): PaletteItem[] => {
+    const q = query.trim().toLowerCase()
+    const sections: PaletteItem[] = ADMIN_NAV.flatMap(group => group.items).map(item => ({
+      id: `section-${item.id}`, group: 'Разделы', title: item.label, subtitle: item.hint, icon: item.icon, onSelect: () => setActiveTab(item.id),
+    }))
+    if (!q) return sections
+    const has = (...values: (string | null | undefined)[]) => values.some(v => typeof v === 'string' && v.toLowerCase().includes(q))
+    const items: PaletteItem[] = sections.filter(item => has(item.title, item.subtitle))
+    const seenOrders = new Set<string>()
+    for (const order of [...pendingOrders, ...orders]) {
+      if (seenOrders.has(order.id)) continue
+      seenOrders.add(order.id)
+      if (!has(order.order_number, order.customer_name, order.customer_phone, order.customer_email, order.shipping_city)) continue
+      items.push({
+        id: `order-${order.id}`, group: 'Заказы', icon: 'orders',
+        title: `${order.order_number} · ${order.customer_name}`,
+        subtitle: `${formatPrice(Number(order.total_amount) || 0)} · ${STATUS_CONFIG[order.status]?.label ?? order.status}`,
+        onSelect: () => { setActiveTab('orders'); loadOrderDetail(order.id) },
+      })
+      if (items.length > 40) break
+    }
+    let productHits = 0
+    for (const product of products) {
+      if (productHits >= 8) break
+      if (!has(product.name, product.brand, product.sku, product.model)) continue
+      productHits++
+      items.push({
+        id: `product-${product.id}`, group: 'Товары', icon: 'box',
+        title: product.name,
+        subtitle: [product.brand, formatPrice(product.discount_price ?? product.price), product.is_active ? null : 'скрыт из каталога'].filter(Boolean).join(' · '),
+        onSelect: () => { setActiveTab(product.condition === 'used' ? 'used' : 'products'); setEditingProduct(product); setIsUsedProductMode(product.condition === 'used'); setIsProductModalOpen(true) },
+      })
+    }
+    for (const category of categories) {
+      if (!has(category.name, category.slug)) continue
+      items.push({ id: `category-${category.id}`, group: 'Категории', icon: 'folder', title: category.name, subtitle: `/${category.slug}`, onSelect: () => { setActiveTab('categories'); openCategorySettings(category) } })
+    }
+    for (const brand of brands) {
+      if (!has(brand.name, brand.slug)) continue
+      items.push({ id: `brand-${brand.id}`, group: 'Бренды', icon: 'tag', title: brand.name, subtitle: `/${brand.slug}`, onSelect: () => { setActiveTab('brands'); setEditingBrand(brand); setIsBrandModalOpen(true) } })
+    }
+    return items
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+    <>
       <ToastHost />
       <ConfirmHost />
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-900/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-yellow-400 text-xl">⚡</div>
-            <div>
-              <h1 className="font-bold text-white">Take Smart Admin</h1>
-              <p className="text-xs text-slate-400">Панель управления</p>
-            </div>
-          </div>
-          <div className="flex gap-3">
-            <a href="/" className="rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">← На сайт</a>
-            <button onClick={() => { logout(); navigate('/login') }} className="rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">
-              Выйти
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <div className="mx-auto max-w-7xl px-4 py-8">
-        {/* Quick Stats Dashboard */}
-        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            { label: 'Всего заказов', value: orders.length, icon: '📋', gradient: 'from-blue-500 to-cyan-500', tab: 'orders' as TabType, status: 'all' },
-            { label: 'Новых заказов', value: pendingCount, icon: '🔔', gradient: 'from-red-500 to-rose-500', tab: 'orders' as TabType, status: 'pending' },
-            { label: 'Товаров', value: products.length, icon: '📦', gradient: 'from-indigo-500 to-violet-500', tab: 'products' as TabType, status: 'all' },
-            { label: 'Категорий', value: categories.length, icon: '📁', gradient: 'from-green-500 to-emerald-500', tab: 'categories' as TabType, status: 'all' },
-          ].map((stat, i) => (
-            <button
-              key={i}
-              onClick={() => { setActiveTab(stat.tab); if (stat.tab === 'orders') { setStatusFilter(stat.status); setOrderPage(1) } }}
-              className="group relative overflow-hidden rounded-2xl bg-white/5 p-5 text-left backdrop-blur transition-all hover:bg-white/10 hover:ring-1 hover:ring-white/20"
-            >
-              <div className={`absolute -right-4 -top-4 h-20 w-20 rounded-full bg-gradient-to-br ${stat.gradient} opacity-20 blur-2xl`} />
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-2xl">{stat.icon}</span>
-                <span className="ml-auto text-slate-500 opacity-0 transition-opacity group-hover:opacity-100">→</span>
-              </div>
-              <div className="text-2xl font-bold text-white">{stat.value}</div>
-              <div className="text-xs text-slate-400">{stat.label}</div>
-            </button>
-          ))}
-        </div>
-
-        {/* Featured Product Banner */}
-        {featuredProduct && (
-          <div
-            className="mb-6 rounded-2xl bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30 p-4 hover:from-yellow-500/30 hover:to-orange-500/30 transition-all cursor-pointer"
-            onClick={() => { setEditingProduct(featuredProduct); setIsProductModalOpen(true) }}
-            title="Нажмите, чтобы редактировать"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-yellow-500/30 text-3xl">
-                  ⭐
-                </div>
-                <div>
-                  <div className="text-sm text-yellow-400 font-medium">Хит продаж — показывается в разделе «Хиты» на главной</div>
-                  <div className="text-lg font-bold text-white">{featuredProduct.name}</div>
-                  <div className="text-xs text-slate-500 mt-0.5">Нажмите, чтобы редактировать товар</div>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-yellow-400">{formatPrice(featuredProduct.price)}</div>
-                <div className="text-xs text-slate-400">{products.filter(p => p.is_featured).length} товар(ов) отмечено</div>
-              </div>
-            </div>
-          </div>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} search={paletteSearch} />
+      <AdminShell
+        active={meta.navId}
+        onNavigate={setActiveTab}
+        counts={{ products: newProductsCount, categories: categories.length, brands: brands.length, banners: banners.length, tradein: tradeInOffers.length }}
+        attention={{ orders: pendingOrders.length }}
+        title={meta.title}
+        eyebrow={meta.eyebrow}
+        description={pageDescription}
+        actions={pageActions}
+        onOpenSearch={() => setPaletteOpen(true)}
+        onLogout={() => { logout(); navigate('/login') }}
+      >
+        {/* ============ OVERVIEW ============ */}
+        {activeTab === 'overview' && (
+          <OverviewTab
+            authFetch={authFetch}
+            products={products}
+            categoriesWithoutSchema={categoriesWithoutSchema}
+            pendingOrders={pendingOrders}
+            onOpenOrder={loadOrderDetail}
+            onGoTo={(section, opts) => {
+              if (opts?.orderStatus) { setStatusFilter(opts.orderStatus); setOrderPage(1) }
+              setActiveTab(section)
+            }}
+            onEditProduct={product => { setEditingProduct(product); setIsUsedProductMode(product.condition === 'used'); setIsProductModalOpen(true) }}
+            onNewProduct={() => { setEditingProduct(null); setIsUsedProductMode(false); setIsProductModalOpen(true) }}
+            onNewGroup={() => setIsGroupModalOpen(true)}
+            onNewCategory={() => openCategorySettings(null)}
+            onNewBanner={() => { setEditingBanner(null); setIsBannerModalOpen(true) }}
+            imageUrl={getImageUrl}
+          />
         )}
 
-        <nav aria-label="Разделы админки" className="mb-7 rounded-2xl border border-white/10 bg-slate-950/30 p-2.5 shadow-xl shadow-black/10 backdrop-blur">
-          <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">
-            {[
-              // У аналитики счётчика нет — она не про количество сущностей, а про период.
-              { id: 'analytics' as TabType, label: 'Аналитика', icon: '📈', count: undefined as number | undefined },
-              { id: 'orders' as TabType, label: 'Заказы', icon: '📋', count: orders.length },
-              { id: 'products' as TabType, label: 'Товары', icon: '📦', count: products.filter(p => (p.condition || 'new') === 'new').length },
-              { id: 'categories' as TabType, label: 'Категории', icon: '📁', count: categories.length },
-              { id: 'fields' as TabType, label: 'Поля и варианты', icon: '⚙️', count: configuredFieldsCount },
-              { id: 'quickfilters' as TabType, label: 'Модели', icon: '⚡', count: quickFiltersCount },
-              { id: 'banners' as TabType, label: 'Баннеры', icon: '🖼', count: banners.length },
-              { id: 'brands' as TabType, label: 'Бренды', icon: '🏷️', count: brands.length },
-              { id: 'tradein' as TabType, label: 'Trade-in', icon: '🔄', count: tradeInOffers.length },
-            ].map(tab => {
-              const isActive = activeTab === tab.id
-              return <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`group flex min-h-12 items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-all sm:px-4 ${
-                  isActive
-                    ? 'bg-gradient-to-br from-yellow-300 to-yellow-500 text-slate-950 shadow-lg shadow-yellow-500/15'
-                    : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                }`}
-              >
-                <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-base ${isActive ? 'bg-black/10' : 'bg-white/8 group-hover:bg-white/12'}`}>{tab.icon}</span>
-                <span className="min-w-0 flex-1 truncate">{tab.label}</span>
-                {tab.count !== undefined && <span className={`min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] font-bold ${isActive ? 'bg-slate-950/15 text-slate-900' : 'bg-white/10 text-slate-400 group-hover:text-slate-200'}`}>{tab.count}</span>}
-              </button>
-            })}
-          </div>
-        </nav>
-
-        {/* Legacy tabs kept mounted for the disabled future sections. */}
-        <div className="hidden">
-          {[
-            { id: 'orders' as TabType, label: '📋 Заказы', count: orders.length },
-            { id: 'products' as TabType, label: '📦 Товары', count: products.filter(p => (p.condition || 'new') === 'new').length },
-            { id: 'categories' as TabType, label: '📁 Категории', count: categories.length },
-            { id: 'fields' as TabType, label: '⚙️ Поля и варианты', count: configuredFieldsCount },
-            { id: 'quickfilters' as TabType, label: '⚡ Модели в каталоге', count: quickFiltersCount },
-            { id: 'banners' as TabType, label: '🖼 Баннеры', count: banners.length },
-            { id: 'brands' as TabType, label: '🏷️ Бренды', count: brands.length },
-            { id: 'tradein' as TabType, label: '🔄 Trade-in', count: tradeInOffers.length },
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`rounded-xl px-5 py-3 text-sm font-medium transition ${
-                activeTab === tab.id ? 'bg-yellow-400 text-gray-900' : 'bg-white/10 text-white hover:bg-white/20'
-              }`}
-            >
-              {tab.label} {tab.count !== undefined && `(${tab.count})`}
-            </button>
-          ))}
-          {/* Б/У — скрыто, недоступно */}
-          <div className="group relative rounded-xl px-5 py-3 text-sm font-medium bg-white/5 text-white/30 cursor-not-allowed select-none">
-            <span>♻️ Б/У</span>
-            <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-200 bg-white/5 backdrop-blur-sm flex items-center justify-center gap-1.5">
-              <svg className="h-3.5 w-3.5 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-              </svg>
-              <span className="text-white/50 text-xs">Скоро</span>
-            </div>
-          </div>
-          {/* Слайды недели — скрыто, недоступно */}
-          <div className="group relative rounded-xl px-5 py-3 text-sm font-medium bg-white/5 text-white/30 cursor-not-allowed select-none">
-            <span>🏞 Слайды недели</span>
-            <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-200 bg-white/5 backdrop-blur-sm flex items-center justify-center gap-1.5">
-              <svg className="h-3.5 w-3.5 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-              </svg>
-              <span className="text-white/50 text-xs">Скоро</span>
-            </div>
-          </div>
-        </div>
+        {/* Вкладки внутри «Категорий»: список, схема полей, кнопки моделей */}
+        {(activeTab === 'categories' || activeTab === 'fields' || activeTab === 'quickfilters') && (
+          <SegmentedTabs
+            items={CATEGORY_SEGMENTS.map(segment => ({
+              ...segment,
+              count: segment.id === 'categories' ? categories.length : segment.id === 'fields' ? configuredFieldsCount : quickFiltersCount,
+            }))}
+            value={activeTab}
+            onChange={setActiveTab}
+          />
+        )}
 
         {/* ============ ANALYTICS TAB ============ */}
-        {activeTab === 'analytics' && <AnalyticsTab authFetch={authFetch} />}
+        {activeTab === 'analytics' && <AnalyticsTab authFetch={authFetch} embedded />}
 
         {/* ============ ORDERS TAB ============ */}
         {activeTab === 'orders' && (
@@ -1011,23 +1013,23 @@ export function AdminPage() {
             <div className="mb-4 flex flex-wrap gap-2">
               {[
                 { id: 'all', label: 'Все', count: orders.length },
-                { id: 'pending', label: '🆕 Новые', count: orders.filter(o => o.status === 'pending').length },
-                { id: 'confirmed', label: '✅ Подтвержд.', count: orders.filter(o => o.status === 'confirmed').length },
-                { id: 'processing', label: '⏳ В работе', count: orders.filter(o => o.status === 'processing').length },
-                { id: 'shipped', label: '🚚 Отправлены', count: orders.filter(o => o.status === 'shipped').length },
-                { id: 'delivered', label: '📦 Доставлены', count: orders.filter(o => o.status === 'delivered').length },
+                { id: 'pending', label: 'Новые', count: pendingOrders.length },
+                { id: 'confirmed', label: 'Подтверждённые', count: orders.filter(o => o.status === 'confirmed').length },
+                { id: 'processing', label: 'В работе', count: orders.filter(o => o.status === 'processing').length },
+                { id: 'shipped', label: 'Отправлены', count: orders.filter(o => o.status === 'shipped').length },
+                { id: 'delivered', label: 'Доставлены', count: orders.filter(o => o.status === 'delivered').length },
               ].map(f => (
                 <button
                   key={f.id}
                   onClick={() => { setStatusFilter(f.id); setOrderPage(1) }}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition flex items-center gap-1.5 ${
-                    statusFilter === f.id ? 'bg-white text-gray-900' : 'bg-white/10 text-white hover:bg-white/20'
+                  className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-medium transition ${
+                    statusFilter === f.id ? 'bg-white text-slate-950' : 'bg-white/[0.06] text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
                 >
                   {f.label}
                   {f.count > 0 && (
                     <span className={`rounded-full px-1.5 text-xs font-bold ${
-                      statusFilter === f.id ? 'bg-black/10 text-gray-700' : 'bg-white/20 text-white'
+                      statusFilter === f.id ? 'bg-black/10 text-slate-700' : 'bg-white/10 text-slate-400'
                     }`}>{f.count}</span>
                   )}
                 </button>
@@ -1036,7 +1038,7 @@ export function AdminPage() {
 
             {/* Поиск по заказам */}
             <div className="relative mb-4 max-w-md">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">🔍</span>
+              <AdminIcon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
               <input
                 value={orderSearch}
                 onChange={e => { setOrderSearch(e.target.value); setOrderPage(1) }}
@@ -1107,8 +1109,8 @@ export function AdminPage() {
                           </div>
 
                           <div className="flex justify-end">
-                            <span className={`inline-flex items-center gap-1 rounded-lg px-3 py-1 text-xs font-semibold ${cfg?.bg || 'bg-gray-100'} ${cfg?.color || 'text-gray-600'}`}>
-                              {cfg?.icon} {cfg?.label || order.status}
+                            <span className={`inline-flex items-center gap-1 rounded-lg px-3 py-1 text-xs font-semibold ${cfg?.bg || 'bg-white/10'} ${cfg?.color || 'text-slate-300'}`}>
+                              <span className="h-1.5 w-1.5 rounded-full bg-current" />{cfg?.label || order.status}
                             </span>
                           </div>
                         </div>
@@ -1129,8 +1131,8 @@ export function AdminPage() {
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-mono text-sm font-bold text-yellow-400">{order.order_number}</span>
-                          <span className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold ${cfg?.bg || 'bg-gray-100'} ${cfg?.color || 'text-gray-600'}`}>
-                            {cfg?.icon} {cfg?.label || order.status}
+                          <span className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold ${cfg?.bg || 'bg-white/10'} ${cfg?.color || 'text-slate-300'}`}>
+                            <span className="h-1.5 w-1.5 rounded-full bg-current" />{cfg?.label || order.status}
                           </span>
                         </div>
                         <div className="mt-2 text-sm font-semibold text-white">{order.customer_name}</div>
@@ -1179,6 +1181,7 @@ export function AdminPage() {
             onRefresh={loadProducts}
             authFetch={authFetch}
             onCreateGroup={() => setIsGroupModalOpen(true)}
+            hideActions
           />
         )}
 
@@ -1199,13 +1202,13 @@ export function AdminPage() {
             onRefresh={loadProducts}
             isUsedMode
             authFetch={authFetch}
+            hideActions
           />
         )}
 
         {/* ============ PRODUCT FIELDS TAB ============ */}
         {activeTab === 'fields' && (
           <>
-            <div className="mb-6"><h2 className="text-xl font-bold text-white">⚙️ Поля и варианты товара</h2><p className="mt-1 text-sm text-slate-400">Схема карточки и варианты создаваемой группы. Хранится в базе для каждой категории; у новой категории полей нет — их добавляют вручную или явно применяют готовый шаблон.</p></div>
             <div className="grid gap-3 lg:grid-cols-2">
               {categories.map(category => {
                 const fields = getCategoryProductFields(category)
@@ -1219,7 +1222,6 @@ export function AdminPage() {
         {/* ============ QUICK CATALOG MODELS TAB ============ */}
         {activeTab === 'quickfilters' && (
           <>
-            <div className="mb-6"><h2 className="text-xl font-bold text-white">⚡ Модели в каталоге</h2><p className="mt-1 text-sm text-slate-400">Кнопки над товарами: например, iPhone 16 или Galaxy S25. Показывается ровно то, что сохранено у категории; пустой список скрывает кнопки в каталоге.</p></div>
             <div className="grid gap-3 lg:grid-cols-2">
               {categories.map(category => { const filters = getCategoryQuickFilters(category); return <div key={category.id} className="rounded-2xl border border-white/10 bg-white/5 p-5"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-white">{category.name}</h3><p className="mt-1 text-xs text-slate-500">{filters.length ? `${filters.length} кнопок отображается` : 'Кнопки ещё не настроены'}</p></div><button onClick={() => openCategorySettings(category, 'filters')} className="rounded-xl bg-yellow-400 px-3 py-2 text-xs font-semibold text-gray-900 hover:bg-yellow-300">Настроить</button></div><div className="mt-4 flex flex-wrap gap-1.5">{filters.length ? filters.map((filter, index) => <span key={`${filter.label}-${index}`} className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-white">{filter.label}</span>) : <span className="text-sm text-slate-500">Добавьте первую быструю модель для этой категории.</span>}</div></div> })}
             </div>
@@ -1229,19 +1231,6 @@ export function AdminPage() {
         {/* ============ CATEGORIES TAB ============ */}
         {activeTab === 'categories' && (
           <>
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-white">📂 Категории</h2>
-                <p className="text-sm text-slate-400">{categories.length} категорий • название, URL, изображение и видимость на сайте</p>
-              </div>
-              <button
-                onClick={() => openCategorySettings(null)}
-                className="rounded-xl bg-yellow-400 px-5 py-3 font-semibold text-gray-900 hover:bg-yellow-300 transition-colors"
-              >
-                + Новая категория
-              </button>
-            </div>
-
             {categories.length === 0 ? (
               <div className="rounded-2xl bg-white/5 p-16 text-center">
                 <div className="text-6xl mb-4">📁</div>
@@ -1260,13 +1249,13 @@ export function AdminPage() {
                   const productCount = products.filter(p => p.category_id === category.id).length
                   return (
                     <div key={category.id} className="group rounded-2xl bg-white/5 hover:bg-white/[0.08] transition-colors overflow-hidden">
-                      <div className="flex items-center gap-4 p-4">
+                      <div className="flex flex-wrap items-center gap-4 p-4">
                         {/* Image */}
                         <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-white/10 overflow-hidden">
                           {category.image_url ? (
                             <img src={getImageUrl(category.image_url)} alt="" className="h-full w-full object-cover" />
                           ) : (
-                            <span className="text-3xl">📁</span>
+                            <AdminIcon name="folder" className="h-6 w-6 text-slate-500" />
                           )}
                         </div>
 
@@ -1291,14 +1280,14 @@ export function AdminPage() {
                         </div>
 
                         {/* Actions */}
-                        <div className="flex flex-shrink-0 flex-wrap justify-end gap-2">
+                        <div className="flex w-full flex-shrink-0 flex-wrap justify-end gap-2 sm:w-auto">
                           <button
                             onClick={() => moveCategory(category, -1)}
                             disabled={catIdx === 0}
                             className="rounded-xl bg-white/10 px-2.5 py-2 text-sm text-white hover:bg-white/20 disabled:opacity-30 transition-colors"
                             title="Выше"
                           >
-                            ↑
+                            <AdminIcon name="arrowUp" className="h-4 w-4" />
                           </button>
                           <button
                             onClick={() => moveCategory(category, 1)}
@@ -1306,21 +1295,21 @@ export function AdminPage() {
                             className="rounded-xl bg-white/10 px-2.5 py-2 text-sm text-white hover:bg-white/20 disabled:opacity-30 transition-colors"
                             title="Ниже"
                           >
-                            ↓
+                            <AdminIcon name="arrowDown" className="h-4 w-4" />
                           </button>
                           <button
                             onClick={() => openCategorySettings(category)}
-                            className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20 transition-colors"
-                            title="Редактировать"
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20 transition-colors"
+                            title="Название, картинка, поля и модели"
                           >
-                            ✏️ Изменить
+                            <AdminIcon name="settings" className="h-4 w-4" />Настроить
                           </button>
                           <button
                             onClick={() => deleteCategory(category.id)}
-                            className="rounded-xl bg-red-900/30 px-3 py-2 text-sm text-red-400 hover:bg-red-900/60 transition-colors"
+                            className="rounded-xl bg-rose-400/10 px-3 py-2 text-sm text-red-400 hover:bg-rose-400/25 transition-colors"
                             title="Удалить"
-                          >
-                            🗑
+                           aria-label="Удалить">
+                            <AdminIcon name="trash" className="h-4 w-4" />
                           </button>
                         </div>
                       </div>
@@ -1335,19 +1324,6 @@ export function AdminPage() {
         {/* ============ BANNERS TAB ============ */}
         {activeTab === 'banners' && (
           <>
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-white">🖼 Баннеры главной страницы</h2>
-                <p className="text-sm text-slate-400">Большой слайдер вверху главной. Порядок — стрелками, показ — «Активен».</p>
-              </div>
-              <button
-                onClick={() => { setEditingBanner(null); setIsBannerModalOpen(true) }}
-                className="rounded-xl bg-yellow-400 px-5 py-3 font-semibold text-gray-900 hover:bg-yellow-300"
-              >
-                + Новый баннер
-              </button>
-            </div>
-
             {banners.length === 0 ? (
               <div className="rounded-2xl bg-white/5 p-16 text-center">
                 <div className="text-5xl mb-4">🖼</div>
@@ -1388,11 +1364,11 @@ export function AdminPage() {
                           <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-slate-400">#{i + 1}</span>
                         </div>
                         <div className="flex flex-wrap gap-1.5">
-                          <button onClick={() => moveBanner(banner, -1)} disabled={i === 0} className="rounded-lg bg-white/10 px-2.5 py-2 text-xs text-white hover:bg-white/20 disabled:opacity-30" title="Выше">↑</button>
-                          <button onClick={() => moveBanner(banner, 1)} disabled={i === arr.length - 1} className="rounded-lg bg-white/10 px-2.5 py-2 text-xs text-white hover:bg-white/20 disabled:opacity-30" title="Ниже">↓</button>
-                          <button onClick={() => toggleBannerActive(banner)} className="rounded-lg bg-white/10 px-3 py-2 text-xs text-slate-300 hover:bg-white/20">{banner.is_active ? '⬛ Скрыть' : '✅ Включить'}</button>
-                          <button onClick={() => { setEditingBanner(banner); setIsBannerModalOpen(true) }} className="rounded-lg bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/20">✏️ Изменить</button>
-                          <button onClick={() => deleteBanner(banner.id)} className="rounded-lg bg-red-900/30 px-3 py-2 text-xs text-red-400 hover:bg-red-900/60">🗑</button>
+                          <button onClick={() => moveBanner(banner, -1)} disabled={i === 0} className="rounded-lg bg-white/10 px-2.5 py-2 text-xs text-white hover:bg-white/20 disabled:opacity-30" title="Выше"><AdminIcon name="arrowUp" className="h-3.5 w-3.5" /></button>
+                          <button onClick={() => moveBanner(banner, 1)} disabled={i === arr.length - 1} className="rounded-lg bg-white/10 px-2.5 py-2 text-xs text-white hover:bg-white/20 disabled:opacity-30" title="Ниже"><AdminIcon name="arrowDown" className="h-3.5 w-3.5" /></button>
+                          <button onClick={() => toggleBannerActive(banner)} className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-2 text-xs text-slate-300 hover:bg-white/20"><AdminIcon name={banner.is_active ? 'eyeOff' : 'eye'} className="h-3.5 w-3.5" />{banner.is_active ? 'Скрыть' : 'Показать'}</button>
+                          <button onClick={() => { setEditingBanner(banner); setIsBannerModalOpen(true) }} className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/20"><AdminIcon name="edit" className="h-3.5 w-3.5" />Изменить</button>
+                          <button onClick={() => deleteBanner(banner.id)} className="rounded-lg bg-rose-400/10 px-3 py-2 text-xs text-red-400 hover:bg-rose-400/25" aria-label="Удалить"><AdminIcon name="trash" className="h-4 w-4" /></button>
                         </div>
                       </div>
                     </div>
@@ -1406,19 +1382,6 @@ export function AdminPage() {
         {/* ============ BRANDS TAB ============ */}
         {activeTab === 'brands' && (
           <>
-            <div className="mb-6 flex items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-bold text-white">🏷️ Бренды</h2>
-                <p className="text-sm text-slate-400">Справочник брендов для товаров и быстрых кнопок каталога</p>
-              </div>
-              <button
-                onClick={() => { setEditingBrand(null); setIsBrandModalOpen(true) }}
-                className="rounded-xl bg-yellow-400 px-5 py-3 font-semibold text-gray-900 hover:bg-yellow-300"
-              >
-                + Новый бренд
-              </button>
-            </div>
-
             {brands.length === 0 ? (
               <div className="rounded-2xl bg-white/5 p-16 text-center text-slate-400">Добавьте первый бренд — он появится в форме товара.</div>
             ) : (
@@ -1426,7 +1389,7 @@ export function AdminPage() {
                 {brands.map(brand => (
                   <div key={brand.id} className="flex items-center gap-3 rounded-2xl bg-white/5 p-4 transition hover:bg-white/10">
                     <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl bg-white/10 text-xl">
-                      {brand.logo_url ? <img src={getImageUrl(brand.logo_url)} alt="" className="h-full w-full object-contain p-1" /> : '🏷️'}
+                      {brand.logo_url ? <img src={getImageUrl(brand.logo_url)} alt="" className="h-full w-full object-contain p-1" /> : <AdminIcon name="tag" className="h-5 w-5 text-slate-500" />}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-semibold text-white">{brand.name}</div>
@@ -1437,8 +1400,8 @@ export function AdminPage() {
                       {!brand.is_active && <span className="text-xs text-red-400">Скрыт</span>}
                     </div>
                     <div className="flex gap-1">
-                      <button onClick={() => { setEditingBrand(brand); setIsBrandModalOpen(true) }} className="rounded-lg bg-white/10 px-2.5 py-2 text-sm hover:bg-white/20">✏️</button>
-                      <button onClick={() => deleteBrand(brand)} className="rounded-lg bg-red-900/30 px-2.5 py-2 text-sm text-red-400 hover:bg-red-900/60">🗑</button>
+                      <button onClick={() => { setEditingBrand(brand); setIsBrandModalOpen(true) }} className="rounded-lg bg-white/10 px-2.5 py-2 text-sm hover:bg-white/20" aria-label="Изменить"><AdminIcon name="edit" className="h-4 w-4" /></button>
+                      <button onClick={() => deleteBrand(brand)} className="rounded-lg bg-rose-400/10 px-2.5 py-2 text-sm text-red-400 hover:bg-rose-400/25" aria-label="Удалить"><AdminIcon name="trash" className="h-4 w-4" /></button>
                     </div>
                   </div>
                 ))}
@@ -1450,34 +1413,21 @@ export function AdminPage() {
         {/* ============ TRADE-IN TAB ============ */}
         {activeTab === 'tradein' && (
           <>
-            <div className="mb-6 flex items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-bold text-white">🔄 Цены trade-in</h2>
-                <p className="text-sm text-slate-400">Диапазоны оценки в калькуляторе на странице Trade-in</p>
-              </div>
-              <button
-                onClick={() => { setEditingTradeInOffer(null); setIsTradeInModalOpen(true) }}
-                className="rounded-xl bg-yellow-400 px-5 py-3 font-semibold text-gray-900 hover:bg-yellow-300"
-              >
-                + Устройство
-              </button>
-            </div>
-
             {tradeInOffers.length === 0 ? (
               <div className="rounded-2xl bg-white/5 p-16 text-center text-slate-400">Добавьте устройства и диапазоны оценки. После публикации они появятся в калькуляторе.</div>
             ) : (
-              <div className="overflow-hidden rounded-2xl border border-white/10">
-                <div className="grid grid-cols-[1fr_1.4fr_0.8fr_0.8fr_90px_110px] gap-3 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+              <div className="overflow-x-auto rounded-2xl border border-white/10">
+                <div className="grid min-w-[680px] grid-cols-[1fr_1.4fr_0.8fr_0.8fr_90px_110px] gap-3 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <span>Группа</span><span>Модель</span><span>От</span><span>До</span><span>Статус</span><span className="text-right">Действия</span>
                 </div>
                 {tradeInOffers.map(offer => (
-                  <div key={offer.id} className="grid grid-cols-[1fr_1.4fr_0.8fr_0.8fr_90px_110px] items-center gap-3 border-t border-white/5 px-4 py-3 text-sm">
+                  <div key={offer.id} className="grid min-w-[680px] grid-cols-[1fr_1.4fr_0.8fr_0.8fr_90px_110px] items-center gap-3 border-t border-white/5 px-4 py-3 text-sm">
                     <div><div className="font-medium text-white">{offer.device_label}</div><div className="text-xs text-slate-500">{offer.device_type}</div></div>
                     <span className="truncate text-slate-200">{offer.name}</span>
                     <span className="font-medium text-yellow-300">{formatPrice(Number(offer.min_price))}</span>
                     <span className="font-medium text-yellow-300">{formatPrice(Number(offer.max_price))}</span>
                     <span className={offer.is_active ? 'text-green-400' : 'text-red-400'}>{offer.is_active ? 'Активна' : 'Скрыта'}</span>
-                    <div className="flex justify-end gap-1"><button onClick={() => { setEditingTradeInOffer(offer); setIsTradeInModalOpen(true) }} className="rounded-lg bg-white/10 px-2.5 py-2 hover:bg-white/20">✏️</button><button onClick={() => deleteTradeInOffer(offer)} className="rounded-lg bg-red-900/30 px-2.5 py-2 text-red-400 hover:bg-red-900/60">🗑</button></div>
+                    <div className="flex justify-end gap-1"><button onClick={() => { setEditingTradeInOffer(offer); setIsTradeInModalOpen(true) }} className="rounded-lg bg-white/10 px-2.5 py-2 hover:bg-white/20" aria-label="Изменить"><AdminIcon name="edit" className="h-4 w-4" /></button><button onClick={() => deleteTradeInOffer(offer)} className="rounded-lg bg-rose-400/10 px-2.5 py-2 text-red-400 hover:bg-rose-400/25" aria-label="Удалить"><AdminIcon name="trash" className="h-4 w-4" /></button></div>
                   </div>
                 ))}
               </div>
@@ -1487,19 +1437,6 @@ export function AdminPage() {
         {/* ============ SLIDES TAB ============ */}
         {activeTab === 'slides' && (
           <>
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-white">🏞 Слайды «Товары недели»</h2>
-                <p className="text-sm text-slate-400">Отображаются на главной странице в блоке «Товары недели»</p>
-              </div>
-              <button
-                onClick={() => { setEditingSlide(null); setIsSlideModalOpen(true) }}
-                className="rounded-xl bg-yellow-400 px-5 py-3 font-semibold text-gray-900 hover:bg-yellow-300"
-              >
-                + Новый слайд
-              </button>
-            </div>
-
             {slides.length === 0 ? (
               <div className="rounded-2xl bg-white/5 p-16 text-center">
                 <div className="text-5xl mb-4">🏞</div>
@@ -1544,16 +1481,16 @@ export function AdminPage() {
                             slide.is_active ? 'bg-white/10 text-slate-300 hover:bg-red-900/40 hover:text-red-300' : 'bg-white/10 text-slate-300 hover:bg-green-900/40 hover:text-green-300'
                           }`}
                         >
-                          {slide.is_active ? '⬛ Скрыть' : '✅ Включить'}
+                          {slide.is_active ? 'Скрыть' : 'Показать'}
                         </button>
                         <button
                           onClick={() => { setEditingSlide(slide); setIsSlideModalOpen(true) }}
                           className="rounded-lg bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/20"
-                        >✏️ Редактировать</button>
+                        >Редактировать</button>
                         <button
                           onClick={() => deleteSlide(slide.id)}
-                          className="rounded-lg bg-red-900/30 px-3 py-2 text-xs text-red-400 hover:bg-red-900/60"
-                        >🗑</button>
+                          className="rounded-lg bg-rose-400/10 px-3 py-2 text-xs text-red-400 hover:bg-rose-400/25"
+                         aria-label="Удалить"><AdminIcon name="trash" className="h-4 w-4" /></button>
                       </div>
                     </div>
                   </div>
@@ -1562,7 +1499,7 @@ export function AdminPage() {
             )}
           </>
         )}
-      </div>
+      </AdminShell>
 
       {/* ============ ORDER MODAL ============ */}
       {selectedOrder && (
@@ -1655,7 +1592,7 @@ export function AdminPage() {
           onClose={() => { setIsTradeInModalOpen(false); setEditingTradeInOffer(null) }}
         />
       )}
-    </div>
+    </>
   )
 }
 
@@ -1663,7 +1600,7 @@ export function AdminPage() {
 
 function ProductsSection({
   products, categories, categoryFilter, setCategoryFilter, searchQuery, setSearchQuery,
-  onEdit, onNew, onDelete, onToggleFeatured, onToggleActive, isUsedMode, onRefresh, authFetch, onCreateGroup
+  onEdit, onNew, onDelete, onToggleFeatured, onToggleActive, isUsedMode, onRefresh, authFetch, onCreateGroup, hideActions
 }: {
   products: Product[]
   categories: Category[]
@@ -1680,6 +1617,8 @@ function ProductsSection({
   onRefresh?: () => void
   authFetch: AuthFetchFn
   onCreateGroup?: () => void
+  /** Кнопки «Создать группу»/«Добавить товар» рендерит шапка раздела */
+  hideActions?: boolean
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [merging, setMerging] = useState(false)
@@ -1778,7 +1717,7 @@ function ProductsSection({
           <select
             value={categoryFilter ?? ''}
             onChange={(e) => setCategoryFilter(e.target.value || null)}
-            className="rounded-lg bg-white/10 px-4 py-2 text-sm text-white"
+            className="rounded-xl border border-white/[0.08] bg-white/[0.05] px-3.5 py-2 text-sm text-white outline-none focus:border-yellow-400/40"
           >
             <option value="">Все категории</option>
             {categories.map(cat => (
@@ -1789,14 +1728,14 @@ function ProductsSection({
           {/* Search */}
           <input
             type="text"
-            placeholder="🔍 Поиск..."
+            placeholder="Поиск по названию или бренду"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="rounded-lg bg-white/10 px-4 py-2 text-sm text-white placeholder-slate-400 w-48"
+            className="w-64 max-w-full rounded-xl border border-white/[0.08] bg-white/[0.05] px-3.5 py-2 text-sm text-white placeholder-slate-500 outline-none focus:border-yellow-400/40"
           />
         </div>
         
-        <div className="flex gap-2">
+        {!hideActions && <div className="flex gap-2">
           {onCreateGroup && !isUsedMode && (
             <button
               onClick={onCreateGroup}
@@ -1811,7 +1750,7 @@ function ProductsSection({
           >
             + {isUsedMode ? 'Добавить Б/У товар' : 'Добавить товар'}
           </button>
-        </div>
+        </div>}
       </div>
 
       {/* ── Тулбар выбранных товаров ── */}
@@ -1822,9 +1761,9 @@ function ProductsSection({
             <button
               onClick={mergeSelected}
               disabled={merging}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-40"
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-40"
             >
-              🔗 Объединить в группу
+              <AdminIcon name="link" className="h-4 w-4" />Объединить в группу
             </button>
           )}
           {anySelectedHasGroup && (
@@ -1833,15 +1772,15 @@ function ProductsSection({
               disabled={merging}
               className="rounded-lg bg-red-600/30 px-4 py-2 text-sm font-semibold text-red-400 hover:bg-red-600/50 disabled:opacity-40"
             >
-              ✂ Убрать из группы
+              Убрать из группы
             </button>
           )}
           <button
             onClick={deleteSelected}
             disabled={merging}
-            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-40"
+            className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-40"
           >
-            🗑 Удалить ({selected.size})
+            <AdminIcon name="trash" className="h-4 w-4" />Удалить ({selected.size})
           </button>
           <button
             onClick={() => setSelected(new Set())}
@@ -1900,7 +1839,7 @@ function ProductsSection({
                       {imgUrl ? (
                         <img src={imgUrl} alt="" className="h-12 w-12 rounded-xl object-cover bg-white/10" />
                       ) : (
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 text-2xl">📦</div>
+                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 text-slate-500"><AdminIcon name="box" className="h-5 w-5" /></div>
                       )}
                       <div>
                         <div className="font-semibold text-white flex items-center gap-2">
@@ -1910,7 +1849,7 @@ function ProductsSection({
                               ? <>{product.name.replace(/\s*\([A-Z][A-Z0-9]{3,}\)$/, '')} <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-xs text-slate-400">{m[1]}</span></>
                               : <>{product.name}</>         
                           })()}
-                          {product.is_featured && <span className="text-yellow-400" title="Хит продаж">⭐</span>}
+                          {product.is_featured && <span className="text-yellow-400" title="Хит продаж"><AdminIcon name="star" className="h-3.5 w-3.5" /></span>}
                           {!product.is_active && <span className="text-red-400 text-xs">(скрыт)</span>}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
@@ -1919,7 +1858,7 @@ function ProductsSection({
                             const siblings = groupMembers[product.group_id] || []
                             return (
                               <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${gColor}`} title={`Группа: ${siblings.join(', ')}`}>
-                                🔗 {siblings.length} {siblings.length === 1 ? 'товар' : siblings.length < 5 ? 'товара' : 'товаров'}
+                                <AdminIcon name="link" className="h-3 w-3" />{siblings.length} {siblings.length === 1 ? 'товар' : siblings.length < 5 ? 'товара' : 'товаров'}
                               </span>
                             )
                           })()}
@@ -1937,30 +1876,30 @@ function ProductsSection({
                   <td className="p-4">
                     <span className={`rounded px-2 py-1 text-xs ${
                       product.stock_quantity > 0 
-                        ? 'bg-green-900/50 text-green-400' 
-                        : 'bg-red-900/50 text-red-400'
+                        ? 'bg-emerald-400/15 text-emerald-300' 
+                        : 'bg-rose-400/15 text-rose-300'
                     }`}>
                       {product.stock_quantity > 0 ? `✓ ${product.stock_quantity} шт.` : '✗ Нет'}
                     </span>
                   </td>
                   <td className="p-4">
                     <div className="flex gap-1">
-                      <button onClick={() => onEdit(product)} className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20" title="Редактировать">✏️</button>
+                      <button onClick={() => onEdit(product)} className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20" title="Редактировать" aria-label="Изменить"><AdminIcon name="edit" className="h-4 w-4" /></button>
                       <button 
                         onClick={() => onToggleFeatured(product)} 
                         className={`rounded-lg px-3 py-2 text-sm transition ${product.is_featured ? 'bg-yellow-500/30 text-yellow-400' : 'bg-white/10 text-white hover:bg-white/20'}`}
                         title="Хит продаж"
                       >
-                        ⭐
+                        <AdminIcon name="star" className="h-4 w-4" />
                       </button>
                       <button 
                         onClick={() => onToggleActive(product)}
-                        className={`rounded-lg px-3 py-2 text-sm transition ${product.is_active ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400 hover:bg-red-900'}`}
+                        className={`rounded-lg px-3 py-2 text-sm transition ${product.is_active ? 'bg-emerald-400/15 text-emerald-300' : 'bg-rose-400/15 text-rose-300 hover:bg-rose-400/25'}`}
                         title={product.is_active ? 'Скрыть' : 'Показать'}
                       >
-                        {product.is_active ? '👁' : '👁‍🗨'}
+                        <AdminIcon name={product.is_active ? 'eye' : 'eyeOff'} className="h-4 w-4" />
                       </button>
-                      <button onClick={() => onDelete(product.id)} className="rounded-lg bg-red-900/50 px-3 py-2 text-sm text-red-400 hover:bg-red-900" title="Удалить">🗑️</button>
+                      <button onClick={() => onDelete(product.id)} className="rounded-lg bg-red-900/50 px-3 py-2 text-sm text-red-400 hover:bg-red-900" title="Удалить" aria-label="Удалить"><AdminIcon name="trash" className="h-4 w-4" /></button>
                     </div>
                   </td>
                 </tr>
@@ -1986,12 +1925,12 @@ function ProductsSection({
                   {imgUrl ? (
                     <img src={imgUrl} alt="" className="h-14 w-14 flex-shrink-0 rounded-xl bg-white/10 object-cover" />
                   ) : (
-                    <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-white/10 text-2xl">📦</div>
+                    <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-white/10 text-slate-500"><AdminIcon name="box" className="h-5 w-5" /></div>
                   )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start gap-2">
                       <div className="font-semibold text-white">{product.name}</div>
-                      {product.is_featured && <span className="text-yellow-400" title="Хит">⭐</span>}
+                      {product.is_featured && <span className="text-yellow-400" title="Хит продаж"><AdminIcon name="star" className="h-3.5 w-3.5" /></span>}
                       {!product.is_active && <span className="text-xs text-red-400">(скрыт)</span>}
                     </div>
                     <div className="mt-0.5 text-sm text-slate-400">
@@ -1999,17 +1938,17 @@ function ProductsSection({
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
                       <span className="font-semibold text-yellow-400">{formatPrice(product.price)}</span>
-                      <span className={`rounded px-2 py-0.5 text-xs ${product.stock_quantity > 0 ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>
+                      <span className={`rounded px-2 py-0.5 text-xs ${product.stock_quantity > 0 ? 'bg-emerald-400/15 text-emerald-300' : 'bg-rose-400/15 text-rose-300'}`}>
                         {product.stock_quantity > 0 ? `✓ ${product.stock_quantity} шт.` : '✗ Нет'}
                       </span>
                     </div>
                   </div>
                 </div>
                 <div className="mt-3 flex justify-end gap-1.5">
-                  <button onClick={() => onEdit(product)} aria-label="Редактировать" className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20">✏️</button>
-                  <button onClick={() => onToggleFeatured(product)} aria-label="Хит продаж" className={`rounded-lg px-3 py-2 text-sm ${product.is_featured ? 'bg-yellow-500/30 text-yellow-400' : 'bg-white/10 text-white hover:bg-white/20'}`}>⭐</button>
-                  <button onClick={() => onToggleActive(product)} aria-label={product.is_active ? 'Скрыть' : 'Показать'} className={`rounded-lg px-3 py-2 text-sm ${product.is_active ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>{product.is_active ? '👁' : '👁‍🗨'}</button>
-                  <button onClick={() => onDelete(product.id)} aria-label="Удалить" className="rounded-lg bg-red-900/50 px-3 py-2 text-sm text-red-400 hover:bg-red-900">🗑️</button>
+                  <button onClick={() => onEdit(product)} aria-label="Редактировать" className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20"><AdminIcon name="edit" className="h-4 w-4" /></button>
+                  <button onClick={() => onToggleFeatured(product)} aria-label="Хит продаж" className={`rounded-lg px-3 py-2 text-sm ${product.is_featured ? 'bg-yellow-500/30 text-yellow-400' : 'bg-white/10 text-white hover:bg-white/20'}`}><AdminIcon name="star" className="h-4 w-4" /></button>
+                  <button onClick={() => onToggleActive(product)} aria-label={product.is_active ? 'Скрыть' : 'Показать'} className={`rounded-lg px-3 py-2 text-sm ${product.is_active ? 'bg-emerald-400/15 text-emerald-300' : 'bg-rose-400/15 text-rose-300'}`}><AdminIcon name={product.is_active ? 'eye' : 'eyeOff'} className="h-4 w-4" /></button>
+                  <button onClick={() => onDelete(product.id)} aria-label="Удалить" className="rounded-lg bg-red-900/50 px-3 py-2 text-sm text-red-400 hover:bg-red-900"><AdminIcon name="trash" className="h-4 w-4" /></button>
                 </div>
               </div>
             )
@@ -2061,8 +2000,8 @@ function OrderModal({
               <span className="font-mono text-lg font-bold text-yellow-400">{order.order_number}</span>
               <span className="text-xs text-slate-500">{new Date(order.created_at).toLocaleString('ru-RU')}</span>
             </div>
-            <span className={`rounded-xl px-3 py-1.5 text-sm font-semibold ${cfg?.bg || 'bg-gray-100'} ${cfg?.color || 'text-gray-600'}`}>
-              {cfg?.icon} {cfg?.label || order.status}
+            <span className={`inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-semibold ${cfg?.bg || 'bg-white/10'} ${cfg?.color || 'text-slate-300'}`}>
+              <span className="h-1.5 w-1.5 rounded-full bg-current" />{cfg?.label || order.status}
             </span>
           </div>
           <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white text-xl transition">×</button>
@@ -2174,13 +2113,13 @@ function OrderModal({
                   key={status}
                   onClick={() => onUpdateStatus(order.id, status)}
                   disabled={updatingStatus || order.status === status}
-                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                  className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
                     order.status === status
                       ? `${config.bg} ${config.color} ring-2 ring-offset-2 ring-offset-slate-900 ring-current`
                       : 'bg-white/10 text-slate-300 hover:bg-white/20 hover:text-white'
                   } disabled:opacity-40`}
                 >
-                  {config.icon} {config.label}
+                  <span className="h-1.5 w-1.5 rounded-full bg-current" />{config.label}
                 </button>
               ))}
             </div>
@@ -3302,7 +3241,7 @@ function ProductModal({
                           <button
                             type="button"
                             onClick={bulkDeleteSelected}
-                            className="rounded-lg bg-red-900/30 border border-red-500/20 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-900/50 transition-colors"
+                            className="rounded-lg bg-rose-400/10 border border-red-500/20 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-900/50 transition-colors"
                           >
                             🗑 Удалить выбранные ({selectedVariantIds.size})
                           </button>
@@ -4350,7 +4289,7 @@ function CategoryModal({
                       <span className="hidden rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-400 sm:block">{field.field_type}</span>
                       {field.is_required && <span className="text-[10px] text-red-300">обяз.</span>}
                       {field.is_variant && <span className="text-[10px] text-blue-300">вариант</span>}
-                      <button type="button" onClick={() => setEditingProductFieldKey(editingProductFieldKey === field.key ? null : field.key)} className="px-1 text-xs text-slate-400 hover:text-white">✏️</button>
+                      <button type="button" onClick={() => setEditingProductFieldKey(editingProductFieldKey === field.key ? null : field.key)} className="px-1 text-xs text-slate-400 hover:text-white" aria-label="Изменить"><AdminIcon name="edit" className="h-4 w-4" /></button>
                       <button type="button" onClick={() => moveProductField(index, -1)} disabled={index === 0} className="px-1 text-xs text-slate-500 hover:text-white disabled:opacity-30">↑</button>
                       <button type="button" onClick={() => moveProductField(index, 1)} disabled={index === productFields.length - 1} className="px-1 text-xs text-slate-500 hover:text-white disabled:opacity-30">↓</button>
                       <button type="button" onClick={() => removeProductField(field.key)} className="px-1 text-sm text-red-400 hover:text-red-300">×</button>
@@ -4452,7 +4391,7 @@ function BrandModal({ brand, authFetch, onRefresh, onSave, onClose }: {
             <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Логотип</label>
             <div className="flex items-center gap-3 rounded-xl bg-white/5 p-3">
               <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/10 text-xl">
-                {logoUrl ? <img src={getImageUrl(logoUrl)} alt="" className="h-full w-full object-contain p-1" onError={(e) => { (e.target as HTMLElement).style.display = 'none' }} /> : '🏷️'}
+                {logoUrl ? <img src={getImageUrl(logoUrl)} alt="" className="h-full w-full object-contain p-1" onError={(e) => { (e.target as HTMLElement).style.display = 'none' }} /> : <AdminIcon name="tag" className="h-5 w-5 text-slate-500" />}
               </div>
               <div className="min-w-0 flex-1">
                 {brand ? (
@@ -4517,7 +4456,7 @@ function TradeInOfferModal({ offer, onSave, onClose }: {
           <div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Модель *</label><input required value={name} onChange={e => setName(e.target.value)} placeholder="iPhone 16 Pro" className="w-full rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/15 focus:outline-none" /></div>
           <div className="grid gap-3 sm:grid-cols-3"><div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">От, ₽ *</label><input required inputMode="numeric" value={minPrice} onChange={e => setMinPrice(e.target.value.replace(/\D/g, ''))} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/15 focus:outline-none" /></div><div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">До, ₽ *</label><input required inputMode="numeric" value={maxPrice} onChange={e => setMaxPrice(e.target.value.replace(/\D/g, ''))} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/15 focus:outline-none" /></div><div><label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Порядок</label><input inputMode="numeric" value={sortOrder} onChange={e => setSortOrder(e.target.value.replace(/\D/g, ''))} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/15 focus:outline-none" /></div></div>
           <label className="flex cursor-pointer items-center gap-3 rounded-xl bg-white/5 p-3"><input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="h-5 w-5 accent-yellow-400" /><span className="text-sm text-white">Показывать в калькуляторе</span></label>
-          {error && <div className="rounded-xl border border-red-500/40 bg-red-900/30 p-3 text-sm text-red-300">{error}</div>}
+          {error && <div className="rounded-xl border border-red-500/40 bg-rose-400/10 p-3 text-sm text-red-300">{error}</div>}
           <div className="flex gap-3 pt-2"><button type="button" onClick={onClose} className="flex-1 rounded-xl bg-white/10 py-3 font-medium text-white hover:bg-white/20">Отмена</button><button className="flex-1 rounded-xl bg-yellow-400 py-3 font-bold text-gray-900 hover:bg-yellow-300">Сохранить</button></div>
         </form>
       </div>

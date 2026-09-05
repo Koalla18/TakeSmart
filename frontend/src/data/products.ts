@@ -17,8 +17,15 @@ export interface Product {
   condition?: string
 }
 
-export function formatPrice(price: number): string {
-  return price.toLocaleString('ru-RU') + ' ₽'
+/**
+ * Цена в рублях без копеек: «67 990 ₽».
+ * API отдаёт Decimal строкой («67990.00») — приводим к числу, иначе строка
+ * печатается как есть, с точкой и нулями. Нечисловое значение возвращаем как было.
+ */
+export function formatPrice(price: number | string): string {
+  const value = typeof price === 'number' ? price : Number(price)
+  if (!Number.isFinite(value)) return `${price} ₽`
+  return value.toLocaleString('ru-RU', { maximumFractionDigits: 0 }) + ' ₽'
 }
 
 export function getBadgeText(badge: Product['badge']): string {
