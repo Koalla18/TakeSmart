@@ -36,6 +36,13 @@ TOKEN_ALIASES: dict[str, str] = {
     "плейстейшн": "playstation", "плейстешн": "playstation", "плойка": "playstation",
     "нинтендо": "nintendo", "свитч": "switch",
     "дайсон": "dyson", "сони": "sony", "джибиэл": "jbl", "джейбиэл": "jbl",
+    "фолд": "fold", "флип": "flip", "иксбокс": "xbox", "хбокс": "xbox",
+    "марк": "mark", "серия": "series", "сериес": "series", "сериз": "series",
+    "гопро": "gopro", "дуалсенс": "dualsense", "маршал": "marshall", "маршалл": "marshall",
+    "инстакс": "instax", "кэнон": "canon", "канон": "canon", "гугл": "google", "пиксель": "pixel",
+    "мета": "meta", "рейбан": "ray-ban", "рэйбэн": "ray-ban", "рейбен": "ray-ban",
+    "суперсоник": "supersonic", "аирстрайт": "airstrait", "эйрстрейт": "airstrait", "эйрврап": "airwrap", "аирврап": "airwrap",
+    "лайт": "lite", "олед": "oled", "селлюлар": "cellular", "вайфай": "wifi",
     "гб": "гб", "тб": "тб", "gb": "гб", "tb": "тб",
 }
 
@@ -127,8 +134,11 @@ def normalize(text: str) -> str:
     """Нижний регистр, ё→е, латинские кавычки и лишние пробелы прочь."""
     t = text.lower().replace("ё", "е").replace("−", "-").replace("–", "-").replace("—", "-")
     t = re.sub(r"[\"'«»“”„]", " ", t)
-    # «256 ГБ» → «256гб», чтобы совпадать с «256ГБ» в названиях
+    # «256 ГБ» → «256гб», чтобы совпадать с «256ГБ» в названиях; латинские gb/tb
+    # («32Gb», «1TB» в части названий) приводим к кириллице — с обеих сторон
     t = re.sub(r"(\d)\s+(гб|тб|gb|tb)\b", r"\1\2", t)
+    t = re.sub(r"(\d)gb\b", r"\1гб", t)
+    t = re.sub(r"(\d)tb\b", r"\1тб", t)
     # «2 тыс» / «2 к» → «2тыс» / «2к» — единица тысяч приклеивается к числу
     t = re.sub(r"(\d+(?:[.,]\d+)?)\s+(к|k|тыс\w*)\b", r"\1\2", t)
     # «+ 2000» → «+2000»
@@ -161,6 +171,20 @@ def parse_command(text: str) -> ParsedCommand:
     pending_dir: int | None = None   # направление от глагола, ждём число
     pending_set = False               # «= / цена / по» — ждём число
     excluding = False
+    # Числа, ушедшие в цель без операции: (позиция в target, значение, был ли «%» после).
+    # Нужны для порядка слов «на 2000 дороже» — глагол приходит ПОСЛЕ числа.
+    seen_numbers: list[tuple[int, Decimal, bool]] = []
+
+    def take_seen_number() -> PriceOperation | None:
+        nonlocal target
+        for pos, value, is_pct in reversed(seen_numbers):
+            # «17 pro дороже» — «17» это модель, а не сумма; суммы меньше 100 ₽ не бывает
+            if is_pct or value >= 100:
+                if pos < len(target) and _to_number(target[pos]) == value:
+                    del target[pos]
+                seen_numbers.remove((pos, value, is_pct))
+                return PriceOperation("percent" if is_pct else "delta", value * (pending_dir or 1))
+        return None
 
     i = 0
     while i < len(words):
@@ -207,15 +231,24 @@ def parse_command(text: str) -> ParsedCommand:
             i += 1
             continue
 
-        # Глаголы направления
-        if UP_VERBS.match(w) and not (w == "плюс" and _to_number(nxt) is None):
+        # Глаголы направления. Если число уже встретилось раньше («на 2000 дороже»),
+        # берём его; иначе ждём число после глагола («подорожал на 2000»).
+        if UP_VERBS.match(w) and not (w == "плюс" and _to_number(nxt) is None and not seen_numbers):
             pending_dir = 1
             excluding = False
+            if op is None and _to_number(nxt) is None:
+                op = take_seen_number()
+                if op is not None:
+                    pending_dir = None
             i += 1
             continue
-        if DOWN_VERBS.match(w) and not (w == "минус" and _to_number(nxt) is None):
+        if DOWN_VERBS.match(w) and not (w == "минус" and _to_number(nxt) is None and not seen_numbers):
             pending_dir = -1
             excluding = False
+            if op is None and _to_number(nxt) is None:
+                op = take_seen_number()
+                if op is not None:
+                    pending_dir = None
             i += 1
             continue
 
@@ -246,8 +279,13 @@ def parse_command(text: str) -> ParsedCommand:
                     i += 1
                 i += 1
                 continue
-            # Число без операции — это часть названия («17», «16», «512гб»)
-            (exclude if excluding else target).append(w)
+            # Число без операции — часть названия («17», «16», «512гб») ИЛИ сумма,
+            # глагол к которой ещё впереди («на 2000 дороже») — запоминаем
+            if excluding:
+                exclude.append(w)
+            else:
+                target.append(w)
+                seen_numbers.append((len(target) - 1, num, is_pct))
             i += 1
             continue
 
@@ -260,6 +298,8 @@ def parse_command(text: str) -> ParsedCommand:
 
     if pending_dir is not None and op is None:
         warnings.append("Не понял, на сколько менять цену: напишите, например, «+2000», «−1500» или «+5%».")
+    if op is None and pending_dir is None and not pending_set and any(v >= 1000 for _, v, _ in seen_numbers):
+        warnings.append("Число есть, а что с ним делать — нет: «+2000» прибавит, «−2000» отнимет, «= 2000» поставит цену.")
     if pending_set and op is None:
         warnings.append("Не понял, какую цену поставить: напишите «= 89990».")
     if op is not None:
@@ -301,6 +341,14 @@ def _product_haystack(p: Any) -> str:
     return normalize(" ".join(parts))
 
 
+def _token_in(token: str, hay: str) -> bool:
+    """Слово — подстрокой («pro» в «iphone 17 pro max»), число — целиком:
+    «3» не должно находить «2023», а «16» — «2016»; при этом «512» находит «512гб»."""
+    if token.isdigit():
+        return re.search(rf"(?<!\d){re.escape(token)}(?!\d)", hay) is not None
+    return token in hay
+
+
 def resolve_targets(
     parsed: ParsedCommand,
     *,
@@ -339,6 +387,11 @@ def compute_new_price(price: Decimal, op: PriceOperation) -> Decimal:
         new = op.value
     elif op.kind == "percent":
         new = price * (Decimal(1) + op.value / Decimal(100))
+        # Магазин держит цены вида 37 990 / 4 990: у таких проценты снимаем к
+        # ближайшей «…90», чтобы не получить 39 889,5 → 39 890 вместо 39 990.
+        if price % 100 == 90:
+            new = (new - 90) / 100
+            new = new.quantize(Decimal("1"), rounding=ROUND_HALF_UP) * 100 + 90
     else:
         new = price + op.value
     return new.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
@@ -364,9 +417,9 @@ def match_products(
         if brands and normalize(p.brand or "") not in brands:
             continue
         hay = _product_haystack(p)
-        if tokens and not all(tok in hay for tok in tokens):
+        if tokens and not all(_token_in(tok, hay) for tok in tokens):
             continue
-        if parsed.exclude and any(tok in hay for tok in parsed.exclude):
+        if parsed.exclude and any(_token_in(tok, hay) for tok in parsed.exclude):
             continue
         price = Decimal(p.price)
         discount = Decimal(p.discount_price) if p.discount_price is not None else None

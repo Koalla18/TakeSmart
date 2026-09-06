@@ -19,6 +19,8 @@ products = [
     prod("Sony WH-1000XM5", 39990, CAT_HP, "Sony", disc=34990),
     prod("Ноутбук Apple MacBook Pro 16 M5 Pro, 18C CPU, 20C GPU, 24ГБ, 1ТБ, Серебристый (Silver) (MGE94)", 249990, CAT_LT, "Apple", "Серебристый (Silver)"),
     prod("iPhone 16 128 ГБ (скрытый)", 69990, CAT_PH, "Apple", active=False),
+    prod("Наушники Apple AirPods Pro 2 USB-C (2023)", 14990, CAT_HP, "Apple"),
+    prod("Canon PowerShot G7X Mark 3", 101990, CAT_LT, "Canon"),
 ]
 def run(text, **kw):
     parsed = parse_command(text)
@@ -40,8 +42,8 @@ p, items = run("17 pro кроме max -1500")
 check(len(items) == 1 and "Max" not in items[0].name and items[0].new_price == Decimal(153490), "«кроме max» исключает Pro Max, −1500")
 
 p, items = run("наушники apple +5%")
-check([i.name for i in items] == ["AirPods Max"], "категория «наушники» + бренд apple → только AirPods Max")
-check(items[0].new_price == Decimal(62990) and items[0].new_discount_price == Decimal(57740), "+5% к 59 990 = 62 990; скидочная 54 990 → 57 740 (округление до рубля)")
+check(sorted(i.name for i in items) == ["AirPods Max", "Наушники Apple AirPods Pro 2 USB-C (2023)"], "категория «наушники» + бренд apple → только наушники Apple (Sony не попал)")
+check(items[0].new_price == Decimal(62990) and items[0].new_discount_price == Decimal(57690), "+5% к 59 990 = 62 990; скидочная 54 990 → 57 690 (хвост «…90» сохраняется)")
 
 p, items = run("galaxy s26 512 = 89990")
 check(len(items) == 1 and items[0].new_price == Decimal(89990), "«galaxy s26 512 = 89990» → одна модель, цена = 89 990")
@@ -55,10 +57,10 @@ p, items = run("айфон 16 и скрытые +1000")
 check(len(items) == 1 and not items[0].is_active, "с «и скрытые» — подходит")
 
 p, items = run("все +5%")
-check(len(items) == 7 and any("все товары" in w for w in p.warnings), "«все +5%» — все активные + предупреждение")
+check(len(items) == 9 and any("все товары" in w for w in p.warnings), "«все +5%» — все активные + предупреждение")
 
 p, items = run("макбук про 16 +10%")
-check(len(items) == 1 and items[0].new_price == Decimal(274989), "«макбук про 16 +10%» → MacBook Pro 16, 249 990 → 274 989")
+check(len(items) == 1 and items[0].new_price == Decimal(274990), "«макбук про 16 +10%» → MacBook Pro 16, 249 990 → 274 990 (хвост «…990»)")
 
 p, items = run("дайсон +100")
 check(len(items) == 0 and p.operation is not None, "нет товаров бренда → пусто, операция понята")
@@ -68,6 +70,20 @@ check(p.operation.kind == "delta" and p.operation.value == Decimal(-1500) and le
 
 p, items = run("на 2000")
 check(p.operation is None and any("на сколько" in w or "+2000" in w for w in p.warnings) or p.operation is None, "число без направления — операции нет, есть подсказка")
+
+p, items = run("айфон 17 про на 2000 дороже")
+check(p.operation is not None and p.operation.value == Decimal(2000) and len(items) == 2, "постфиксный глагол: «на 2000 дороже» → +2000")
+p, items = run("на 5 процентов дешевле samsung")
+check(p.operation is not None and p.operation.kind == "percent" and p.operation.value == Decimal(-5), "«на 5 процентов дешевле» → −5 %")
+p, items = run("17 pro 2000")
+check(p.operation is None and any("что с ним делать" in w for w in p.warnings), "число без операции → подсказка")
+
+p, items = run("airpods pro 3 = 24990")
+check(len(items) == 0, "«airpods pro 3»: цифра 3 не находит «2023» (границы числа)")
+p, items = run("марк 3 -2000")
+check(len(items) == 1 and "Mark 3" in items[0].name, "«марк 3» → алиас mark, Canon Mark 3")
+p, items = run("все +5%")
+check(len(items) == 9, "«все +5%» после добавления товаров — 9 активных")
 
 print("\nFAILS:", fails)
 sys.exit(1 if fails else 0)
