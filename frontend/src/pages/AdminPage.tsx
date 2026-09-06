@@ -2262,6 +2262,13 @@ function ProductModal({
   const [warrantyStr, setWarrantyStr] = useState(product?.warranty_months ? String(product.warranty_months) : '')
 
   const [sku, setSku] = useState(product?.sku || '')
+  // Код модели в скобках в конце названия читают витрина и PWA — добавляем явной кнопкой, без магии
+  const appendSkuToName = () => {
+    const code = sku.trim()
+    if (!code) return
+    const base = name.replace(/\s*\([A-Z][A-Z0-9/-]{2,}\)$/, '').trim()
+    setName(`${base} (${code})`)
+  }
   const [color, setColor] = useState(product?.color || '')
   const [shortDesc, setShortDesc] = useState(product?.short_description || '')
   const [description, setDescription] = useState(product?.description || '')
@@ -2913,8 +2920,12 @@ function ProductModal({
           {/* SKU + Warranty */}
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-sm text-slate-400">Артикул (SKU)</label>
-              <input type="text" value={sku} onChange={e => setSku(e.target.value)} className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none" />
+              <label className="mb-1 block text-sm text-slate-400">Код модели / артикул (SKU)</label>
+              <div className="flex gap-2">
+                <input type="text" value={sku} onChange={e => setSku(e.target.value)} placeholder="MDHE4" className="min-w-0 flex-1 rounded-xl bg-white/10 px-4 py-3 text-white placeholder-slate-500 focus:bg-white/20 focus:outline-none" />
+                <button type="button" onClick={appendSkuToName} disabled={!sku.trim() || name.trimEnd().endsWith(`(${sku.trim()})`)} title="Добавить код в скобках в конец названия" className="shrink-0 rounded-xl bg-white/10 px-3 text-xs font-medium text-slate-300 hover:bg-white/20 hover:text-white disabled:opacity-40">В название</button>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">Код в скобках в конце названия каталог показывает бейджем: «… Серебристый (Silver) (MDHE4)».</p>
             </div>
             <div>
               <label className="mb-1 block text-sm text-slate-400">Гарантия (мес.)</label>
@@ -4328,7 +4339,7 @@ function CategoryModal({
           {templateStarter}
           <div className="rounded-2xl border border-yellow-400/15 bg-yellow-400/[0.03] p-4">
             <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Конструктор карточки товара</label>
-            <p className="mb-3 text-xs text-slate-500">Добавляйте только характеристики этой категории. Поля с отметкой «Использовать в вариантах» попадут в создание группы; остальные будут общими для всех её товаров. Так у моноблоков не появятся поля от телефонов, а у очков — ОЗУ, если вы его не добавите.</p>
+            <p className="mb-3 text-xs text-slate-500">Добавляйте только характеристики этой категории. Поля с отметкой «Использовать в вариантах» попадут в создание группы; остальные будут общими для всех её товаров. Так у моноблоков не появятся поля от телефонов, а у очков — ОЗУ, если вы его не добавите. Порядок полей — это порядок значений в названии, которое соберёт мастер группы: у ноутбуков «процессор, ОЗУ, память, цвет», у телефонов «цвет, память, связь». Переставляйте стрелками ↑↓.</p>
             {productFields.length > 0 && (
               <div className="mb-3 space-y-1.5">
                 {productFields.map((field, index) => (
@@ -4527,12 +4538,15 @@ interface GroupProductRow {
   price: string
   stock: string
   enabled: boolean
+  /** Код модели (артикул производителя, у Apple — MDHE4): в конец названия и в SKU */
+  modelCode: string
 }
 
 interface CreatedProduct {
   id: string
   name: string
   color: string
+  sku: string | null
   images: { id: string; url: string; variant_color: string | null; is_main: boolean }[]
 }
 
@@ -4560,7 +4574,7 @@ function GroupCreationModal({
   const [axisValues, setAxisValues] = useState<Record<string, string[]>>({})
   const [newInputs, setNewInputs] = useState<Record<string, string>>({})
   const [sharedFieldValues, setSharedFieldValues] = useState<Record<string, string | boolean>>({})
-  const [overrides, setOverrides] = useState<Record<string, { price: string; stock: string; enabled: boolean }>>({})
+  const [overrides, setOverrides] = useState<Record<string, { price: string; stock: string; enabled: boolean; modelCode: string }>>({})
 
   const [creating, setCreating] = useState(false)
   const [progress, setProgress] = useState('')
@@ -4570,6 +4584,9 @@ function GroupCreationModal({
   const [createdProducts, setCreatedProducts] = useState<CreatedProduct[]>([])
   const [activeProductIdx, setActiveProductIdx] = useState(0)
   const [uploading, setUploading] = useState(false)
+  // Код модели можно задать или поправить уже после создания — прямо рядом с фото
+  const [modelCodes, setModelCodes] = useState<Record<string, string>>({})
+  const [savingCode, setSavingCode] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Category
@@ -4614,9 +4631,14 @@ function GroupCreationModal({
         .filter(Boolean)
       const key = axesDef.map(field => attributes[field.key] || '').join('|') || 'base'
       const ov = overrides[key]
+      const plainName = labels.length ? `${baseName} ${labels.join(', ')}`.replace(/\s{2,}/g, ' ').trim() : baseName
+      // Код модели (артикул производителя, у Apple — MDHE4) — в скобках в самом конце:
+      // так его читают витрина (бейдж рядом с названием), PWA «Цены» и поиск
+      const modelCode = (ov?.modelCode || '').trim()
       return {
         key,
-        name: labels.length ? `${baseName} ${labels.join(', ')}`.replace(/\s{2,}/g, ' ').trim() : baseName,
+        name: modelCode ? `${plainName} (${modelCode})` : plainName,
+        modelCode,
         color: String(attributes.color || ''),
         attributes,
         price: ov?.price || basePriceStr,
@@ -4645,11 +4667,11 @@ function GroupCreationModal({
     setAxisValues(prev => ({ ...prev, [field]: (prev[field] || []).filter(v => v !== val) }))
   }
 
-  const updateOverride = (key: string, field: 'price' | 'stock' | 'enabled', value: string | boolean) => {
+  const updateOverride = (key: string, field: 'price' | 'stock' | 'enabled' | 'modelCode', value: string | boolean) => {
     setOverrides(prev => ({
       ...prev,
       [key]: {
-        price: prev[key]?.price || '', stock: prev[key]?.stock || '',
+        price: prev[key]?.price || '', stock: prev[key]?.stock || '', modelCode: prev[key]?.modelCode || '',
         enabled: prev[key]?.enabled !== false, [field]: value,
       },
     }))
@@ -4691,6 +4713,7 @@ function GroupCreationModal({
           description: description || null, color: item.color || null,
           warranty_months: warranty ? parseInt(warranty) || null : null,
           attributes: Object.keys(item.attributes).length > 0 ? item.attributes : null,
+          sku: item.modelCode || null,
         }
 
         const res = await authFetch(`${API_BASE_URL}/api/products`, {
@@ -4701,7 +4724,7 @@ function GroupCreationModal({
 
         if (res.ok) {
           const saved = await res.json()
-          created.push({ id: saved.id, name: item.name, color: item.color, images: [] })
+          created.push({ id: saved.id, name: item.name, color: item.color, sku: item.modelCode || null, images: [] })
           setCreatedCount(created.length)
         } else {
           const err = await res.json().catch(() => ({}))
@@ -4744,6 +4767,27 @@ function GroupCreationModal({
 
   // ── Photo upload for step 2 ──
   const activeProduct = createdProducts[activeProductIdx]
+
+  const saveModelCode = async (product: CreatedProduct) => {
+    const code = (modelCodes[product.id] ?? product.sku ?? '').trim()
+    const baseName = product.name.replace(/\s*\([A-Z][A-Z0-9/-]{2,}\)$/, '').trim()
+    const newName = code ? `${baseName} (${code})` : baseName
+    setSavingCode(product.id)
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/products/${product.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName, sku: code || null }),
+      })
+      if (!res.ok) { toast('Не удалось сохранить код модели', 'error'); return }
+      setCreatedProducts(prev => prev.map(p => p.id === product.id ? { ...p, name: newName, sku: code || null } : p))
+      toast(code ? `Код ${code} сохранён — он в названии и в SKU` : 'Код модели убран из названия', 'success')
+    } catch {
+      toast('Не удалось сохранить код модели', 'error')
+    } finally {
+      setSavingCode(null)
+    }
+  }
 
   const handleUploadPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
@@ -5010,6 +5054,7 @@ function GroupCreationModal({
                       }).filter(Boolean).join(' × ')}
                     </div>
                   </div>
+                  <p className="text-[10px] text-slate-500">Код модели — артикул производителя (у Apple: MDHE4, MW2U3). Он встанет в скобках в самом конце названия и в поле SKU, а в каталоге покажется бейджем рядом с названием.</p>
                   <div className="overflow-x-auto rounded-xl border border-white/10">
                     <table className="w-full text-sm">
                       <thead>
@@ -5025,6 +5070,7 @@ function GroupCreationModal({
                           <th className="p-2">Название</th>
                           <th className="p-2 w-28">Цена ₽</th>
                           <th className="p-2 w-20">Склад</th>
+                          <th className="p-2 w-28" title="Артикул производителя, у Apple — например MDHE4. Попадёт в конец названия в скобках и в поле SKU">Код модели</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -5054,6 +5100,13 @@ function GroupCreationModal({
                                   onChange={e => updateOverride(key, 'stock', e.target.value.replace(/\D/g, ''))}
                                   placeholder="0"
                                   className="w-full rounded-lg bg-white/10 px-2 py-1 text-xs text-white placeholder-slate-600 focus:bg-white/15 focus:outline-none" />
+                              </td>
+                              <td className="p-2">
+                                <input type="text" autoCapitalize="characters"
+                                  value={overrides[key]?.modelCode ?? ''}
+                                  onChange={e => updateOverride(key, 'modelCode', e.target.value.toUpperCase().replace(/[^A-Z0-9/-]/g, ''))}
+                                  placeholder="MDHE4"
+                                  className="w-full rounded-lg bg-white/10 px-2 py-1 font-mono text-xs text-white placeholder-slate-600 focus:bg-white/15 focus:outline-none" />
                               </td>
                             </tr>
                           )
@@ -5118,6 +5171,7 @@ function GroupCreationModal({
                             {p.name}
                           </div>
                           <div className="flex items-center gap-1.5 mt-0.5">
+                            {p.sku && <span className="rounded bg-white/10 px-1 font-mono text-[10px] text-slate-400">{p.sku}</span>}
                             {hasPhotos ? (
                               <span className="text-[10px] text-green-400">✓ {p.images.length} фото</span>
                             ) : (
@@ -5154,6 +5208,31 @@ function GroupCreationModal({
                           disabled={activeProductIdx === createdProducts.length - 1}
                           className="rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/20 disabled:opacity-30">
                           →
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Код модели — артикул производителя, в конец названия и в SKU */}
+                    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">Код модели (SKU)</div>
+                      <div className="mt-0.5 text-[10px] text-slate-500">Артикул производителя, у Apple — например MDHE4. Встанет в скобках в конец названия, попадёт в поле SKU и покажется бейджем в каталоге.</div>
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          type="text"
+                          autoCapitalize="characters"
+                          value={modelCodes[activeProduct.id] ?? activeProduct.sku ?? ''}
+                          onChange={e => setModelCodes(prev => ({ ...prev, [activeProduct.id]: e.target.value.toUpperCase().replace(/[^A-Z0-9/-]/g, '') }))}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void saveModelCode(activeProduct) } }}
+                          placeholder="MDHE4"
+                          className="flex-1 rounded-lg bg-white/10 px-3 py-2 font-mono text-sm text-white placeholder-slate-600 focus:bg-white/15 focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          disabled={savingCode === activeProduct.id}
+                          onClick={() => void saveModelCode(activeProduct)}
+                          className="rounded-lg bg-yellow-400/20 px-4 py-2 text-sm font-semibold text-yellow-300 hover:bg-yellow-400/30 disabled:opacity-40"
+                        >
+                          {savingCode === activeProduct.id ? '…' : 'Сохранить'}
                         </button>
                       </div>
                     </div>
