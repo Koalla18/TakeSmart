@@ -12,6 +12,7 @@ import { AdminIcon } from './admin/AdminIcons'
 import { ADMIN_NAV, ADMIN_SECTION_META, CATEGORY_SEGMENTS, isAdminSection, type AdminSection } from './admin/adminNav'
 import { CommandPalette, type PaletteItem } from './admin/CommandPalette'
 import { OverviewTab } from './admin/OverviewTab'
+import { PriceCommandBar } from '../components/PriceCommand'
 
 // ============ TYPES ============
 
@@ -344,6 +345,7 @@ export function AdminPage() {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [priceCommandOpen, setPriceCommandOpen] = useState(false)
   // Вид каркаса: «док» внизу или боковое меню — запоминается в браузере
   const [layout, setLayout] = useState<AdminLayoutMode>(readLayoutMode)
   const toggleLayout = () => setLayout(mode => { const next: AdminLayoutMode = mode === 'dock' ? 'sidebar' : 'dock'; storeLayoutMode(next); return next })
@@ -897,6 +899,7 @@ export function AdminPage() {
       case 'products':
         return (
           <>
+            <button type="button" onClick={() => setPriceCommandOpen(open => !open)} aria-pressed={priceCommandOpen} className={priceCommandOpen ? BTN_PRIMARY : BTN_SECONDARY} title="Изменить цены одной фразой: «наушники apple +2000»"><AdminIcon name="ruble" className="h-4 w-4" />Цены командой</button>
             <button type="button" onClick={() => setIsGroupModalOpen(true)} className={BTN_SECONDARY}><AdminIcon name="layers" className="h-4 w-4" />Создать группу</button>
             <button type="button" onClick={() => { setEditingProduct(null); setIsUsedProductMode(false); setIsProductModalOpen(true) }} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Добавить товар</button>
           </>
@@ -1184,6 +1187,9 @@ export function AdminPage() {
         )}
 
         {/* ============ PRODUCTS TAB ============ */}
+        {activeTab === 'products' && priceCommandOpen && (
+          <div className="mb-4"><PriceCommandBar onApplied={loadProducts} autoFocus /></div>
+        )}
         {activeTab === 'products' && (
           <ProductsSection
             products={filterProducts(products).filter(p => (p.condition || 'new') === 'new')}

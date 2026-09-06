@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent a
 import { useAuth, getAuthHeaders } from '../lib/auth'
 import { API_BASE_URL } from '../lib/config'
 import { toast, ToastHost } from '../lib/toast'
+import { PriceCommandBar } from '../components/PriceCommand'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // «Цены» — вкладка PWA «Заказы»: инструмент, которым сотрудник за смену проходит
@@ -858,6 +859,11 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
             <button onClick={() => void loadAll()} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/15">Повторить</button>
           </div>
         )}
+
+        {/* Команда цен: «наушники apple +2000» → предпросмотр → применить. После применения каталог перечитывается. */}
+        <div className="mb-3">
+          <PriceCommandBar onApplied={() => void loadAll()} />
+        </div>
 
         <input
           value={query}
