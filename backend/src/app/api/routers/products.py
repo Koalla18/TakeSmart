@@ -16,9 +16,15 @@ from src.app.core.slugify import build_unique_slug
 from src.app.core.static_service import static_service
 from src.app.database.unit_of_work import UnitOfWork
 from src.app.schemas.common import PaginatedResponse
+from src.app.core.price_command import match_products, parse_command, resolve_targets
 from src.app.schemas.product import (
     BulkPricesIn,
     BulkPricesOut,
+    PriceCommandIn,
+    PriceCommandItemOut,
+    PriceCommandOperationOut,
+    PriceCommandOut,
+    PricePreviousOut,
     ProductCreate,
     ProductDetailOut,
     ProductOut,
@@ -245,6 +251,88 @@ async def bulk_update_prices(body: BulkPricesIn) -> BulkPricesOut:
 
     logger.info("bulk_prices_updated", count=len(by_id), not_found=len(not_found))
     return BulkPricesOut(updated=len(by_id), not_found=not_found)
+
+
+@router.post(
+    "/prices/command",
+    response_model=PriceCommandOut,
+    summary="Команда цен человеческим языком (предпросмотр и применение)",
+    description=(
+        "«наушники apple +2000», «17 pro -1500», «galaxy s26 512 = 89990», "
+        "«все iphone кроме 15 +5%». Без `apply` — только предпросмотр: какие "
+        "товары подошли и какой станет цена. С `apply=true` меняет цены у "
+        "`product_ids` (подмножество предпросмотра; пусто = все подошедшие) одной "
+        "транзакцией, ставит `price_updated_at` и возвращает снимок прежних цен "
+        "в `previous` — для отката через /prices/bulk."
+    ),
+    dependencies=[Depends(get_current_admin)],
+)
+async def price_command(body: PriceCommandIn) -> PriceCommandOut:
+    parsed = parse_command(body.text)
+    if body.include_inactive:
+        parsed.include_inactive = True
+    now = datetime.now(timezone.utc)
+    async with UnitOfWork() as uow:
+        categories = await uow.categories.get_all(limit=500)
+        brands = await uow.brands.get_all(limit=500)
+        category_ids, brand_set, tokens = resolve_targets(
+            parsed, categories=categories, brand_names=[b.name for b in brands],
+        )
+        products = await uow.products.get_all(limit=10000)
+        category_names = {c.id: c.name for c in categories}
+        items = match_products(
+            parsed, products,
+            category_ids=category_ids, brands=brand_set, tokens=tokens,
+            category_names=category_names,
+        )
+
+        applied = 0
+        previous: list[PricePreviousOut] = []
+        if body.apply:
+            if parsed.operation is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Не понял, что сделать с ценой: напишите «+2000», «−1500», «+5%» или «= 89990».",
+                )
+            chosen = set(body.product_ids) if body.product_ids else {it.id for it in items if it.valid}
+            by_id = {p.id: p for p in products}
+            for it in items:
+                if it.id not in chosen or not it.valid or it.new_price is None:
+                    continue
+                product = by_id[it.id]
+                previous.append(PricePreviousOut(id=product.id, price=product.price, discount_price=product.discount_price))
+                product.price = it.new_price
+                product.discount_price = it.new_discount_price
+                product.price_updated_at = now
+                applied += 1
+            if applied == 0:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Нечего применять: ни один выбранный товар не подошёл.")
+            await uow.commit()
+            logger.info("price_command_applied", text=body.text, applied=applied)
+
+    op = parsed.operation
+    filters = {
+        "categories": sorted({category_names[cid] for cid in category_ids if cid in category_names}),
+        "brands": sorted(brand_set),
+        "tokens": tokens,
+        "exclude": parsed.exclude,
+    }
+    return PriceCommandOut(
+        text=body.text,
+        operation=PriceCommandOperationOut(kind=op.kind, value=op.value, label=op.label()) if op else None,
+        filters=filters,
+        include_inactive=parsed.include_inactive,
+        items=[PriceCommandItemOut(
+            id=it.id, name=it.name, color=it.color, category=it.category,
+            price=it.price, discount_price=it.discount_price,
+            new_price=it.new_price, new_discount_price=it.new_discount_price,
+            is_active=it.is_active, valid=it.valid, reason=it.reason,
+        ) for it in items],
+        total_matched=len(items),
+        applied=applied,
+        previous=previous,
+        warnings=parsed.warnings,
+    )
 
 
 @router.get(

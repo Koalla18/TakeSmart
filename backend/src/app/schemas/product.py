@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Literal, Any, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -173,6 +173,54 @@ class BulkPricesOut(BaseModel):
         default_factory=list,
         description="ID из запроса, которых нет в БД (не валят запрос)",
     )
+
+
+class PriceCommandIn(BaseModel):
+    """Команда цен человеческим языком: «наушники apple +2000», «17 pro -1500»,
+    «galaxy s26 512 = 89990». Без apply — только предпросмотр."""
+    text: str = Field(..., min_length=1, max_length=300, examples=["наушники apple +2000"])
+    apply: bool = Field(False, description="Применить к выбранным (product_ids) или ко всем подходящим")
+    product_ids: Optional[list[uuid.UUID]] = Field(None, max_length=1000, description="Подмножество из предпросмотра; None = все подошедшие")
+    include_inactive: bool = Field(False, description="Захватывать и скрытые товары")
+
+
+class PriceCommandOperationOut(BaseModel):
+    kind: Literal["delta", "percent", "set"]
+    value: Decimal
+    label: str = Field(..., description="Человеческая подпись: «+2 000 ₽», «−5 %», «= 89 990 ₽»")
+
+
+class PriceCommandItemOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    color: Optional[str]
+    category: Optional[str]
+    price: Decimal
+    discount_price: Optional[Decimal]
+    new_price: Optional[Decimal]
+    new_discount_price: Optional[Decimal]
+    is_active: bool
+    valid: bool = Field(..., description="Можно ли применить (цена не ушла в ноль и т.п.)")
+    reason: Optional[str] = None
+
+
+class PricePreviousOut(BaseModel):
+    """Снимок цен до применения — для отката одним запросом в /prices/bulk."""
+    id: uuid.UUID
+    price: Decimal
+    discount_price: Optional[Decimal]
+
+
+class PriceCommandOut(BaseModel):
+    text: str
+    operation: Optional[PriceCommandOperationOut]
+    filters: dict[str, list[str]] = Field(default_factory=dict, description="Как поняли цель: categories/brands/tokens/exclude")
+    include_inactive: bool
+    items: list[PriceCommandItemOut]
+    total_matched: int
+    applied: int = 0
+    previous: list[PricePreviousOut] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ProductDetailOut(ProductOut):
