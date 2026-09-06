@@ -649,21 +649,20 @@ export function AdminPage() {
     } catch { toast('Ошибка сети', 'error') }
   }
 
-  // Порядок категорий — swap sort_order двух соседних (как у баннеров).
-  // Список приходит от API уже отсортированным по sort_order.
+  // Порядок категорий. На проде sort_order у всех категорий = 0: обмен значениями
+  // двух соседей не работал, а «позиционный» обмен отправлял категорию в конец
+  // списка (единица после тринадцати нулей). Присваиваем позиции ВСЕМ категориям
+  // по текущему порядку списка — как в moveBanner.
   const moveCategory = async (category: Category, dir: -1 | 1) => {
     const idx = categories.findIndex(c => c.id === category.id)
-    const swap = categories[idx + dir]
-    if (!swap) return
-    // Старые записи могут иметь одинаковый/пустой sort_order — тогда берём позиции в списке
-    let target = swap.sort_order ?? idx + dir
-    let own = category.sort_order ?? idx
-    if (target === own) { target = idx + dir; own = idx }
+    const target = idx + dir
+    if (idx < 0 || target < 0 || target >= categories.length) return
+    const reordered = [...categories]
+    ;[reordered[idx], reordered[target]] = [reordered[target], reordered[idx]]
     try {
-      await Promise.all([
-        authFetch(`${API_BASE_URL}/api/categories/${category.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: target }) }),
-        authFetch(`${API_BASE_URL}/api/categories/${swap.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: own }) }),
-      ])
+      await Promise.all(reordered.map((c, position) => c.sort_order === position
+        ? Promise.resolve(null)
+        : authFetch(`${API_BASE_URL}/api/categories/${c.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: position }) })))
       loadCategories()
     } catch { toast('Не удалось изменить порядок', 'error') }
   }
@@ -824,18 +823,24 @@ export function AdminPage() {
     } catch { toast('Ошибка', 'error') }
   }
 
+  // Порядок баннеров. У старых записей sort_order совпадает (на проде четыре нуля):
+  // обмен значениями двух нулей ничего не менял, а после перезагрузки список
+  // пересортировывался как попало. Поэтому сортируем со стабильным вторым ключом,
+  // а при перестановке присваиваем ВСЕМ баннерам позиции по списку.
+  const sortBanners = (list: HeroBanner[]) => [...list].sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id))
   const moveBanner = async (banner: HeroBanner, dir: -1 | 1) => {
-    const sorted = [...banners].sort((a, b) => a.sort_order - b.sort_order)
+    const sorted = sortBanners(banners)
     const idx = sorted.findIndex(b => b.id === banner.id)
-    const swap = sorted[idx + dir]
-    if (!swap) return
+    const target = idx + dir
+    if (idx < 0 || target < 0 || target >= sorted.length) return
+    const reordered = [...sorted]
+    ;[reordered[idx], reordered[target]] = [reordered[target], reordered[idx]]
     try {
-      await Promise.all([
-        authFetch(`${API_BASE_URL}/api/hero-banners/${banner.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: swap.sort_order }) }),
-        authFetch(`${API_BASE_URL}/api/hero-banners/${swap.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: banner.sort_order }) }),
-      ])
+      await Promise.all(reordered.map((b, position) => b.sort_order === position
+        ? Promise.resolve(null)
+        : authFetch(`${API_BASE_URL}/api/hero-banners/${b.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: position }) })))
       loadBanners()
-    } catch { toast('Ошибка', 'error') }
+    } catch { toast('Не удалось изменить порядок', 'error') }
   }
 
   // Filtering
@@ -1357,7 +1362,7 @@ export function AdminPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {[...banners].sort((a, b) => a.sort_order - b.sort_order).map((banner, i, arr) => (
+                {sortBanners(banners).map((banner, i, arr) => (
                   <div key={banner.id} className={`overflow-hidden rounded-2xl border bg-white/5 ${banner.is_active ? 'border-white/10' : 'border-white/5 opacity-60'}`}>
                     <div className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center">
                       {/* Мини-превью — как на сайте */}

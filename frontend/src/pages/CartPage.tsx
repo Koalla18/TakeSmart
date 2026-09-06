@@ -448,7 +448,7 @@ export function CartPage() {
         <form onSubmit={handleSubmit}>
           <div className="grid gap-8 lg:grid-cols-3">
             {/* Left column */}
-            <div className="lg:col-span-2 space-y-8">
+            <div className="min-w-0 space-y-8 lg:col-span-2">
               {/* Cart Items */}
               <div className="rounded-2xl bg-white p-6 shadow-sm">
                 <div className="mb-6 flex items-center justify-between">
@@ -482,7 +482,7 @@ export function CartPage() {
                       <div className="min-w-0 flex-1">
                         <div className="text-sm text-gray-500">{item.product.brand}</div>
                         <div className="line-clamp-2 font-semibold">{item.product.name}</div>
-                        <div className="mt-2 flex items-center gap-4">
+                        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
                           {/* Quantity */}
                           <div className="flex items-center gap-2 rounded-lg border px-2">
                             <button type="button" onClick={() => handleQuantityChange(item.product.id, item.quantity - 1)} className="px-2 py-1 text-gray-500 hover:text-gray-900">−</button>
@@ -769,10 +769,9 @@ export function CartPage() {
                     )}
                   </div>
                   <div>
-                    <label className="mb-2 block font-medium">Email *</label>
+                    <label className="mb-2 block font-medium">Email <span className="text-sm font-normal text-gray-400">(необязательно)</span></label>
                     <input
                       type="email"
-                      required
                       value={formData.email}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                       className="w-full rounded-xl border border-gray-200 p-4 focus:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-100"

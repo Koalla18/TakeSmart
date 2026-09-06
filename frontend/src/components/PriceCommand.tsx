@@ -179,7 +179,16 @@ export function PriceCommandBar({ onApplied, autoFocus = false }: { onApplied?: 
       const said = Array.from(e.results).map(r => r[0]?.transcript ?? '').join(' ').trim()
       if (said) { setText(said); void runPreview(said) }
     }
-    rec.onerror = e => { setListening(false); if (e.error !== 'aborted' && e.error !== 'no-speech') toast('Микрофон недоступен — напишите команду текстом', 'error') }
+    rec.onerror = e => {
+      setListening(false)
+      if (e.error === 'aborted' || e.error === 'no-speech') return
+      // На iPhone распознавание живёт только в Safari: в приложении «с экрана Домой» оно молча падает
+      const ios = /iPhone|iPad/.test(navigator.userAgent)
+      const standalone = (window.navigator as Navigator & { standalone?: boolean }).standalone === true || window.matchMedia?.('(display-mode: standalone)').matches
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') toast('Нет доступа к микрофону — разрешите его в настройках браузера или напишите текстом', 'error', 6000)
+      else if (ios && standalone) toast('На iPhone голос работает в Safari (takesmart.ru/app), в установленном приложении — пока нет. Напишите текстом.', 'error', 7000)
+      else toast('Голос не распознался — попробуйте ещё раз или напишите текстом', 'error')
+    }
     rec.onend = () => setListening(false)
     recRef.current = rec
     setListening(true)
@@ -205,6 +214,7 @@ export function PriceCommandBar({ onApplied, autoFocus = false }: { onApplied?: 
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void runPreview() } }}
           placeholder="Команда: наушники apple +2000 · 17 pro −1500 · galaxy s26 512 = 89990"
           aria-label="Команда изменения цен"
+          data-testid="price-command-input"
           autoFocus={autoFocus}
           enterKeyHint="go"
           className="min-w-0 flex-1 rounded-xl border border-white/10 bg-slate-950/60 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-yellow-400/60"
