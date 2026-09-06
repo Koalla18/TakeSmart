@@ -98,15 +98,18 @@ PRESETS: list[dict] = [
         "id": "laptops",
         "label": "Ноутбуки",
         "description": "Цвет, процессор, ОЗУ, SSD",
+        # Порядок полей = порядок значений в названии из мастера групп. Для
+        # ноутбуков владелец хочет «M5 Pro, 18C CPU, 20C GPU, 24ГБ, 1ТБ,
+        # Серебристый (Silver) (MGE94)»: сначала конфигурация, цвет — в конце.
         "product_fields": [
-            _f("color", "Цвет", placeholder="Серебристый",
-               hint="Каждый цвет = отдельная карточка", is_variant=True),
-            _f("processor", "Процессор", placeholder="M4 Pro",
-               hint="Модель чипа", is_variant=True),
-            _f("ram", "ОЗУ", placeholder="16 ГБ",
+            _f("processor", "Процессор", placeholder="M5 Pro, 18C CPU, 20C GPU",
+               hint="Чип и ядра — как на сайте Apple", is_variant=True),
+            _f("ram", "ОЗУ", placeholder="24ГБ",
                hint="Объём оперативной памяти", is_variant=True),
-            _f("storage", "Память SSD", placeholder="512 ГБ",
+            _f("storage", "Память SSD", placeholder="1ТБ",
                hint="Объём накопителя", is_variant=True),
+            _f("color", "Цвет", placeholder="Серебристый (Silver)",
+               hint="Каждый цвет = отдельная карточка", is_variant=True),
         ],
         "quick_filters": [
             _qf("MacBook NEO", "MacBook Neo", "apple"),
@@ -127,15 +130,18 @@ PRESETS: list[dict] = [
         "id": "monobloki",
         "label": "Моноблоки",
         "description": "Цвет, процессор, ОЗУ, SSD",
+        # Порядок полей = порядок значений в названии из мастера групп. Для
+        # ноутбуков владелец хочет «M5 Pro, 18C CPU, 20C GPU, 24ГБ, 1ТБ,
+        # Серебристый (Silver) (MGE94)»: сначала конфигурация, цвет — в конце.
         "product_fields": [
-            _f("color", "Цвет", placeholder="Серебристый",
-               hint="Каждый цвет = отдельная карточка", is_variant=True),
-            _f("processor", "Процессор", placeholder="M4 Pro",
-               hint="Модель чипа", is_variant=True),
-            _f("ram", "ОЗУ", placeholder="16 ГБ",
+            _f("processor", "Процессор", placeholder="M5 Pro, 18C CPU, 20C GPU",
+               hint="Чип и ядра — как на сайте Apple", is_variant=True),
+            _f("ram", "ОЗУ", placeholder="24ГБ",
                hint="Объём оперативной памяти", is_variant=True),
-            _f("storage", "Память SSD", placeholder="512 ГБ",
+            _f("storage", "Память SSD", placeholder="1ТБ",
                hint="Объём накопителя", is_variant=True),
+            _f("color", "Цвет", placeholder="Серебристый (Silver)",
+               hint="Каждый цвет = отдельная карточка", is_variant=True),
         ],
         "quick_filters": [
             _qf('iMac 24"', "iMac 24", "apple"),
