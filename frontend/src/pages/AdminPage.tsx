@@ -6,7 +6,8 @@ import { formatPrice } from '../data/products'
 import { toast, ToastHost } from '../lib/toast'
 import { confirmDialog, ConfirmHost } from '../lib/confirm'
 import { AnalyticsTab } from './admin/AnalyticsTab'
-import { AdminShell, AdminShellSkeleton, SegmentedTabs, BTN_PRIMARY, BTN_SECONDARY } from './admin/AdminShell'
+import { AdminShell, AdminShellSkeleton, SegmentedTabs, BTN_PRIMARY, BTN_SECONDARY, readLayoutMode, storeLayoutMode, type AdminLayoutMode } from './admin/AdminShell'
+import { greetingByHour, timeAgo } from './admin/format'
 import { AdminIcon } from './admin/AdminIcons'
 import { ADMIN_NAV, ADMIN_SECTION_META, CATEGORY_SEGMENTS, isAdminSection, type AdminSection } from './admin/adminNav'
 import { CommandPalette, type PaletteItem } from './admin/CommandPalette'
@@ -343,6 +344,9 @@ export function AdminPage() {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // Вид каркаса: «док» внизу или боковое меню — запоминается в браузере
+  const [layout, setLayout] = useState<AdminLayoutMode>(readLayoutMode)
+  const toggleLayout = () => setLayout(mode => { const next: AdminLayoutMode = mode === 'dock' ? 'sidebar' : 'dock'; storeLayoutMode(next); return next })
   const [orders, setOrders] = useState<Order[]>([])
   // Новые заказы отдельным списком: основной список зависит от фильтра статуса,
   // а бейдж в меню и «Обзор» должны показывать честное число всегда
@@ -871,11 +875,21 @@ export function AdminPage() {
   const categoriesWithoutSchema = categories.filter(category => getCategoryProductFields(category).length === 0).length
   const meta = ADMIN_SECTION_META[activeTab]
   const todayLabel = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })
+  const hiddenCount = products.filter(p => (p.condition || 'new') === 'new' && !p.is_active).length
+  const outOfStockCount = products.filter(p => (p.condition || 'new') === 'new' && p.is_active && p.stock_quantity <= 0).length
+  const lastPendingAt = pendingOrders.reduce<string | null>((latest, o) => (!latest || o.created_at > latest ? o.created_at : latest), null)
+  const recentOrders = [...orders].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0)).slice(0, 8)
+  // Строка под заголовком — живой статус раздела, а не справка
   const pageDescription = activeTab === 'overview'
-    ? `${todayLabel.charAt(0).toUpperCase()}${todayLabel.slice(1)} · что требует внимания`
-    : activeTab === 'products'
-      ? `${newProductsCount} ${pluralRu(newProductsCount, 'товар', 'товара', 'товаров')} в каталоге · карточки, группы вариантов, цены и наличие`
-      : meta.description
+    ? `${greetingByHour()}! ${todayLabel} · вот что требует внимания`
+    : activeTab === 'orders'
+      ? (pendingOrders.length
+          ? `${pendingOrders.length} ${pluralRu(pendingOrders.length, 'новый заказ ждёт', 'новых заказа ждут', 'новых заказов ждут')} подтверждения · последний ${timeAgo(lastPendingAt)}`
+          : 'Новых заказов нет · клик по строке открывает состав, адрес и смену статуса')
+      : activeTab === 'products'
+        ? `${newProductsCount} ${pluralRu(newProductsCount, 'товар', 'товара', 'товаров')} в каталоге · скрыто ${hiddenCount} · без остатка ${outOfStockCount}`
+        : meta.description
+  const pageLive = pendingOrders.length > 0 && (activeTab === 'orders' || activeTab === 'overview')
 
   // Главное действие раздела живёт в шапке, а не внутри списка — одна точка входа на экране
   const pageActions = (() => {
@@ -966,7 +980,10 @@ export function AdminPage() {
         title={meta.title}
         eyebrow={meta.eyebrow}
         description={pageDescription}
+        live={pageLive}
         actions={pageActions}
+        layout={layout}
+        onToggleLayout={toggleLayout}
         onOpenSearch={() => setPaletteOpen(true)}
         onLogout={() => { logout(); navigate('/login') }}
       >
@@ -977,6 +994,8 @@ export function AdminPage() {
             products={products}
             categoriesWithoutSchema={categoriesWithoutSchema}
             pendingOrders={pendingOrders}
+            recentOrders={recentOrders}
+            statusMeta={STATUS_CONFIG}
             onOpenOrder={loadOrderDetail}
             onGoTo={(section, opts) => {
               if (opts?.orderStatus) { setStatusFilter(opts.orderStatus); setOrderPage(1) }

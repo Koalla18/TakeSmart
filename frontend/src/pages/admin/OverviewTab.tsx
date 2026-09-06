@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { API_BASE_URL } from '../../lib/config'
 import { AdminIcon, type AdminIconName } from './AdminIcons'
 import type { AdminSection } from './adminNav'
+import { timeAgo } from './format'
 
 type AuthFetchFn = (url: string, init?: RequestInit) => Promise<Response>
 
@@ -33,8 +34,11 @@ export interface OverviewOrder {
   customer_phone: string | null
   total_amount: number
   created_at: string
+  status: string
   shipping_city?: string | null
 }
+
+export interface OrderStatusMeta { label: string; color: string; bg: string }
 
 interface Pair { current: number; previous: number }
 interface DayAnalytics {
@@ -47,6 +51,9 @@ interface OverviewTabProps<P extends OverviewProduct> {
   products: P[]
   categoriesWithoutSchema: number
   pendingOrders: OverviewOrder[]
+  /** Последние заказы любого статуса — живая лента */
+  recentOrders: OverviewOrder[]
+  statusMeta: Record<string, OrderStatusMeta>
   onOpenOrder: (id: string) => void
   onGoTo: (section: AdminSection, opts?: { orderStatus?: string }) => void
   onEditProduct: (product: P) => void
@@ -72,6 +79,30 @@ function formatWhen(iso: string): string {
   const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1)
   if (sameDay(d, yesterday)) return `вчера, ${time}`
   return `${d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })}, ${time}`
+}
+
+/** Число «доезжает» до значения за ~0.8с — цифры на Обзоре оживают, а не появляются скачком */
+function useCountUp(target: number, durationMs = 800): number {
+  const [value, setValue] = useState(target)
+  const fromRef = useRef(target)
+  useEffect(() => {
+    const from = fromRef.current
+    if (from === target) return
+    const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    if (reduce) { fromRef.current = target; setValue(target); return }
+    const start = performance.now()
+    let raf = 0
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / durationMs)
+      const eased = 1 - Math.pow(1 - t, 3)
+      setValue(from + (target - from) * eased)
+      if (t < 1) raf = requestAnimationFrame(tick)
+      else fromRef.current = target
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [target, durationMs])
+  return value
 }
 
 function plural(n: number, one: string, few: string, many: string): string {
@@ -112,19 +143,20 @@ function CardTitle({ icon, title, hint, action }: { icon: AdminIconName; title: 
   )
 }
 
-function KpiTile({ label, value, previous, delta, loading }: { label: string; value: string; previous: string; delta: ReturnType<typeof deltaOf>; loading: boolean }) {
+function KpiTile({ label, value, previous, format, delta, loading }: { label: string; value: number; previous: number; format: (n: number) => string; delta: ReturnType<typeof deltaOf>; loading: boolean }) {
   const toneClass = delta?.tone === 'up' ? 'bg-emerald-400/15 text-emerald-300' : delta?.tone === 'down' ? 'bg-rose-400/15 text-rose-300' : 'bg-white/[0.06] text-slate-400'
+  const shown = useCountUp(loading ? 0 : value)
   return (
     <Card className="p-5">
       <div className="text-xs font-medium text-slate-500">{label}</div>
       {loading ? (
         <div className="mt-2 h-8 w-28 animate-pulse rounded-lg bg-white/10" />
       ) : (
-        <div className="mt-1.5 text-[26px] font-bold leading-tight tracking-tight text-white tabular-nums">{value}</div>
+        <div className="mt-1.5 text-[26px] font-bold leading-tight tracking-tight text-white tabular-nums">{format(shown)}</div>
       )}
       <div className="mt-2 flex items-center gap-2 text-xs">
         {delta && !loading && <span className={`rounded-md px-1.5 py-0.5 font-semibold tabular-nums ${toneClass}`}>{delta.label}</span>}
-        <span className="text-slate-500">{loading ? '' : `вчера ${previous}`}</span>
+        <span className="text-slate-500">{loading ? '' : `вчера ${format(previous)}`}</span>
       </div>
     </Card>
   )
@@ -169,7 +201,7 @@ function QuickAction({ icon, label, hint, onClick }: { icon: AdminIconName; labe
 
 // ── Экран ────────────────────────────────────────────────────────────────────
 export function OverviewTab<P extends OverviewProduct>({
-  authFetch, products, categoriesWithoutSchema, pendingOrders,
+  authFetch, products, categoriesWithoutSchema, pendingOrders, recentOrders, statusMeta,
   onOpenOrder, onGoTo, onEditProduct, onNewProduct, onNewGroup, onNewCategory, onNewBanner, imageUrl,
 }: OverviewTabProps<P>) {
   const [day, setDay] = useState<DayAnalytics | null>(null)
@@ -218,10 +250,10 @@ export function OverviewTab<P extends OverviewProduct>({
           )}
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <KpiTile label="Выручка" value={fmtMoney(kpi?.revenue.current ?? 0)} previous={fmtMoney(kpi?.revenue.previous ?? 0)} delta={deltaOf(kpi?.revenue)} loading={loading} />
-          <KpiTile label="Заказы" value={fmtInt(kpi?.orders.current ?? 0)} previous={fmtInt(kpi?.orders.previous ?? 0)} delta={deltaOf(kpi?.orders)} loading={loading} />
-          <KpiTile label="Визиты на сайте" value={fmtInt(kpi?.visits.current ?? 0)} previous={fmtInt(kpi?.visits.previous ?? 0)} delta={deltaOf(kpi?.visits)} loading={loading} />
-          <KpiTile label="Конверсия" value={fmtPct(kpi?.conversion.current ?? 0)} previous={fmtPct(kpi?.conversion.previous ?? 0)} delta={deltaOf(kpi?.conversion)} loading={loading} />
+          <KpiTile label="Выручка" value={kpi?.revenue.current ?? 0} previous={kpi?.revenue.previous ?? 0} format={fmtMoney} delta={deltaOf(kpi?.revenue)} loading={loading} />
+          <KpiTile label="Заказы" value={kpi?.orders.current ?? 0} previous={kpi?.orders.previous ?? 0} format={fmtInt} delta={deltaOf(kpi?.orders)} loading={loading} />
+          <KpiTile label="Визиты на сайте" value={kpi?.visits.current ?? 0} previous={kpi?.visits.previous ?? 0} format={fmtInt} delta={deltaOf(kpi?.visits)} loading={loading} />
+          <KpiTile label="Конверсия" value={kpi?.conversion.current ?? 0} previous={kpi?.conversion.previous ?? 0} format={fmtPct} delta={deltaOf(kpi?.conversion)} loading={loading} />
         </div>
       </section>
 
@@ -308,14 +340,56 @@ export function OverviewTab<P extends OverviewProduct>({
         </div>
       </section>
 
-      {/* ── Быстрые действия ── */}
+      {/* ── Лента + быстрые действия ── */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Быстрые действия</h2>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <QuickAction icon="plus" label="Новый товар" hint="Одна карточка в каталог" onClick={onNewProduct} />
-          <QuickAction icon="layers" label="Создать группу" hint="Модель с вариантами памяти и цвета" onClick={onNewGroup} />
-          <QuickAction icon="folder" label="Новая категория" hint="Раздел каталога со схемой полей" onClick={onNewCategory} />
-          <QuickAction icon="image" label="Новый баннер" hint="Слайд на главной странице" onClick={onNewBanner} />
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.12em] text-slate-500">Лента</h2>
+        <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
+          <Card>
+            <CardTitle
+              icon="clock"
+              title="Последние заказы"
+              hint="Любой статус, свежие сверху"
+              action={<button type="button" onClick={() => onGoTo('orders')} className="flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-white">Все заказы <AdminIcon name="arrowRight" className="h-3.5 w-3.5" /></button>}
+            />
+            {recentOrders.length === 0 ? (
+              <div className="px-5 py-8 text-sm text-slate-500">Заказов пока нет.</div>
+            ) : (
+              <div className="mt-3 divide-y divide-white/[0.05] border-t border-white/[0.05]">
+                {recentOrders.map(order => {
+                  const meta = statusMeta[order.status]
+                  return (
+                    <button
+                      key={order.id}
+                      type="button"
+                      onClick={() => onOpenOrder(order.id)}
+                      className="flex w-full items-center gap-3 px-5 py-2.5 text-left transition hover:bg-white/[0.04]"
+                    >
+                      <span className="w-24 shrink-0 text-xs text-slate-500">{timeAgo(order.created_at)}</span>
+                      <span className="hidden w-24 shrink-0 font-mono text-xs font-bold text-yellow-300 sm:block">{order.order_number}</span>
+                      <span className="min-w-0 flex-1 truncate text-sm text-white">{order.customer_name}</span>
+                      <span className={`hidden shrink-0 items-center gap-1.5 rounded-lg px-2 py-0.5 text-[11px] font-semibold sm:inline-flex ${meta?.bg ?? 'bg-white/10'} ${meta?.color ?? 'text-slate-300'}`}>
+                        <span className="h-1.5 w-1.5 rounded-full bg-current" />{meta?.label ?? order.status}
+                      </span>
+                      <span className="w-24 shrink-0 text-right text-sm font-semibold text-white tabular-nums">{fmtMoney(Number(order.total_amount) || 0)}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </Card>
+
+          <Card className="p-4">
+            <div className="mb-3 flex items-center gap-2.5">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/[0.06] text-slate-300"><AdminIcon name="sparkle" className="h-4 w-4" /></span>
+              <div className="text-sm font-semibold text-white">Быстрые действия</div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              <QuickAction icon="plus" label="Новый товар" hint="Одна карточка в каталог" onClick={onNewProduct} />
+              <QuickAction icon="layers" label="Создать группу" hint="Модель с вариантами" onClick={onNewGroup} />
+              <QuickAction icon="folder" label="Новая категория" hint="Раздел со схемой полей" onClick={onNewCategory} />
+              <QuickAction icon="image" label="Новый баннер" hint="Слайд на главной" onClick={onNewBanner} />
+            </div>
+          </Card>
         </div>
       </section>
     </div>
