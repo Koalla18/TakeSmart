@@ -13,6 +13,7 @@ from fastapi.responses import Response
 from src.app.api.admin.endpoints import get_current_admin
 from src.app.core.logger import get_logger
 from src.app.core.slugify import build_unique_slug
+from src.app.core.model_code import strip_model_code
 from src.app.core.static_service import static_service
 from src.app.database.unit_of_work import UnitOfWork
 from src.app.schemas.common import PaginatedResponse
@@ -530,8 +531,10 @@ async def update_product(product_id: UUID, body: ProductUpdate) -> ProductDetail
         if "price" in body.model_fields_set or "discount_price" in body.model_fields_set:
             update_data["price_updated_at"] = datetime.now(timezone.utc)
 
-        # Если меняется name — пересчитываем slug автоматически
-        if body.name:
+        # Если меняется name — пересчитываем slug автоматически. Исключение: изменился
+        # только код модели в конце («… (MDE54)»): адрес карточки не трогаем, иначе при
+        # массовом проставлении кодов ломаются ссылки на товары (реклама, закладки, поиск).
+        if body.name and strip_model_code(body.name) != strip_model_code(product.name):
             update_data["slug"] = await build_unique_slug(
                 body.name,
                 uow.products.slug_exists,
