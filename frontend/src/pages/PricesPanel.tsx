@@ -3,6 +3,7 @@ import { useAuth, getAuthHeaders } from '../lib/auth'
 import { API_BASE_URL } from '../lib/config'
 import { toast, ToastHost } from '../lib/toast'
 import { PriceCommandBar } from '../components/PriceCommand'
+import { modelCodeFromName, stripModelCode, withModelCode, normalizeModelCode } from '../lib/modelCode'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // «Цены» — вкладка PWA «Заказы»: инструмент, которым сотрудник за смену проходит
@@ -58,6 +59,10 @@ interface GroupRow {
   config: string | null
   /** Полный хвост имени — для title и защиты от неразличимых строк */
   full: string
+  /** Конфигурация чипами: «M5 Pro» · «15C CPU» · «1ТБ SSD» · «с кейсом» — целиком, без обрезки */
+  chips: string[]
+  /** Код модели: поле sku, а пока оно пустое — код из хвоста названия «(MDE54)» */
+  code: string | null
 }
 
 interface Group {
@@ -113,6 +118,57 @@ function moneyToInput(v: number | string): string {
 function startOfDayMs(ms: number): number { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime() }
 function daysAgoMs(ms: number): number { return Math.max(0, Math.round((startOfDayMs(Date.now()) - startOfDayMs(ms)) / 86_400_000)) }
 
+/** Код модели в строке: бейдж (нажать — изменить), пунктирный «+ код», если пусто, и инлайн-редактор */
+function ModelCodeField({ code, editing, value, saving, onStart, onChange, onCancel, onSave }: {
+  code: string | null
+  editing: boolean
+  value: string
+  saving: boolean
+  onStart: () => void
+  onChange: (v: string) => void
+  onCancel: () => void
+  onSave: () => void
+}) {
+  if (editing) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <input
+          autoFocus
+          value={value}
+          onChange={(e) => onChange(normalizeModelCode(e.target.value))}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); onSave() }
+            else if (e.key === 'Escape') { e.preventDefault(); onCancel() }
+          }}
+          placeholder="MDE54"
+          maxLength={20}
+          spellCheck={false}
+          autoCapitalize="characters"
+          aria-label="Код модели"
+          data-testid="model-code-input"
+          className="w-[118px] rounded-md border border-yellow-400/60 bg-slate-950/60 px-1.5 py-0.5 font-mono text-[11px] uppercase text-white placeholder-slate-600 outline-none"
+        />
+        <button type="button" onClick={onSave} disabled={saving} aria-label="Сохранить код модели" className="rounded-md bg-yellow-400 px-2 py-0.5 text-[11px] font-semibold text-gray-950 disabled:opacity-50">{saving ? '…' : '✓'}</button>
+        <button type="button" onClick={onCancel} disabled={saving} aria-label="Отменить правку кода" className="rounded-md bg-white/10 px-2 py-0.5 text-[11px] text-slate-300">✕</button>
+      </span>
+    )
+  }
+  if (code) {
+    return (
+      <button type="button" onClick={onStart} title="Код модели — нажмите, чтобы изменить" data-testid="model-code"
+        className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[11px] tracking-wide text-slate-200 transition hover:border-yellow-400/60 hover:text-white">
+        {code}
+      </button>
+    )
+  }
+  return (
+    <button type="button" onClick={onStart} title="Кода модели нет — добавьте, чтобы находить товар по коду и менять цену командой" data-testid="model-code-add"
+      className="rounded-md border border-dashed border-white/20 px-1.5 py-0.5 text-[11px] text-slate-500 transition hover:border-yellow-400/60 hover:text-yellow-300">
+      + код
+    </button>
+  )
+}
+
 interface Freshness { label: string; pill: string; dot: string; title: string }
 
 const FRESH_PILL = {
@@ -160,10 +216,12 @@ function commonPrefix(names: string[]): string {
 
 /** Хвост имени варианта после общего префикса, иначе цвет + оси из attributes */
 function variantTail(p: PriceProduct, rawPrefix: string, diffKeys: string[]): string {
-  let rest = p.name.length > rawPrefix.length ? p.name.slice(rawPrefix.length) : ''
+  // Общий префикс группы срезаем только у названий, которые с него начинаются: в смешанной
+  // группе (выпрямитель + кейс + сумка) чужое название остаётся целиком, а не режется посередине
+  const startsWithPrefix = rawPrefix.length > 0 && p.name.startsWith(rawPrefix)
+  let rest = startsWithPrefix ? p.name.slice(rawPrefix.length) : rawPrefix ? p.name : ''
   rest = rest.replace(/^[\s—–\-·,:]+/, '').trim()
-  const paren = rest.match(/^\((.*)\)$/s)
-  if (paren) rest = paren[1].trim()
+  rest = unwrapWholeParen(rest)
   rest = rest.replace(/(^|[,;]\s*)цвет:\s*/gi, '$1').trim()
   if (rest) return rest
   const parts: string[] = []
@@ -178,6 +236,63 @@ function variantTail(p: PriceProduct, rawPrefix: string, diffKeys: string[]): st
 }
 
 function escapeRegExp(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+
+/** Индекс последней незакрытой «(» в строке или −1 */
+function lastUnclosedParen(s: string): number {
+  const stack: number[] = []
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '(') stack.push(i)
+    else if (s[i] === ')') stack.pop()
+  }
+  return stack.length ? stack[stack.length - 1] : -1
+}
+
+/** «(M5 Pro, 1ТБ)» → «M5 Pro, 1ТБ», но «(M5 Pro, 1ТБ), серый (Silver)» не трогаем: скобка закрывается не в конце */
+function unwrapWholeParen(s: string): string {
+  if (!s.startsWith('(')) return s
+  let depth = 0
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '(') depth++
+    else if (s[i] === ')') { depth--; if (depth === 0) return i === s.length - 1 ? s.slice(1, -1).trim() : s }
+  }
+  return s
+}
+
+/** В смешанной группе (выпрямитель ×9 + кейс + сумка) общий префикс всех названий пуст,
+ *  и заголовком становилось первое название целиком. Берём префикс по большинству. */
+function majorityCluster(names: string[]): string[] {
+  if (names.length <= 2) return names
+  const byFirst = new Map<string, string[]>()
+  for (const n of names) {
+    const w = (n.split(/\s+/)[0] ?? '').toLowerCase()
+    const arr = byFirst.get(w)
+    if (arr) arr.push(n)
+    else byFirst.set(w, [n])
+  }
+  let best = names
+  for (const arr of byFirst.values()) if (arr.length > names.length / 2 && arr.length < names.length) best = arr
+  return best
+}
+
+/** Конфигурация → чипы по запятой/точке с запятой; каждый чип чистится от мусорных скобок по краям */
+function splitConfigChips(config: string): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const part of explodeParens(config).flatMap((piece) => piece.split(/\s*[,;]\s*/))) {
+    const chip = cleanConfigText(part)
+    const key = chip.toLowerCase()
+    if (!chip || seen.has(key)) continue
+    seen.add(key)
+    out.push(chip)
+  }
+  return out
+}
+
+/** Код модели строки: поле sku, а пока оно пустое — код из хвоста названия */
+function codeOf(p: PriceProduct): string | null {
+  const sku = (p.sku ?? '').trim()
+  return sku || modelCodeFromName(p.name)
+}
 
 /** Чистка конфигурации после вырезания цвета: «Цвет:», двойные запятые, мусорные разделители и непарные скобки по краям */
 function cleanConfigText(raw: string): string {
@@ -195,6 +310,50 @@ function cleanConfigText(raw: string): string {
     s = t
   }
   return s.trim()
+}
+
+/** «синий/медный (Prussian Blue/Rich Copper)» при цвете «Синий» → цвет «Синий/медный» + остаток «(Prussian Blue/Rich Copper)».
+ *  Первый сегмент хвоста до скобки/запятой, в котором встречается цвет, — это цвет варианта целиком;
+ *  иначе после вырезания цвета оставался мусор вроде «/медный (…)» и «канзан (Kanzan Pink)». */
+function colorPhraseOf(tail: string, color: string): { main: string; rest: string } | null {
+  if (!tail || !color) return null
+  const m = tail.match(/^[^(,;]+/)
+  const seg = (m?.[0] ?? '').trim()
+  if (!seg || seg.split(/\s+/).length > 4) return null
+  if (!new RegExp(escapeRegExp(color), 'i').test(seg)) return null
+  return { main: seg, rest: tail.slice(m![0].length) }
+}
+
+function capitalizeFirst(s: string): string { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s }
+
+/** «Оранжевый (Cosmic Orange)» → главная «Оранжевый» + чип «Cosmic Orange»: в узкой колонке цвет с английским дублем занимал три строки */
+function splitTrailingParen(main: string): { main: string; extra: string[] } {
+  const m = main.match(/^(.+?)\s*\(([^()]+)\)$/)
+  if (!m || !m[1].trim()) return { main, extra: [] }
+  return { main: m[1].trim(), extra: [m[2].trim()] }
+}
+
+/** «(Ceramic pink/Rose gold) с кейсом» → ['Ceramic pink/Rose gold', ' с кейсом']: сбалансированная скобочная группа — отдельный чип.
+ *  Непарные скобки не трогаем — их снимет cleanConfigText. */
+function explodeParens(s: string): string[] {
+  const out: string[] = []
+  let depth = 0
+  let start = 0
+  let buf = ''
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]
+    if (c === '(') {
+      if (depth === 0) { if (buf.trim()) out.push(buf); buf = ''; start = i + 1 }
+      depth++
+    } else if (c === ')') {
+      if (depth === 0) { buf += c; continue }
+      depth--
+      if (depth === 0) out.push(s.slice(start, i))
+    } else if (depth === 0) buf += c
+  }
+  if (depth > 0) return [s]
+  if (buf.trim()) out.push(buf)
+  return out.length ? out : [s]
 }
 
 /** Конфигурация варианта = хвост имени без вхождений цвета (без учёта регистра) */
@@ -398,7 +557,11 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
       let rawPrefix: string
       if (sorted.length === 1) rawPrefix = cleaned[0]
       else {
-        rawPrefix = commonPrefix(cleaned)
+        rawPrefix = commonPrefix(majorityCluster(cleaned))
+        // Префикс не должен обрываться внутри скобки: «… Pro 14 (M5, 10C CPU, » → «… Pro 14 » —
+        // иначе заголовок остаётся с незакрытой скобкой, а «M5, 10C CPU» пропадает из строк
+        const unclosed = lastUnclosedParen(rawPrefix)
+        if (unclosed >= 0) rawPrefix = rawPrefix.slice(0, unclosed)
         // Не режем слово посередине: откатываемся до последнего пробела
         if (cleaned.some((n) => n.length > rawPrefix.length) && rawPrefix && !/[\s,—–\-(]$/.test(rawPrefix)) {
           const cut = rawPrefix.lastIndexOf(' ')
@@ -421,25 +584,34 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
 
       // Подписи вариантов: главная строка = цвет (цена зависит от него), вторая = конфигурация
       const prelim = sorted.map((p) => {
-        const tail = variantTail(p, rawPrefix, diffKeys)
-        const color = (p.color ?? '').trim()
-        return { p, tail, color, config: configFromTail(tail, color) }
+        const tail = variantTail({ ...p, name: stripModelCode(p.name) }, rawPrefix, diffKeys)
+        const colorField = (p.color ?? '').trim()
+        const phrase = colorPhraseOf(tail, colorField)
+        const color = phrase ? phrase.main : colorField
+        const config = phrase ? cleanConfigText(phrase.rest) : configFromTail(tail, colorField)
+        return { p, tail, color, config }
       })
       // Конфигурацию показываем, только если она различается между карточками группы (иначе шум)
       const configsDiffer = new Set(prelim.map((r) => (r.color ? r.config : r.tail).toLowerCase())).size > 1
       // Сортировка: сначала конфигурация, потом цвет — одинаковые конфиги с разными цветами рядом
       prelim.sort((a, b) => a.config.localeCompare(b.config, 'ru') || (a.color || a.tail).localeCompare(b.color || b.tail, 'ru'))
-      let rows: GroupRow[] = prelim.map(({ p, tail, color, config }) => ({
-        p,
-        main: color || tail || '—',
-        config: configsDiffer && color && config ? config : null,
-        full: tail || p.name,
-      }))
+      let rows: GroupRow[] = prelim.map(({ p, tail, color, config }) => {
+        const shownConfig = configsDiffer && color && config ? config : null
+        const { main, extra } = splitTrailingParen(capitalizeFirst(color || tail || '—'))
+        return {
+          p,
+          main,
+          config: shownConfig,
+          full: tail || p.name,
+          chips: [...extra, ...(shownConfig ? splitConfigChips(shownConfig) : [])],
+          code: codeOf(p),
+        }
+      })
       // Защита от неразличимых строк: одинаковая подпись → показываем полный хвост имени
       const sig = (r: GroupRow) => `${r.main}|${r.config ?? ''}`.toLowerCase()
       const sigCount = new Map<string, number>()
       for (const r of rows) sigCount.set(sig(r), (sigCount.get(sig(r)) ?? 0) + 1)
-      rows = rows.map((r) => ((sigCount.get(sig(r)) ?? 0) > 1 && r.full !== r.main ? { ...r, main: r.full, config: null } : r))
+      rows = rows.map((r) => ((sigCount.get(sig(r)) ?? 0) > 1 && r.full !== r.main ? { ...r, main: r.full, config: null, chips: [] } : r))
 
       const categoryIds = new Set<string>()
       for (const p of sorted) if (p.category_id) categoryIds.add(p.category_id)
@@ -669,6 +841,35 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
       if (res.status === 401) { toast('Сессия истекла — войдите заново.', 'error'); logout(); return 'auth' }
       return res.ok ? 'ok' : 'fail'
     } catch { return 'fail' }
+  }, [logout])
+
+  // ── Код модели: sku + тот же код в конце названия (правило мастера групп). Slug при этом
+  // бэк не трогает — ссылка на карточку остаётся прежней. sku уникален: дубль → 409 → честный тост.
+  const [codeEdit, setCodeEdit] = useState<{ id: string; value: string } | null>(null)
+  const [savingCodeId, setSavingCodeId] = useState<string | null>(null)
+  const saveCode = useCallback(async (p: PriceProduct, raw: string) => {
+    const code = normalizeModelCode(raw)
+    const skuNow = (p.sku ?? '').trim()
+    if (skuNow === code && modelCodeFromName(p.name) === (code || null)) { setCodeEdit(null); return }
+    const newName = withModelCode(p.name, code || null)
+    setSavingCodeId(p.id)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/products/${p.id}`, {
+        method: 'PATCH',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName, sku: code || null }),
+      })
+      if (res.status === 401) { toast('Сессия истекла — войдите заново.', 'error'); logout(); return }
+      if (!res.ok) {
+        toast(res.status === 409 ? `Код ${code} уже стоит у другого товара — коды не повторяются` : 'Не удалось сохранить код — попробуйте ещё раз', 'error')
+        return
+      }
+      setProducts((prev) => prev.map((x) => (x.id === p.id ? { ...x, name: newName, sku: code || null } : x)))
+      setCodeEdit(null)
+      toast(code ? `Код ${code} сохранён` : 'Код модели убран', 'success')
+    } catch {
+      toast('Не удалось сохранить код — проверьте сеть', 'error')
+    } finally { setSavingCodeId(null) }
   }, [logout])
 
   const toggleRowActive = useCallback(async (p: PriceProduct) => {
@@ -938,7 +1139,7 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
                   {/* Шапка группы */}
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <h3 className="truncate text-sm font-semibold text-white">{g.title}</h3>
+                      <h3 className="line-clamp-2 break-words text-sm font-semibold leading-snug text-white">{g.title}</h3>
                       <div className="mt-0.5 truncate text-[11px] text-slate-500">
                         {[g.brand, g.categoryName, `${g.rows.length} ${pluralRu(g.rows.length, 'карточка', 'карточки', 'карточек')}`].filter(Boolean).join(' · ')}
                       </div>
@@ -976,14 +1177,14 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
                   {/* Колонки (хвостовой спейсер w-7 — под кнопку-глаз в строках) */}
                   <div className="mt-2 flex items-center gap-2">
                     <span className="flex-1" />
-                    <span className="w-[104px] text-right text-[10px] font-semibold uppercase tracking-wider text-slate-500">Цена ₽</span>
-                    <span className="w-[80px] text-right text-[10px] font-semibold uppercase tracking-wider text-slate-500">Скидка</span>
+                    <span className="w-[96px] text-right text-[10px] font-semibold uppercase tracking-wider text-slate-500">Цена ₽</span>
+                    <span className="w-[72px] text-right text-[10px] font-semibold uppercase tracking-wider text-slate-500">Скидка</span>
                     <span className="w-7 flex-shrink-0" />
                   </div>
 
                   {/* Карточки-варианты */}
                   <div className="divide-y divide-white/5">
-                    {g.rows.map(({ p, main, config, full }) => {
+                    {g.rows.map(({ p, main, config, full, chips, code }) => {
                       const st = rowStates.get(p.id)
                       const rowFresh = freshnessOf(p.price_updated_at)
                       const d = drafts[p.id]
@@ -1009,16 +1210,6 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
                                   <span className="rounded-full bg-slate-500/15 px-1.5 py-0.5 text-[10px] text-slate-400">Скрыт из каталога</span>
                                 </div>
                               )}
-                              {config && (
-                                <div title={full} className="mt-0.5 truncate pl-3 text-[11px] text-slate-400">{config}</div>
-                              )}
-                              {(st?.priceChanged || p.sku) && (
-                                <div className="mt-0.5 truncate pl-3 text-[11px] text-slate-500">
-                                  {st?.priceChanged
-                                    ? <><span className="line-through">{fmtRub(Number(p.price))}</span> → <span className="text-yellow-300">{fmtRub(st.nextPrice)}</span></>
-                                    : p.sku}
-                                </div>
-                              )}
                             </div>
                             <input
                               value={priceVal}
@@ -1030,7 +1221,7 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
                               enterKeyHint="next"
                               data-price-nav="1"
                               aria-label={`Цена: ${g.title}, ${rowName}`}
-                              className={`w-[104px] flex-shrink-0 rounded-xl border px-2.5 py-2.5 text-right text-[15px] font-bold text-white outline-none transition ${dim} ${priceErr ? 'border-rose-500/70 bg-rose-500/10' : st?.priceChanged ? 'border-yellow-400/60 bg-yellow-400/10' : 'border-white/10 bg-white/5 focus:border-yellow-400/60'}`}
+                              className={`w-[96px] flex-shrink-0 rounded-xl border px-2.5 py-2.5 text-right text-[15px] font-bold text-white outline-none transition ${dim} ${priceErr ? 'border-rose-500/70 bg-rose-500/10' : st?.priceChanged ? 'border-yellow-400/60 bg-yellow-400/10' : 'border-white/10 bg-white/5 focus:border-yellow-400/60'}`}
                             />
                             <input
                               value={discVal}
@@ -1042,7 +1233,7 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
                               enterKeyHint="next"
                               placeholder="—"
                               aria-label={`Скидочная цена: ${g.title}, ${rowName}`}
-                              className={`w-[80px] flex-shrink-0 rounded-xl border px-2 py-2.5 text-right text-[13px] font-semibold text-white placeholder-slate-600 outline-none transition ${dim} ${discErr ? 'border-rose-500/70 bg-rose-500/10' : st?.discountChanged ? 'border-yellow-400/60 bg-yellow-400/10' : 'border-white/10 bg-white/5 focus:border-yellow-400/60'}`}
+                              className={`w-[72px] flex-shrink-0 rounded-xl border px-2 py-2.5 text-right text-[13px] font-semibold text-white placeholder-slate-600 outline-none transition ${dim} ${discErr ? 'border-rose-500/70 bg-rose-500/10' : st?.discountChanged ? 'border-yellow-400/60 bg-yellow-400/10' : 'border-white/10 bg-white/5 focus:border-yellow-400/60'}`}
                             />
                             <button
                               onClick={() => void toggleRowActive(p)}
@@ -1051,6 +1242,25 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
                               className={`flex h-11 w-7 flex-shrink-0 items-center justify-center rounded-lg transition active:scale-95 hover:bg-white/5 ${p.is_active ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-white'}`}>
                               <EyeIcon off={!p.is_active} />
                             </button>
+                          </div>
+                          {/* Характеристики и код — отдельной строкой на всю ширину под ценой: в узкой колонке названия чипы вставали столбиком и раздували строку */}
+                          <div title={full} className={`mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 pl-3 ${dim}`}>
+                            {chips.map((chip) => (
+                              <span key={chip} className="rounded-md bg-white/[0.07] px-1.5 py-0.5 text-[11px] leading-tight text-slate-300">{chip}</span>
+                            ))}
+                            <ModelCodeField
+                              code={code}
+                              editing={codeEdit?.id === p.id}
+                              value={codeEdit?.id === p.id ? codeEdit.value : ''}
+                              saving={savingCodeId === p.id}
+                              onStart={() => setCodeEdit({ id: p.id, value: code ?? '' })}
+                              onChange={(v) => setCodeEdit({ id: p.id, value: v })}
+                              onCancel={() => setCodeEdit(null)}
+                              onSave={() => void saveCode(p, codeEdit?.id === p.id ? codeEdit.value : '')}
+                            />
+                            {st?.priceChanged && (
+                              <span className="text-[11px] text-slate-500"><span className="line-through">{fmtRub(Number(p.price))}</span> → <span className="text-yellow-300">{fmtRub(st.nextPrice)}</span></span>
+                            )}
                           </div>
                           {st?.error && <div className="mt-1 text-right text-[11px] text-rose-400">{st.error}</div>}
                         </div>
