@@ -488,6 +488,8 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [staleOnly, setStaleOnly] = useState(() => { try { return localStorage.getItem('takesmart_prices_stale_only') !== '0' } catch { return true } })
   useEffect(() => { try { localStorage.setItem('takesmart_prices_stale_only', staleOnly ? '1' : '0') } catch { /* */ } }, [staleOnly])
+  // Эпоха снимка порядка: растёт при загрузке каталога (в т.ч. по кнопке «Обновить»); правки цен её не трогают
+  const [orderEpoch, setOrderEpoch] = useState(0)
   const [sortMode, setSortMode] = useState<'stale' | 'alpha'>(() => { try { return localStorage.getItem('takesmart_prices_sort') === 'alpha' ? 'alpha' : 'stale' } catch { return 'stale' } })
   useEffect(() => { try { localStorage.setItem('takesmart_prices_sort', sortMode) } catch { /* */ } }, [sortMode])
 
@@ -514,6 +516,7 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
         // Показываем каталог по мере загрузки — можно начинать работать сразу
         setLoadedCount(all.length)
         setProducts(all.slice())
+        setOrderEpoch((e) => e + 1)
         const hasNext = Array.isArray(data) ? items.length === CHUNK : Boolean(data.has_next)
         if (!hasNext || items.length === 0) break
         offset += items.length
@@ -721,19 +724,38 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
   const progressPct = sellableGroups ? Math.round((confirmedToday / sellableGroups) * 100) : 0
 
   // ── Фильтры и сортировка ──
+  // Порядок групп и состав списка «не обновлённые сегодня» ФИКСИРУЮТСЯ снимком на момент загрузки
+  // (и при смене режима сортировки / фильтра). Сохранение цены, «✓ Актуально» и скрытие карточки
+  // порядок не меняют: Макс работает по списку сверху вниз, а живая пересортировка по дате
+  // подтверждения уводила группы из-под рук («сохраняю — и оно скачет, надо искать где остановился»).
+  // Пересортировка и исчезновение подтверждённых — только по кнопке «Обновить».
+  const groupsRef = useRef<Group[]>([])
+  groupsRef.current = groups
+  const orderSnapshot = useMemo(() => {
+    const all = groupsRef.current
+    const staleKey = (g: Group) => (g.hasNever ? -1 : g.minMs)
+    const sorted = [...all].sort(sortMode === 'alpha'
+      ? (a, b) => a.title.localeCompare(b.title, 'ru')
+      : (a, b) => (staleKey(a) - staleKey(b)) || a.title.localeCompare(b.title, 'ru'))
+    const rank = new Map<string, number>()
+    sorted.forEach((g, i) => rank.set(g.key, i))
+    // В режиме «Только не обновлённые сегодня» полностью скрытые группы не показываем
+    const staleKeys = new Set(all.filter((g) => g.activeCount > 0 && !g.allToday).map((g) => g.key))
+    return { rank, staleKeys }
+    // groups намеренно не в зависимостях: снимок обновляется только эпохой загрузки и режимами
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderEpoch, sortMode, staleOnly])
+
   const filteredAll = useMemo(() => {
     const q = query.trim().toLowerCase()
     let list = groups
     if (categoryFilter !== 'all') list = list.filter((g) => g.categoryIds.has(categoryFilter))
     if (q) list = list.filter((g) => g.haystack.includes(q))
-    const staleKey = (g: Group) => (g.hasNever ? -1 : g.minMs)
-    return [...list].sort(sortMode === 'alpha'
-      ? (a, b) => a.title.localeCompare(b.title, 'ru')
-      : (a, b) => (staleKey(a) - staleKey(b)) || a.title.localeCompare(b.title, 'ru'))
-  }, [groups, query, categoryFilter, sortMode])
+    const rank = (g: Group) => orderSnapshot.rank.get(g.key) ?? Number.MAX_SAFE_INTEGER
+    return [...list].sort((a, b) => (rank(a) - rank(b)) || a.title.localeCompare(b.title, 'ru'))
+  }, [groups, query, categoryFilter, orderSnapshot])
 
-  // В режиме «Только не обновлённые сегодня» полностью скрытые группы не показываем
-  const filtered = useMemo(() => (staleOnly ? filteredAll.filter((g) => g.activeCount > 0 && !g.allToday) : filteredAll), [filteredAll, staleOnly])
+  const filtered = useMemo(() => (staleOnly ? filteredAll.filter((g) => orderSnapshot.staleKeys.has(g.key)) : filteredAll), [filteredAll, staleOnly, orderSnapshot])
 
   useEffect(() => { setVisibleCount(PAGE_STEP) }, [query, categoryFilter, staleOnly, sortMode])
 
