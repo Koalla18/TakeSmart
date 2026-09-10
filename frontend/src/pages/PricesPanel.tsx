@@ -299,7 +299,7 @@ function cleanConfigText(raw: string): string {
   let s = raw.replace(/цвет:\s*/gi, ' ')
   s = s.replace(/\s*,(\s*,)+\s*/g, ', ').replace(/\s{2,}/g, ' ')
   for (;;) {
-    let t = s.replace(/^[\s,;:·—–-]+|[\s,;:·—–-]+$/g, '')
+    let t = s.replace(/^[\s,;:·—–\-/]+|[\s,;:·—–\-/]+$/g, '')  // «/» — хвост «Желтый/Никель» после вырезания цвета
     const open = (t.match(/\(/g) ?? []).length
     const close = (t.match(/\)/g) ?? []).length
     if (close > open && t.endsWith(')')) t = t.slice(0, -1)
