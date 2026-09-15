@@ -484,8 +484,10 @@ export function CatalogPage() {
     }
     if (preorderOnly) {
       result = result.filter(p => p.preorder)
-    } else if (!preorderInCatalog) {
-      // Предзаказ — отдельный раздел: в общем списке его нет, пока не включили в админке
+    } else if (!preorderInCatalog && !hasSearch) {
+      // Предзаказ — отдельный раздел: в списках категорий его нет, пока не включили
+      // в админке. Поиск по названию находит новинки всегда — иначе «iPhone 18» в
+      // строке поиска давал бы пустой результат при живом предзаказе
       result = result.filter(p => !p.preorder)
     }
     
@@ -556,7 +558,9 @@ export function CatalogPage() {
     if (!da && db) return 1
     return a.name.localeCompare(b.name, 'ru')
   }), [displayProducts])
-  const preorderTotal = preorderProducts.length
+  // Счётчик — из отдельной ручки предзаказа: каталог грузится порциями, и число
+  // «по загруженному» прыгало бы на большом каталоге
+  const preorderTotal = preorderState.products.filter(p => (p.condition || 'new') !== 'used').length
 
   // ─── Бесконечная прокрутка: рендерим порциями по PAGE_SIZE ──────────────────
   // Сбрасываем счётчик при смене фильтров (но НЕ при дозагрузке данных в фоне).
