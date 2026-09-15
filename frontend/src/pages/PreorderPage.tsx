@@ -7,6 +7,7 @@ import { ArrowRightIcon, ClockIcon, PhoneIcon, SearchIcon, ShieldCheckIcon, Truc
 import { API_BASE_URL } from '../lib/config'
 import { fetchPreorderSettings, fetchPreorderProducts } from '../lib/preorder'
 import { mapApiProduct, type ApiProductOut, type Product } from '../data/products'
+import { rankSearch } from '../lib/searchRank'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // /preorder — раздел новинок до старта продаж. Чтобы не листать всю сетку,
@@ -21,7 +22,7 @@ type SortMode = 'soonest' | 'price_asc' | 'price_desc'
 
 const BENEFITS = [
   { icon: <ClockIcon className="h-6 w-6" />, title: 'Первыми в очереди', desc: 'Заказ до старта продаж' },
-  { icon: <ShieldCheckIcon className="h-6 w-6" />, title: 'Без предоплаты', desc: 'Оплата при получении' },
+  { icon: <ShieldCheckIcon className="h-6 w-6" />, title: 'Товар закрепим за вами', desc: 'Бронь до поступления' },
   { icon: <PhoneIcon className="h-6 w-6" />, title: 'Менеджер подтвердит', desc: 'Уточним цвет и комплектацию' },
   { icon: <TruckIcon className="h-6 w-6" />, title: 'Сообщим о поступлении', desc: 'Самовывоз или доставка' },
 ]
@@ -113,10 +114,6 @@ function buildModelChips(items: ApiProductOut[], slugByCategoryId: Map<string, s
   return { chips, chipKeyByProductId }
 }
 
-function normalizeSearch(value: string): string {
-  return value.toLowerCase().replace(/[()[\]{}.,/\\+\-_:;"']/g, ' ').replace(/\s+/g, ' ').trim()
-}
-
 export function PreorderPage() {
   const [rawItems, setRawItems] = useState<ApiProductOut[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -180,14 +177,7 @@ export function PreorderPage() {
   const visible = useMemo(() => {
     let list = categoryFilter ? products.filter(p => p.categorySlug === categoryFilter) : [...products]
     if (activeChip) list = list.filter(p => activeChip.productIds.has(p.id))
-    const q = normalizeSearch(query)
-    if (q) {
-      const tokens = q.split(' ')
-      list = list.filter(p => {
-        const hay = normalizeSearch(`${p.name} ${p.brand}`)
-        return tokens.every(t => hay.includes(t))
-      })
-    }
+    if (query.trim()) list = rankSearch(list, query, p => `${p.name} ${p.brand}`)
     if (sort === 'price_asc') list = [...list].sort((a, b) => a.price - b.price)
     else if (sort === 'price_desc') list = [...list].sort((a, b) => b.price - a.price)
     return list

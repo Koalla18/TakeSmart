@@ -4,6 +4,7 @@ import { API_BASE_URL } from '../lib/config'
 import { toast, ToastHost } from '../lib/toast'
 import { PriceCommandBar } from '../components/PriceCommand'
 import { modelCodeFromName, stripModelCode, withModelCode, normalizeModelCode } from '../lib/modelCode'
+import { matchesSearchStrict } from '../lib/searchRank'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // «Цены» — вкладка PWA «Заказы»: инструмент, которым сотрудник за смену проходит
@@ -748,10 +749,11 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
   }, [orderEpoch, sortMode, staleOnly])
 
   const filteredAll = useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = query.trim()
     let list = groups
     if (categoryFilter !== 'all') list = list.filter((g) => g.categoryIds.has(categoryFilter))
-    if (q) list = list.filter((g) => g.haystack.includes(q))
+    // Слова запроса — точно или по началу слов («se» не матчит «Case»); порядок групп не трогаем
+    if (q) list = list.filter((g) => matchesSearchStrict(q, g.haystack))
     const rank = (g: Group) => orderSnapshot.rank.get(g.key) ?? Number.MAX_SAFE_INTEGER
     return [...list].sort((a, b) => (rank(a) - rank(b)) || a.title.localeCompare(b.title, 'ru'))
   }, [groups, query, categoryFilter, orderSnapshot])

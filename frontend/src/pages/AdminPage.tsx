@@ -14,6 +14,7 @@ import { CommandPalette, type PaletteItem } from './admin/CommandPalette'
 import { OverviewTab } from './admin/OverviewTab'
 import { PreorderSection } from './admin/PreorderSection'
 import { PriceCommandBar } from '../components/PriceCommand'
+import { rankSearch } from '../lib/searchRank'
 
 // ============ TYPES ============
 
@@ -861,13 +862,10 @@ export function AdminPage() {
 
   // Filtering
   const filterProducts = (list: Product[]) => {
-    return list.filter(p => {
-      const matchesCategory = categoryFilter === null || p.category_id === categoryFilter
-      const matchesSearch = searchQuery === '' || 
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.brand?.toLowerCase().includes(searchQuery.toLowerCase())
-      return matchesCategory && matchesSearch
-    })
+    const byCategory = categoryFilter === null ? list : list.filter(p => p.category_id === categoryFilter)
+    if (!searchQuery.trim()) return byCategory
+    // Токены по началу слов + ранжирование: «watch se» не тащит каждый ремешок из-за «se» в «Case»
+    return rankSearch(byCategory, searchQuery, p => `${p.name} ${p.brand ?? ''} ${p.sku ?? ''} ${p.model ?? ''}`)
   }
 
   const quickFiltersCount = categories.reduce((total, category) => total + getCategoryQuickFilters(category).length, 0)
@@ -976,11 +974,7 @@ export function AdminPage() {
       })
       if (items.length > 40) break
     }
-    let productHits = 0
-    for (const product of products) {
-      if (productHits >= 8) break
-      if (!has(product.name, product.brand, product.sku, product.model)) continue
-      productHits++
+    for (const product of rankSearch(products, query, p => `${p.name} ${p.brand ?? ''} ${p.sku ?? ''} ${p.model ?? ''}`).slice(0, 8)) {
       items.push({
         id: `product-${product.id}`, group: 'Товары', icon: 'box',
         title: product.name,

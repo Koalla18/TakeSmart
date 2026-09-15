@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { SearchIcon, CloseIcon } from './ui/Icons'
 import { API_BASE_URL } from '../lib/config'
 import { formatPrice, type ApiProductOut } from '../data/products'
+import { rankSearch } from '../lib/searchRank'
 
 interface SearchProduct {
   id: string
@@ -30,13 +31,6 @@ function mapSearchProduct(p: ApiProductOut): SearchProduct {
   }
 }
 
-function normalizeSearchText(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[()\[\]{}.,/\\+\-_:;"']/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
 
 export function GlobalSearch() {
   const navigate = useNavigate()
@@ -87,12 +81,7 @@ export function GlobalSearch() {
   const results = query.trim()
     ? (() => {
         const source = cacheRef.current || products
-          const tokens = normalizeSearchText(query).split(/\s+/).filter(Boolean)
-        return source
-          .filter(p => {
-              const hay = normalizeSearchText(`${p.name} ${p.brand} ${p.model} ${p.slug}`)
-            return tokens.every(t => hay.includes(t))
-          })
+        return rankSearch(source, query, p => `${p.name} ${p.brand ?? ''} ${p.model ?? ''}`, p => p.slug)
           .slice(0, 6)
       })()
     : []
@@ -308,12 +297,7 @@ export function MobileSearchButton() {
   const results = query.trim()
     ? (() => {
         const source = cacheRef.current || products
-          const tokens = normalizeSearchText(query).split(/\s+/).filter(Boolean)
-        return source
-          .filter(p => {
-              const hay = normalizeSearchText(`${p.name} ${p.brand} ${p.model} ${p.slug}`)
-            return tokens.every(t => hay.includes(t))
-          })
+        return rankSearch(source, query, p => `${p.name} ${p.brand ?? ''} ${p.model ?? ''}`, p => p.slug)
           .slice(0, 8)
       })()
     : []

@@ -18,6 +18,7 @@ import {
 } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
 import { usePreorderState } from '../lib/preorder'
+import { rankSearch, normalizeSearchText } from '../lib/searchRank'
 import { 
   ChevronDownIcon, 
   FilterIcon, 
@@ -492,14 +493,8 @@ export function CatalogPage() {
     }
     
     // Smart search
+    let searchRanked = false
     if (searchQuery) {
-      const normalizeSearchText = (value: string) =>
-        value
-          .toLowerCase()
-          .replace(/[()\[\]{}.,/\\+\-_:;"']/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim()
-
       const q = normalizeSearchText(searchQuery)
       // If query matches a quick filter tag — use exact substring match
       // and exclude products that match MORE specific sibling filters
@@ -517,14 +512,10 @@ export function CatalogPage() {
           return true
         })
       } else {
-        // Manual search — token-based (every word must appear)
-        const tokens = q.split(/\s+/).filter(Boolean)
-        if (tokens.length) {
-          result = result.filter(p => {
-            const hay = normalizeSearchText(`${p.name} ${p.brand} ${p.description} ${p.slug}`)
-            return tokens.every(t => hay.includes(t))
-          })
-        }
+        // Ручной поиск: слова запроса матчатся по началу слов названия, результаты
+        // ранжируются по силе совпадения; описание и slug — только слабый резерв
+        result = rankSearch(result, searchQuery, p => `${p.name} ${p.brand}`, p => `${p.description} ${p.slug}`)
+        searchRanked = true
       }
     }
     
@@ -543,7 +534,8 @@ export function CatalogPage() {
         result.sort((a, b) => (b.badge === 'new' ? 1 : 0) - (a.badge === 'new' ? 1 : 0))
         break
       default:
-        result.sort((a, b) => (b.badge === 'hit' ? 1 : 0) - (a.badge === 'hit' ? 1 : 0))
+        // При активном поиске держим порядок по релевантности, «хиты» его не перетасовывают
+        if (!searchRanked) result.sort((a, b) => (b.badge === 'hit' ? 1 : 0) - (a.badge === 'hit' ? 1 : 0))
     }
     
     return result
@@ -909,7 +901,7 @@ export function CatalogPage() {
                 <div className="mb-4 flex items-end justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-bold text-gray-900 sm:text-2xl">Предзаказ новинок</h2>
-                    <p className="mt-0.5 text-sm text-gray-500">Заказ до старта продаж — без предоплаты, сообщим о поступлении первыми</p>
+                    <p className="mt-0.5 text-sm text-gray-500">Заказ до старта продаж — закрепим устройство за вами и сообщим о поступлении</p>
                   </div>
                   <button
                     type="button"

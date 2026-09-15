@@ -367,7 +367,7 @@ function PreorderShowcase() {
               Предзаказ
             </div>
             <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl">Новинки уже можно заказать</h2>
-            <p className="mt-2 text-gray-500">Оформите предзаказ до старта продаж — без предоплаты, сообщим о поступлении первыми</p>
+            <p className="mt-2 text-gray-500">Оформите предзаказ до старта продаж — закрепим устройство за вами и сообщим о поступлении первыми</p>
           </div>
           <Link
             to="/preorder"

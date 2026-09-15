@@ -6,6 +6,7 @@ import { confirmDialog } from '../../lib/confirm'
 import { AdminIcon } from './AdminIcons'
 import { BTN_PRIMARY, BTN_SECONDARY } from './AdminShell'
 import { pluralRu } from './format'
+import { rankSearch } from '../../lib/searchRank'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Раздел «Предзаказ»: один экран, где сотрудник видит все новинки до старта
@@ -517,15 +518,10 @@ function AddToPreorderModal<P extends PreorderProduct>({ products, categoryName,
   }, [onClose])
 
   const matches = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    const tokens = q.split(/\s+/).filter(Boolean)
-    const pool = tokens.length
-      ? products.filter(p => {
-          const hay = `${p.name} ${p.brand || ''} ${p.sku || ''}`.toLowerCase()
-          return tokens.every(t => hay.includes(t))
-        })
-      : products
-    return [...pool].sort((a, b) => a.name.localeCompare(b.name, 'ru')).slice(0, 80)
+    const pool = query.trim()
+      ? rankSearch(products, query, p => `${p.name} ${p.brand || ''} ${p.sku || ''}`)
+      : [...products].sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+    return pool.slice(0, 80)
   }, [products, query])
 
   const toggle = (id: string) => setPicked(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next })

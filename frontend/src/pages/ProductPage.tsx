@@ -1929,7 +1929,7 @@ export function ProductPage() {
                     <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4" data-preorder-howto>
                       <div className="mb-2 text-sm font-semibold text-gray-900">Как работает предзаказ</div>
                       <ol className="space-y-1.5 text-sm text-gray-600">
-                        <li className="flex gap-2"><span className="w-5 flex-shrink-0 font-semibold text-yellow-600">1.</span>Оформляете заказ как обычно — без предоплаты</li>
+                        <li className="flex gap-2"><span className="w-5 flex-shrink-0 font-semibold text-yellow-600">1.</span>Оформляете заказ как обычно — прямо на сайте</li>
                         <li className="flex gap-2"><span className="w-5 flex-shrink-0 font-semibold text-yellow-600">2.</span>Менеджер подтверждает заказ и закрепляет товар за вами</li>
                         <li className="flex gap-2"><span className="w-5 flex-shrink-0 font-semibold text-yellow-600">3.</span>Сообщаем о поступлении — заберёте в магазине или доставим</li>
                       </ol>
