@@ -221,8 +221,8 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
 /** Фиолетовый чип «Предзаказ» — один вид в товарах, заказах и модалках */
 function PreorderChip({ title, className = '' }: { title?: string; className?: string }) {
   return (
-    <span title={title} className={`inline-flex items-center gap-1.5 rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-semibold text-violet-300 ring-1 ring-inset ring-violet-400/30 ${className}`}>
-      <span className="h-1.5 w-1.5 rounded-full bg-violet-400" />Предзаказ
+    <span title={title} className={`inline-flex items-center gap-1.5 rounded-full bg-sky-500/15 px-2 py-0.5 text-[11px] font-semibold text-sky-300 ring-1 ring-inset ring-sky-400/30 ${className}`}>
+      <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />Предзаказ
     </span>
   )
 }
@@ -915,7 +915,7 @@ export function AdminPage() {
         ? `${newProductsCount} ${pluralRu(newProductsCount, 'товар', 'товара', 'товаров')} в каталоге · скрыто ${hiddenCount} · без остатка ${outOfStockCount}`
         : activeTab === 'preorder'
           ? (preorderCount
-              ? `${preorderCount} ${pluralRu(preorderCount, 'товар', 'товара', 'товаров')} по предзаказу${preorderWithoutDate ? ` · без даты ${preorderWithoutDate}` : ''} · цену, дату и подпись можно править прямо в строке`
+              ? `${preorderCount} ${pluralRu(preorderCount, 'товар', 'товара', 'товаров')} по предзаказу${preorderWithoutDate ? ` · без даты ${preorderWithoutDate}` : ''} · когда товар приедет, отметьте его и перенесите в каталог одной кнопкой`
               : meta.description)
           : meta.description
   const pageLive = pendingOrders.length > 0 && (activeTab === 'orders' || activeTab === 'overview')
@@ -1950,7 +1950,7 @@ function ProductsSection({
                       product.stock_quantity > 0 
                         ? 'bg-emerald-400/15 text-emerald-300' 
                         : product.is_preorder
-                          ? 'bg-violet-500/15 text-violet-300'
+                          ? 'bg-sky-500/15 text-sky-300'
                           : 'bg-rose-400/15 text-rose-300'
                     }`}>
                       {product.stock_quantity > 0 ? `✓ ${product.stock_quantity} шт.` : product.is_preorder ? '◷ Предзаказ' : '✗ Нет'}
@@ -2013,7 +2013,7 @@ function ProductsSection({
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
                       <span className="font-semibold text-yellow-400">{formatPrice(product.price)}</span>
-                      <span className={`rounded px-2 py-0.5 text-xs ${product.stock_quantity > 0 ? 'bg-emerald-400/15 text-emerald-300' : product.is_preorder ? 'bg-violet-500/15 text-violet-300' : 'bg-rose-400/15 text-rose-300'}`}>
+                      <span className={`rounded px-2 py-0.5 text-xs ${product.stock_quantity > 0 ? 'bg-emerald-400/15 text-emerald-300' : product.is_preorder ? 'bg-sky-500/15 text-sky-300' : 'bg-rose-400/15 text-rose-300'}`}>
                         {product.stock_quantity > 0 ? `✓ ${product.stock_quantity} шт.` : product.is_preorder ? '◷ Предзаказ' : '✗ Нет'}
                       </span>
                     </div>
@@ -3006,10 +3006,10 @@ function ProductModal({
           </div>
 
           {/* Предзаказ */}
-          <div className={`rounded-xl border p-4 transition-colors ${isPreorder ? 'border-violet-400/30 bg-violet-500/10' : 'border-white/5 bg-white/5'}`} data-preorder-block>
+          <div className={`rounded-xl border p-4 transition-colors ${isPreorder ? 'border-sky-400/30 bg-sky-500/10' : 'border-white/5 bg-white/5'}`} data-preorder-form>
             <label className="flex cursor-pointer items-center gap-2 text-white">
-              <input type="checkbox" checked={isPreorder} onChange={e => setIsPreorder(e.target.checked)} className="h-5 w-5 rounded accent-violet-500" />
-              <span>🚀 Предзаказ</span>
+              <input type="checkbox" checked={isPreorder} onChange={e => setIsPreorder(e.target.checked)} className="h-5 w-5 rounded" />
+              <span>◷ Предзаказ</span>
               <span className="text-sm text-slate-400">— можно заказать до поступления, остаток не проверяется</span>
             </label>
             {isPreorder && (

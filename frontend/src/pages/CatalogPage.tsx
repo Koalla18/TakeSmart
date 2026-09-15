@@ -17,14 +17,14 @@ import {
   mapApiCategory,
 } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
+import { usePreorderState } from '../lib/preorder'
 import { 
   ChevronDownIcon, 
   FilterIcon, 
   CloseIcon, 
   GridIcon,
   ListIcon,
-  SearchIcon 
-} from '../components/ui/Icons'
+  SearchIcon, ArrowRightIcon } from '../components/ui/Icons'
 
 type SortOption = 'popular' | 'price-asc' | 'price-desc' | 'name' | 'new'
 
@@ -47,6 +47,7 @@ function FilterSidebar({
   setInStockOnly,
   preorderOnly,
   setPreorderOnly,
+  preorderCount,
   onReset,
   isMobile = false,
   onClose,
@@ -64,6 +65,8 @@ function FilterSidebar({
   setInStockOnly: (v: boolean) => void
   preorderOnly: boolean
   setPreorderOnly: (v: boolean) => void
+  /** Сколько товаров по предзаказу; 0 — пункт не показываем */
+  preorderCount: number
   onReset: () => void
   isMobile?: boolean
   onClose?: () => void
@@ -95,13 +98,28 @@ function FilterSidebar({
               setSelectedBrand('all');
             }}
             className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-              selectedCategory === 'all'
+              selectedCategory === 'all' && !preorderOnly
                 ? 'bg-yellow-50 font-medium text-yellow-700'
                 : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
             Все товары
           </button>
+          {preorderCount > 0 && (
+            <button
+              onClick={() => { setPreorderOnly(true); setSelectedBrand('all') }}
+              className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                preorderOnly ? 'bg-gray-900 font-medium text-white' : 'text-gray-600 hover:bg-gray-50'
+              }`}
+              data-preorder-sidebar
+            >
+              <span className="inline-flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" />
+                Предзаказ новинок
+              </span>
+              <span className={`text-xs ${preorderOnly ? 'text-gray-300' : 'text-gray-400'}`}>{preorderCount}</span>
+            </button>
+          )}
           {categoriesList.map((cat) => {
             const isSelected = selectedCategory === cat.id
             const catBrands = isSelected ? (categoryBrandsMap[cat.id] || []) : []
@@ -223,18 +241,6 @@ function FilterSidebar({
           />
           <span className="text-sm text-gray-700">Только в наличии</span>
         </label>
-        <label className="mt-3 flex cursor-pointer items-center gap-3">
-          <input
-            type="checkbox"
-            checked={preorderOnly}
-            onChange={(e) => setPreorderOnly(e.target.checked)}
-            className="h-5 w-5 rounded border-gray-300 accent-violet-600 focus:ring-violet-400"
-          />
-          <span className="inline-flex items-center gap-1.5 text-sm text-gray-700">
-            <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
-            Предзаказ новинок
-          </span>
-        </label>
       </div>
       
       {/* Reset */}
@@ -275,6 +281,10 @@ export function CatalogPage() {
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 999999999])
   const [inStockOnly, setInStockOnly] = useState(false)
   const [preorderOnly, setPreorderOnly] = useState(searchParams.get('preorder') === '1')
+  // Раздел «Предзаказ»: включён ли в админке и попадают ли товары в общий список
+  const preorderState = usePreorderState()
+  const preorderVisible = preorderState.visible
+  const preorderInCatalog = preorderState.inCatalog
   const [sort, setSort] = useState<SortOption>('popular')
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '')
 
@@ -474,6 +484,9 @@ export function CatalogPage() {
     }
     if (preorderOnly) {
       result = result.filter(p => p.preorder)
+    } else if (!preorderInCatalog) {
+      // Предзаказ — отдельный раздел: в общем списке его нет, пока не включили в админке
+      result = result.filter(p => !p.preorder)
     }
     
     // Smart search
@@ -532,10 +545,11 @@ export function CatalogPage() {
     }
     
     return result
-  }, [displayProducts, selectedCategory, selectedBrand, priceRange, inStockOnly, preorderOnly, sort, searchQuery])
+  }, [displayProducts, selectedCategory, selectedBrand, priceRange, inStockOnly, preorderOnly, preorderInCatalog, sort, searchQuery])
 
-  // Сколько новинок по предзаказу есть вообще — для плашки над сеткой
-  const preorderTotal = useMemo(() => displayProducts.filter(p => p.preorder).length, [displayProducts])
+  // Новинки по предзаказу — для чипа, пункта в сайдбаре и блока над сеткой
+  const preorderProducts = useMemo(() => displayProducts.filter(p => p.preorder), [displayProducts])
+  const preorderTotal = preorderProducts.length
 
   // ─── Бесконечная прокрутка: рендерим порциями по PAGE_SIZE ──────────────────
   // Сбрасываем счётчик при смене фильтров (но НЕ при дозагрузке данных в фоне).
@@ -602,7 +616,7 @@ export function CatalogPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">
-                {currentCategory?.name || 'Все товары'}
+                {preorderOnly ? 'Предзаказ новинок' : currentCategory?.name || 'Все товары'}
               </h1>
               <p className="mt-1 text-sm text-gray-500">
                 {filteredProducts.length} {
@@ -633,7 +647,7 @@ export function CatalogPage() {
           <aside className="hidden w-64 flex-shrink-0 lg:block">
             <FilterSidebar
               selectedCategory={selectedCategory}
-              setSelectedCategory={setSelectedCategory}
+              setSelectedCategory={(v) => { setSelectedCategory(v); setPreorderOnly(false) }}
               selectedBrand={selectedBrand}
               setSelectedBrand={setSelectedBrand}
               priceRange={priceRange}
@@ -642,6 +656,7 @@ export function CatalogPage() {
               setInStockOnly={setInStockOnly}
               preorderOnly={preorderOnly}
               setPreorderOnly={setPreorderOnly}
+              preorderCount={preorderVisible ? preorderTotal : 0}
               onReset={resetFilters}
               categoriesList={displayCategories}
               brandsList={displayBrands}
@@ -658,21 +673,42 @@ export function CatalogPage() {
                   onClick={() => {
                     setSelectedCategory('all');
                     setSelectedBrand('all');
+                    setPreorderOnly(false);
                   }}
                   className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                      selectedCategory === 'all'
+                      selectedCategory === 'all' && !preorderOnly
                       ? 'bg-yellow-400 text-gray-900'
                       : 'bg-white text-gray-700 border border-gray-200'
                   }`}
                 >
                   Все
                 </button>
+                {preorderVisible && (
+                  <button
+                    onClick={() => {
+                      setPreorderOnly(true);
+                      setSelectedCategory('all');
+                      setSelectedBrand('all');
+                    }}
+                    className={`inline-flex flex-shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                      preorderOnly
+                        ? 'bg-gray-900 text-white'
+                        : 'bg-white text-gray-700 border border-gray-200'
+                    }`}
+                    data-preorder-chip
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" />
+                    Предзаказ
+                    <span className={`text-xs ${preorderOnly ? 'text-gray-400' : 'text-gray-400'}`}>{preorderTotal}</span>
+                  </button>
+                )}
                 {displayCategories.map((cat) => (
                   <button
                     key={cat.id}
                     onClick={() => {
                       setSelectedCategory(cat.id);
                       setSelectedBrand('all');
+                      setPreorderOnly(false);
                     }}
                     className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
                       selectedCategory === cat.id
@@ -782,7 +818,7 @@ export function CatalogPage() {
                 {preorderOnly && (
                   <button
                     onClick={() => setPreorderOnly(false)}
-                    className="flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1.5 text-sm font-medium text-violet-800 transition hover:bg-violet-200"
+                    className="flex items-center gap-1.5 rounded-full bg-yellow-100 px-3 py-1.5 text-sm font-medium text-yellow-800 transition hover:bg-yellow-200"
                   >
                     Предзаказ
                     <CloseIcon className="h-3 w-3" />
@@ -856,35 +892,32 @@ export function CatalogPage() {
               </div>
             </div>
             
-            {/* Новинки по предзаказу: плашка над сеткой, пока фильтр не включён */}
-            {!isLoading && preorderTotal > 0 && !preorderOnly && !searchQuery && (
-              <div className="mb-6 flex flex-col gap-3 overflow-hidden rounded-2xl bg-gray-900 p-4 text-white ring-1 ring-white/10 sm:flex-row sm:items-center sm:justify-between sm:p-5" data-preorder-strip>
-                <div className="flex items-center gap-3">
-                  <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-violet-500/20 text-violet-200">
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                  </span>
+            {/* Предзаказ новинок — отдельный блок над общим списком (когда раздел не смешан с каталогом) */}
+            {!isLoading && preorderVisible && !preorderInCatalog && !preorderOnly && !searchQuery && selectedCategory === 'all' && (
+              <section className="mb-8" data-preorder-block>
+                <div className="mb-4 flex items-end justify-between gap-3">
                   <div>
-                    <div className="font-semibold">Новинки уже можно заказать</div>
-                    <div className="text-sm text-gray-400">
-                      {preorderTotal} {preorderTotal % 10 === 1 && preorderTotal % 100 !== 11 ? 'товар' : preorderTotal % 10 >= 2 && preorderTotal % 10 <= 4 && (preorderTotal % 100 < 10 || preorderTotal % 100 >= 20) ? 'товара' : 'товаров'} по предзаказу — без предоплаты, сообщим о поступлении
-                    </div>
+                    <h2 className="text-xl font-bold text-gray-900 sm:text-2xl">Предзаказ новинок</h2>
+                    <p className="mt-0.5 text-sm text-gray-500">Заказ до старта продаж — без предоплаты, сообщим о поступлении первыми</p>
                   </div>
-                </div>
-                <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={() => setPreorderOnly(true)}
-                    className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-500"
+                    className="group flex flex-shrink-0 items-center gap-1.5 text-sm font-semibold text-gray-900 hover:text-yellow-600"
                   >
-                    Показать здесь
+                    Все {preorderTotal}
+                    <ArrowRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                   </button>
-                  <Link to="/preorder" className="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10">
-                    Страница новинок
-                  </Link>
                 </div>
-              </div>
+                <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 gap-3 sm:gap-6 xl:grid-cols-3' : 'grid-cols-1 gap-6'}`}>
+                  {preorderProducts.slice(0, 3).map((product, i) => (
+                    <div key={product.id} className={i === 2 && viewMode === 'grid' ? 'hidden xl:block' : undefined}>
+                      <ProductCard product={product} />
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-8 border-t border-gray-200" />
+              </section>
             )}
 
             {/* Products Grid */}
@@ -955,7 +988,7 @@ export function CatalogPage() {
           <div className="fixed inset-y-0 left-0 z-50 w-full max-w-sm overflow-y-auto bg-white p-6 lg:hidden">
             <FilterSidebar
               selectedCategory={selectedCategory}
-              setSelectedCategory={setSelectedCategory}
+              setSelectedCategory={(v) => { setSelectedCategory(v); setPreorderOnly(false) }}
               selectedBrand={selectedBrand}
               setSelectedBrand={setSelectedBrand}
               priceRange={priceRange}
@@ -964,6 +997,7 @@ export function CatalogPage() {
               setInStockOnly={setInStockOnly}
               preorderOnly={preorderOnly}
               setPreorderOnly={setPreorderOnly}
+              preorderCount={preorderVisible ? preorderTotal : 0}
               onReset={resetFilters}
               isMobile
               onClose={() => setShowMobileFilters(false)}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { Container, Section } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
@@ -9,7 +9,7 @@ import {
   type Product,
 } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
-import { fetchPreorderProducts } from '../lib/preorder'
+import { usePreorderState } from '../lib/preorder'
 import {
   ShieldIcon,
   TruckIcon,
@@ -348,54 +348,47 @@ function TopProducts() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Предзаказ новинок — тёмная плашка под hero. Рендерится ТОЛЬКО когда в админке
-// есть товары с флагом «Предзаказ»: без них секции на главной нет вообще.
+// Предзаказ новинок — секция в том же ключе, что «Топ-10 популярных».
+// Рендерится ТОЛЬКО когда раздел включён в админке и в нём есть товары.
 // ─────────────────────────────────────────────────────────────────────────────
 function PreorderShowcase() {
-  const [products, setProducts] = useState<Product[] | null>(null)
+  const { ready, visible, products: raw } = usePreorderState()
+  const products = useMemo(() => raw.slice(0, 10).map(p => mapApiProduct(p)), [raw])
 
-  useEffect(() => {
-    let cancelled = false
-    fetchPreorderProducts()
-      .then(items => { if (!cancelled) setProducts(items.slice(0, 8).map(p => mapApiProduct(p))) })
-      .catch(() => { if (!cancelled) setProducts([]) })
-    return () => { cancelled = true }
-  }, [])
-
-  if (!products || products.length === 0) return null
+  if (!ready || !visible) return null
 
   return (
-    <section className="bg-white pt-8 sm:pt-10" data-preorder-showcase>
+    <section className="bg-white py-8 sm:py-12" data-preorder-showcase>
       <Container>
-        <div className="relative overflow-hidden rounded-[2rem] bg-gray-900 p-5 ring-1 ring-white/10 sm:p-8 lg:p-10">
-          <div className="pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-violet-600/30 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-24 -right-16 h-72 w-72 rounded-full bg-fuchsia-500/20 blur-3xl" />
-
-          <div className="relative mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-violet-400/30 bg-violet-500/15 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-violet-200">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-violet-400" />
-                Предзаказ
-              </div>
-              <h2 className="text-3xl font-bold text-white sm:text-4xl">Новинки уже можно заказать</h2>
-              <p className="mt-2 max-w-xl text-gray-400">
-                Оформите предзаказ до старта продаж — закрепим устройство за вами и сообщим, как только оно поступит. Без предоплаты.
-              </p>
+        <div className="mb-6 flex flex-col items-start justify-between gap-3 sm:mb-8 sm:flex-row sm:items-end">
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-gray-900 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white">
+              <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" />
+              Предзаказ
             </div>
-            <Link
-              to="/preorder"
-              className="group inline-flex items-center gap-2 self-start rounded-full bg-white px-5 py-3 text-sm font-semibold text-gray-900 transition-all hover:bg-violet-500 hover:text-white sm:self-auto"
-            >
-              Все новинки
-              <ArrowRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-            </Link>
+            <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl">Новинки уже можно заказать</h2>
+            <p className="mt-2 text-gray-500">Оформите предзаказ до старта продаж — без предоплаты, сообщим о поступлении первыми</p>
           </div>
+          <Link
+            to="/preorder"
+            className="group hidden items-center gap-2 font-semibold text-gray-900 hover:text-yellow-600 sm:flex"
+          >
+            Все новинки
+            <ArrowRightIcon className="h-5 w-5 transition-transform group-hover:translate-x-1" />
+          </Link>
+        </div>
 
-          <div className="relative grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
-            {products.map(product => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
+          {products.map(product => (
+            <ProductCard key={product.id} product={product} />
+          ))}
+        </div>
+
+        <div className="mt-6 text-center sm:hidden">
+          <Link to="/preorder" className="inline-flex items-center gap-2 font-semibold text-gray-900">
+            Все новинки
+            <ArrowRightIcon className="h-5 w-5" />
+          </Link>
         </div>
       </Container>
     </section>

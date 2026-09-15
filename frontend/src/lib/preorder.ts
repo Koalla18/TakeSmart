@@ -3,18 +3,27 @@ import { API_BASE_URL } from './config'
 import type { ApiProductOut } from '../data/products'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Предзаказ на витрине. Один запрос на сессию страницы: шапка спрашивает
-// «есть ли что показать», главная берёт первые карточки, страница /preorder —
-// весь список. Все трое делят один промис, чтобы не бить в API трижды.
+// Предзаказ на витрине: список товаров + переключатели из админки.
+// Один запрос каждого вида на загрузку страницы — шапка, главная, каталог и
+// /preorder делят одни промисы, чтобы не бить в API по несколько раз.
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface PreorderSettings {
+  /** Раздел показывается на сайте: пункт меню, блок на главной, чип в каталоге, /preorder */
+  preorder_section_enabled: boolean
+  /** Предзаказные товары попадают и в общий список каталога, а не только в раздел */
+  preorder_in_catalog: boolean
+}
+
+const DEFAULT_SETTINGS: PreorderSettings = { preorder_section_enabled: true, preorder_in_catalog: false }
 const PREORDER_LIMIT = 200
 
-let cached: Promise<ApiProductOut[]> | null = null
+let productsCache: Promise<ApiProductOut[]> | null = null
+let settingsCache: Promise<PreorderSettings> | null = null
 
 export function fetchPreorderProducts(): Promise<ApiProductOut[]> {
-  if (!cached) {
-    cached = fetch(`${API_BASE_URL}/api/products/preorder?limit=${PREORDER_LIMIT}`)
+  if (!productsCache) {
+    productsCache = fetch(`${API_BASE_URL}/api/products/preorder?limit=${PREORDER_LIMIT}`)
       .then(res => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
       .then((data: { items?: ApiProductOut[] } | ApiProductOut[]) => {
         const items = Array.isArray(data) ? data : (data.items ?? [])
@@ -22,20 +31,57 @@ export function fetchPreorderProducts(): Promise<ApiProductOut[]> {
       })
       .catch(() => {
         // Сбой сети — не кэшируем пустоту навсегда, следующий вызов попробует снова
-        cached = null
+        productsCache = null
         return [] as ApiProductOut[]
       })
   }
-  return cached
+  return productsCache
 }
 
-/** Есть ли активные товары по предзаказу — для пункта меню «Предзаказ» в шапке */
-export function usePreorderAvailable(): boolean {
-  const [available, setAvailable] = useState(false)
+export function fetchPreorderSettings(): Promise<PreorderSettings> {
+  if (!settingsCache) {
+    settingsCache = fetch(`${API_BASE_URL}/api/settings/public`)
+      .then(res => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((data: Partial<PreorderSettings>) => ({ ...DEFAULT_SETTINGS, ...data }))
+      .catch(() => {
+        settingsCache = null
+        return DEFAULT_SETTINGS
+      })
+  }
+  return settingsCache
+}
+
+export interface PreorderState {
+  /** Ответы получены — до этого ничего не рисуем, чтобы блоки не мигали */
+  ready: boolean
+  /** Раздел включён в админке и в нём есть товары */
+  visible: boolean
+  /** Показывать предзаказ и в общем каталоге */
+  inCatalog: boolean
+  products: ApiProductOut[]
+}
+
+const EMPTY: PreorderState = { ready: false, visible: false, inCatalog: false, products: [] }
+
+export function usePreorderState(): PreorderState {
+  const [state, setState] = useState<PreorderState>(EMPTY)
   useEffect(() => {
     let cancelled = false
-    fetchPreorderProducts().then(items => { if (!cancelled) setAvailable(items.length > 0) })
+    Promise.all([fetchPreorderSettings(), fetchPreorderProducts()]).then(([settings, products]) => {
+      if (cancelled) return
+      setState({
+        ready: true,
+        visible: settings.preorder_section_enabled && products.length > 0,
+        inCatalog: settings.preorder_in_catalog,
+        products,
+      })
+    })
     return () => { cancelled = true }
   }, [])
-  return available
+  return state
+}
+
+/** Есть ли что показывать — для пункта «Предзаказ» в меню */
+export function usePreorderAvailable(): boolean {
+  return usePreorderState().visible
 }

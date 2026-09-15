@@ -317,7 +317,7 @@ function OrderCard({ o, fresh, onOpen, onConfirm }: { o: AppOrder; fresh: boolea
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 font-mono text-[13px] font-bold tracking-tight text-yellow-400">
           {o.order_number}
-          {o.is_preorder && <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 font-sans text-[10px] font-semibold tracking-normal text-violet-300 ring-1 ring-inset ring-violet-400/30"><span className="h-1 w-1 rounded-full bg-violet-400" />Предзаказ</span>}
+          {o.is_preorder && <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 font-sans text-[10px] font-semibold tracking-normal text-sky-300 ring-1 ring-inset ring-sky-400/30"><span className="h-1 w-1 rounded-full bg-sky-400" />Предзаказ</span>}
         </span>
         <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
           {fresh && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-yellow-400" />}{timeAgo(o.created_at)}
@@ -419,7 +419,7 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange, onDeleted }: { ord
           <button onClick={close} aria-label="Закрыть" className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-lg text-slate-300 transition hover:bg-white/10 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/70">✕</button>
           <span className="flex items-center gap-2 font-mono text-sm font-bold text-yellow-400">
             {order?.order_number || '…'}
-            {order?.is_preorder && <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-violet-300 ring-1 ring-inset ring-violet-400/30">Предзаказ</span>}
+            {order?.is_preorder && <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-sky-300 ring-1 ring-inset ring-sky-400/30">Предзаказ</span>}
           </span>
           <span className="w-9" />
         </div>

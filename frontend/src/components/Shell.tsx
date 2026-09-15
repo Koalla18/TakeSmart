@@ -780,9 +780,9 @@ export function Shell({ children }: PropsWithChildren) {
               {preorderAvailable && (
                 <NavLink
                   to="/preorder"
-                  className={({ isActive }) => `relative inline-flex items-center gap-1.5 px-1 py-2 text-sm font-medium transition-colors ${isActive ? 'text-violet-600' : 'text-gray-700 hover:text-violet-600'}`}
+                  className={({ isActive }) => `relative inline-flex items-center gap-1.5 px-1 py-2 text-sm font-medium transition-colors ${isActive ? 'text-yellow-500' : 'text-gray-700 hover:text-yellow-500'}`}
                 >
-                  <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-pulse" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" />
                   Предзаказ
                 </NavLink>
               )}

@@ -3,31 +3,41 @@ import { Link } from 'react-router-dom'
 import { Container, Section } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
 import { ProductCard, ProductCardSkeleton } from '../components/ProductCard'
-import { ArrowRightIcon } from '../components/ui/Icons'
+import { ArrowRightIcon, ClockIcon, PhoneIcon, ShieldCheckIcon, TruckIcon } from '../components/ui/Icons'
 import { API_BASE_URL } from '../lib/config'
-import { fetchPreorderProducts } from '../lib/preorder'
+import { fetchPreorderSettings, fetchPreorderProducts } from '../lib/preorder'
 import { mapApiProduct, type Product } from '../data/products'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// /preorder — витрина новинок, которые можно заказать до поступления.
-// Данные: GET /api/products/preorder (порядок с бэка: ближайшая дата первой,
-// без даты — в конце). Группируем по подписи срока — «Ожидается 26 сентября»
-// становится заголовком блока, а не повторяется на каждой карточке в одиночку.
+// /preorder — раздел новинок до старта продаж. Собран по образцу страницы Б/У:
+// тёмный hero с жёлтым словом, ряд преимуществ, чипы категорий, сетка карточек.
+// Товары приходят с бэка уже отсортированными (ближайшая дата первой), здесь
+// они группируются по подписи срока: «Старт продаж 26 сентября» становится
+// заголовком блока.
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface ApiCategory { id: string; name: string; slug: string }
 
 type SortMode = 'soonest' | 'price_asc' | 'price_desc'
 
-const STEPS = [
-  { n: '01', title: 'Оформляете предзаказ', text: 'Как обычный заказ: кладёте товар в корзину и оставляете контакты. Предоплата не требуется.' },
-  { n: '02', title: 'Менеджер подтверждает', text: 'Свяжемся, уточним комплектацию, цвет и способ получения — и закрепим товар за вами.' },
-  { n: '03', title: 'Сообщаем о поступлении', text: 'Как только устройство приедет, напишем вам первыми — заберёте в магазине или получите доставкой.' },
+const BENEFITS = [
+  { icon: <ClockIcon className="h-6 w-6" />, title: 'Первыми в очереди', desc: 'Заказ до старта продаж' },
+  { icon: <ShieldCheckIcon className="h-6 w-6" />, title: 'Без предоплаты', desc: 'Оплата при получении' },
+  { icon: <PhoneIcon className="h-6 w-6" />, title: 'Менеджер подтвердит', desc: 'Уточним цвет и комплектацию' },
+  { icon: <TruckIcon className="h-6 w-6" />, title: 'Сообщим о поступлении', desc: 'Самовывоз или доставка' },
 ]
+
+function pluralProducts(n: number): string {
+  const mod10 = n % 10, mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'товар'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'товара'
+  return 'товаров'
+}
 
 export function PreorderPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<ApiCategory[]>([])
+  const [enabled, setEnabled] = useState(true)
   const [loading, setLoading] = useState(true)
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
   const [sort, setSort] = useState<SortMode>('soonest')
@@ -41,14 +51,16 @@ export function PreorderPage() {
   useEffect(() => {
     let cancelled = false
     Promise.all([
+      fetchPreorderSettings(),
       fetchPreorderProducts(),
       fetch(`${API_BASE_URL}/api/categories?limit=100`)
         .then(res => (res.ok ? res.json() : []))
         .then((data: { items?: ApiCategory[] } | ApiCategory[]) => (Array.isArray(data) ? data : data.items ?? []))
         .catch(() => [] as ApiCategory[]),
-    ]).then(([items, cats]) => {
+    ]).then(([settings, items, cats]) => {
       if (cancelled) return
       const catMap = new Map(cats.map(c => [c.id, c]))
+      setEnabled(settings.preorder_section_enabled)
       setCategories(cats)
       setProducts(items.map(p => {
         const cat = p.category_id ? catMap.get(p.category_id) : undefined
@@ -84,40 +96,40 @@ export function PreorderPage() {
     return order.map(label => ({ label, items: byLabel.get(label)! }))
   }, [visible, sort])
 
+  const closed = !loading && (!enabled || products.length === 0)
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
       {/* Hero */}
-      <Section bg="dark" py="xl" className="relative overflow-hidden">
-        <div className="pointer-events-none absolute -left-24 top-0 h-80 w-80 rounded-full bg-violet-600/30 blur-3xl" />
-        <div className="pointer-events-none absolute -right-16 bottom-0 h-72 w-72 rounded-full bg-fuchsia-500/20 blur-3xl" />
+      <Section className="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 py-24">
         <Container>
-          <div className="relative mx-auto max-w-3xl text-center">
-            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-violet-400/30 bg-violet-500/15 px-4 py-2 text-sm font-medium text-violet-200">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-violet-400" />
-              Новинки по предзаказу
+          <div className="mx-auto max-w-4xl text-center">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-yellow-400/15 px-4 py-2 text-yellow-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" />
+              Новинки до старта продаж
             </div>
-            <h1 className="mb-5 text-4xl font-bold text-white sm:text-5xl lg:text-6xl">
-              Успейте заказать <span className="bg-gradient-to-r from-violet-300 to-fuchsia-300 bg-clip-text text-transparent">первыми</span>
+            <h1 className="mb-6 text-5xl font-bold text-white lg:text-6xl">
+              Предзаказ <span className="text-yellow-400">новинок</span>
             </h1>
-            <p className="mx-auto max-w-2xl text-lg text-gray-400 sm:text-xl">
-              Новые устройства уже можно оформить до старта продаж. Без предоплаты — закрепим товар за вами и сообщим о поступлении.
+            <p className="text-xl text-gray-400">
+              Оформите заказ до старта продаж — закрепим устройство за вами и сообщим о поступлении первыми
             </p>
           </div>
         </Container>
       </Section>
 
-      {/* Как это работает */}
+      {/* Преимущества */}
       <Section py="sm" className="bg-transparent">
         <Container>
-          <div className="grid gap-4 md:grid-cols-3">
-            {STEPS.map(step => (
-              <div key={step.n} className="flex gap-4 rounded-2xl bg-white p-5 shadow-lg shadow-gray-200/60 ring-1 ring-gray-100">
-                <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-violet-600 font-mono text-sm font-bold text-white">
-                  {step.n}
+          <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4 md:gap-6">
+            {BENEFITS.map(item => (
+              <div key={item.title} className="flex items-center gap-4 rounded-2xl bg-white p-4 shadow-lg">
+                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-yellow-400 text-gray-900">
+                  {item.icon}
                 </div>
                 <div>
-                  <div className="font-semibold text-gray-900">{step.title}</div>
-                  <div className="mt-1 text-sm leading-relaxed text-gray-500">{step.text}</div>
+                  <div className="font-semibold text-gray-900">{item.title}</div>
+                  <div className="text-sm text-gray-500">{item.desc}</div>
                 </div>
               </div>
             ))}
@@ -128,94 +140,93 @@ export function PreorderPage() {
       {/* Товары */}
       <Section py="md" className="bg-transparent">
         <Container>
-          {usedCategories.length > 1 && (
-            <div className="mb-6 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setCategoryFilter(null)}
-                className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                  categoryFilter === null ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-100'
-                }`}
-              >
-                Все новинки
-              </button>
-              {usedCategories.map(cat => (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => setCategoryFilter(cat.slug)}
-                  className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                    categoryFilter === cat.slug ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-100'
-                  }`}
-                >
-                  {cat.name}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900 sm:text-3xl">Доступно по предзаказу</h2>
-              {!loading && (
-                <p className="mt-1 text-gray-500">
-                  {visible.length} {visible.length % 10 === 1 && visible.length % 100 !== 11 ? 'товар' : visible.length % 10 >= 2 && visible.length % 10 <= 4 && (visible.length % 100 < 10 || visible.length % 100 >= 20) ? 'товара' : 'товаров'}
-                </p>
-              )}
-            </div>
-            <label className="flex items-center gap-2 text-sm text-gray-500">
-              Сортировать:
-              <select
-                value={sort}
-                onChange={e => setSort(e.target.value as SortMode)}
-                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900"
-              >
-                <option value="soonest">Ближайшие поступления</option>
-                <option value="price_asc">Сначала дешевле</option>
-                <option value="price_desc">Сначала дороже</option>
-              </select>
-            </label>
-          </div>
-
-          {loading ? (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-6 xl:grid-cols-4">
-              {Array.from({ length: 8 }).map((_, i) => <ProductCardSkeleton key={i} />)}
-            </div>
-          ) : visible.length === 0 ? (
-            <div className="rounded-3xl bg-white p-12 text-center shadow-lg ring-1 ring-gray-100">
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-violet-50 text-3xl">🚀</div>
-              <h3 className="mb-2 text-xl font-semibold text-gray-900">Пока нет новинок по предзаказу</h3>
-              <p className="mb-6 text-gray-500">Мы открываем предзаказ сразу после презентаций — загляните позже или посмотрите каталог.</p>
+          {closed ? (
+            <div className="rounded-3xl bg-white p-12 text-center shadow-lg">
+              <h3 className="mb-2 text-xl font-semibold text-gray-900">
+                {enabled ? 'Пока нет новинок по предзаказу' : 'Приём предзаказов сейчас закрыт'}
+              </h3>
+              <p className="mb-6 text-gray-500">
+                Мы открываем предзаказ сразу после презентаций новинок.
+                <br />Загляните позже или посмотрите, что уже есть в наличии.
+              </p>
               <Button to="/catalog">Перейти в каталог</Button>
             </div>
           ) : (
-            <div className="space-y-10">
-              {groups.map(group => (
-                <div key={group.label || 'all'}>
-                  {group.label && (
-                    <div className="mb-4 flex items-center gap-3">
-                      <span className="inline-flex items-center gap-2 rounded-full bg-violet-50 px-3 py-1.5 text-sm font-semibold text-violet-700 ring-1 ring-violet-100">
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                        {group.label}
-                      </span>
-                      <span className="h-px flex-1 bg-gray-200" />
-                      <span className="text-sm text-gray-400">{group.items.length}</span>
-                    </div>
-                  )}
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-6 xl:grid-cols-4">
-                    {group.items.map(product => <ProductCard key={product.id} product={product} />)}
-                  </div>
+            <>
+              {usedCategories.length > 1 && (
+                <div className="mb-8 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCategoryFilter(null)}
+                    className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                      categoryFilter === null ? 'bg-yellow-400 text-gray-900' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    Все новинки
+                  </button>
+                  {usedCategories.map(cat => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setCategoryFilter(cat.slug)}
+                      className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                        categoryFilter === cat.slug ? 'bg-yellow-400 text-gray-900' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {cat.name}
+                    </button>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+
+              <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">Доступно по предзаказу</h2>
+                  {!loading && <p className="text-gray-500">{visible.length} {pluralProducts(visible.length)}</p>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-500">Сортировать:</span>
+                  <select
+                    value={sort}
+                    onChange={e => setSort(e.target.value as SortMode)}
+                    className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  >
+                    <option value="soonest">Ближайшие поступления</option>
+                    <option value="price_asc">Сначала дешевле</option>
+                    <option value="price_desc">Сначала дороже</option>
+                  </select>
+                </div>
+              </div>
+
+              {loading ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-6 xl:grid-cols-4">
+                  {Array.from({ length: 8 }).map((_, i) => <ProductCardSkeleton key={i} />)}
+                </div>
+              ) : (
+                <div className="space-y-10">
+                  {groups.map(group => (
+                    <div key={group.label || 'all'}>
+                      {group.label && (
+                        <div className="mb-4 flex items-center gap-3">
+                          <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-500">{group.label}</h3>
+                          <span className="h-px flex-1 bg-gray-200" />
+                          <span className="text-sm text-gray-400">{group.items.length}</span>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-6 xl:grid-cols-4">
+                        {group.items.map(product => <ProductCard key={product.id} product={product} />)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </Container>
       </Section>
 
       {/* CTA */}
-      <Section bg="dark" py="lg">
+      <Section className="bg-gray-900 py-16">
         <Container>
           <div className="mx-auto max-w-2xl text-center">
             <h2 className="mb-4 text-3xl font-bold text-white">Нужна модель, которой здесь нет?</h2>
@@ -226,7 +237,7 @@ export function PreorderPage() {
               <a href="tel:+79998021022" className="rounded-xl bg-yellow-400 px-8 py-4 font-semibold text-gray-900 transition-colors hover:bg-yellow-300">
                 📞 +7 (999) 802-10-22
               </a>
-              <Link to="/catalog" className="inline-flex items-center gap-2 rounded-xl border-2 border-white/20 px-8 py-4 font-semibold text-white transition-all hover:border-white/40 hover:bg-white/10">
+              <Link to="/catalog" className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-yellow-400 px-8 py-4 text-lg font-semibold text-yellow-400 transition-all duration-200 hover:bg-yellow-400 hover:text-gray-900">
                 Весь каталог
                 <ArrowRightIcon className="h-5 w-5" />
               </Link>

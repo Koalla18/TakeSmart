@@ -486,8 +486,8 @@ export function CartPage() {
                         <div className="text-sm text-gray-500">{item.product.brand}</div>
                         <div className="line-clamp-2 font-semibold">{item.product.name}</div>
                         {item.product.preorder && (
-                          <span className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 ring-1 ring-violet-100">
-                            <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+                          <span className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-gray-900 px-2 py-0.5 text-[11px] font-semibold text-white">
+                            <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" />
                             Предзаказ · {item.product.preorderNote || 'Скоро в продаже'}
                           </span>
                         )}
@@ -518,9 +518,9 @@ export function CartPage() {
                 
                 {/* Уведомление о предзаказе */}
                 {items.some(item => item.product.preorder) && (
-                  <div className="mt-4 rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900">
-                    <div className="font-semibold">🚀 В заказе есть товары по предзаказу</div>
-                    <p className="mt-1 text-violet-800/80">
+                  <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-800">
+                    <div className="font-semibold">В заказе есть товары по предзаказу</div>
+                    <p className="mt-1 text-gray-600">
                       Они ещё не поступили в магазин. Предоплата не нужна: менеджер подтвердит заказ, а о поступлении мы сообщим первыми — тогда и договоримся о получении.
                     </p>
                   </div>

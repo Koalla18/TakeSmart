@@ -65,7 +65,7 @@ export function Badge({ children, variant = 'default', size = 'sm' }: BadgeProps
     warning: 'bg-orange-100 text-orange-700',
     error: 'bg-red-100 text-red-700',
     yellow: 'bg-yellow-400 text-gray-900',
-    preorder: 'bg-violet-600 text-white shadow-sm shadow-violet-600/30',
+    preorder: 'bg-gray-900 text-white',
   }
   
   const sizes = {

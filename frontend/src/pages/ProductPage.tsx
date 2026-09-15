@@ -882,8 +882,8 @@ export function ProductPage() {
                   {/* Badges */}
                   <div className="absolute left-4 top-4 z-10 flex flex-col items-start gap-2">
                     {isPreorder && (
-                      <span className="inline-flex items-center gap-2 rounded-full bg-violet-600 px-4 py-1.5 text-sm font-semibold text-white shadow-lg shadow-violet-600/30">
-                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+                      <span className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-1.5 text-sm font-semibold text-white">
+                        <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" />
                         Предзаказ
                       </span>
                     )}
@@ -1055,7 +1055,7 @@ export function ProductPage() {
                 {/* Stock status */}
                 <div className="mb-4">
                   {isPreorder ? (
-                    <span className="inline-flex items-center gap-2 rounded-full bg-violet-50 px-3 py-1.5 text-sm font-semibold text-violet-700 ring-1 ring-violet-100" data-preorder-status>
+                    <span className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-3 py-1.5 text-sm font-semibold text-white" data-preorder-status>
                       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
@@ -1907,11 +1907,7 @@ export function ProductPage() {
                     <button
                       onClick={handleAddToCart}
                       disabled={!canBuy}
-                      className={`flex-1 rounded-xl px-6 py-3 text-sm font-semibold shadow-sm transition-all hover:shadow-md active:scale-[0.98] disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none sm:py-3.5 sm:text-base ${
-                        isPreorder
-                          ? 'bg-violet-600 text-white shadow-violet-600/25 hover:bg-violet-500'
-                          : 'bg-yellow-400 text-gray-900 hover:bg-yellow-500'
-                      }`}
+                      className="flex-1 rounded-xl bg-yellow-400 px-6 py-3 text-sm font-semibold text-gray-900 shadow-sm transition-all hover:bg-yellow-500 hover:shadow-md active:scale-[0.98] disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none sm:text-base sm:py-3.5"
                     >
                       {isPreorder ? 'Оформить предзаказ' : 'Добавить в корзину'}
                     </button>
@@ -1930,12 +1926,12 @@ export function ProductPage() {
                     </div>
                   )}
                   {isPreorder && (
-                    <div className="rounded-2xl border border-violet-100 bg-violet-50/70 p-4" data-preorder-howto>
-                      <div className="mb-2 text-sm font-semibold text-violet-900">Как работает предзаказ</div>
-                      <ol className="space-y-1.5 text-sm text-violet-900/80">
-                        <li className="flex gap-2"><span className="font-mono text-xs font-bold text-violet-500">01</span>Оформляете заказ как обычно — без предоплаты</li>
-                        <li className="flex gap-2"><span className="font-mono text-xs font-bold text-violet-500">02</span>Менеджер подтверждает заказ и закрепляет товар за вами</li>
-                        <li className="flex gap-2"><span className="font-mono text-xs font-bold text-violet-500">03</span>Сообщаем о поступлении — заберёте в магазине или доставим</li>
+                    <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4" data-preorder-howto>
+                      <div className="mb-2 text-sm font-semibold text-gray-900">Как работает предзаказ</div>
+                      <ol className="space-y-1.5 text-sm text-gray-600">
+                        <li className="flex gap-2"><span className="w-5 flex-shrink-0 font-semibold text-yellow-600">1.</span>Оформляете заказ как обычно — без предоплаты</li>
+                        <li className="flex gap-2"><span className="w-5 flex-shrink-0 font-semibold text-yellow-600">2.</span>Менеджер подтверждает заказ и закрепляет товар за вами</li>
+                        <li className="flex gap-2"><span className="w-5 flex-shrink-0 font-semibold text-yellow-600">3.</span>Сообщаем о поступлении — заберёте в магазине или доставим</li>
                       </ol>
                     </div>
                   )}

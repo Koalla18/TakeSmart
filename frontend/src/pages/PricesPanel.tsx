@@ -1269,8 +1269,8 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
                           {/* Характеристики и код — отдельной строкой на всю ширину под ценой: в узкой колонке названия чипы вставали столбиком и раздували строку */}
                           <div title={full} className={`mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 pl-3 ${dim}`}>
                             {p.is_preorder && (
-                              <span className="inline-flex items-center gap-1 rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[11px] font-semibold leading-tight text-violet-300 ring-1 ring-inset ring-violet-400/30" title="Товар по предзаказу">
-                                <span className="h-1 w-1 rounded-full bg-violet-400" />Предзаказ
+                              <span className="inline-flex items-center gap-1 rounded-md bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-semibold leading-tight text-sky-300 ring-1 ring-inset ring-sky-400/30" title="Товар по предзаказу">
+                                <span className="h-1 w-1 rounded-full bg-sky-400" />Предзаказ
                               </span>
                             )}
                             {chips.map((chip) => (
