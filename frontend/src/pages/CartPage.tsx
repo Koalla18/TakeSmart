@@ -77,10 +77,26 @@ interface OrderPayload {
   }>
 }
 
+// Безналичная оплата облагается налогом 13%, и считается он «от начисленного»:
+// чтобы после налога осталась цена товара, сверху добавляется не 13%, а 13/87 ≈ 14,94%.
+// Пример (как в калькуляторе НДФЛ): цена 100 000 ₽ → к оплате 114 943 ₽, налог 14 943 ₽.
+const PAYMENT_TAX_RATE = 0.13
+
+/** Налог сверх цены: gross = net / (1 − ставка); возвращает разницу в рублях */
+function taxSurcharge(net: number, taxRate: number): number {
+  if (taxRate <= 0 || net <= 0) return 0
+  return Math.round(net / (1 - taxRate)) - net
+}
+
+/** Эффективная надбавка к ценнику: 13% → «14,9» */
+function effectivePercent(taxRate: number): string {
+  return ((taxRate / (1 - taxRate)) * 100).toLocaleString('ru-RU', { maximumFractionDigits: 1 })
+}
+
 const PAYMENT_METHODS = [
-  { id: 'cash', label: 'Наличными', icon: '💵', desc: 'При получении', markup: 0 },
-  { id: 'card', label: 'Картой', icon: '💳', desc: '+16% к цене', markup: 0.16 },
-  { id: 'qr', label: 'QR-код в магазине', icon: '📱', desc: '+13% к цене', markup: 0.13 },
+  { id: 'cash', label: 'Наличными', icon: '💵', desc: 'При получении', taxRate: 0 },
+  { id: 'card', label: 'Картой', icon: '💳', desc: 'Налог 13%', taxRate: PAYMENT_TAX_RATE },
+  { id: 'qr', label: 'QR-код в магазине', icon: '📱', desc: 'Налог 13%', taxRate: PAYMENT_TAX_RATE },
 ]
 
 const DELIVERY_METHODS = [
@@ -238,9 +254,9 @@ export function CartPage() {
 
   const subtotal = getTotal()
   const deliveryPrice = DELIVERY_METHODS.find(d => d.id === deliveryMethod)?.price || 0
-  const paymentMarkup = PAYMENT_METHODS.find(p => p.id === paymentMethod)?.markup || 0
-  const cardMarkupAmount = paymentMarkup > 0 ? Math.round(subtotal * paymentMarkup) : 0
-  const total = subtotal + deliveryPrice + cardMarkupAmount
+  const paymentTaxRate = PAYMENT_METHODS.find(p => p.id === paymentMethod)?.taxRate || 0
+  const paymentTaxAmount = taxSurcharge(subtotal, paymentTaxRate)
+  const total = subtotal + deliveryPrice + paymentTaxAmount
 
   // ─── Вспомогательная функция: непосредственная отправка заказа ──────────────
   const submitOrder = async (orderItems: Array<{ product_id: string; quantity: number }>) => {
@@ -248,7 +264,9 @@ export function CartPage() {
     const paymentLabel = PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label || paymentMethod
     const deliveryLabel = DELIVERY_METHODS.find(d => d.id === deliveryMethod)?.label || deliveryMethod
     const noteParts: string[] = []
-    noteParts.push(`Оплата: ${paymentLabel}`)
+    noteParts.push(paymentTaxAmount > 0
+      ? `Оплата: ${paymentLabel} — к оплате ${total.toLocaleString('ru-RU')} ₽ (включая налог 13% — ${paymentTaxAmount.toLocaleString('ru-RU')} ₽)`
+      : `Оплата: ${paymentLabel}`)
     noteParts.push(`Доставка: ${deliveryLabel}`)
     // Предзаказ дублируем в примечание — сотрудник видит его даже там, где нет флага заказа
     const preorderNames = items.filter(item => item.product.preorder).map(item => item.product.name)
@@ -558,7 +576,7 @@ export function CartPage() {
                       key={method.id}
                       className={`relative flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 p-5 transition-all ${
                         paymentMethod === method.id 
-                          ? method.markup > 0 
+                          ? method.taxRate > 0 
                             ? 'border-orange-400 bg-orange-50' 
                             : 'border-green-400 bg-green-50' 
                           : 'border-gray-200 hover:border-gray-300'
@@ -574,9 +592,9 @@ export function CartPage() {
                       />
                       <span className="text-4xl">{method.icon}</span>
                       <span className="text-lg font-semibold">{method.label}</span>
-                      {method.markup > 0 ? (
+                      {method.taxRate > 0 ? (
                         <span className="rounded-full bg-orange-100 px-3 py-1 text-sm font-medium text-orange-700">
-                          +{Math.round(method.markup * 100)}% к цене
+                          {subtotal > 0 ? `+${formatPrice(taxSurcharge(subtotal, method.taxRate))}` : `+${effectivePercent(method.taxRate)}% к цене`} · налог 13%
                         </span>
                       ) : (
                         <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700">
@@ -584,7 +602,7 @@ export function CartPage() {
                         </span>
                       )}
                       {paymentMethod === method.id && (
-                        <span className={`absolute right-3 top-3 ${method.markup > 0 ? 'text-orange-500' : 'text-green-500'}`}>✓</span>
+                        <span className={`absolute right-3 top-3 ${method.taxRate > 0 ? 'text-orange-500' : 'text-green-500'}`}>✓</span>
                       )}
                     </label>
                   ))}
@@ -821,10 +839,10 @@ export function CartPage() {
                     <span className="text-gray-500">Товары ({items.length})</span>
                     <span>{formatPrice(subtotal)}</span>
                   </div>
-                  {cardMarkupAmount > 0 && (
+                  {paymentTaxAmount > 0 && (
                     <div className="flex justify-between text-orange-600">
-                      <span>Наценка ({PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label} +{Math.round(paymentMarkup * 100)}%)</span>
-                      <span>+{formatPrice(cardMarkupAmount)}</span>
+                      <span>Налог 13% ({PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label})</span>
+                      <span>+{formatPrice(paymentTaxAmount)}</span>
                     </div>
                   )}
                   <div className="flex justify-between">
@@ -839,9 +857,9 @@ export function CartPage() {
                   </div>
                 </div>
                 
-                {cardMarkupAmount > 0 && (
+                {paymentTaxAmount > 0 && (
                   <div className="mt-3 rounded-xl bg-orange-50 p-3 text-sm text-orange-700">
-                    ⚠️ При оплате {paymentMethod === 'card' ? 'картой' : 'по QR-коду'} действует наценка {Math.round(paymentMarkup * 100)}%. Оплата наличными без наценки.
+                    ⚠️ При оплате {paymentMethod === 'card' ? 'картой' : 'по QR-коду'} добавляется налог 13%. Он считается с начисленной суммы, поэтому к цене выходит ≈ +{effectivePercent(paymentTaxRate)}%. Наличными — без надбавки.
                   </div>
                 )}
 
@@ -891,8 +909,8 @@ export function CartPage() {
               <div className="min-w-0 flex-1">
                 <div className="truncate text-xs text-gray-500">К оплате</div>
                 <div className="text-lg font-bold text-yellow-600">{formatPrice(total)}</div>
-                {cardMarkupAmount > 0 && (
-                  <div className="text-xs text-orange-600">+{Math.round(paymentMarkup * 100)}% — {PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label}</div>
+                {paymentTaxAmount > 0 && (
+                  <div className="text-xs text-orange-600">налог +{formatPrice(paymentTaxAmount)} — {PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label}</div>
                 )}
               </div>
               <Button type="submit" disabled={isSubmitting} size="md" className="shrink-0">
