@@ -15,6 +15,10 @@ export interface Product {
   description: string
   specs: { label: string; value: string }[]
   condition?: string
+  /** Товар по предзаказу: заказ оформляется до поступления, остаток не ограничивает */
+  preorder?: boolean
+  /** Готовая подпись для витрины: «Старт продаж 26 сентября» / «Ожидается 26 сентября» */
+  preorderNote?: string
 }
 
 /**
@@ -26,6 +30,25 @@ export function formatPrice(price: number | string): string {
   const value = typeof price === 'number' ? price : Number(price)
   if (!Number.isFinite(value)) return `${price} ₽`
   return value.toLocaleString('ru-RU', { maximumFractionDigits: 0 }) + ' ₽'
+}
+
+/** Дата поступления по предзаказу: «26 сентября» (год — только если не текущий) */
+export function formatPreorderDate(iso?: string | null): string {
+  if (!iso) return ''
+  // Голая дата (YYYY-MM-DD) парсится как UTC-полночь — добавляем время, чтобы
+  // в западных часовых поясах число не уезжало на день назад
+  const d = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const sameYear = d.getFullYear() === new Date().getFullYear()
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', ...(sameYear ? {} : { year: 'numeric' }) })
+}
+
+/** Подпись предзаказа: заметка сотрудника важнее даты, дата важнее общей фразы */
+export function preorderLabel(note?: string | null, expectedAt?: string | null): string {
+  const text = (note || '').trim()
+  if (text) return text
+  const date = formatPreorderDate(expectedAt)
+  return date ? `Ожидается ${date}` : 'Скоро в продаже'
 }
 
 export function getBadgeText(badge: Product['badge']): string {
@@ -60,6 +83,9 @@ export interface ApiProductOut {
   condition: string | null
   is_active: boolean
   is_featured: boolean
+  is_preorder?: boolean
+  preorder_note?: string | null
+  preorder_expected_at?: string | null
   main_image_url: string | null
   description: string | null
   short_description: string | null
@@ -140,6 +166,7 @@ export function mapApiProduct(
   categorySlug = '',
   categoryName = '',
 ): Product {
+  const preorder = Boolean(p.is_preorder)
   return {
     id: p.id,
     slug: p.slug,
@@ -151,11 +178,14 @@ export function mapApiProduct(
     price: Number(p.discount_price ?? p.price),
     oldPrice: p.discount_price != null ? Number(p.price) : undefined,
     badge: p.is_featured ? 'hit' : undefined,
-    inStock: p.stock_quantity > 0,
-    stockQuantity: p.stock_quantity,
+    // Предзаказ — бронь до поступления: кнопки живые, остаток корзину не ограничивает
+    inStock: p.stock_quantity > 0 || preorder,
+    stockQuantity: preorder ? undefined : p.stock_quantity,
     image: p.main_image_url || '',
     description: p.description || p.short_description || '',
     specs: [],
+    preorder: preorder || undefined,
+    preorderNote: preorder ? preorderLabel(p.preorder_note, p.preorder_expected_at) : undefined,
   }
 }
 

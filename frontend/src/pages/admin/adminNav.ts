@@ -11,11 +11,11 @@ import type { AdminIconName } from './AdminIcons'
 
 export type AdminSection =
   | 'overview' | 'orders' | 'analytics'
-  | 'products' | 'categories' | 'fields' | 'quickfilters' | 'brands'
+  | 'products' | 'preorder' | 'categories' | 'fields' | 'quickfilters' | 'brands'
   | 'banners' | 'tradein' | 'slides' | 'used'
 
 export const ADMIN_SECTIONS: readonly AdminSection[] = [
-  'overview', 'orders', 'analytics', 'products', 'categories', 'fields', 'quickfilters', 'brands', 'banners', 'tradein', 'slides', 'used',
+  'overview', 'orders', 'analytics', 'products', 'preorder', 'categories', 'fields', 'quickfilters', 'brands', 'banners', 'tradein', 'slides', 'used',
 ]
 
 export function isAdminSection(value: string | null | undefined): value is AdminSection {
@@ -49,6 +49,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     label: 'Каталог',
     items: [
       { id: 'products', label: 'Товары', icon: 'box', hint: 'Карточки, группы, цены, наличие' },
+      { id: 'preorder', label: 'Предзаказ', icon: 'sparkle', hint: 'Новинки до старта продаж: состав, даты, цены' },
       { id: 'categories', label: 'Категории', icon: 'folder', hint: 'Разделы, поля карточки, модели' },
       { id: 'brands', label: 'Бренды', icon: 'tag', hint: 'Справочник брендов и логотипы' },
     ],
@@ -76,6 +77,7 @@ export const ADMIN_SECTION_META: Record<AdminSection, AdminSectionMeta> = {
   orders: { title: 'Заказы', eyebrow: 'Продажи', description: 'Клик по строке открывает заказ: состав, адрес, смена статуса', navId: 'orders' },
   analytics: { title: 'Аналитика', eyebrow: 'Продажи', navId: 'analytics' },
   products: { title: 'Товары', eyebrow: 'Каталог', description: 'Карточки товаров, группы вариантов, цены и наличие', navId: 'products' },
+  preorder: { title: 'Предзаказ', eyebrow: 'Каталог', description: 'Товары, которые можно заказать до поступления: отметьте карточки, задайте дату и подпись — на сайте они выделены отдельным блоком', navId: 'preorder' },
   categories: { title: 'Категории', eyebrow: 'Каталог', description: 'Разделы каталога: название, адрес, картинка, порядок и видимость на сайте', navId: 'categories' },
   fields: { title: 'Категории', eyebrow: 'Каталог', description: 'Схема карточки товара для каждой категории: характеристики и оси вариантов (память, цвет)', navId: 'categories' },
   quickfilters: { title: 'Категории', eyebrow: 'Каталог', description: 'Кнопки моделей над товарами в каталоге — например, iPhone 16 или Galaxy S25. Пустой список скрывает кнопки', navId: 'categories' },

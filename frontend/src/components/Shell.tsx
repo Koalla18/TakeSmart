@@ -18,6 +18,7 @@ import {
   type MenuBrandGroup,
 } from '../lib/catalogMenu'
 import { API_BASE_URL } from '../lib/config'
+import { usePreorderAvailable } from '../lib/preorder'
 
 // Подсказка о медленной загрузке: замеряем реальную задержку до нашего сервера
 // и, если медленно (часто из-за VPN с дальним выходом), мягко предлагаем выключить VPN.
@@ -390,6 +391,7 @@ function CatalogMegaMenu() {
 const legalDocumentPaths = ['/offer', '/privacy-policy', '/personal-data', '/cookie-policy']
 
 function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const preorderAvailable = usePreorderAvailable()
   const [categories, setCategories] = useState<MenuCategory[]>([])
   const [groupsByCat, setGroupsByCat] = useState<Record<string, MenuBrandGroup[]>>({})
   const [drillCat, setDrillCat] = useState<MenuCategory | null>(null)
@@ -471,6 +473,7 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
               {[
                 { to: '/', label: 'Главная' },
                 { to: '/catalog', label: 'Каталог' },
+                ...(preorderAvailable ? [{ to: '/preorder', label: 'Предзаказ новинок' }] : []),
                 { to: '/delivery', label: 'Доставка и оплата' },
                 { to: '/trade-in', label: 'Trade-in' },
                 { to: '/cart', label: 'Корзина' },
@@ -707,6 +710,7 @@ function CookieConsent() {
 }
 
 export function Shell({ children }: PropsWithChildren) {
+  const preorderAvailable = usePreorderAvailable()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const { getItemCount } = useCart()
@@ -773,6 +777,15 @@ export function Shell({ children }: PropsWithChildren) {
             <nav className="hidden items-center gap-6 lg:flex">
               <NavItem to="/" label="Главная" />
               <CatalogMegaMenu />
+              {preorderAvailable && (
+                <NavLink
+                  to="/preorder"
+                  className={({ isActive }) => `relative inline-flex items-center gap-1.5 px-1 py-2 text-sm font-medium transition-colors ${isActive ? 'text-violet-600' : 'text-gray-700 hover:text-violet-600'}`}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-pulse" />
+                  Предзаказ
+                </NavLink>
+              )}
               <NavItem to="/delivery" label="Доставка" />
               <NavItem to="/trade-in" label="Trade-in" />
               <NavItem to="/cart" label="Заявка" />
@@ -914,6 +927,7 @@ export function Shell({ children }: PropsWithChildren) {
                 <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-gray-500">Каталог</h3>
                 <ul className="space-y-2.5">
                   {[
+                    ...(preorderAvailable ? [{ label: 'Предзаказ новинок', to: '/preorder' }] : []),
                     { label: 'Apple iPhone', to: '/catalog?category=smartphones' },
                     { label: 'Apple MacBook', to: '/catalog?category=laptops' },
                     { label: 'Apple iPad', to: '/catalog?category=tablets' },

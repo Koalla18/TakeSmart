@@ -10,6 +10,18 @@ interface ProductCardProps {
   variant?: 'default' | 'compact' | 'featured'
 }
 
+/** Подпись срока под ценой: «Ожидается 26 сентября» */
+function PreorderNote({ text, className = '' }: { text: string; className?: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-xs font-medium text-violet-700 ${className}`}>
+      <svg className="h-3.5 w-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      </svg>
+      {text}
+    </span>
+  )
+}
+
 export function ProductCard({ product, variant = 'default' }: ProductCardProps) {
   const navigate = useNavigate()
   const { addItem, isInCart } = useCart()
@@ -18,6 +30,9 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
   
   const inCart = isInCart(product.id)
   const badgeVariant = product.badge === 'hit' ? 'yellow' : product.badge === 'sale' ? 'error' : 'success'
+  // Предзаказ: карточка выделена фиолетовым, кнопки говорят «предзаказ», подпись срока под ценой
+  const isPreorder = Boolean(product.preorder)
+  const preorderNote = product.preorderNote || 'Скоро в продаже'
   
   const discount = product.oldPrice 
     ? Math.round((1 - product.price / product.oldPrice) * 100)
@@ -49,6 +64,14 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
         <div className="relative grid md:grid-cols-2 gap-8 p-8 md:p-12">
           {/* Content */}
           <div className="flex flex-col justify-center order-2 md:order-1">
+            {isPreorder && (
+              <div className="mb-4">
+                <span className="inline-flex items-center gap-2 rounded-full bg-violet-500/15 border border-violet-400/30 px-4 py-1.5 text-sm font-medium text-violet-200">
+                  <span className="h-1.5 w-1.5 rounded-full bg-violet-400 animate-pulse" />
+                  Предзаказ · {preorderNote}
+                </span>
+              </div>
+            )}
             {product.badge && (
               <div className="mb-4">
                 <span className="inline-flex items-center gap-2 rounded-full bg-yellow-400/10 border border-yellow-400/20 px-4 py-1.5 text-sm font-medium text-yellow-400">
@@ -89,7 +112,7 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
                 className="flex-1 relative overflow-hidden rounded-2xl bg-yellow-400 py-4 px-8 text-lg font-semibold text-gray-900 transition-all duration-300 hover:bg-yellow-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-yellow-400/25"
               >
                 <span className={`transition-all duration-300 ${isAdding ? 'opacity-0' : 'opacity-100'}`}>
-                  {inCart ? '✓ В корзине' : 'В корзину'}
+                  {inCart ? '✓ В корзине' : isPreorder ? 'Оформить предзаказ' : 'В корзину'}
                 </span>
                 {isAdding && (
                   <span className="absolute inset-0 flex items-center justify-center">
@@ -134,10 +157,20 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
   return (
     <div className="group relative h-full">
       {/* Card */}
-      <div className="relative flex h-full flex-col overflow-hidden rounded-3xl bg-white border border-gray-100 transition-all duration-500 hover:border-gray-200 hover:shadow-2xl hover:shadow-gray-200/50 hover:-translate-y-1">
+      <div className={`relative flex h-full flex-col overflow-hidden rounded-3xl bg-white border transition-all duration-500 hover:-translate-y-1 hover:shadow-2xl ${
+        isPreorder
+          ? 'border-violet-200 shadow-lg shadow-violet-100/60 hover:border-violet-300 hover:shadow-violet-200/60'
+          : 'border-gray-100 hover:border-gray-200 hover:shadow-gray-200/50'
+      }`} data-preorder={isPreorder ? '1' : undefined}>
         
         {/* Badges */}
         <div className="absolute left-4 top-4 z-20 flex flex-col gap-2">
+          {isPreorder && (
+            // На узких карточках (2 колонки на телефоне) широкий бейдж упирался в «сердечко» — на мобильном он компактнее
+            <span className="inline-flex items-center rounded-full bg-violet-600 px-2 py-0.5 text-[11px] font-semibold text-white shadow-sm shadow-violet-600/30 sm:px-3 sm:py-1 sm:text-sm">
+              Предзаказ
+            </span>
+          )}
           {product.badge && (
             <Badge variant={badgeVariant} size="md">
               {getBadgeText(product.badge)}
@@ -162,9 +195,9 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
         
         {/* Image area */}
         <Link to={`/product/${product.slug}`} className="block">
-          <div className="relative aspect-square overflow-hidden bg-gradient-to-br from-gray-50 via-white to-gray-50">
+          <div className={`relative aspect-square overflow-hidden bg-gradient-to-br ${isPreorder ? 'from-violet-50 via-white to-violet-50/60' : 'from-gray-50 via-white to-gray-50'}`}>
             {/* Animated background */}
-            <div className="absolute inset-0 bg-gradient-to-br from-yellow-50/0 to-yellow-100/0 transition-all duration-500 group-hover:from-yellow-50 group-hover:to-yellow-100/50" />
+            <div className={`absolute inset-0 bg-gradient-to-br transition-all duration-500 ${isPreorder ? 'from-violet-50/0 to-violet-100/0 group-hover:from-violet-50 group-hover:to-violet-100/60' : 'from-yellow-50/0 to-yellow-100/0 group-hover:from-yellow-50 group-hover:to-yellow-100/50'}`} />
             
             {/* Product image */}
             <div className="relative flex h-full items-center justify-center p-4 sm:p-8">
@@ -241,6 +274,11 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
               )}
             </div>
           </div>
+          {isPreorder && (
+            <div className="-mt-2 mb-3 sm:-mt-3 sm:mb-4">
+              <PreorderNote text={preorderNote} />
+            </div>
+          )}
           
           {/* Buttons */}
           <div className="space-y-2">
@@ -250,7 +288,9 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
               className={`relative w-full overflow-hidden rounded-xl py-2.5 sm:py-3 text-xs sm:text-sm font-semibold transition-all duration-300 ${
                 inCart || showAdded
                   ? 'bg-green-500 text-white'
-                  : 'bg-gray-900 text-white hover:bg-yellow-400 hover:text-gray-900'
+                  : isPreorder
+                    ? 'bg-violet-600 text-white hover:bg-violet-500 shadow-lg shadow-violet-600/20'
+                    : 'bg-gray-900 text-white hover:bg-yellow-400 hover:text-gray-900'
               } disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]`}
             >
               <span className={`flex items-center justify-center gap-2 transition-all duration-300 ${isAdding ? 'opacity-0' : 'opacity-100'}`}>
@@ -260,6 +300,14 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                     Добавлено
+                  </>
+                ) : isPreorder ? (
+                  <>
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <span className="sm:hidden">Предзаказ</span>
+                    <span className="hidden sm:inline">Оформить предзаказ</span>
                   </>
                 ) : (
                   <>
@@ -287,13 +335,17 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
                 navigate('/cart')
               }}
               disabled={!product.inStock}
-              className="hidden sm:block w-full rounded-xl border-2 border-yellow-400 py-2.5 text-sm font-semibold text-yellow-600 hover:bg-yellow-400 hover:text-gray-900 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+              className={`hidden sm:block w-full rounded-xl border-2 py-2.5 text-sm font-semibold transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] ${
+                isPreorder
+                  ? 'border-violet-200 text-violet-700 hover:border-violet-600 hover:bg-violet-600 hover:text-white'
+                  : 'border-yellow-400 text-yellow-600 hover:bg-yellow-400 hover:text-gray-900'
+              }`}
             >
               <span className="flex items-center justify-center gap-2">
                 <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
-                Купить в 1 клик
+                {isPreorder ? 'Предзаказ в 1 клик' : 'Купить в 1 клик'}
               </span>
             </button>
           </div>
@@ -304,7 +356,7 @@ export function ProductCard({ product, variant = 'default' }: ProductCardProps) 
               <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
-              Гарантия
+              {isPreorder ? 'Сообщим о поступлении' : 'Гарантия'}
             </span>
           </div>
         </div>

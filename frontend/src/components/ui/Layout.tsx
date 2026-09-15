@@ -54,7 +54,7 @@ export function Section({ children, className = '', bg = 'white', py = 'lg', id 
 
 interface BadgeProps {
   children: ReactNode
-  variant?: 'default' | 'success' | 'warning' | 'error' | 'yellow'
+  variant?: 'default' | 'success' | 'warning' | 'error' | 'yellow' | 'preorder'
   size?: 'sm' | 'md'
 }
 
@@ -65,6 +65,7 @@ export function Badge({ children, variant = 'default', size = 'sm' }: BadgeProps
     warning: 'bg-orange-100 text-orange-700',
     error: 'bg-red-100 text-red-700',
     yellow: 'bg-yellow-400 text-gray-900',
+    preorder: 'bg-violet-600 text-white shadow-sm shadow-violet-600/30',
   }
   
   const sizes = {

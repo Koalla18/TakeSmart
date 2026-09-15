@@ -45,6 +45,8 @@ function FilterSidebar({
   setPriceRange,
   inStockOnly,
   setInStockOnly,
+  preorderOnly,
+  setPreorderOnly,
   onReset,
   isMobile = false,
   onClose,
@@ -60,6 +62,8 @@ function FilterSidebar({
   setPriceRange: (v: [number, number]) => void
   inStockOnly: boolean
   setInStockOnly: (v: boolean) => void
+  preorderOnly: boolean
+  setPreorderOnly: (v: boolean) => void
   onReset: () => void
   isMobile?: boolean
   onClose?: () => void
@@ -219,6 +223,18 @@ function FilterSidebar({
           />
           <span className="text-sm text-gray-700">Только в наличии</span>
         </label>
+        <label className="mt-3 flex cursor-pointer items-center gap-3">
+          <input
+            type="checkbox"
+            checked={preorderOnly}
+            onChange={(e) => setPreorderOnly(e.target.checked)}
+            className="h-5 w-5 rounded border-gray-300 accent-violet-600 focus:ring-violet-400"
+          />
+          <span className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+            <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+            Предзаказ новинок
+          </span>
+        </label>
       </div>
       
       {/* Reset */}
@@ -258,6 +274,7 @@ export function CatalogPage() {
   const [selectedBrand, setSelectedBrand] = useState(searchParams.get('brand') || 'all')
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 999999999])
   const [inStockOnly, setInStockOnly] = useState(false)
+  const [preorderOnly, setPreorderOnly] = useState(searchParams.get('preorder') === '1')
   const [sort, setSort] = useState<SortOption>('popular')
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '')
 
@@ -451,9 +468,12 @@ export function CatalogPage() {
     // Price filter
     result = result.filter(p => p.price >= priceRange[0] && p.price <= priceRange[1])
     
-    // Stock filter
+    // Stock filter — предзаказ наличием не считается
     if (inStockOnly) {
-      result = result.filter(p => p.inStock)
+      result = result.filter(p => p.inStock && !p.preorder)
+    }
+    if (preorderOnly) {
+      result = result.filter(p => p.preorder)
     }
     
     // Smart search
@@ -512,13 +532,16 @@ export function CatalogPage() {
     }
     
     return result
-  }, [displayProducts, selectedCategory, selectedBrand, priceRange, inStockOnly, sort, searchQuery])
+  }, [displayProducts, selectedCategory, selectedBrand, priceRange, inStockOnly, preorderOnly, sort, searchQuery])
+
+  // Сколько новинок по предзаказу есть вообще — для плашки над сеткой
+  const preorderTotal = useMemo(() => displayProducts.filter(p => p.preorder).length, [displayProducts])
 
   // ─── Бесконечная прокрутка: рендерим порциями по PAGE_SIZE ──────────────────
   // Сбрасываем счётчик при смене фильтров (но НЕ при дозагрузке данных в фоне).
   useEffect(() => {
     setVisibleCount(PAGE_SIZE)
-  }, [selectedCategory, selectedBrand, priceRange[0], priceRange[1], inStockOnly, sort, searchQuery])
+  }, [selectedCategory, selectedBrand, priceRange[0], priceRange[1], inStockOnly, preorderOnly, sort, searchQuery])
 
   const visibleProducts = useMemo(
     () => filteredProducts.slice(0, visibleCount),
@@ -546,6 +569,7 @@ export function CatalogPage() {
     setSelectedBrand('all')
     setPriceRange([0, 999999999])
     setInStockOnly(false)
+    setPreorderOnly(false)
     setSearchQuery('')
   }
   
@@ -554,6 +578,7 @@ export function CatalogPage() {
     selectedBrand !== 'all',
     priceRange[0] > 0 || priceRange[1] < 999999999,
     inStockOnly,
+    preorderOnly,
   ].filter(Boolean).length
   
   return (
@@ -615,6 +640,8 @@ export function CatalogPage() {
               setPriceRange={setPriceRange}
               inStockOnly={inStockOnly}
               setInStockOnly={setInStockOnly}
+              preorderOnly={preorderOnly}
+              setPreorderOnly={setPreorderOnly}
               onReset={resetFilters}
               categoriesList={displayCategories}
               brandsList={displayBrands}
@@ -752,6 +779,15 @@ export function CatalogPage() {
                     <CloseIcon className="h-3 w-3" />
                   </button>
                 )}
+                {preorderOnly && (
+                  <button
+                    onClick={() => setPreorderOnly(false)}
+                    className="flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1.5 text-sm font-medium text-violet-800 transition hover:bg-violet-200"
+                  >
+                    Предзаказ
+                    <CloseIcon className="h-3 w-3" />
+                  </button>
+                )}
                 {activeFiltersCount > 0 && (
                   <button
                     onClick={resetFilters}
@@ -820,6 +856,37 @@ export function CatalogPage() {
               </div>
             </div>
             
+            {/* Новинки по предзаказу: плашка над сеткой, пока фильтр не включён */}
+            {!isLoading && preorderTotal > 0 && !preorderOnly && !searchQuery && (
+              <div className="mb-6 flex flex-col gap-3 overflow-hidden rounded-2xl bg-gray-900 p-4 text-white ring-1 ring-white/10 sm:flex-row sm:items-center sm:justify-between sm:p-5" data-preorder-strip>
+                <div className="flex items-center gap-3">
+                  <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-violet-500/20 text-violet-200">
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </span>
+                  <div>
+                    <div className="font-semibold">Новинки уже можно заказать</div>
+                    <div className="text-sm text-gray-400">
+                      {preorderTotal} {preorderTotal % 10 === 1 && preorderTotal % 100 !== 11 ? 'товар' : preorderTotal % 10 >= 2 && preorderTotal % 10 <= 4 && (preorderTotal % 100 < 10 || preorderTotal % 100 >= 20) ? 'товара' : 'товаров'} по предзаказу — без предоплаты, сообщим о поступлении
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPreorderOnly(true)}
+                    className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-500"
+                  >
+                    Показать здесь
+                  </button>
+                  <Link to="/preorder" className="rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10">
+                    Страница новинок
+                  </Link>
+                </div>
+              </div>
+            )}
+
             {/* Products Grid */}
             {isLoading ? (
               <div className={`grid ${
@@ -895,6 +962,8 @@ export function CatalogPage() {
               setPriceRange={setPriceRange}
               inStockOnly={inStockOnly}
               setInStockOnly={setInStockOnly}
+              preorderOnly={preorderOnly}
+              setPreorderOnly={setPreorderOnly}
               onReset={resetFilters}
               isMobile
               onClose={() => setShowMobileFilters(false)}

@@ -250,6 +250,9 @@ export function CartPage() {
     const noteParts: string[] = []
     noteParts.push(`Оплата: ${paymentLabel}`)
     noteParts.push(`Доставка: ${deliveryLabel}`)
+    // Предзаказ дублируем в примечание — сотрудник видит его даже там, где нет флага заказа
+    const preorderNames = items.filter(item => item.product.preorder).map(item => item.product.name)
+    if (preorderNames.length) noteParts.push(`Предзаказ: ${preorderNames.join(', ').slice(0, 240)}`)
     if (formData.comment.trim()) noteParts.push(`Комментарий: ${formData.comment.trim()}`)
 
     const shippingCity = deliveryMethod === 'pickup' ? 'Москва' : (addressFields.city.trim() || 'Москва')
@@ -482,6 +485,12 @@ export function CartPage() {
                       <div className="min-w-0 flex-1">
                         <div className="text-sm text-gray-500">{item.product.brand}</div>
                         <div className="line-clamp-2 font-semibold">{item.product.name}</div>
+                        {item.product.preorder && (
+                          <span className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 ring-1 ring-violet-100">
+                            <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+                            Предзаказ · {item.product.preorderNote || 'Скоро в продаже'}
+                          </span>
+                        )}
                         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
                           {/* Quantity */}
                           <div className="flex items-center gap-2 rounded-lg border px-2">
@@ -507,6 +516,16 @@ export function CartPage() {
                   ))}
                 </div>
                 
+                {/* Уведомление о предзаказе */}
+                {items.some(item => item.product.preorder) && (
+                  <div className="mt-4 rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900">
+                    <div className="font-semibold">🚀 В заказе есть товары по предзаказу</div>
+                    <p className="mt-1 text-violet-800/80">
+                      Они ещё не поступили в магазин. Предоплата не нужна: менеджер подтвердит заказ, а о поступлении мы сообщим первыми — тогда и договоримся о получении.
+                    </p>
+                  </div>
+                )}
+
                 {/* Уведомление о б/у технике */}
                 {items.some(item => item.product.condition === 'used') && (
                   <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">

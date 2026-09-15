@@ -28,6 +28,7 @@ interface PriceProduct {
   group_id: string | null
   attributes?: Record<string, string | number | boolean | null> | null
   is_active: boolean
+  is_preorder?: boolean
   // Появляется после миграции бэка; до неё поле отсутствует → считаем «не подтверждалась»
   price_updated_at?: string | null
 }
@@ -1267,6 +1268,11 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
                           </div>
                           {/* Характеристики и код — отдельной строкой на всю ширину под ценой: в узкой колонке названия чипы вставали столбиком и раздували строку */}
                           <div title={full} className={`mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 pl-3 ${dim}`}>
+                            {p.is_preorder && (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[11px] font-semibold leading-tight text-violet-300 ring-1 ring-inset ring-violet-400/30" title="Товар по предзаказу">
+                                <span className="h-1 w-1 rounded-full bg-violet-400" />Предзаказ
+                              </span>
+                            )}
                             {chips.map((chip) => (
                               <span key={chip} className="rounded-md bg-white/[0.07] px-1.5 py-0.5 text-[11px] leading-tight text-slate-300">{chip}</span>
                             ))}

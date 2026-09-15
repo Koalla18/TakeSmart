@@ -41,6 +41,7 @@ interface AppOrder {
   customer_note?: string | null; admin_note?: string | null
   shipping_address?: string | null; shipping_city?: string | null; shipping_postal_code?: string | null
   status: string; payment_status?: string; total_amount: number; items_count?: number; created_at: string
+  is_preorder?: boolean
 }
 interface OrderDetail extends AppOrder { items: OrderItem[] }
 
@@ -314,7 +315,10 @@ function OrderCard({ o, fresh, onOpen, onConfirm }: { o: AppOrder; fresh: boolea
       aria-label={`Заказ ${o.order_number}, ${o.customer_name || 'клиент'}, ${fmtRub(o.total_amount)}, ${cfg?.label || o.status}`}
       className={`w-full cursor-pointer rounded-2xl border bg-white/[0.04] p-4 text-left transition-all duration-500 active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${fresh ? 'border-yellow-400/50 bg-yellow-400/[0.07] shadow-lg shadow-yellow-400/10' : 'border-white/10 hover:border-white/20'}`}>
       <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-[13px] font-bold tracking-tight text-yellow-400">{o.order_number}</span>
+        <span className="flex items-center gap-2 font-mono text-[13px] font-bold tracking-tight text-yellow-400">
+          {o.order_number}
+          {o.is_preorder && <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 font-sans text-[10px] font-semibold tracking-normal text-violet-300 ring-1 ring-inset ring-violet-400/30"><span className="h-1 w-1 rounded-full bg-violet-400" />Предзаказ</span>}
+        </span>
         <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
           {fresh && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-yellow-400" />}{timeAgo(o.created_at)}
         </span>
@@ -413,7 +417,10 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange, onDeleted }: { ord
         {/* Header */}
         <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-3" style={SAFE_TOP}>
           <button onClick={close} aria-label="Закрыть" className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-lg text-slate-300 transition hover:bg-white/10 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/70">✕</button>
-          <span className="font-mono text-sm font-bold text-yellow-400">{order?.order_number || '…'}</span>
+          <span className="flex items-center gap-2 font-mono text-sm font-bold text-yellow-400">
+            {order?.order_number || '…'}
+            {order?.is_preorder && <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-violet-300 ring-1 ring-inset ring-violet-400/30">Предзаказ</span>}
+          </span>
           <span className="w-9" />
         </div>
 

@@ -12,6 +12,7 @@ import { AdminIcon } from './admin/AdminIcons'
 import { ADMIN_NAV, ADMIN_SECTION_META, CATEGORY_SEGMENTS, isAdminSection, type AdminSection } from './admin/adminNav'
 import { CommandPalette, type PaletteItem } from './admin/CommandPalette'
 import { OverviewTab } from './admin/OverviewTab'
+import { PreorderSection } from './admin/PreorderSection'
 import { PriceCommandBar } from '../components/PriceCommand'
 
 // ============ TYPES ============
@@ -39,6 +40,8 @@ interface Order {
   admin_note: string | null
   status: string
   payment_status: string
+  /** В заказе есть товар по предзаказу — сотрудник не ищет его на складе */
+  is_preorder?: boolean
   total_amount: number
   items_count: number
   created_at: string
@@ -169,6 +172,9 @@ interface Product {
   condition: string
   is_active: boolean
   is_featured: boolean
+  is_preorder?: boolean
+  preorder_note?: string | null
+  preorder_expected_at?: string | null
   category_id: string | null
   group_id: string | null
   attributes?: Record<string, string | number | boolean | null> | null
@@ -210,6 +216,15 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   delivered:  { label: 'Доставлен',   color: 'text-emerald-300', bg: 'bg-emerald-400/15' },
   cancelled:  { label: 'Отменён',     color: 'text-rose-300',    bg: 'bg-rose-400/15' },
   refunded:   { label: 'Возврат',     color: 'text-slate-300',   bg: 'bg-white/10' },
+}
+
+/** Фиолетовый чип «Предзаказ» — один вид в товарах, заказах и модалках */
+function PreorderChip({ title, className = '' }: { title?: string; className?: string }) {
+  return (
+    <span title={title} className={`inline-flex items-center gap-1.5 rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-semibold text-violet-300 ring-1 ring-inset ring-violet-400/30 ${className}`}>
+      <span className="h-1.5 w-1.5 rounded-full bg-violet-400" />Предзаказ
+    </span>
+  )
 }
 
 // Разделы админки описаны в ./admin/adminNav — там же группы бокового меню и заголовки
@@ -346,6 +361,7 @@ export function AdminPage() {
   }
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [priceCommandOpen, setPriceCommandOpen] = useState(false)
+  const [preorderAddOpen, setPreorderAddOpen] = useState(false)
   // Вид каркаса: «док» внизу или боковое меню — запоминается в браузере
   const [layout, setLayout] = useState<AdminLayoutMode>(readLayoutMode)
   const toggleLayout = () => setLayout(mode => { const next: AdminLayoutMode = mode === 'dock' ? 'sidebar' : 'dock'; storeLayoutMode(next); return next })
@@ -879,6 +895,8 @@ export function AdminPage() {
   const pagedOrders = filteredOrders.slice((safeOrderPage - 1) * ORDERS_PER_PAGE, safeOrderPage * ORDERS_PER_PAGE)
 
   const newProductsCount = products.filter(p => (p.condition || 'new') === 'new').length
+  const preorderCount = products.filter(p => p.is_preorder).length
+  const preorderWithoutDate = products.filter(p => p.is_preorder && !p.preorder_expected_at && !(p.preorder_note || '').trim()).length
   const categoriesWithoutSchema = categories.filter(category => getCategoryProductFields(category).length === 0).length
   const meta = ADMIN_SECTION_META[activeTab]
   const todayLabel = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -895,7 +913,11 @@ export function AdminPage() {
           : 'Новых заказов нет · клик по строке открывает состав, адрес и смену статуса')
       : activeTab === 'products'
         ? `${newProductsCount} ${pluralRu(newProductsCount, 'товар', 'товара', 'товаров')} в каталоге · скрыто ${hiddenCount} · без остатка ${outOfStockCount}`
-        : meta.description
+        : activeTab === 'preorder'
+          ? (preorderCount
+              ? `${preorderCount} ${pluralRu(preorderCount, 'товар', 'товара', 'товаров')} по предзаказу${preorderWithoutDate ? ` · без даты ${preorderWithoutDate}` : ''} · цену, дату и подпись можно править прямо в строке`
+              : meta.description)
+          : meta.description
   const pageLive = pendingOrders.length > 0 && (activeTab === 'orders' || activeTab === 'overview')
 
   // Главное действие раздела живёт в шапке, а не внутри списка — одна точка входа на экране
@@ -909,6 +931,8 @@ export function AdminPage() {
             <button type="button" onClick={() => { setEditingProduct(null); setIsUsedProductMode(false); setIsProductModalOpen(true) }} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Добавить товар</button>
           </>
         )
+      case 'preorder':
+        return <button type="button" onClick={() => setPreorderAddOpen(true)} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Добавить товары</button>
       case 'used':
         return <button type="button" onClick={() => { setEditingProduct(null); setIsUsedProductMode(true); setIsProductModalOpen(true) }} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Добавить Б/У товар</button>
       case 'categories':
@@ -983,7 +1007,7 @@ export function AdminPage() {
       <AdminShell
         active={meta.navId}
         onNavigate={setActiveTab}
-        counts={{ products: newProductsCount, categories: categories.length, brands: brands.length, banners: banners.length, tradein: tradeInOffers.length }}
+        counts={{ products: newProductsCount, preorder: preorderCount, categories: categories.length, brands: brands.length, banners: banners.length, tradein: tradeInOffers.length }}
         attention={{ orders: pendingOrders.length }}
         title={meta.title}
         eyebrow={meta.eyebrow}
@@ -1112,7 +1136,10 @@ export function AdminPage() {
                             idx !== pagedOrders.length - 1 ? 'border-b border-white/5' : ''
                           }`}
                         >
-                          <span className="font-mono text-sm font-bold text-yellow-400">{order.order_number}</span>
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="font-mono text-sm font-bold text-yellow-400">{order.order_number}</span>
+                            {order.is_preorder && <PreorderChip />}
+                          </div>
 
                           <div className="pr-4 min-w-0">
                             <div className="text-sm font-semibold text-white truncate">{order.customer_name}</div>
@@ -1157,7 +1184,7 @@ export function AdminPage() {
                         className="cursor-pointer rounded-2xl border border-white/10 bg-white/5 p-4 transition-colors hover:bg-white/10"
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-mono text-sm font-bold text-yellow-400">{order.order_number}</span>
+                          <span className="flex items-center gap-2 font-mono text-sm font-bold text-yellow-400">{order.order_number}{order.is_preorder && <PreorderChip />}</span>
                           <span className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold ${cfg?.bg || 'bg-white/10'} ${cfg?.color || 'text-slate-300'}`}>
                             <span className="h-1.5 w-1.5 rounded-full bg-current" />{cfg?.label || order.status}
                           </span>
@@ -1212,6 +1239,20 @@ export function AdminPage() {
             authFetch={authFetch}
             onCreateGroup={() => setIsGroupModalOpen(true)}
             hideActions
+          />
+        )}
+
+        {/* ============ PREORDER TAB ============ */}
+        {activeTab === 'preorder' && (
+          <PreorderSection
+            products={products}
+            categories={categories}
+            authFetch={authFetch}
+            imageUrl={getImageUrl}
+            onEdit={(p) => { setEditingProduct(p); setIsUsedProductMode(false); setIsProductModalOpen(true) }}
+            onRefresh={loadProducts}
+            addOpen={preorderAddOpen}
+            setAddOpen={setPreorderAddOpen}
           />
         )}
 
@@ -1880,6 +1921,7 @@ function ProductsSection({
                               : <>{product.name}</>         
                           })()}
                           {product.is_featured && <span className="text-yellow-400" title="Хит продаж"><AdminIcon name="star" className="h-3.5 w-3.5" /></span>}
+                          {product.is_preorder && <PreorderChip title={product.preorder_note || (product.preorder_expected_at ? `Ожидается ${product.preorder_expected_at}` : 'Скоро в продаже')} />}
                           {!product.is_active && <span className="text-red-400 text-xs">(скрыт)</span>}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
@@ -1907,9 +1949,11 @@ function ProductsSection({
                     <span className={`rounded px-2 py-1 text-xs ${
                       product.stock_quantity > 0 
                         ? 'bg-emerald-400/15 text-emerald-300' 
-                        : 'bg-rose-400/15 text-rose-300'
+                        : product.is_preorder
+                          ? 'bg-violet-500/15 text-violet-300'
+                          : 'bg-rose-400/15 text-rose-300'
                     }`}>
-                      {product.stock_quantity > 0 ? `✓ ${product.stock_quantity} шт.` : '✗ Нет'}
+                      {product.stock_quantity > 0 ? `✓ ${product.stock_quantity} шт.` : product.is_preorder ? '◷ Предзаказ' : '✗ Нет'}
                     </span>
                   </td>
                   <td className="p-4">
@@ -1961,6 +2005,7 @@ function ProductsSection({
                     <div className="flex items-start gap-2">
                       <div className="font-semibold text-white">{product.name}</div>
                       {product.is_featured && <span className="text-yellow-400" title="Хит продаж"><AdminIcon name="star" className="h-3.5 w-3.5" /></span>}
+                      {product.is_preorder && <PreorderChip />}
                       {!product.is_active && <span className="text-xs text-red-400">(скрыт)</span>}
                     </div>
                     <div className="mt-0.5 text-sm text-slate-400">
@@ -1968,8 +2013,8 @@ function ProductsSection({
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
                       <span className="font-semibold text-yellow-400">{formatPrice(product.price)}</span>
-                      <span className={`rounded px-2 py-0.5 text-xs ${product.stock_quantity > 0 ? 'bg-emerald-400/15 text-emerald-300' : 'bg-rose-400/15 text-rose-300'}`}>
-                        {product.stock_quantity > 0 ? `✓ ${product.stock_quantity} шт.` : '✗ Нет'}
+                      <span className={`rounded px-2 py-0.5 text-xs ${product.stock_quantity > 0 ? 'bg-emerald-400/15 text-emerald-300' : product.is_preorder ? 'bg-violet-500/15 text-violet-300' : 'bg-rose-400/15 text-rose-300'}`}>
+                        {product.stock_quantity > 0 ? `✓ ${product.stock_quantity} шт.` : product.is_preorder ? '◷ Предзаказ' : '✗ Нет'}
                       </span>
                     </div>
                   </div>
@@ -2033,6 +2078,7 @@ function OrderModal({
             <span className={`inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-semibold ${cfg?.bg || 'bg-white/10'} ${cfg?.color || 'text-slate-300'}`}>
               <span className="h-1.5 w-1.5 rounded-full bg-current" />{cfg?.label || order.status}
             </span>
+            {order.is_preorder && <PreorderChip title="Есть товары по предзаказу — они ещё не поступили" className="text-xs" />}
           </div>
           <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white text-xl transition">×</button>
         </div>
@@ -2246,6 +2292,9 @@ function ProductModal({
   )
   const [isActive, setIsActive] = useState(product?.is_active ?? true)
   const [isFeatured, setIsFeatured] = useState(product?.is_featured ?? false)
+  const [isPreorder, setIsPreorder] = useState(product?.is_preorder ?? false)
+  const [preorderNote, setPreorderNote] = useState(product?.preorder_note || '')
+  const [preorderDate, setPreorderDate] = useState(product?.preorder_expected_at || '')
 
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -2324,6 +2373,9 @@ function ProductModal({
       stock_quantity: parseInt(stockStr) || 0,
       is_active: isActive,
       is_featured: isFeatured,
+      is_preorder: isPreorder,
+      preorder_note: isPreorder ? (preorderNote.trim() || null) : null,
+      preorder_expected_at: isPreorder ? (preorderDate || null) : null,
       condition,
       description: description ? description.slice(0, MAX_DESC) : null,
       short_description: shortDesc || null,
@@ -2951,6 +3003,25 @@ function ProductModal({
                 <option value="used">♻️ Б/У</option>
               </select>
             </div>
+          </div>
+
+          {/* Предзаказ */}
+          <div className={`rounded-xl border p-4 transition-colors ${isPreorder ? 'border-violet-400/30 bg-violet-500/10' : 'border-white/5 bg-white/5'}`} data-preorder-block>
+            <label className="flex cursor-pointer items-center gap-2 text-white">
+              <input type="checkbox" checked={isPreorder} onChange={e => setIsPreorder(e.target.checked)} className="h-5 w-5 rounded accent-violet-500" />
+              <span>🚀 Предзаказ</span>
+              <span className="text-sm text-slate-400">— можно заказать до поступления, остаток не проверяется</span>
+            </label>
+            {isPreorder && (
+              <div className="mt-3 grid gap-3 sm:grid-cols-[180px_1fr]">
+                <label className="text-sm text-slate-400">Ожидается
+                  <input type="date" value={preorderDate} onChange={e => setPreorderDate(e.target.value)} className="mt-1 w-full rounded-lg bg-white/10 px-3 py-2 text-white focus:bg-white/20 focus:outline-none" />
+                </label>
+                <label className="text-sm text-slate-400">Подпись на сайте
+                  <input value={preorderNote} onChange={e => setPreorderNote(e.target.value.slice(0, 200))} placeholder={preorderDate ? 'Пусто — покажем дату' : 'Например: Старт продаж 26 сентября'} className="mt-1 w-full rounded-lg bg-white/10 px-3 py-2 text-white placeholder:text-slate-500 focus:bg-white/20 focus:outline-none" />
+                </label>
+              </div>
+            )}
           </div>
 
           {/* Error */}

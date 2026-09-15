@@ -19,6 +19,7 @@ const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m
 const OfferPage = lazy(() => import('./pages/OfferPage').then(m => ({ default: m.OfferPage })))
 const PersonalDataPage = lazy(() => import('./pages/PersonalDataPage').then(m => ({ default: m.PersonalDataPage })))
 const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage').then(m => ({ default: m.PrivacyPolicyPage })))
+const PreorderPage = lazy(() => import('./pages/PreorderPage').then(m => ({ default: m.PreorderPage })))
 const ProductPage = lazy(() => import('./pages/ProductPage').then(m => ({ default: m.ProductPage })))
 const TradeInPage = lazy(() => import('./pages/TradeInPage').then(m => ({ default: m.TradeInPage })))
 const UsedPage = lazy(() => import('./pages/UsedPage').then(m => ({ default: m.UsedPage })))
@@ -107,6 +108,7 @@ export default function App() {
             {/* Public routes (with Shell) */}
             <Route path="/" element={<Shell><HomePage /></Shell>} />
             <Route path="/catalog" element={<Shell><CatalogPage /></Shell>} />
+            <Route path="/preorder" element={<Shell><PreorderPage /></Shell>} />
             <Route path="/product/:id" element={<Shell><ProductPage /></Shell>} />
             <Route path="/cart" element={<Shell><CartPage /></Shell>} />
             <Route path="/delivery" element={<Shell><DeliveryPage /></Shell>} />

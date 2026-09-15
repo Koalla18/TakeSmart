@@ -143,12 +143,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
           oldPrice: currentProduct.oldPrice,
           inStock: currentProduct.inStock,
           stockQuantity: currentProduct.stockQuantity,
+          preorder: currentProduct.preorder,
+          preorderNote: currentProduct.preorderNote,
         }
 
         const isUnchanged = product.price === item.product.price
           && product.oldPrice === item.product.oldPrice
           && product.inStock === item.product.inStock
           && product.stockQuantity === item.product.stockQuantity
+          && product.preorder === item.product.preorder
+          && product.preorderNote === item.product.preorderNote
         if (isUnchanged) return item
         hasChanges = true
         return { ...item, product }

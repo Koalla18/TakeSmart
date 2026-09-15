@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
-import { formatPrice, formatProductName } from '../data/products'
+import { formatPrice, formatProductName, preorderLabel } from '../data/products'
 import { useCart } from '../lib/cart'
 import { API_BASE_URL } from '../lib/config'
 import type { Product as CartProduct } from '../data/products'
@@ -482,6 +482,9 @@ interface ApiProduct {
   stock_quantity: number
   is_active: boolean
   is_featured: boolean
+  is_preorder?: boolean
+  preorder_note?: string | null
+  preorder_expected_at?: string | null
   main_image_url: string | null
   images?: ProductImage[]
   attributes?: Record<string, string | number | boolean | null>
@@ -708,6 +711,11 @@ export function ProductPage() {
   const effectivePrice = apiProduct?.discount_price ?? apiProduct?.price ?? 0
   const effectiveOldPrice = apiProduct?.discount_price ? apiProduct.price : null
   const effectiveStock = selectedVariant?.stock_quantity ?? apiProduct?.stock_quantity ?? 0
+  // Предзаказ: остаток не ограничивает покупку — это бронь до поступления
+  const isPreorder = Boolean(apiProduct?.is_preorder)
+  const preorderText = isPreorder ? preorderLabel(apiProduct?.preorder_note, apiProduct?.preorder_expected_at) : ''
+  const canBuy = isPreorder || effectiveStock > 0
+  const maxQuantity = isPreorder ? 15 : effectiveStock
   // Image: first look for a color-specific photo, then fall back to product main photo
   const effectiveImage = useMemo(() => {
     if (selectedColor) {
@@ -764,11 +772,13 @@ export function ProductPage() {
         categorySlug: '',
         price: Number(effectivePrice),
         oldPrice: effectiveOldPrice != null ? Number(effectiveOldPrice) : undefined,
-        inStock: effectiveStock > 0,
-        stockQuantity: effectiveStock,
+        inStock: canBuy,
+        stockQuantity: isPreorder ? undefined : effectiveStock,
         image: effectiveImage || '📦',
         description: apiProduct!.description || '',
         condition: apiProduct!.condition || 'new',
+        preorder: isPreorder || undefined,
+        preorderNote: isPreorder ? preorderText : undefined,
         specs: [
           apiProduct!.brand && { label: 'Бренд', value: apiProduct!.brand },
           apiProduct!.model && { label: 'Модель', value: apiProduct!.model },
@@ -869,21 +879,25 @@ export function ProductPage() {
                   ref={galleryRef}
                   className="relative overflow-hidden rounded-3xl bg-white group"
                 >
-                  {/* Badge */}
-                  {apiProduct.is_featured && (
-                    <div className="absolute left-4 top-4 z-10">
+                  {/* Badges */}
+                  <div className="absolute left-4 top-4 z-10 flex flex-col items-start gap-2">
+                    {isPreorder && (
+                      <span className="inline-flex items-center gap-2 rounded-full bg-violet-600 px-4 py-1.5 text-sm font-semibold text-white shadow-lg shadow-violet-600/30">
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+                        Предзаказ
+                      </span>
+                    )}
+                    {apiProduct.is_featured && (
                       <span className="rounded-full bg-yellow-400 px-4 py-1.5 text-sm font-semibold text-gray-900">
                         Хит
                       </span>
-                    </div>
-                  )}
-                  {apiProduct.discount_price && (
-                    <div className={`absolute left-4 ${apiProduct.is_featured ? 'top-14' : 'top-4'} z-10`}>
+                    )}
+                    {apiProduct.discount_price && (
                       <span className="rounded-full bg-red-500 px-4 py-1.5 text-sm font-semibold text-white">
                         -{Math.round((1 - apiProduct.discount_price / apiProduct.price) * 100)}%
                       </span>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
                   {/* Sliding strip */}
                   <div
@@ -1040,7 +1054,14 @@ export function ProductPage() {
                 
                 {/* Stock status */}
                 <div className="mb-4">
-                  {effectiveStock > 0 ? (
+                  {isPreorder ? (
+                    <span className="inline-flex items-center gap-2 rounded-full bg-violet-50 px-3 py-1.5 text-sm font-semibold text-violet-700 ring-1 ring-violet-100" data-preorder-status>
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      Предзаказ · {preorderText}
+                    </span>
+                  ) : effectiveStock > 0 ? (
                     <span className="inline-flex items-center gap-1.5 text-sm text-green-600">
                       <CheckIcon className="h-4 w-4" />
                       В наличии
@@ -1867,8 +1888,10 @@ export function ProductPage() {
                       <span className="w-6 text-center text-base font-semibold">{quantity}</span>
                       <button
                         onClick={() => {
-                          if (quantity >= effectiveStock) {
-                            setStockWarning(`К сожалению, товар закончился. Вы можете заказать только ${effectiveStock} шт. или выбрать другой товар.`)
+                          if (quantity >= maxQuantity) {
+                            setStockWarning(isPreorder
+                              ? `По предзаказу можно оформить не больше ${maxQuantity} шт. одного товара.`
+                              : `К сожалению, товар закончился. Вы можете заказать только ${effectiveStock} шт. или выбрать другой товар.`)
                           } else {
                             setStockWarning(null)
                             setQuantity(q => q + 1)
@@ -1883,10 +1906,14 @@ export function ProductPage() {
                     {/* Add to cart button */}
                     <button
                       onClick={handleAddToCart}
-                      disabled={effectiveStock <= 0}
-                      className="flex-1 rounded-xl bg-yellow-400 px-6 py-3 text-sm font-semibold text-gray-900 shadow-sm transition-all hover:bg-yellow-500 hover:shadow-md active:scale-[0.98] disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none sm:text-base sm:py-3.5"
+                      disabled={!canBuy}
+                      className={`flex-1 rounded-xl px-6 py-3 text-sm font-semibold shadow-sm transition-all hover:shadow-md active:scale-[0.98] disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none sm:py-3.5 sm:text-base ${
+                        isPreorder
+                          ? 'bg-violet-600 text-white shadow-violet-600/25 hover:bg-violet-500'
+                          : 'bg-yellow-400 text-gray-900 hover:bg-yellow-500'
+                      }`}
                     >
-                      Добавить в корзину
+                      {isPreorder ? 'Оформить предзаказ' : 'Добавить в корзину'}
                     </button>
 
                     {/* Call button */}
@@ -1900,6 +1927,16 @@ export function ProductPage() {
                   {stockWarning && (
                     <div className="rounded-lg bg-orange-50 border border-orange-200 px-4 py-3 text-sm text-orange-800">
                       {stockWarning}
+                    </div>
+                  )}
+                  {isPreorder && (
+                    <div className="rounded-2xl border border-violet-100 bg-violet-50/70 p-4" data-preorder-howto>
+                      <div className="mb-2 text-sm font-semibold text-violet-900">Как работает предзаказ</div>
+                      <ol className="space-y-1.5 text-sm text-violet-900/80">
+                        <li className="flex gap-2"><span className="font-mono text-xs font-bold text-violet-500">01</span>Оформляете заказ как обычно — без предоплаты</li>
+                        <li className="flex gap-2"><span className="font-mono text-xs font-bold text-violet-500">02</span>Менеджер подтверждает заказ и закрепляет товар за вами</li>
+                        <li className="flex gap-2"><span className="font-mono text-xs font-bold text-violet-500">03</span>Сообщаем о поступлении — заберёте в магазине или доставим</li>
+                      </ol>
                     </div>
                   )}
                 </div>
