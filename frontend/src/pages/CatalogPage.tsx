@@ -548,7 +548,14 @@ export function CatalogPage() {
   }, [displayProducts, selectedCategory, selectedBrand, priceRange, inStockOnly, preorderOnly, preorderInCatalog, sort, searchQuery])
 
   // Новинки по предзаказу — для чипа, пункта в сайдбаре и блока над сеткой
-  const preorderProducts = useMemo(() => displayProducts.filter(p => p.preorder), [displayProducts])
+  // Ближайшие поступления первыми (как на /preorder), без даты — в конце
+  const preorderProducts = useMemo(() => displayProducts.filter(p => p.preorder).sort((a, b) => {
+    const da = a.preorderExpectedAt || '', db = b.preorderExpectedAt || ''
+    if (da && db && da !== db) return da < db ? -1 : 1
+    if (da && !db) return -1
+    if (!da && db) return 1
+    return a.name.localeCompare(b.name, 'ru')
+  }), [displayProducts])
   const preorderTotal = preorderProducts.length
 
   // ─── Бесконечная прокрутка: рендерим порциями по PAGE_SIZE ──────────────────

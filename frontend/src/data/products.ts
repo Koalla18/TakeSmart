@@ -19,6 +19,8 @@ export interface Product {
   preorder?: boolean
   /** Готовая подпись для витрины: «Старт продаж 26 сентября» / «Ожидается 26 сентября» */
   preorderNote?: string
+  /** Ожидаемая дата поступления (YYYY-MM-DD) — чтобы ближайшие новинки шли первыми */
+  preorderExpectedAt?: string
 }
 
 /**
@@ -186,6 +188,7 @@ export function mapApiProduct(
     specs: [],
     preorder: preorder || undefined,
     preorderNote: preorder ? preorderLabel(p.preorder_note, p.preorder_expected_at) : undefined,
+    preorderExpectedAt: preorder ? (p.preorder_expected_at || undefined) : undefined,
   }
 }
 
