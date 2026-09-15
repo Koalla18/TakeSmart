@@ -23,6 +23,7 @@ from src.app.api.routers import (
     feed_router,
     brands_router,
     trade_in_router,
+    site_settings_router,
 )
 from src.app.api.routers.analytics import router as analytics_router
 from src.app.api.admin.endpoints import router as admin_router
@@ -198,6 +199,7 @@ def create_app() -> FastAPI:
     app.include_router(push_router,           prefix=prefix)
     app.include_router(media_router,          prefix=prefix)
     app.include_router(feed_router,           prefix=prefix)
+    app.include_router(site_settings_router,  prefix=prefix)
     app.include_router(brands_router,         prefix=prefix)
     app.include_router(trade_in_router,       prefix=prefix)
     app.include_router(analytics_router,      prefix=prefix)

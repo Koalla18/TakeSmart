@@ -17,6 +17,7 @@ from src.app.database.repositories.hero_banner_repository import HeroBannerRepos
 from src.app.database.repositories.order_repository import OrderRepository, OrderItemRepository
 from src.app.database.repositories.brand_repository import BrandRepository
 from src.app.database.repositories.trade_in_offer_repository import TradeInOfferRepository
+from src.app.database.repositories.site_setting_repository import SiteSettingRepository
 
 
 class UnitOfWork:
@@ -63,6 +64,7 @@ class UnitOfWork:
         self.order_items = OrderItemRepository(self._session)
         self.brands = BrandRepository(self._session)
         self.trade_in_offers = TradeInOfferRepository(self._session)
+        self.site_settings = SiteSettingRepository(self._session)
 
     async def commit(self) -> None:
         """Зафиксировать все изменения транзакции."""
