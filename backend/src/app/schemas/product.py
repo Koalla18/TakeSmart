@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Any, Optional
 
@@ -28,6 +28,9 @@ class ProductCreate(BaseModel):
     condition: str = Field("new", pattern="^(new|used)$", description="Состояние: new или used")
     is_active: bool = Field(True)
     is_featured: bool = Field(False)
+    is_preorder: bool = Field(False, description="Товар доступен по предзаказу — заказ не списывает остаток")
+    preorder_note: Optional[str] = Field(None, max_length=200, examples=["Старт продаж 26 сентября"])
+    preorder_expected_at: Optional[date] = Field(None, description="Ожидаемая дата поступления")
     category_id: Optional[uuid.UUID] = None
     group_id: Optional[uuid.UUID] = Field(None, description="ID группы товаров (для объединения карточек по цветам)")
 
@@ -79,6 +82,9 @@ class ProductUpdate(BaseModel):
     condition: Optional[str] = Field(None, pattern="^(new|used)$", description="Состояние: new или used")
     is_active: Optional[bool] = None
     is_featured: Optional[bool] = None
+    is_preorder: Optional[bool] = Field(None, description="Товар доступен по предзаказу")
+    preorder_note: Optional[str] = Field(None, max_length=200)
+    preorder_expected_at: Optional[date] = None
     category_id: Optional[uuid.UUID] = None
     group_id: Optional[uuid.UUID] = Field(None, description="ID группы товаров")
 
@@ -96,7 +102,8 @@ class ProductUpdate(BaseModel):
 
     @model_validator(mode="after")
     def at_least_one_field(self) -> "ProductUpdate":
-        if not any(v is not None for v in self.model_dump().values()):
+        # Явный null тоже правка (например, сброс даты предзаказа) — смотрим на переданные поля
+        if not self.model_fields_set:
             raise ValueError("Необходимо передать хотя бы одно поле для обновления")
         return self
 
@@ -127,6 +134,9 @@ class ProductOut(BaseModel):
     condition: str = "new"
     is_active: bool
     is_featured: bool
+    is_preorder: bool = False
+    preorder_note: Optional[str] = None
+    preorder_expected_at: Optional[date] = None
     category_id: Optional[uuid.UUID]
     group_id: Optional[uuid.UUID] = None
     created_at: datetime
@@ -173,6 +183,20 @@ class BulkPricesOut(BaseModel):
         default_factory=list,
         description="ID из запроса, которых нет в БД (не валят запрос)",
     )
+
+
+class BulkPreorderIn(BaseModel):
+    """Массово отметить/снять предзаказ. Заметка и дата применяются, только если
+    переданы в теле (PATCH-семантика по полям): снятие предзаказа их очищает."""
+    product_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=1000)
+    is_preorder: bool = Field(..., description="True — в предзаказ, False — снять")
+    preorder_note: Optional[str] = Field(None, max_length=200)
+    preorder_expected_at: Optional[date] = None
+
+
+class BulkPreorderOut(BaseModel):
+    updated: int
+    not_found: list[uuid.UUID] = Field(default_factory=list)
 
 
 class PriceCommandIn(BaseModel):

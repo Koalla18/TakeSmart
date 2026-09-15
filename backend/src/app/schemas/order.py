@@ -86,6 +86,7 @@ class OrderOut(BaseModel):
     total_amount: Decimal
     status: str
     payment_status: str
+    is_preorder: bool = False
     customer_note: Optional[str]
     admin_note: Optional[str]
     created_at: datetime

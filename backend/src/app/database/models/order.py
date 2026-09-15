@@ -6,7 +6,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Text, Numeric, Integer, ForeignKey, func
+from sqlalchemy import String, Text, Numeric, Integer, Boolean, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -66,6 +66,13 @@ class Order(Base):
     )
     payment_status: Mapped[str] = mapped_column(
         String(20), default=PaymentStatus.UNPAID, nullable=False
+    )
+
+    # В заказе есть хотя бы один товар по предзаказу — админка и PWA помечают
+    # такой заказ, чтобы сотрудник не искал товар на складе.
+    is_preorder: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False,
+        comment="Заказ содержит товары по предзаказу",
     )
 
     # Заметки

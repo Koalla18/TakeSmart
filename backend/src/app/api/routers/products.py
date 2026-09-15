@@ -19,6 +19,8 @@ from src.app.database.unit_of_work import UnitOfWork
 from src.app.schemas.common import PaginatedResponse
 from src.app.core.price_command import match_products, parse_command, resolve_targets
 from src.app.schemas.product import (
+    BulkPreorderIn,
+    BulkPreorderOut,
     BulkPricesIn,
     BulkPricesOut,
     PriceCommandIn,
@@ -106,6 +108,7 @@ async def list_products(
     min_price: Decimal | None = Query(None, gt=0, description="Минимальная цена"),
     max_price: Decimal | None = Query(None, gt=0, description="Максимальная цена"),
     condition: str | None = Query(None, pattern="^(new|used)$", description="Фильтр по состоянию: new или used"),
+    preorder: bool | None = Query(None, description="true — только предзаказ, false — без предзаказа"),
     attrs: str | None = Query(
         None,
         description=(
@@ -170,6 +173,9 @@ async def list_products(
     if condition:
         items = [p for p in items if getattr(p, 'condition', 'new') == condition]
         total = len(items)
+    if preorder is not None:
+        items = [p for p in items if bool(getattr(p, "is_preorder", False)) == preorder]
+        total = len(items)
 
     return PaginatedResponse(
         items=items,
@@ -192,6 +198,62 @@ async def list_featured_products(
         items = await uow.products.get_featured(limit=limit)
     logger.info("featured_products_listed", count=len(items))
     return items
+
+
+@router.get(
+    "/preorder",
+    response_model=PaginatedResponse[ProductOut],
+    summary="Товары по предзаказу (витрина)",
+    description=(
+        "Активные товары с `is_preorder=true`. Порядок: сначала с известной датой "
+        "поступления (ближайшие первыми), затем без даты — новые сверху."
+    ),
+)
+async def list_preorder_products(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+) -> PaginatedResponse[ProductOut]:
+    async with UnitOfWork() as uow:
+        items = await uow.products.get_preorder(offset=offset, limit=limit)
+        total = await uow.products.count_preorder()
+    return PaginatedResponse(
+        items=items, total=total, offset=offset, limit=limit,
+        has_next=offset + len(items) < total,
+    )
+
+
+# ВАЖНО: объявлен РАНЬШЕ роутов с /{product_id}, чтобы "preorder" не парсился как UUID.
+@router.post(
+    "/preorder/bulk",
+    response_model=BulkPreorderOut,
+    summary="Массово отметить или снять предзаказ",
+    description=(
+        "Ставит `is_preorder` пачке товаров одной транзакцией. При включении можно "
+        "сразу задать общую подпись и ожидаемую дату — они применяются только если "
+        "переданы в теле. Снятие предзаказа очищает подпись и дату. "
+        "Несуществующие id возвращаются в `not_found`."
+    ),
+    dependencies=[Depends(get_current_admin)],
+)
+async def bulk_preorder(body: BulkPreorderIn) -> BulkPreorderOut:
+    async with UnitOfWork() as uow:
+        products = await uow.products.get_by_ids(body.product_ids)
+        by_id = {p.id: p for p in products}
+        for product in products:
+            product.is_preorder = body.is_preorder
+            if body.is_preorder:
+                if "preorder_note" in body.model_fields_set:
+                    product.preorder_note = body.preorder_note
+                if "preorder_expected_at" in body.model_fields_set:
+                    product.preorder_expected_at = body.preorder_expected_at
+            else:
+                product.preorder_note = None
+                product.preorder_expected_at = None
+        await uow.commit()
+        not_found = [pid for pid in dict.fromkeys(body.product_ids) if pid not in by_id]
+
+    logger.info("bulk_preorder_updated", count=len(by_id), is_preorder=body.is_preorder, not_found=len(not_found))
+    return BulkPreorderOut(updated=len(by_id), not_found=not_found)
 
 
 # ВАЖНО: объявлен РАНЬШЕ роутов с /{product_id}, чтобы "prices" не парсился как UUID.
@@ -526,6 +588,11 @@ async def update_product(product_id: UUID, body: ProductUpdate) -> ProductDetail
             )
 
         update_data = body.model_dump(exclude_unset=True, exclude={"specs"})
+
+        # Снятие предзаказа очищает подпись и дату — на витрине они больше не нужны
+        if update_data.get("is_preorder") is False:
+            update_data.setdefault("preorder_note", None)
+            update_data.setdefault("preorder_expected_at", None)
 
         # Сотрудник трогал цену или скидку — штампуем подтверждение цены
         if "price" in body.model_fields_set or "discount_price" in body.model_fields_set:

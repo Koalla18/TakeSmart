@@ -89,6 +89,29 @@ class ProductRepository(BaseRepository[Product]):
         )
         return result.scalars().all()
 
+    async def get_preorder(self, *, offset: int = 0, limit: int = 100) -> Sequence[Product]:
+        """Активные товары по предзаказу. Сначала те, у кого известна дата поступления
+        (ближайшие первыми), затем без даты — новые сверху."""
+        result = await self.session.execute(
+            select(Product)
+            .where(Product.is_preorder.is_(True), Product.is_active.is_(True))
+            .order_by(
+                Product.preorder_expected_at.asc().nulls_last(),
+                Product.created_at.desc(),
+            )
+            .offset(offset)
+            .limit(limit)
+        )
+        return result.scalars().all()
+
+    async def count_preorder(self) -> int:
+        result = await self.session.execute(
+            select(func.count(Product.id)).where(
+                Product.is_preorder.is_(True), Product.is_active.is_(True)
+            )
+        )
+        return int(result.scalar() or 0)
+
     async def get_featured(self, *, limit: int = 20) -> Sequence[Product]:
         """Получить товары на витрине (is_featured=True)."""
         result = await self.session.execute(

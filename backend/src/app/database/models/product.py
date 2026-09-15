@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Optional
 
-from sqlalchemy import String, Text, Boolean, DateTime, Numeric, Integer, ForeignKey, func, Index
+from sqlalchemy import String, Text, Boolean, Date, DateTime, Numeric, Integer, ForeignKey, func, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -79,6 +79,22 @@ class Product(Base):
     # Статусы
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Предзаказ: товар ещё не поступил, но его можно заказать заранее.
+    # Заказ по предзаказу не проверяет и не списывает остаток — это бронь,
+    # а не покупка со склада. Дата и заметка — для витрины («Ожидается 26 сентября»).
+    is_preorder: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False, index=True,
+        comment="Товар доступен по предзаказу (до поступления на склад)",
+    )
+    preorder_note: Mapped[str | None] = mapped_column(
+        String(200), nullable=True,
+        comment="Подпись для витрины: «Старт продаж 26 сентября», «Ожидается в октябре»",
+    )
+    preorder_expected_at: Mapped[date | None] = mapped_column(
+        Date, nullable=True,
+        comment="Ожидаемая дата поступления (для подписи и сортировки предзаказов)",
+    )
 
     # Категория
     category_id: Mapped[uuid.UUID | None] = mapped_column(

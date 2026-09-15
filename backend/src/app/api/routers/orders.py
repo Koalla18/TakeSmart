@@ -146,7 +146,8 @@ async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> 
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=f"Товар '{product.name}' недоступен для заказа",
                 )
-            if product.stock_quantity < item_in.quantity:
+            # Предзаказ — бронь до поступления: остаток не проверяем и не списываем
+            if not product.is_preorder and product.stock_quantity < item_in.quantity:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(
@@ -167,6 +168,7 @@ async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> 
             })
 
         total_amount = subtotal  # shipping_cost и discount в будущем
+        has_preorder = any(line["product"].is_preorder for line in order_lines)
 
         # ── 2. Создаём заказ ──────────────────────────────────────────
         order = await uow.orders.create(
@@ -182,6 +184,7 @@ async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> 
             discount_amount=Decimal("0.00"),
             shipping_cost=Decimal("0.00"),
             total_amount=total_amount,
+            is_preorder=has_preorder,
         )
 
         # ── 3. Создаём позиции и списываем остатки ────────────────────
@@ -196,7 +199,8 @@ async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> 
                 unit_price=line["unit_price"],
                 total_price=line["total_price"],
             )
-            await uow.products.decrement_stock(product.id, line["quantity"])
+            if not product.is_preorder:
+                await uow.products.decrement_stock(product.id, line["quantity"])
 
         await uow.commit()
 
@@ -209,6 +213,7 @@ async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> 
         order_number=order.order_number,
         total=str(order.total_amount),
         items=len(order.items),
+        preorder=order.is_preorder,
     )
 
     # Telegram отключён по просьбе владельца — уведомления о новых заказах идут
