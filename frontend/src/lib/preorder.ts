@@ -59,9 +59,28 @@ export interface PreorderState {
   /** Показывать предзаказ и в общем каталоге */
   inCatalog: boolean
   products: ApiProductOut[]
+  /** Витрина (блок на главной и в каталоге): отмеченные «На главной» в админке,
+   *  а если не отмечено ничего — по одной карточке на модель (первые по дате) */
+  showcase: ApiProductOut[]
+  showcaseIds: Set<string>
 }
 
-const EMPTY: PreorderState = { ready: false, visible: false, inCatalog: false, products: [] }
+/** Состав витрины предзаказа. Порядок с бэка (ближайшие даты первыми) сохраняется. */
+export function pickShowcase(products: ApiProductOut[]): ApiProductOut[] {
+  const featured = products.filter(p => p.preorder_featured)
+  if (featured.length > 0) return featured
+  const seenGroups = new Set<string>()
+  const out: ApiProductOut[] = []
+  for (const p of products) {
+    const key = p.group_id || p.id
+    if (seenGroups.has(key)) continue
+    seenGroups.add(key)
+    out.push(p)
+  }
+  return out
+}
+
+const EMPTY: PreorderState = { ready: false, visible: false, inCatalog: false, products: [], showcase: [], showcaseIds: new Set() }
 
 export function usePreorderState(): PreorderState {
   const [state, setState] = useState<PreorderState>(EMPTY)
@@ -69,11 +88,14 @@ export function usePreorderState(): PreorderState {
     let cancelled = false
     Promise.all([fetchPreorderSettings(), fetchPreorderProducts()]).then(([settings, products]) => {
       if (cancelled) return
+      const showcase = pickShowcase(products)
       setState({
         ready: true,
         visible: settings.preorder_section_enabled && products.length > 0,
         inCatalog: settings.preorder_in_catalog,
         products,
+        showcase,
+        showcaseIds: new Set(showcase.map(p => p.id)),
       })
     })
     return () => { cancelled = true }

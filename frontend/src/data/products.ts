@@ -88,6 +88,7 @@ export interface ApiProductOut {
   is_preorder?: boolean
   preorder_note?: string | null
   preorder_expected_at?: string | null
+  preorder_featured?: boolean
   group_id?: string | null
   main_image_url: string | null
   description: string | null

@@ -543,13 +543,14 @@ export function CatalogPage() {
 
   // Новинки по предзаказу — для чипа, пункта в сайдбаре и блока над сеткой
   // Ближайшие поступления первыми (как на /preorder), без даты — в конце
-  const preorderProducts = useMemo(() => displayProducts.filter(p => p.preorder).sort((a, b) => {
+  const preorderShowcaseIds = preorderState.showcaseIds
+  const preorderProducts = useMemo(() => displayProducts.filter(p => p.preorder && preorderShowcaseIds.has(p.id)).sort((a, b) => {
     const da = a.preorderExpectedAt || '', db = b.preorderExpectedAt || ''
     if (da && db && da !== db) return da < db ? -1 : 1
     if (da && !db) return -1
     if (!da && db) return 1
     return a.name.localeCompare(b.name, 'ru')
-  }), [displayProducts])
+  }), [displayProducts, preorderShowcaseIds])
   // Счётчик — из отдельной ручки предзаказа: каталог грузится порциями, и число
   // «по загруженному» прыгало бы на большом каталоге
   const preorderTotal = preorderState.products.filter(p => (p.condition || 'new') !== 'used').length

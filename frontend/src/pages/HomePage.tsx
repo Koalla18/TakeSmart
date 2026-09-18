@@ -352,8 +352,9 @@ function TopProducts() {
 // Рендерится ТОЛЬКО когда раздел включён в админке и в нём есть товары.
 // ─────────────────────────────────────────────────────────────────────────────
 function PreorderShowcase() {
-  const { ready, visible, products: raw } = usePreorderState()
-  const products = useMemo(() => raw.slice(0, 10).map(p => mapApiProduct(p)), [raw])
+  const { ready, visible, showcase } = usePreorderState()
+  // Витрина: отмеченные в админке «На главной», без отметок — по одной карточке на модель
+  const products = useMemo(() => showcase.slice(0, 10).map(p => mapApiProduct(p)), [showcase])
 
   if (!ready || !visible) return null
 

@@ -32,6 +32,7 @@ export interface PreorderProduct {
   is_preorder?: boolean
   preorder_note?: string | null
   preorder_expected_at?: string | null
+  preorder_featured?: boolean
 }
 
 interface PreorderCategory { id: string; name: string }
@@ -132,7 +133,8 @@ export function PreorderSection<P extends PreorderProduct>({
     const withoutDate = list.filter(p => !p.preorder_expected_at && !(p.preorder_note || '').trim()).length
     const hidden = list.filter(p => !p.is_active).length
     const nearest = list.find(p => p.preorder_expected_at)?.preorder_expected_at || null
-    return { total: list.length, withoutDate, hidden, nearest }
+    const featured = list.filter(p => p.preorder_featured).length
+    return { total: list.length, withoutDate, hidden, nearest, featured }
   }, [list])
 
   // ── Правки по месту ──────────────────────────────────────────────────────
@@ -172,6 +174,36 @@ export function PreorderSection<P extends PreorderProduct>({
       onRefresh()
     } catch { toast('Не удалось сохранить', 'error') }
     finally { setSavingId(null) }
+  }
+
+  // ── «На главной»: какие карточки стоят в витрине (главная + блок в каталоге) ──
+  const [featuredBusyId, setFeaturedBusyId] = useState<string | null>(null)
+  const toggleFeatured = async (p: P) => {
+    setFeaturedBusyId(p.id)
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/products/${p.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preorder_featured: !p.preorder_featured }),
+      })
+      if (!res.ok) { toast(await readError(res), 'error'); return }
+      onRefresh()
+    } catch { toast('Не удалось сохранить', 'error') }
+    finally { setFeaturedBusyId(null) }
+  }
+
+  const bulkFeatured = async (value: boolean) => {
+    if (selected.size === 0) return
+    setBulkBusy(true)
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/products/preorder/bulk`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_ids: [...selected], is_preorder: true, preorder_featured: value }),
+      })
+      if (!res.ok) { toast(await readError(res), 'error'); return }
+      toast(value ? `На главной: +${selected.size}` : `Сняты с главной: ${selected.size}`, 'success')
+      onRefresh()
+    } catch { toast('Ошибка запроса', 'error') }
+    finally { setBulkBusy(false) }
   }
 
   // ── Перенос в основной каталог = снять предзаказ ─────────────────────────
@@ -261,7 +293,7 @@ export function PreorderSection<P extends PreorderProduct>({
 
       {/* Сводка */}
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="В предзаказе" value={String(stats.total)} tone="sky" icon="sparkle" />
+        <StatCard label="В предзаказе" value={String(stats.total)} tone="sky" icon="sparkle" hint={stats.featured ? `На главной: ${stats.featured}` : 'На главной — по одной карточке на модель'} />
         <StatCard label="Ближайшее поступление" value={stats.nearest ? formatPreorderDate(stats.nearest) : '—'} icon="clock" />
         <StatCard label="Без даты и подписи" value={String(stats.withoutDate)} tone={stats.withoutDate ? 'amber' : undefined} icon="alert" hint={stats.withoutDate ? 'На сайте подпись «Скоро в продаже»' : undefined} />
         <StatCard label="Скрыто с сайта" value={String(stats.hidden)} tone={stats.hidden ? 'rose' : undefined} icon="eyeOff" />
@@ -296,6 +328,12 @@ export function PreorderSection<P extends PreorderProduct>({
               <button type="button" onClick={() => setBulkOpen(v => !v)} disabled={selected.size === 0} className={BTN_SECONDARY} aria-expanded={bulkOpen}>
                 <AdminIcon name="clock" className="h-4 w-4" />Дата и подпись
               </button>
+              <button type="button" onClick={() => bulkFeatured(true)} disabled={selected.size === 0 || bulkBusy} className={BTN_SECONDARY} title="Показывать выбранные в блоке предзаказа на главной и в каталоге">
+                <AdminIcon name="star" className="h-4 w-4" />На главную
+              </button>
+              <button type="button" onClick={() => bulkFeatured(false)} disabled={selected.size === 0 || bulkBusy} className={BTN_SECONDARY}>
+                Снять с главной
+              </button>
               <span className="ml-auto text-sm text-slate-400">
                 {selected.size ? `Выбрано: ${selected.size}` : 'Отметьте товары, которые уже приехали'}
               </span>
@@ -320,9 +358,10 @@ export function PreorderSection<P extends PreorderProduct>({
               <colgroup>
                 <col className="w-10" />
                 <col />
-                <col className="w-[130px]" />
-                <col className="w-[170px]" />
-                <col className="w-[240px] xl:w-[290px]" />
+                <col className="w-[120px]" />
+                <col className="w-[160px]" />
+                <col className="w-[210px] xl:w-[250px]" />
+                <col className="w-[104px]" />
                 <col className="w-[210px]" />
               </colgroup>
               <thead>
@@ -332,6 +371,7 @@ export function PreorderSection<P extends PreorderProduct>({
                   <th className="p-3">Цена, ₽</th>
                   <th className="p-3">Ожидается</th>
                   <th className="p-3">Подпись на сайте</th>
+                  <th className="p-3" title="Витрина предзаказа: блок на главной и в каталоге. Ничего не отмечено — по одной карточке на модель">На главной</th>
                   <th className="p-3 text-right">Действия</th>
                 </tr>
               </thead>
@@ -381,6 +421,21 @@ export function PreorderSection<P extends PreorderProduct>({
                           className={INPUT}
                         />
                       </td>
+                      <td className="p-3 pt-4">
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={Boolean(p.preorder_featured)}
+                          aria-label={`На главной: ${title}`}
+                          disabled={featuredBusyId === p.id}
+                          onClick={() => toggleFeatured(p)}
+                          data-featured-toggle={p.id}
+                          className={`relative h-6 w-11 rounded-full transition disabled:opacity-50 ${p.preorder_featured ? 'bg-yellow-400' : 'bg-white/15'}`}
+                          title={p.preorder_featured ? 'Стоит в блоке предзаказа на главной и в каталоге' : 'Показывать в блоке предзаказа на главной и в каталоге'}
+                        >
+                          <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-slate-950 shadow transition-all ${p.preorder_featured ? 'left-[22px]' : 'left-0.5'}`} />
+                        </button>
+                      </td>
                       <td className="p-3">
                         <div className="flex justify-end gap-1">
                           {dirty && (
@@ -420,10 +475,16 @@ export function PreorderSection<P extends PreorderProduct>({
                     <label className="text-[11px] text-slate-500">Ожидается<input type="date" value={dateValue(p)} onChange={e => setDraft(p.id, { date: e.target.value })} className={`${INPUT} mt-1`} /></label>
                     <label className="col-span-2 text-[11px] text-slate-500">Подпись на сайте<input value={noteValue(p)} onChange={e => setDraft(p.id, { note: e.target.value.slice(0, 200) })} placeholder="Старт продаж 26 сентября" className={`${INPUT} mt-1`} /></label>
                   </div>
-                  <div className="mt-3 flex justify-end gap-1.5">
-                    {dirty && <button type="button" onClick={() => saveRow(p)} disabled={savingId === p.id} className="rounded-lg bg-yellow-400 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50">Сохранить</button>}
-                    <button type="button" onClick={() => onEdit(p)} aria-label="Карточка" className={BTN_ROW}><AdminIcon name="edit" className="h-4 w-4" /></button>
-                    <button type="button" onClick={() => moveToCatalog([p])} disabled={bulkBusy} className={BTN_ROW}>В каталог</button>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-300">
+                      <input type="checkbox" checked={Boolean(p.preorder_featured)} disabled={featuredBusyId === p.id} onChange={() => toggleFeatured(p)} className="h-4 w-4 rounded" />
+                      На главной
+                    </label>
+                    <div className="flex justify-end gap-1.5">
+                      {dirty && <button type="button" onClick={() => saveRow(p)} disabled={savingId === p.id} className="rounded-lg bg-yellow-400 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50">Сохранить</button>}
+                      <button type="button" onClick={() => onEdit(p)} aria-label="Карточка" className={BTN_ROW}><AdminIcon name="edit" className="h-4 w-4" /></button>
+                      <button type="button" onClick={() => moveToCatalog([p])} disabled={bulkBusy} className={BTN_ROW}>В каталог</button>
+                    </div>
                   </div>
                 </div>
               )
@@ -431,7 +492,7 @@ export function PreorderSection<P extends PreorderProduct>({
           </div>
 
           <p className="mt-4 text-xs text-slate-500">
-            Подпись показывается на сайте вместо даты: «Старт продаж 26 сентября», «Ожидается в октябре». Пустая подпись — на витрине «Ожидается {'{дата}'}», без даты — «Скоро в продаже». Enter в поле сохраняет строку. «В каталог» снимает предзаказ — товар начинает продаваться как обычный, по остатку.
+            Подпись показывается на сайте вместо даты: «Старт продаж 26 сентября», «Ожидается в октябре». Пустая подпись — на витрине «Ожидается {'{дата}'}», без даты — «Скоро в продаже». Enter в поле сохраняет строку. «В каталог» снимает предзаказ — товар начинает продаваться как обычный, по остатку. «На главной» решает, какие карточки стоят в блоке предзаказа на главной и в каталоге; если не отмечено ничего — там по одной карточке на модель. Страница /preorder всегда показывает все предзаказы.
           </p>
         </>
       )}
