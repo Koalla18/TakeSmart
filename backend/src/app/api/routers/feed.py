@@ -53,6 +53,29 @@ _FEED_IMG_CACHE_PREFIX = f"feed/v{_IMG_VERSION}"
 _WHITE = (255, 255, 255)
 
 
+_RU_MONTHS = (
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+)
+
+
+def _preorder_sales_note(p) -> str:
+    """Подпись предзаказа для <sales_notes>: подпись сотрудника важнее даты.
+    Лимит Яндекса — 50 символов: не влезает — остаётся короткое «Предзаказ»."""
+    base = "Предзаказ"
+    detail = (getattr(p, "preorder_note", None) or "").strip()
+    if not detail and getattr(p, "preorder_expected_at", None):
+        d = p.preorder_expected_at
+        detail = f"Ожидается {d.day} {_RU_MONTHS[d.month - 1]}"
+    if detail and detail.lower().startswith("предзаказ"):
+        candidate = detail
+    elif detail:
+        candidate = f"{base}. {detail}"
+    else:
+        candidate = base
+    return candidate if len(candidate) <= 50 else base
+
+
 def _fmt_price(value: Decimal) -> str:
     """Целое без копеек (89890), дробное — с двумя знаками (89890.50)."""
     if value == value.to_integral_value():
@@ -158,7 +181,10 @@ def _build_yml(products) -> str:
         if price is None or price <= 0:
             continue  # без цены товар в фид не берём
 
-        available = "true" if (p.stock_quantity or 0) > 0 else "false"
+        # Предзаказ можно заказать без остатка на складе — для Директа он «в наличии»,
+        # иначе новинки не показываются в объявлениях
+        is_preorder = bool(getattr(p, "is_preorder", False))
+        available = "true" if (is_preorder or (p.stock_quantity or 0) > 0) else "false"
         cat_id = (
             categories[p.category.id][0]
             if (p.category and p.category.id in categories)
@@ -186,7 +212,9 @@ def _build_yml(products) -> str:
         description = p.short_description or p.description
         if description:
             out.append(f"        <description>{escape(description[:_MAX_DESCRIPTION])}</description>")
-        if p.warranty_months:
+        if is_preorder:
+            out.append(f"        <sales_notes>{escape(_preorder_sales_note(p))}</sales_notes>")
+        elif p.warranty_months:
             out.append(f"        <sales_notes>Гарантия {p.warranty_months} мес.</sales_notes>")
 
         out.append("      </offer>")
@@ -212,6 +240,31 @@ async def yandex_feed(
         wanted = [s.strip().lower() for s in slugs.split(",") if s.strip()]
         by_slug = {p.slug.lower(): p for p in products}
         products = [by_slug[s] for s in wanted if s in by_slug]
+
+    xml = _build_yml(products)
+    return Response(
+        content=xml,
+        media_type="application/xml; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@router.get("/yandex-preorder.yml", summary="Фид YML только с предзаказами (новинки) для Яндекс.Директа")
+async def yandex_preorder_feed(
+    q: str | None = Query(
+        None,
+        description="Опционально: сузить состав по названию (все слова должны входить), напр. `iphone 18`.",
+    ),
+) -> Response:
+    """Самообновляющийся фид новинок: всё, что сейчас отмечено предзаказом в админке.
+    Ссылку добавляют отдельным фидом в Директ под кампанию по новинкам."""
+    async with UnitOfWork() as uow:
+        products = await uow.products.list_for_feed()
+
+    products = [p for p in products if getattr(p, "is_preorder", False)]
+    if q:
+        tokens = [t for t in q.lower().split() if t]
+        products = [p for p in products if all(t in p.name.lower() for t in tokens)]
 
     xml = _build_yml(products)
     return Response(
