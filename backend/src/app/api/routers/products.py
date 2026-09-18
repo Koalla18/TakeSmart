@@ -246,9 +246,12 @@ async def bulk_preorder(body: BulkPreorderIn) -> BulkPreorderOut:
                     product.preorder_note = body.preorder_note
                 if "preorder_expected_at" in body.model_fields_set:
                     product.preorder_expected_at = body.preorder_expected_at
+                if "preorder_featured" in body.model_fields_set and body.preorder_featured is not None:
+                    product.preorder_featured = body.preorder_featured
             else:
                 product.preorder_note = None
                 product.preorder_expected_at = None
+                product.preorder_featured = False
         await uow.commit()
         not_found = [pid for pid in dict.fromkeys(body.product_ids) if pid not in by_id]
 
@@ -589,10 +592,11 @@ async def update_product(product_id: UUID, body: ProductUpdate) -> ProductDetail
 
         update_data = body.model_dump(exclude_unset=True, exclude={"specs"})
 
-        # Снятие предзаказа очищает подпись и дату — на витрине они больше не нужны
+        # Снятие предзаказа очищает подпись, дату и место в витрине
         if update_data.get("is_preorder") is False:
             update_data.setdefault("preorder_note", None)
             update_data.setdefault("preorder_expected_at", None)
+            update_data.setdefault("preorder_featured", False)
 
         # Сотрудник трогал цену или скидку — штампуем подтверждение цены
         if "price" in body.model_fields_set or "discount_price" in body.model_fields_set:

@@ -31,6 +31,7 @@ class ProductCreate(BaseModel):
     is_preorder: bool = Field(False, description="Товар доступен по предзаказу — заказ не списывает остаток")
     preorder_note: Optional[str] = Field(None, max_length=200, examples=["Старт продаж 26 сентября"])
     preorder_expected_at: Optional[date] = Field(None, description="Ожидаемая дата поступления")
+    preorder_featured: bool = Field(False, description="Показывать в витрине предзаказа (главная и блок в каталоге)")
     category_id: Optional[uuid.UUID] = None
     group_id: Optional[uuid.UUID] = Field(None, description="ID группы товаров (для объединения карточек по цветам)")
 
@@ -85,6 +86,7 @@ class ProductUpdate(BaseModel):
     is_preorder: Optional[bool] = Field(None, description="Товар доступен по предзаказу")
     preorder_note: Optional[str] = Field(None, max_length=200)
     preorder_expected_at: Optional[date] = None
+    preorder_featured: Optional[bool] = Field(None, description="Показывать в витрине предзаказа")
     category_id: Optional[uuid.UUID] = None
     group_id: Optional[uuid.UUID] = Field(None, description="ID группы товаров")
 
@@ -137,6 +139,7 @@ class ProductOut(BaseModel):
     is_preorder: bool = False
     preorder_note: Optional[str] = None
     preorder_expected_at: Optional[date] = None
+    preorder_featured: bool = False
     category_id: Optional[uuid.UUID]
     group_id: Optional[uuid.UUID] = None
     created_at: datetime
@@ -192,6 +195,9 @@ class BulkPreorderIn(BaseModel):
     is_preorder: bool = Field(..., description="True — в предзаказ, False — снять")
     preorder_note: Optional[str] = Field(None, max_length=200)
     preorder_expected_at: Optional[date] = None
+    preorder_featured: Optional[bool] = Field(
+        None, description="Показывать в витрине предзаказа; применяется, только если передано"
+    )
 
 
 class BulkPreorderOut(BaseModel):

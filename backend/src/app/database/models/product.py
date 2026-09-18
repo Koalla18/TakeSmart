@@ -95,6 +95,11 @@ class Product(Base):
         Date, nullable=True,
         comment="Ожидаемая дата поступления (для подписи и сортировки предзаказов)",
     )
+    preorder_featured: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False,
+        comment="Показывать в витрине предзаказа (блок на главной и в каталоге); "
+                "если не отмечено ничего — витрина берёт по одной карточке на модель",
+    )
 
     # Категория
     category_id: Mapped[uuid.UUID | None] = mapped_column(
