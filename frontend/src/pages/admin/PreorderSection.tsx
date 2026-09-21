@@ -43,6 +43,8 @@ interface Draft { price?: string; date?: string; note?: string }
 interface SiteSettings {
   preorder_section_enabled: boolean
   preorder_in_catalog: boolean
+  /** Маска новинок для фида /feed/yandex-new.yml — фразы через запятую */
+  new_models_feed_query: string
 }
 
 const INPUT = 'w-full rounded-lg border border-white/10 bg-white/[0.06] px-2.5 py-1.5 text-sm text-white placeholder:text-slate-600 focus:border-yellow-400/60 focus:bg-white/10 focus:outline-none'
@@ -102,23 +104,36 @@ export function PreorderSection<P extends PreorderProduct>({
     fetch(`${API_BASE_URL}/api/settings/public`)
       .then(res => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
       .then((data: SiteSettings) => { if (!cancelled) setSettings(data) })
-      .catch(() => { if (!cancelled) setSettings({ preorder_section_enabled: true, preorder_in_catalog: false }) })
+      .catch(() => { if (!cancelled) setSettings({ preorder_section_enabled: true, preorder_in_catalog: false, new_models_feed_query: '' }) })
     return () => { cancelled = true }
   }, [])
-  const updateSetting = async (key: keyof SiteSettings, value: boolean) => {
+  const updateSetting = async (key: keyof SiteSettings, value: boolean | string) => {
     setSettingBusy(key)
     try {
       const res = await authFetch(`${API_BASE_URL}/api/settings/${key}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }),
       })
-      if (!res.ok) { toast(await readError(res), 'error'); return }
+      if (!res.ok) { toast(await readError(res), 'error'); return false }
       setSettings(await res.json())
       toast(key === 'preorder_section_enabled'
         ? (value ? 'Раздел «Предзаказ» показывается на сайте' : 'Раздел «Предзаказ» скрыт с сайта')
-        : (value ? 'Предзаказ показывается и в общем каталоге' : 'Предзаказ — только в своём разделе'), 'success')
-    } catch { toast('Не удалось сохранить настройку', 'error') }
+        : key === 'preorder_in_catalog'
+          ? (value ? 'Предзаказ показывается и в общем каталоге' : 'Предзаказ — только в своём разделе')
+          : 'Состав фида новинок сохранён', 'success')
+      return true
+    } catch { toast('Не удалось сохранить настройку', 'error'); return false }
     finally { setSettingBusy(null) }
   }
+
+  // Маска фида новинок: черновик в поле, сохранение кнопкой/Enter
+  const [feedQueryDraft, setFeedQueryDraft] = useState<string | null>(null)
+  const feedQueryValue = feedQueryDraft ?? settings?.new_models_feed_query ?? ''
+  const feedQueryDirty = feedQueryDraft !== null && feedQueryDraft.trim() !== (settings?.new_models_feed_query ?? '').trim()
+  const saveFeedQuery = async () => {
+    if (!feedQueryDirty) return
+    if (await updateSetting('new_models_feed_query', feedQueryDraft!.trim())) setFeedQueryDraft(null)
+  }
+  const siteOrigin = (() => { try { return window.location.origin } catch { return '' } })()
 
   // Товар ушёл из предзаказа (или был удалён) — выделение больше не нужно
   useEffect(() => {
@@ -289,6 +304,36 @@ export function PreorderSection<P extends PreorderProduct>({
           onChange={v => updateSetting('preorder_in_catalog', v)}
           testId="setting-in-catalog"
         />
+      </div>
+
+      {/* Фиды для Яндекс.Директа */}
+      <div className="mb-5 rounded-2xl border border-white/10 bg-white/[0.03] p-4" data-feed-settings>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="font-semibold text-white">Фид новинок для Яндекс.Директа</div>
+            <div className="mt-1 text-sm text-slate-400">
+              Всё, что в предзаказе, плюс модели по маске — даже когда они уже приехали и проданы как обычные товары. Фразы через запятую, каждая должна целиком входить в название.
+            </div>
+          </div>
+          <a href={`${siteOrigin}/api/v1/feed/yandex-new.yml`} target="_blank" rel="noreferrer" className={`${BTN_SECONDARY} shrink-0`} data-feed-link>
+            <AdminIcon name="external" className="h-4 w-4" />Открыть фид
+          </a>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input
+            value={feedQueryValue}
+            onChange={e => setFeedQueryDraft(e.target.value.slice(0, 500))}
+            onKeyDown={e => { if (e.key === 'Enter') saveFeedQuery() }}
+            placeholder="iphone 18, watch series 12, airpods pro 3"
+            aria-label="Маска новинок для фида"
+            disabled={settings === null}
+            className={`${INPUT} min-w-[260px] flex-1 py-2`}
+          />
+          <button type="button" onClick={saveFeedQuery} disabled={!feedQueryDirty || settingBusy === 'new_models_feed_query'} className={BTN_PRIMARY}>
+            {settingBusy === 'new_models_feed_query' ? 'Сохраняем…' : 'Сохранить'}
+          </button>
+        </div>
+        <div className="mt-2 break-all font-mono text-xs text-slate-500">{siteOrigin}/api/v1/feed/yandex-new.yml</div>
       </div>
 
       {/* Сводка */}
