@@ -7,6 +7,7 @@ import { useCart, MAX_QUANTITY_PER_ITEM, MAX_TOTAL_ITEMS } from '../lib/cart'
 import { formatPrice, mapApiProduct, type ApiProductOut } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
 import { ymEcommercePurchase, ymReachGoal } from '../lib/metrika'
+import { PAYMENT_TAX_RATE, PAYMENT_TAX_PCT, taxSurcharge, effectivePercent } from '../lib/paymentTax'
 
 function isImageUrl(url?: string): boolean {
   if (!url) return false
@@ -77,26 +78,12 @@ interface OrderPayload {
   }>
 }
 
-// Безналичная оплата облагается налогом 13%, и считается он «от начисленного»:
-// чтобы после налога осталась цена товара, сверху добавляется не 13%, а 13/87 ≈ 14,94%.
-// Пример (как в калькуляторе НДФЛ): цена 100 000 ₽ → к оплате 114 943 ₽, налог 14 943 ₽.
-const PAYMENT_TAX_RATE = 0.13
-
-/** Налог сверх цены: gross = net / (1 − ставка); возвращает разницу в рублях */
-function taxSurcharge(net: number, taxRate: number): number {
-  if (taxRate <= 0 || net <= 0) return 0
-  return Math.round(net / (1 - taxRate)) - net
-}
-
-/** Эффективная надбавка к ценнику: 13% → «14,9» */
-function effectivePercent(taxRate: number): string {
-  return ((taxRate / (1 - taxRate)) * 100).toLocaleString('ru-RU', { maximumFractionDigits: 1 })
-}
-
+// Налог при безнале живёт в lib/paymentTax.ts — ставка меняется там одной цифрой,
+// подписи и суммы здесь пересчитываются сами.
 const PAYMENT_METHODS = [
   { id: 'cash', label: 'Наличными', icon: '💵', desc: 'При получении', taxRate: 0 },
-  { id: 'card', label: 'Картой', icon: '💳', desc: 'Налог 13%', taxRate: PAYMENT_TAX_RATE },
-  { id: 'qr', label: 'QR-код в магазине', icon: '📱', desc: 'Налог 13%', taxRate: PAYMENT_TAX_RATE },
+  { id: 'card', label: 'Картой', icon: '💳', desc: `Налог ${PAYMENT_TAX_PCT}%`, taxRate: PAYMENT_TAX_RATE },
+  { id: 'qr', label: 'QR-код в магазине', icon: '📱', desc: `Налог ${PAYMENT_TAX_PCT}%`, taxRate: PAYMENT_TAX_RATE },
 ]
 
 const DELIVERY_METHODS = [
@@ -265,7 +252,7 @@ export function CartPage() {
     const deliveryLabel = DELIVERY_METHODS.find(d => d.id === deliveryMethod)?.label || deliveryMethod
     const noteParts: string[] = []
     noteParts.push(paymentTaxAmount > 0
-      ? `Оплата: ${paymentLabel} — к оплате ${total.toLocaleString('ru-RU')} ₽ (включая налог 13% — ${paymentTaxAmount.toLocaleString('ru-RU')} ₽)`
+      ? `Оплата: ${paymentLabel} — к оплате ${total.toLocaleString('ru-RU')} ₽ (включая налог ${PAYMENT_TAX_PCT}% — ${paymentTaxAmount.toLocaleString('ru-RU')} ₽)`
       : `Оплата: ${paymentLabel}`)
     noteParts.push(`Доставка: ${deliveryLabel}`)
     // Предзаказ дублируем в примечание — сотрудник видит его даже там, где нет флага заказа
@@ -594,7 +581,7 @@ export function CartPage() {
                       <span className="text-lg font-semibold">{method.label}</span>
                       {method.taxRate > 0 ? (
                         <span className="rounded-full bg-orange-100 px-3 py-1 text-sm font-medium text-orange-700">
-                          {subtotal > 0 ? `+${formatPrice(taxSurcharge(subtotal, method.taxRate))}` : `+${effectivePercent(method.taxRate)}% к цене`} · налог 13%
+                          {subtotal > 0 ? `+${formatPrice(taxSurcharge(subtotal, method.taxRate))}` : `+${effectivePercent(method.taxRate)}% к цене`} · налог {PAYMENT_TAX_PCT}%
                         </span>
                       ) : (
                         <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700">
@@ -841,7 +828,7 @@ export function CartPage() {
                   </div>
                   {paymentTaxAmount > 0 && (
                     <div className="flex justify-between text-orange-600">
-                      <span>Налог 13% ({PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label})</span>
+                      <span>Налог {PAYMENT_TAX_PCT}% ({PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label})</span>
                       <span>+{formatPrice(paymentTaxAmount)}</span>
                     </div>
                   )}
@@ -859,7 +846,7 @@ export function CartPage() {
                 
                 {paymentTaxAmount > 0 && (
                   <div className="mt-3 rounded-xl bg-orange-50 p-3 text-sm text-orange-700">
-                    ⚠️ При оплате {paymentMethod === 'card' ? 'картой' : 'по QR-коду'} добавляется налог 13%. Он считается с начисленной суммы, поэтому к цене выходит ≈ +{effectivePercent(paymentTaxRate)}%. Наличными — без надбавки.
+                    ⚠️ При оплате {paymentMethod === 'card' ? 'картой' : 'по QR-коду'} добавляется налог {PAYMENT_TAX_PCT}%. Он считается с начисленной суммы, поэтому к цене выходит ≈ +{effectivePercent(paymentTaxRate)}%. Наличными — без надбавки.
                   </div>
                 )}
 
