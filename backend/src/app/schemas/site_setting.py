@@ -14,7 +14,7 @@ class PublicSettingsOut(BaseModel):
         False, description="Показывать предзаказные товары и в общем каталоге, а не только в разделе"
     )
     new_models_feed_query: str = Field(
-        "iphone 18, watch series 12, watch ultra 4, airpods pro 3, airpods 4",
+        "iphone 18, watch series 12, watch se 3, airpods pro 3, airpods max usb-c (2026)",
         max_length=500,
         description=(
             "Какие модели считать новинками в фиде /feed/yandex-new.yml — через запятую, "
