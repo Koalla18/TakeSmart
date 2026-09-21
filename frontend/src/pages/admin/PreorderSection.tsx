@@ -312,7 +312,7 @@ export function PreorderSection<P extends PreorderProduct>({
           <div className="min-w-0">
             <div className="font-semibold text-white">Фид новинок для Яндекс.Директа</div>
             <div className="mt-1 text-sm text-slate-400">
-              Всё, что в предзаказе, плюс модели по маске — даже когда они уже приехали и проданы как обычные товары. Фразы через запятую, каждая должна целиком входить в название.
+              Всё, что в предзаказе, плюс модели по маске — даже когда они уже приехали и продаются как обычные товары. Фразы через запятую; фраза ищется в названии целиком, слово за словом: «watch se 3» найдёт Watch SE 3, но не Watch Ultra 3.
             </div>
           </div>
           <a href={`${siteOrigin}/api/v1/feed/yandex-new.yml`} target="_blank" rel="noreferrer" className={`${BTN_SECONDARY} shrink-0`} data-feed-link>
@@ -324,7 +324,7 @@ export function PreorderSection<P extends PreorderProduct>({
             value={feedQueryValue}
             onChange={e => setFeedQueryDraft(e.target.value.slice(0, 500))}
             onKeyDown={e => { if (e.key === 'Enter') saveFeedQuery() }}
-            placeholder="iphone 18, watch series 12, airpods pro 3"
+            placeholder="iphone 18, watch series 12, watch se 3, airpods pro 3"
             aria-label="Маска новинок для фида"
             disabled={settings === null}
             className={`${INPUT} min-w-[260px] flex-1 py-2`}
