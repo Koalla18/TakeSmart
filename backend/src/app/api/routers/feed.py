@@ -26,6 +26,7 @@ from src.app.core.config import settings
 from src.app.core.logger import get_logger
 from src.app.core.static_service import static_service
 from src.app.database.unit_of_work import UnitOfWork
+from src.app.schemas.site_setting import PublicSettingsOut
 
 logger = get_logger(__name__)
 
@@ -265,6 +266,59 @@ async def yandex_preorder_feed(
     if q:
         tokens = [t for t in q.lower().split() if t]
         products = [p for p in products if all(t in p.name.lower() for t in tokens)]
+
+    xml = _build_yml(products)
+    return Response(
+        content=xml,
+        media_type="application/xml; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+def _parse_model_query(raw: str | None) -> list[list[str]]:
+    """«iphone 18, watch series 12» → [["iphone","18"], ["watch","series","12"]]:
+    товар — новинка, если ВСЕ слова хотя бы одной фразы входят в его название."""
+    phrases: list[list[str]] = []
+    for chunk in (raw or "").split(","):
+        words = [w for w in chunk.lower().split() if w]
+        if words:
+            phrases.append(words)
+    return phrases
+
+
+def _matches_new_models(name: str, phrases: list[list[str]]) -> bool:
+    low = name.lower()
+    return any(all(w in low for w in words) for words in phrases)
+
+
+@router.get("/yandex-new.yml", summary="Фид YML «Новинки»: предзаказы + новые модели по маске названия")
+async def yandex_new_feed(
+    q: str | None = Query(
+        None,
+        description=(
+            "Опционально: маска моделей через запятую вместо настройки из админки, "
+            "напр. `iphone 18 pro, airpods pro 3`."
+        ),
+    ),
+) -> Response:
+    """Общий фид новинок для рекламы: всё, что отмечено предзаказом, ПЛЮС товары,
+    в названии которых есть одна из фраз маски (независимо от наличия на складе —
+    приехавшие новинки после «Перенести в каталог» из фида не выпадают).
+    Маска по умолчанию правится в админке: настройка `new_models_feed_query`."""
+    async with UnitOfWork() as uow:
+        products = await uow.products.list_for_feed()
+        if q is None:
+            q = await uow.site_settings.get("new_models_feed_query")
+    if q is None:
+        q = PublicSettingsOut().new_models_feed_query
+
+    phrases = _parse_model_query(q)
+    products = [
+        p for p in products
+        if getattr(p, "is_preorder", False) or _matches_new_models(p.name, phrases)
+    ]
+    # Предзаказы первыми (ближайшие даты), затем новинки по имени — стабильный порядок между обходами
+    products.sort(key=lambda p: (not getattr(p, "is_preorder", False), p.name.lower()))
 
     xml = _build_yml(products)
     return Response(

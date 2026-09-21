@@ -15,6 +15,7 @@ router = APIRouter(prefix="/settings", tags=["Settings"])
 PUBLIC_KEYS: dict[str, type] = {
     "preorder_section_enabled": bool,
     "preorder_in_catalog": bool,
+    "new_models_feed_query": str,
 }
 
 
@@ -51,6 +52,8 @@ async def update_setting(key: str, body: SettingUpdateIn) -> PublicSettingsOut:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Настройка '{key}' ожидает значение типа {expected.__name__}",
         )
+    if expected is str and len(body.value) > 500:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Слишком длинное значение (до 500 символов)")
     async with UnitOfWork() as uow:
         await uow.site_settings.set(key, body.value)
         await uow.commit()
