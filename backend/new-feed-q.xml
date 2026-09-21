@@ -1,0 +1,1102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<yml_catalog date="2026-09-21 15:26">
+  <shop>
+    <name>Take Smart</name>
+    <company>Take Smart</company>
+    <url>https://takesmart.ru</url>
+    <currencies>
+      <currency id="RUB" rate="1"/>
+    </currencies>
+    <categories>
+      <category id="1">Товары</category>
+      <category id="2">Часы</category>
+      <category id="3">Наушники</category>
+      <category id="4">Смартфоны</category>
+    </categories>
+    <offers>
+      <offer id="c7613995-a7a8-453c-a700-6a64f955a8f8" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-svetlo-zolotistyi-light-gold-sportivnyi-remeshok-pesochnyi-sand-sport-band-m-l-42mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/c7613995-a7a8-453c-a700-6a64f955a8f8/a4e0650d-9f19-4dec-b01d-df408043b033.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Светло золотистый (Light Gold), Спортивный ремешок песочный (Sand Sport Band), M/L, 42mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 25 сентября</sales_notes>
+      </offer>
+      <offer id="ef82e77c-5fef-4711-9348-5adc64c5cbd9" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-svetlo-zolotistyi-light-gold-sportivnyi-remeshok-pesochnyi-sand-sport-band-m-l-46mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/ef82e77c-5fef-4711-9348-5adc64c5cbd9/fe51e0b3-32ac-4cd0-a90d-2030ee0f4056.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Светло золотистый (Light Gold), Спортивный ремешок песочный (Sand Sport Band), M/L, 46mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 25 сентября</sales_notes>
+      </offer>
+      <offer id="853502db-4e08-4545-a48f-1d5d35de0a71" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-svetlo-zolotistyi-light-gold-sportivnyi-remeshok-pesochnyi-sand-sport-band-s-m-42mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/853502db-4e08-4545-a48f-1d5d35de0a71/1b70984c-a93e-47a2-8f9d-9ca18d71602d.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Светло золотистый (Light Gold), Спортивный ремешок песочный (Sand Sport Band), S/M, 42mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 25 сентября</sales_notes>
+      </offer>
+      <offer id="270b0ea8-31a6-4b31-93bc-217bc02dc510" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-svetlo-zolotistyi-light-gold-sportivnyi-remeshok-pesochnyi-sand-sport-band-s-m-46mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/270b0ea8-31a6-4b31-93bc-217bc02dc510/2cb7951b-94cb-4e95-b443-feec3d676cfd.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Светло золотистый (Light Gold), Спортивный ремешок песочный (Sand Sport Band), S/M, 46mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 25 сентября</sales_notes>
+      </offer>
+      <offer id="d5c8c2dc-0b67-40da-a238-689b262ac6e3" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-seryi-kosmos-space-gray-sportivnyi-remeshok-temno-sinii-navy-blue-sport-band-m-l-42mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/d5c8c2dc-0b67-40da-a238-689b262ac6e3/edf55f5f-b039-4084-9e07-56262ce70235.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Серый космос (Space Gray), Спортивный ремешок темно-синий (Navy Blue Sport Band), M/L, 42mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 25 сентября</sales_notes>
+      </offer>
+      <offer id="9897b7d0-1ca6-46e4-9971-a40a03a933cf" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-seryi-kosmos-space-gray-sportivnyi-remeshok-temno-sinii-navy-blue-sport-band-m-l-46mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/9897b7d0-1ca6-46e4-9971-a40a03a933cf/e9fdb5c2-87ff-494b-a4f0-557df53d7808.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Серый космос (Space Gray), Спортивный ремешок темно-синий (Navy Blue Sport Band), M/L, 46mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 25 сентября</sales_notes>
+      </offer>
+      <offer id="5485f75b-0ce9-4d40-9f97-5f966251d458" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-seryi-kosmos-space-gray-sportivnyi-remeshok-temno-sinii-navy-blue-sport-band-s-m-42mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/5485f75b-0ce9-4d40-9f97-5f966251d458/4aba7763-2bbb-473b-8e1a-efd880e948de.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Серый космос (Space Gray), Спортивный ремешок темно-синий (Navy Blue Sport Band), S/M, 42mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 25 сентября</sales_notes>
+      </offer>
+      <offer id="23b53f53-f544-4569-8abb-7a38e27a2566" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-seryi-kosmos-space-gray-sportivnyi-remeshok-temno-sinii-navy-blue-sport-band-s-m-46mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/23b53f53-f544-4569-8abb-7a38e27a2566/01c40966-c4ff-41ef-8743-db257a2a29bc.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Серый космос (Space Gray), Спортивный ремешок темно-синий (Navy Blue Sport Band), S/M, 46mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 25 сентября</sales_notes>
+      </offer>
+      <offer id="b20bf888-bfd1-4904-948f-9fa6f6ec57ef" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-temnaia-bronza-dark-bronze-sportivnyi-remeshok-olivkovyi-olive-sport-band-m-l-42mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/b20bf888-bfd1-4904-948f-9fa6f6ec57ef/408f7ae7-b7c4-45a7-a849-2848e4b34cab.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Темная бронза (Dark Bronze), Спортивный ремешок оливковый (Olive Sport Band), M/L, 42mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 25 сентября</sales_notes>
+      </offer>
+      <offer id="f62ed932-b848-411d-b2dd-d041f0724c86" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-temnaia-bronza-dark-bronze-sportivnyi-remeshok-olivkovyi-olive-sport-band-m-l-46mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/f62ed932-b848-411d-b2dd-d041f0724c86/0bfccfde-2ca0-4723-836a-d9c67ed5250a.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Темная бронза (Dark Bronze), Спортивный ремешок оливковый (Olive Sport Band), M/L, 46mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 21 сентября</sales_notes>
+      </offer>
+      <offer id="6a88fdb9-e580-49be-b872-c058e698963b" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-temnaia-bronza-dark-bronze-sportivnyi-remeshok-olivkovyi-olive-sport-band-s-m-42mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/6a88fdb9-e580-49be-b872-c058e698963b/5e7fc8b5-d02d-4784-b275-f02291507415.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Темная бронза (Dark Bronze), Спортивный ремешок оливковый (Olive Sport Band), S/M, 42mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 25 сентября</sales_notes>
+      </offer>
+      <offer id="d3ef7bf6-06b4-4c7b-befc-9cf1c787a05e" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-temnaia-bronza-dark-bronze-sportivnyi-remeshok-olivkovyi-olive-sport-band-s-m-46mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/d3ef7bf6-06b4-4c7b-befc-9cf1c787a05e/66dcaf00-f2b3-410a-b383-33d0812bf7eb.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Темная бронза (Dark Bronze), Спортивный ремешок оливковый (Olive Sport Band), S/M, 46mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 25 сентября</sales_notes>
+      </offer>
+      <offer id="960d6d60-54a3-4fa3-b3c1-5dcf24a2a2de" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-chernyi-black-sportivnyi-remeshok-chernyi-black-sport-band-m-l-42mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/960d6d60-54a3-4fa3-b3c1-5dcf24a2a2de/c7af3e45-994e-48a3-8241-635cd68d27b1.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Черный (Black), Спортивный ремешок черный (Black Sport Band), M/L, 42mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 25 сентября</sales_notes>
+      </offer>
+      <offer id="f70f7c70-204e-4fdd-950b-e95b3210b192" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-chernyi-black-sportivnyi-remeshok-chernyi-black-sport-band-m-l-46mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/f70f7c70-204e-4fdd-950b-e95b3210b192/dd53ca15-e37b-4585-84e7-a47de57e1aaf.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Черный (Black), Спортивный ремешок черный (Black Sport Band), M/L, 46mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 25 сентября</sales_notes>
+      </offer>
+      <offer id="3d061afe-4810-476d-af21-f8ceda14888b" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-chernyi-black-sportivnyi-remeshok-chernyi-black-sport-band-s-m-42mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/3d061afe-4810-476d-af21-f8ceda14888b/6f665335-1cb0-4332-8290-b64ee135fdbe.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Черный (Black), Спортивный ремешок черный (Black Sport Band), S/M, 42mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 25 сентября</sales_notes>
+      </offer>
+      <offer id="7e4882c8-c115-42b6-a463-9d6a1b9ff134" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-series-12-2026-chernyi-black-sportivnyi-remeshok-chernyi-black-sport-band-s-m-46mm</url>
+        <price>59990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/7e4882c8-c115-42b6-a463-9d6a1b9ff134/efb4ee66-12c6-4a95-b88b-5b39ae63330d.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch Series 12 (2026) Черный (Black), Спортивный ремешок черный (Black Sport Band), S/M, 46mm</name>
+        <vendor>Apple</vendor>
+        <description>умные часы от Apple, сфокусированные на глубоком анализе здоровья, обновленном процессоре и возвращении керамического корпуса</description>
+        <sales_notes>Предзаказ. Старт продаж с 25 сентября</sales_notes>
+      </offer>
+      <offer id="c6a6f367-b4ab-4431-9962-3ef36ae585bc" available="true">
+        <url>https://takesmart.ru/product/naushniki-apple-airpods-max-usb-c-2026-blue-goluboi</url>
+        <price>41990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>3</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/c6a6f367-b4ab-4431-9962-3ef36ae585bc/2c1087dd-dd85-4402-86bb-f02922b02525.jpg&amp;v=2</picture>
+        <name>Наушники Apple AirPods Max USB-C (2026), Blue (Голубой)</name>
+        <vendor>Apple</vendor>
+        <description>Вы сказали: "Наушники Apple AirPods Max (2026) описание"Наушники Apple AirPods Max — это полноразмерные премиальные наушники с передовыми аудиотехнологиями. Они сочетают в себе культовый алюминиевый дизайн, невероятное звучание, глубокое активное шумоподавление и удобство зарядки через порт USB Type-C.🚀 Главные особенностиМощный чипсет: Использование обновленного процессора Apple H2 выводит обработку звука на новый уровень.Продвинутое шумоподавление (ANC): Благодаря чипу H2 активное шумоподавление работает до 1,5 раз эффективнее, отсекая даже самые сложные фоновые шумы.Адаптивные аудиорежимы: Включают режим «Прозрачности», адаптивное аудио (Adaptive Audio) и распознавание разговора.Пространственное аудио: Персонализированный пространственный звук с динамическим отслеживанием движений головы обеспечивает полное погружение при просмотре фильмов.Звук без потерь: Поддержка Lossless Audio (аудио без потерь) при проводном подключении через USB-C.🎧 Дизайн и эргономикаМатериалы: Оголовье выполнено из дышащей сетчатой ткани, а чаши — из анодированного алюминия. Амбушюры легко снимаются, крепятся на магнитах и обеспечивают акустическую изоляцию.Управление: Вращающееся колесико Digital Crown позволяет удобно регулировать громкость, управлять треками и вызывать голосового помощника Siri.Вес: Наушники весят около 386 граммов.🔋 Автономность и связьАккумулятор: Обеспечивают до 20 часов непрерывного прослушивания музыки, просмотра фильмов или разговоров с активным шумоподавлением и пространственным звуком.Разъем: Универсальный разъем USB Type-C.Связь: Работают по протоколу Bluetooth 5.3, что обеспечивает стабильное соединение с минимальной задержкой, крайне важной для игр.Если вы выбираете идеальные наушники и хотите, чтобы я подобрал их под ваши задачи, расскажите:Какое устройство от Apple будет основным (iPhone, Mac, iPad)?Для чего они нужны больше (работа дома, путешествия, спорт, игры)?Это поможет понять, подходят ли данные наушники именно вам!9 сайтовApple AirPods Max 2: обзор новинки 2026 года и где купить... больше «воздуха» — бас становится плотнее, вокал натуральнее, а инструменты буквально расходятся по сцене с хирургической точн...Центр СвязиБеспроводные наушники Apple AirPods Max 2 (2026 ...Купить наушники Apple AirPods Max 2 (2026) в Кирове и Кирово-Чепецке с бесплатной доставкой по городу. Доставляем по России через ...Смарт43Беспроводные наушники Apple AirPods Max 2 (2026 ...Характеристики основные. Активное шумоподавление (ANC). есть. Тип излучателя. динамический. Тип наушников. Накладные. Корпус. Разм...Gadget-Device.ruПоказать всеВы сказали: "кокротко в один текст"Apple AirPods Max — это полноразмерные премиальные наушники в алюминиевом корпусе, оснащенные современным разъемом USB-C и мощным чипом Apple H2. Они обеспечивают глубокое активное шумоподавление, адаптивный режим прозрачности и персонализированный пространственный звук с отслеживанием движений головы. Модель поддерживает воспроизведение аудио без потерь (Lossless) по кабелю и прот</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="b378dae3-0ee3-4c78-82a0-a5c65f84f00f" available="true">
+        <url>https://takesmart.ru/product/naushniki-apple-airpods-max-usb-c-2026-midnight-temnaia-noch</url>
+        <price>42990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>3</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/b378dae3-0ee3-4c78-82a0-a5c65f84f00f/5c873e52-f039-41a1-84d1-b1dba8364181.webp&amp;v=2</picture>
+        <name>Наушники Apple AirPods Max USB-C (2026), Midnight (Темная ночь)</name>
+        <vendor>Apple</vendor>
+        <description>Вы сказали: "Наушники Apple AirPods Max (2026) описание"Наушники Apple AirPods Max — это полноразмерные премиальные наушники с передовыми аудиотехнологиями. Они сочетают в себе культовый алюминиевый дизайн, невероятное звучание, глубокое активное шумоподавление и удобство зарядки через порт USB Type-C.🚀 Главные особенностиМощный чипсет: Использование обновленного процессора Apple H2 выводит обработку звука на новый уровень.Продвинутое шумоподавление (ANC): Благодаря чипу H2 активное шумоподавление работает до 1,5 раз эффективнее, отсекая даже самые сложные фоновые шумы.Адаптивные аудиорежимы: Включают режим «Прозрачности», адаптивное аудио (Adaptive Audio) и распознавание разговора.Пространственное аудио: Персонализированный пространственный звук с динамическим отслеживанием движений головы обеспечивает полное погружение при просмотре фильмов.Звук без потерь: Поддержка Lossless Audio (аудио без потерь) при проводном подключении через USB-C.🎧 Дизайн и эргономикаМатериалы: Оголовье выполнено из дышащей сетчатой ткани, а чаши — из анодированного алюминия. Амбушюры легко снимаются, крепятся на магнитах и обеспечивают акустическую изоляцию.Управление: Вращающееся колесико Digital Crown позволяет удобно регулировать громкость, управлять треками и вызывать голосового помощника Siri.Вес: Наушники весят около 386 граммов.🔋 Автономность и связьАккумулятор: Обеспечивают до 20 часов непрерывного прослушивания музыки, просмотра фильмов или разговоров с активным шумоподавлением и пространственным звуком.Разъем: Универсальный разъем USB Type-C.Связь: Работают по протоколу Bluetooth 5.3, что обеспечивает стабильное соединение с минимальной задержкой, крайне важной для игр.Если вы выбираете идеальные наушники и хотите, чтобы я подобрал их под ваши задачи, расскажите:Какое устройство от Apple будет основным (iPhone, Mac, iPad)?Для чего они нужны больше (работа дома, путешествия, спорт, игры)?Это поможет понять, подходят ли данные наушники именно вам!9 сайтовApple AirPods Max 2: обзор новинки 2026 года и где купить... больше «воздуха» — бас становится плотнее, вокал натуральнее, а инструменты буквально расходятся по сцене с хирургической точн...Центр СвязиБеспроводные наушники Apple AirPods Max 2 (2026 ...Купить наушники Apple AirPods Max 2 (2026) в Кирове и Кирово-Чепецке с бесплатной доставкой по городу. Доставляем по России через ...Смарт43Беспроводные наушники Apple AirPods Max 2 (2026 ...Характеристики основные. Активное шумоподавление (ANC). есть. Тип излучателя. динамический. Тип наушников. Накладные. Корпус. Разм...Gadget-Device.ruПоказать всеВы сказали: "кокротко в один текст"Apple AirPods Max — это полноразмерные премиальные наушники в алюминиевом корпусе, оснащенные современным разъемом USB-C и мощным чипом Apple H2. Они обеспечивают глубокое активное шумоподавление, адаптивный режим прозрачности и персонализированный пространственный звук с отслеживанием движений головы. Модель поддерживает воспроизведение аудио без потерь (Lossless) по кабелю и прот</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="a7116b49-6330-4b8e-bf37-fea05a5f8215" available="true">
+        <url>https://takesmart.ru/product/naushniki-apple-airpods-max-usb-c-2026-orange-oranzhevyi</url>
+        <price>41990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>3</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/a7116b49-6330-4b8e-bf37-fea05a5f8215/c41f7aa5-2b1e-4611-bfa6-81cc991205b6.webp&amp;v=2</picture>
+        <name>Наушники Apple AirPods Max USB-C (2026), Orange (Оранжевый)</name>
+        <vendor>Apple</vendor>
+        <description>Вы сказали: "Наушники Apple AirPods Max (2026) описание"Наушники Apple AirPods Max — это полноразмерные премиальные наушники с передовыми аудиотехнологиями. Они сочетают в себе культовый алюминиевый дизайн, невероятное звучание, глубокое активное шумоподавление и удобство зарядки через порт USB Type-C.🚀 Главные особенностиМощный чипсет: Использование обновленного процессора Apple H2 выводит обработку звука на новый уровень.Продвинутое шумоподавление (ANC): Благодаря чипу H2 активное шумоподавление работает до 1,5 раз эффективнее, отсекая даже самые сложные фоновые шумы.Адаптивные аудиорежимы: Включают режим «Прозрачности», адаптивное аудио (Adaptive Audio) и распознавание разговора.Пространственное аудио: Персонализированный пространственный звук с динамическим отслеживанием движений головы обеспечивает полное погружение при просмотре фильмов.Звук без потерь: Поддержка Lossless Audio (аудио без потерь) при проводном подключении через USB-C.🎧 Дизайн и эргономикаМатериалы: Оголовье выполнено из дышащей сетчатой ткани, а чаши — из анодированного алюминия. Амбушюры легко снимаются, крепятся на магнитах и обеспечивают акустическую изоляцию.Управление: Вращающееся колесико Digital Crown позволяет удобно регулировать громкость, управлять треками и вызывать голосового помощника Siri.Вес: Наушники весят около 386 граммов.🔋 Автономность и связьАккумулятор: Обеспечивают до 20 часов непрерывного прослушивания музыки, просмотра фильмов или разговоров с активным шумоподавлением и пространственным звуком.Разъем: Универсальный разъем USB Type-C.Связь: Работают по протоколу Bluetooth 5.3, что обеспечивает стабильное соединение с минимальной задержкой, крайне важной для игр.Если вы выбираете идеальные наушники и хотите, чтобы я подобрал их под ваши задачи, расскажите:Какое устройство от Apple будет основным (iPhone, Mac, iPad)?Для чего они нужны больше (работа дома, путешествия, спорт, игры)?Это поможет понять, подходят ли данные наушники именно вам!9 сайтовApple AirPods Max 2: обзор новинки 2026 года и где купить... больше «воздуха» — бас становится плотнее, вокал натуральнее, а инструменты буквально расходятся по сцене с хирургической точн...Центр СвязиБеспроводные наушники Apple AirPods Max 2 (2026 ...Купить наушники Apple AirPods Max 2 (2026) в Кирове и Кирово-Чепецке с бесплатной доставкой по городу. Доставляем по России через ...Смарт43Беспроводные наушники Apple AirPods Max 2 (2026 ...Характеристики основные. Активное шумоподавление (ANC). есть. Тип излучателя. динамический. Тип наушников. Накладные. Корпус. Разм...Gadget-Device.ruПоказать всеВы сказали: "кокротко в один текст"Apple AirPods Max — это полноразмерные премиальные наушники в алюминиевом корпусе, оснащенные современным разъемом USB-C и мощным чипом Apple H2. Они обеспечивают глубокое активное шумоподавление, адаптивный режим прозрачности и персонализированный пространственный звук с отслеживанием движений головы. Модель поддерживает воспроизведение аудио без потерь (Lossless) по кабелю и прот</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="2e7bc390-1f3e-48e0-a0bc-19f6262807b6" available="true">
+        <url>https://takesmart.ru/product/naushniki-apple-airpods-max-usb-c-2026-purple-fioletovyi</url>
+        <price>41990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>3</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/2e7bc390-1f3e-48e0-a0bc-19f6262807b6/2336b487-aa8c-47c1-96db-383e8f771818.webp&amp;v=2</picture>
+        <name>Наушники Apple AirPods Max USB-C (2026), Purple (Фиолетовый)</name>
+        <vendor>Apple</vendor>
+        <description>Вы сказали: "Наушники Apple AirPods Max (2026) описание"Наушники Apple AirPods Max — это полноразмерные премиальные наушники с передовыми аудиотехнологиями. Они сочетают в себе культовый алюминиевый дизайн, невероятное звучание, глубокое активное шумоподавление и удобство зарядки через порт USB Type-C.🚀 Главные особенностиМощный чипсет: Использование обновленного процессора Apple H2 выводит обработку звука на новый уровень.Продвинутое шумоподавление (ANC): Благодаря чипу H2 активное шумоподавление работает до 1,5 раз эффективнее, отсекая даже самые сложные фоновые шумы.Адаптивные аудиорежимы: Включают режим «Прозрачности», адаптивное аудио (Adaptive Audio) и распознавание разговора.Пространственное аудио: Персонализированный пространственный звук с динамическим отслеживанием движений головы обеспечивает полное погружение при просмотре фильмов.Звук без потерь: Поддержка Lossless Audio (аудио без потерь) при проводном подключении через USB-C.🎧 Дизайн и эргономикаМатериалы: Оголовье выполнено из дышащей сетчатой ткани, а чаши — из анодированного алюминия. Амбушюры легко снимаются, крепятся на магнитах и обеспечивают акустическую изоляцию.Управление: Вращающееся колесико Digital Crown позволяет удобно регулировать громкость, управлять треками и вызывать голосового помощника Siri.Вес: Наушники весят около 386 граммов.🔋 Автономность и связьАккумулятор: Обеспечивают до 20 часов непрерывного прослушивания музыки, просмотра фильмов или разговоров с активным шумоподавлением и пространственным звуком.Разъем: Универсальный разъем USB Type-C.Связь: Работают по протоколу Bluetooth 5.3, что обеспечивает стабильное соединение с минимальной задержкой, крайне важной для игр.Если вы выбираете идеальные наушники и хотите, чтобы я подобрал их под ваши задачи, расскажите:Какое устройство от Apple будет основным (iPhone, Mac, iPad)?Для чего они нужны больше (работа дома, путешествия, спорт, игры)?Это поможет понять, подходят ли данные наушники именно вам!9 сайтовApple AirPods Max 2: обзор новинки 2026 года и где купить... больше «воздуха» — бас становится плотнее, вокал натуральнее, а инструменты буквально расходятся по сцене с хирургической точн...Центр СвязиБеспроводные наушники Apple AirPods Max 2 (2026 ...Купить наушники Apple AirPods Max 2 (2026) в Кирове и Кирово-Чепецке с бесплатной доставкой по городу. Доставляем по России через ...Смарт43Беспроводные наушники Apple AirPods Max 2 (2026 ...Характеристики основные. Активное шумоподавление (ANC). есть. Тип излучателя. динамический. Тип наушников. Накладные. Корпус. Разм...Gadget-Device.ruПоказать всеВы сказали: "кокротко в один текст"Apple AirPods Max — это полноразмерные премиальные наушники в алюминиевом корпусе, оснащенные современным разъемом USB-C и мощным чипом Apple H2. Они обеспечивают глубокое активное шумоподавление, адаптивный режим прозрачности и персонализированный пространственный звук с отслеживанием движений головы. Модель поддерживает воспроизведение аудио без потерь (Lossless) по кабелю и прот</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="fc2c352f-174e-437f-8d8f-a93873199f66" available="true">
+        <url>https://takesmart.ru/product/naushniki-apple-airpods-max-usb-c-2026-starlight-siiaiushchaia-zvezda</url>
+        <price>42990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>3</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/fc2c352f-174e-437f-8d8f-a93873199f66/99f3356a-da78-431f-8d26-91791deddba8.webp&amp;v=2</picture>
+        <name>Наушники Apple AirPods Max USB-C (2026), Starlight (Сияющая звезда)</name>
+        <vendor>Apple</vendor>
+        <description>Вы сказали: "Наушники Apple AirPods Max (2026) описание"Наушники Apple AirPods Max — это полноразмерные премиальные наушники с передовыми аудиотехнологиями. Они сочетают в себе культовый алюминиевый дизайн, невероятное звучание, глубокое активное шумоподавление и удобство зарядки через порт USB Type-C.🚀 Главные особенностиМощный чипсет: Использование обновленного процессора Apple H2 выводит обработку звука на новый уровень.Продвинутое шумоподавление (ANC): Благодаря чипу H2 активное шумоподавление работает до 1,5 раз эффективнее, отсекая даже самые сложные фоновые шумы.Адаптивные аудиорежимы: Включают режим «Прозрачности», адаптивное аудио (Adaptive Audio) и распознавание разговора.Пространственное аудио: Персонализированный пространственный звук с динамическим отслеживанием движений головы обеспечивает полное погружение при просмотре фильмов.Звук без потерь: Поддержка Lossless Audio (аудио без потерь) при проводном подключении через USB-C.🎧 Дизайн и эргономикаМатериалы: Оголовье выполнено из дышащей сетчатой ткани, а чаши — из анодированного алюминия. Амбушюры легко снимаются, крепятся на магнитах и обеспечивают акустическую изоляцию.Управление: Вращающееся колесико Digital Crown позволяет удобно регулировать громкость, управлять треками и вызывать голосового помощника Siri.Вес: Наушники весят около 386 граммов.🔋 Автономность и связьАккумулятор: Обеспечивают до 20 часов непрерывного прослушивания музыки, просмотра фильмов или разговоров с активным шумоподавлением и пространственным звуком.Разъем: Универсальный разъем USB Type-C.Связь: Работают по протоколу Bluetooth 5.3, что обеспечивает стабильное соединение с минимальной задержкой, крайне важной для игр.Если вы выбираете идеальные наушники и хотите, чтобы я подобрал их под ваши задачи, расскажите:Какое устройство от Apple будет основным (iPhone, Mac, iPad)?Для чего они нужны больше (работа дома, путешествия, спорт, игры)?Это поможет понять, подходят ли данные наушники именно вам!9 сайтовApple AirPods Max 2: обзор новинки 2026 года и где купить... больше «воздуха» — бас становится плотнее, вокал натуральнее, а инструменты буквально расходятся по сцене с хирургической точн...Центр СвязиБеспроводные наушники Apple AirPods Max 2 (2026 ...Купить наушники Apple AirPods Max 2 (2026) в Кирове и Кирово-Чепецке с бесплатной доставкой по городу. Доставляем по России через ...Смарт43Беспроводные наушники Apple AirPods Max 2 (2026 ...Характеристики основные. Активное шумоподавление (ANC). есть. Тип излучателя. динамический. Тип наушников. Накладные. Корпус. Разм...Gadget-Device.ruПоказать всеВы сказали: "кокротко в один текст"Apple AirPods Max — это полноразмерные премиальные наушники в алюминиевом корпусе, оснащенные современным разъемом USB-C и мощным чипом Apple H2. Они обеспечивают глубокое активное шумоподавление, адаптивный режим прозрачности и персонализированный пространственный звук с отслеживанием движений головы. Модель поддерживает воспроизведение аудио без потерь (Lossless) по кабелю и прот</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="d877120b-3dc8-4737-971c-c305f90c6fee" available="true">
+        <url>https://takesmart.ru/product/naushniki-apple-airpods-pro-2-usb-c-2-go-pokoleniia-2023</url>
+        <price>14990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>3</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/d877120b-3dc8-4737-971c-c305f90c6fee/3736d3f8-d2cb-4906-850d-485462341434.jpg&amp;v=2</picture>
+        <name>Наушники Apple AirPods Pro 2  USB-C (2-го поколения, 2023)</name>
+        <vendor>Apple</vendor>
+        <model>AirPods Pro 2</model>
+        <description>AirPods Pro 2 </description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="18383f80-2ccb-444f-8341-c6cffd5e34b8" available="true">
+        <url>https://takesmart.ru/product/naushniki-apple-airpods-pro-3-usb-c-2025-mfhp4</url>
+        <price>17990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>3</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/18383f80-2ccb-444f-8341-c6cffd5e34b8/221a73e2-3d97-4f13-ba2e-2ab79282a8d7.jpg&amp;v=2</picture>
+        <name>Наушники Apple Airpods Pro 3 USB-C (2025) MFHP4</name>
+        <vendor>Apple</vendor>
+        <model>MFHP4</model>
+        <description>AirPods Pro 3</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="a2b15faa-9489-4acd-92a3-c75eeacffe84" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-bordovyi-burgundy-1tb-esim</url>
+        <price>229990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/a2b15faa-9489-4acd-92a3-c75eeacffe84/4d8d35cd-768a-4510-8c7f-be14163cbbe0.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Бордовый (Burgundy), 1ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="b073fad0-df4e-49e3-aea2-9c98280f40ee" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-bordovyi-burgundy-1tb-sim-esim</url>
+        <price>309990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/b073fad0-df4e-49e3-aea2-9c98280f40ee/c43f9525-de85-48b0-9bc1-93ccf671a8ad.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Бордовый (Burgundy), 1ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="d96b0d01-2aa9-4cc5-8561-0b324478de52" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-bordovyi-burgundy-256gb-esim</url>
+        <price>179990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/d96b0d01-2aa9-4cc5-8561-0b324478de52/a6a9b2d6-8c53-4c8d-9080-c979e226cd63.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Бордовый (Burgundy), 256ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="03524259-09f2-4b19-828f-a0583700063f" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-bordovyi-burgundy-256gb-sim-esim</url>
+        <price>194990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/03524259-09f2-4b19-828f-a0583700063f/50e05b0d-e11f-4395-93cb-80e35a9d9a35.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Бордовый (Burgundy), 256ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="9b4567a0-b38e-421c-9a65-02ae32ad0071" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-bordovyi-burgundy-2tb-esim</url>
+        <price>309990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/9b4567a0-b38e-421c-9a65-02ae32ad0071/7bf5029e-bd42-40e3-8f2f-eec8e5e57406.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Бордовый (Burgundy), 2ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="fda8739e-79ac-47f5-b04c-3407579313d4" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-bordovyi-burgundy-2tb-sim-esim</url>
+        <price>374990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/fda8739e-79ac-47f5-b04c-3407579313d4/5132cd7e-fbc8-40f6-9d3a-d5440d30128f.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Бордовый (Burgundy), 2ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="026f36f0-2273-47de-91ac-94c031f8336f" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-bordovyi-burgundy-512gb-esim</url>
+        <price>187990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/026f36f0-2273-47de-91ac-94c031f8336f/2a8a7d9b-0af4-4806-ba48-161e306623b0.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Бордовый (Burgundy), 512ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="a78ae45a-02e3-403a-ae00-1c654b818531" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-bordovyi-burgundy-512gb-sim-esim</url>
+        <price>252990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/a78ae45a-02e3-403a-ae00-1c654b818531/fda2dbdf-b037-4ee6-8ed8-877fbb3e3d7f.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Бордовый (Burgundy), 512ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="2dae99a7-7389-402b-a50f-1e44baa7dd98" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-goluboi-glacier-1tb-esim</url>
+        <price>229990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/2dae99a7-7389-402b-a50f-1e44baa7dd98/9ca92a7b-70f5-4d35-bb36-753a0c6643c4.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Голубой (Glacier), 1ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="63dc1417-69ee-481c-b555-e04ec4c755bd" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-goluboi-glacier-1tb-sim-esim</url>
+        <price>309990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/63dc1417-69ee-481c-b555-e04ec4c755bd/7c466d65-fd07-4974-abb3-ad1825694f42.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Голубой (Glacier), 1ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="d123ca07-eb33-4ace-a12b-9f1a266b9aa5" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-goluboi-glacier-256gb-esim</url>
+        <price>174990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/d123ca07-eb33-4ace-a12b-9f1a266b9aa5/d6e55aad-26b8-4f59-97c4-a3ca2d893566.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Голубой (Glacier), 256ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="db29c4dd-5493-4974-824b-d27660679ec2" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-goluboi-glacier-256gb-sim-esim</url>
+        <price>197990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/db29c4dd-5493-4974-824b-d27660679ec2/67130637-f676-4e5f-af2a-249f680f8047.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Голубой (Glacier), 256ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="cf260587-4a69-4a38-80eb-99f376eb99fe" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-goluboi-glacier-2tb-esim</url>
+        <price>309990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/cf260587-4a69-4a38-80eb-99f376eb99fe/367930f0-a1e3-45a0-8bdd-9463f9eeb45b.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Голубой (Glacier), 2ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="04e6d711-b07c-4248-933e-d1cb2ca2a023" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-goluboi-glacier-2tb-sim-esim</url>
+        <price>374990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/04e6d711-b07c-4248-933e-d1cb2ca2a023/3c04f602-1735-4253-a165-c000614637ef.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Голубой (Glacier), 2ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="a0914a2f-c95f-43e3-9bdb-393d88057ec7" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-goluboi-glacier-512gb-esim</url>
+        <price>184990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/a0914a2f-c95f-43e3-9bdb-393d88057ec7/b1b41676-98d4-4a6b-9c8d-607fced8cd19.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Голубой (Glacier), 512ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="a73b77a5-536d-4764-ac51-cab8f42f1617" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-goluboi-glacier-512gb-sim-esim</url>
+        <price>252990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/a73b77a5-536d-4764-ac51-cab8f42f1617/1594e80d-ca34-483a-a8a9-da067182cc8d.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Голубой (Glacier), 512ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="36c02fb5-dac2-4d73-a40b-9deb77b2e8e8" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-serebristyi-silver-1tb-esim</url>
+        <price>229990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/36c02fb5-dac2-4d73-a40b-9deb77b2e8e8/a53a7f5e-e528-4e8e-8c0e-c52dc96b9592.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Серебристый (Silver), 1ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="f9c966a3-9a16-4837-a04a-51072e8ad998" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-serebristyi-silver-1tb-sim-esim</url>
+        <price>311990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/f9c966a3-9a16-4837-a04a-51072e8ad998/822b28ab-d7d7-4d15-8c63-ecffe9ea4dae.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Серебристый (Silver), 1ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="e70e0cee-c648-4a8b-b8b3-21dd2643b5a0" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-serebristyi-silver-256gb-esim</url>
+        <price>174990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/e70e0cee-c648-4a8b-b8b3-21dd2643b5a0/d7c1cfc6-6f89-4c29-9041-a679ac98b2e6.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Серебристый (Silver), 256ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="bad453ff-4831-48ab-a6df-f535b6a4627e" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-serebristyi-silver-256gb-sim-esim</url>
+        <price>197990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/bad453ff-4831-48ab-a6df-f535b6a4627e/13795ac9-733e-4194-9031-b3edd178a5a2.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Серебристый (Silver), 256ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="b3ee2144-b181-4b73-850f-458938af491c" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-serebristyi-silver-2tb-esim</url>
+        <price>309990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/b3ee2144-b181-4b73-850f-458938af491c/72a22f66-a5eb-49fb-b7a4-65f9ee15d45b.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Серебристый (Silver), 2ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="e373b2e1-004b-433a-801d-f68d52aab435" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-serebristyi-silver-2tb-sim-esim</url>
+        <price>374990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/e373b2e1-004b-433a-801d-f68d52aab435/a3ac49d3-8286-4272-a929-b6e71c053d32.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Серебристый (Silver), 2ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="787d8cf6-2802-45fd-8425-0d4a755f111e" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-serebristyi-silver-512gb-esim</url>
+        <price>189990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/787d8cf6-2802-45fd-8425-0d4a755f111e/249b5feb-a324-4e5b-aaf6-d914f1c581d9.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Серебристый (Silver), 512ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="824636db-7e65-412c-8124-a5f55be10f67" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-serebristyi-silver-512gb-sim-esim</url>
+        <price>252990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/824636db-7e65-412c-8124-a5f55be10f67/f6913433-e261-4148-907a-8deb57a5de2b.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Серебристый (Silver), 512ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="58234699-fed2-4dbb-a704-51d57913ed7e" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-chernyi-black-1tb-esim</url>
+        <price>229990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/58234699-fed2-4dbb-a704-51d57913ed7e/02dd42e9-d578-4d76-b8cd-41d03938acb6.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Черный (Black), 1ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="0f7a2737-ce28-4656-a00d-09225305aa2c" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-chernyi-black-1tb-sim-esim</url>
+        <price>309990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/0f7a2737-ce28-4656-a00d-09225305aa2c/176e04f2-05ae-4948-9576-d862c832f9cc.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Черный (Black), 1ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="a94c3711-6ef6-4d81-93ab-13871adf03fd" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-chernyi-black-256gb-esim</url>
+        <price>174990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/a94c3711-6ef6-4d81-93ab-13871adf03fd/9d4f4d6a-b502-45c0-b007-e68ab28f5df6.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Черный (Black), 256ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="2a52b495-b181-4d12-adf6-789d8a5693a1" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-chernyi-black-256gb-sim-esim</url>
+        <price>197990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/2a52b495-b181-4d12-adf6-789d8a5693a1/caa155bb-6b2b-4ba3-97fb-4587db90175b.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Черный (Black), 256ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="d3f3f5a9-7fff-481c-bdf5-1fa260ae89f4" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-chernyi-black-2tb-esim</url>
+        <price>309990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/d3f3f5a9-7fff-481c-bdf5-1fa260ae89f4/221435db-a027-4c75-9ece-b009961451a9.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Черный (Black), 2ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="6f6bdef9-5759-41ce-904b-3dcb781e215a" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-chernyi-black-2tb-sim-esim</url>
+        <price>374990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/6f6bdef9-5759-41ce-904b-3dcb781e215a/f7c5fa64-67f9-4958-8e95-75376db500ab.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Черный (Black), 2ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="37c43231-9289-4c99-9c83-572edd7dcb8f" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-chernyi-black-512gb-esim</url>
+        <price>185990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/37c43231-9289-4c99-9c83-572edd7dcb8f/d4721d7f-4ac3-476c-a7b0-3936be1438ee.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Черный (Black), 512ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="058f0817-d47a-4ff2-ac7a-4140677da686" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-max-chernyi-black-512gb-sim-esim</url>
+        <price>252990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/058f0817-d47a-4ff2-ac7a-4140677da686/81a609d6-2be7-4e17-9660-a9944ae44e9d.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Max Черный (Black), 512ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>флагманский смартфон компании Apple, получивший передовой 2-нм процессор A20 Pro, основную камеру с переменной механической диафрагмой и увеличенную автономность</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="b0e25d5d-8e46-4761-a472-aea4e3580d90" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-bordovyi-burgundy-1tb-esim</url>
+        <price>209990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/b0e25d5d-8e46-4761-a472-aea4e3580d90/b484287b-9043-4eee-ae6b-211c78e9d463.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Бордовый (Burgundy), 1ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="ff5d1c5b-ada3-47a3-b8c6-43d77fd8d890" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-bordovyi-burgundy-1tb-sim-esim</url>
+        <price>267990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/ff5d1c5b-ada3-47a3-b8c6-43d77fd8d890/7b1e6ef0-8f06-487b-b746-0a9510095e18.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Бордовый (Burgundy), 1ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="0f2d95d1-99b3-4658-bd0f-e802cbf26ffd" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-bordovyi-burgundy-256gb-esim</url>
+        <price>148990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/0f2d95d1-99b3-4658-bd0f-e802cbf26ffd/8c604622-616f-4e65-9188-1e49f89f2a39.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Бордовый (Burgundy), 256ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="d0e23ada-d2b4-4096-a169-7720a4554725" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-bordovyi-burgundy-256gb-sim-esim</url>
+        <price>167990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/d0e23ada-d2b4-4096-a169-7720a4554725/ecea7ead-14b9-4881-a40a-344323fab580.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Бордовый (Burgundy), 256ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="b6ee8bd9-a86c-4576-85df-afc61fc492af" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-bordovyi-burgundy-2tb-esim</url>
+        <price>269990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/b6ee8bd9-a86c-4576-85df-afc61fc492af/c736164e-0d5b-41cf-8385-cdb0b594c8f6.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Бордовый (Burgundy), 2ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="d0429311-01ff-4728-8776-bdd84948c9b0" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-bordovyi-burgundy-2tb-sim-esim</url>
+        <price>334990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/d0429311-01ff-4728-8776-bdd84948c9b0/6ad60ba8-f762-4da0-a614-e55e5b394033.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Бордовый (Burgundy), 2ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="378a4e20-dd78-43d6-a695-af9b44862644" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-bordovyi-burgundy-512gb-esim</url>
+        <price>189990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/378a4e20-dd78-43d6-a695-af9b44862644/8a53bb8c-285a-4a09-a1e8-ef6773c50dc7.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Бордовый (Burgundy), 512ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="a849ba5d-00a5-4c09-8eb4-e984445f1c16" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-bordovyi-burgundy-512gb-sim-esim</url>
+        <price>228990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/a849ba5d-00a5-4c09-8eb4-e984445f1c16/c47d9565-d67e-42ca-8430-9e118089a59a.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Бордовый (Burgundy), 512ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="ea401060-f875-45f0-9df0-caf7e1d6cb54" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-goluboi-glacier-1tb-esim</url>
+        <price>211990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/ea401060-f875-45f0-9df0-caf7e1d6cb54/84c4548f-f267-4a2f-9c70-416f8c0c205c.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Голубой (Glacier), 1ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="d096bd4e-d4d3-4158-8e95-b7f9d60d5d0b" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-goluboi-glacier-1tb-sim-esim</url>
+        <price>267990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/d096bd4e-d4d3-4158-8e95-b7f9d60d5d0b/e0d6d6a3-5a30-41ba-b599-9ae5e0f40c0d.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Голубой (Glacier), 1ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="837412dc-b915-4e3e-bb77-1587b21ce40e" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-goluboi-glacier-256gb-esim</url>
+        <price>148990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/837412dc-b915-4e3e-bb77-1587b21ce40e/8ede43f0-3d25-4089-b0e9-dff34df50189.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Голубой (Glacier), 256ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="b17acd96-a32e-4fe9-b966-c0e13444094e" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-goluboi-glacier-256gb-sim-esim</url>
+        <price>171990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/b17acd96-a32e-4fe9-b966-c0e13444094e/b338c9fa-34c2-45a5-8c95-8cf53980577f.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Голубой (Glacier), 256ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="6c35fab1-53c9-4d80-a7b0-d4ec72030c7b" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-goluboi-glacier-2tb-esim</url>
+        <price>271990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/6c35fab1-53c9-4d80-a7b0-d4ec72030c7b/e154c669-459f-40de-af12-4e44c80d07a2.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Голубой (Glacier), 2ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="1d45078a-b887-4431-b6d5-3399fe7fb882" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-goluboi-glacier-2tb-sim-esim</url>
+        <price>334990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/1d45078a-b887-4431-b6d5-3399fe7fb882/dd015a88-016a-4455-b950-05658d86e84c.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Голубой (Glacier), 2ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="5f147dfa-8fd7-4f37-a7cc-0d9bf7650566" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-goluboi-glacier-512gb-esim</url>
+        <price>189990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/5f147dfa-8fd7-4f37-a7cc-0d9bf7650566/8913572a-390e-4d1f-9168-63762975617e.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Голубой (Glacier), 512ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="dd32c2dc-28eb-42ed-9ee8-35b8d477900d" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-goluboi-glacier-512gb-sim-esim</url>
+        <price>224990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/dd32c2dc-28eb-42ed-9ee8-35b8d477900d/9e9de117-9146-4193-bd33-8c57f42462cd.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Голубой (Glacier), 512ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="bcee8925-3b16-4f55-9f8a-6b5a66172c62" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-serebristyi-silver-1tb-esim</url>
+        <price>211990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/bcee8925-3b16-4f55-9f8a-6b5a66172c62/85a96a5a-b194-436f-b780-28825bb5e543.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Серебристый (Silver), 1ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="08717098-b447-41a3-a972-caaff66d4d46" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-serebristyi-silver-1tb-sim-esim</url>
+        <price>266990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/08717098-b447-41a3-a972-caaff66d4d46/b7de239d-c53d-474a-9627-73416d09573d.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Серебристый (Silver), 1ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="07493d08-ea06-4c8c-a560-3cb32405f689" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-serebristyi-silver-256gb-esim</url>
+        <price>148990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/07493d08-ea06-4c8c-a560-3cb32405f689/33e7c003-0b99-4f31-929e-de4ba03036fa.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Серебристый (Silver), 256ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="b3fa61d9-9836-41cb-8c1e-c20091224dae" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-serebristyi-silver-256gb-sim-esim</url>
+        <price>167990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/b3fa61d9-9836-41cb-8c1e-c20091224dae/e6a9ac8c-6cfb-469c-a3d6-971b8d0614f4.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Серебристый (Silver), 256ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="3df1a3ab-3f3d-4d0d-852c-d306f0dbea89" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-serebristyi-silver-2tb-esim</url>
+        <price>269990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/3df1a3ab-3f3d-4d0d-852c-d306f0dbea89/18d478af-7eb6-41eb-9d59-161f19bb064a.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Серебристый (Silver), 2ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="9921353f-ed23-4116-8f74-ee3c556aab9d" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-serebristyi-silver-2tb-sim-esim</url>
+        <price>334990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/9921353f-ed23-4116-8f74-ee3c556aab9d/65a00a8c-7e4f-49b7-ad2e-7416ce1d7442.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Серебристый (Silver), 2ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="c3d909b6-2f58-4fcc-9369-bd989e2c3052" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-serebristyi-silver-512gb-esim</url>
+        <price>189990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/c3d909b6-2f58-4fcc-9369-bd989e2c3052/df650bc4-360a-45ee-85bf-bef112b59105.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Серебристый (Silver), 512ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="0230f4ac-1288-45d0-8cc6-fbf7df69704a" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-serebristyi-silver-512gb-sim-esim</url>
+        <price>228990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/0230f4ac-1288-45d0-8cc6-fbf7df69704a/1813c72b-8776-44e1-9214-5be35f0a1118.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Серебристый (Silver), 512ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="65e0cc9b-54ff-4aa5-90a9-c81569466d26" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-chernyi-black-1tb-esim</url>
+        <price>210990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/65e0cc9b-54ff-4aa5-90a9-c81569466d26/6fd5cea3-0324-4457-9ff2-4c7810c31878.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Черный (Black), 1ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="ea0a04dc-5fd3-4208-9968-4695b52dae7a" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-chernyi-black-1tb-sim-esim</url>
+        <price>277990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/ea0a04dc-5fd3-4208-9968-4695b52dae7a/b1d7df83-ce72-4dd3-a63d-c9be5e05cd4d.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Черный (Black), 1ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="98ff8bc3-3499-4731-9c5d-25b74188cbf7" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-chernyi-black-256gb-esim</url>
+        <price>148990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/98ff8bc3-3499-4731-9c5d-25b74188cbf7/fb34a5c6-31b1-4fc1-8273-8ff485fc3546.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Черный (Black), 256ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="e2cc904e-b227-46d5-b947-7a2b1dd12067" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-chernyi-black-256gb-sim-esim</url>
+        <price>167990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/e2cc904e-b227-46d5-b947-7a2b1dd12067/a699da6c-04e8-41cc-9246-1701d5138655.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Черный (Black), 256ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="c421846b-15a7-484e-9f67-5ec9dcf1803b" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-chernyi-black-2tb-esim</url>
+        <price>319990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/c421846b-15a7-484e-9f67-5ec9dcf1803b/640fa213-5af4-4428-aa52-019aaabc0fc7.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Черный (Black), 2ТБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="3c650cd2-a43c-4f56-8977-f9c7afb15183" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-chernyi-black-2tb-sim-esim</url>
+        <price>334990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/3c650cd2-a43c-4f56-8977-f9c7afb15183/96660161-4be6-4712-9574-823d1ccd1532.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Черный (Black), 2ТБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="9bca7ea5-e283-4a6d-b940-2ff7a572760e" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-chernyi-black-512gb-esim</url>
+        <price>189990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/9bca7ea5-e283-4a6d-b940-2ff7a572760e/54663816-2489-4e0c-9999-c58fc0f24d49.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Черный (Black), 512ГБ, eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="d42568cc-8356-4d5a-b84a-40fe8e3ad16c" available="true">
+        <url>https://takesmart.ru/product/smartfon-apple-iphone-18-pro-chernyi-black-512gb-sim-esim</url>
+        <price>234990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>4</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/d42568cc-8356-4d5a-b84a-40fe8e3ad16c/d4f3231c-0e5b-44ca-81b8-f4ae8338c2ed.jpg&amp;v=2</picture>
+        <name>Смартфон Apple iPhone 18 Pro Черный (Black), 512ГБ, Sim+eSim</name>
+        <vendor>Apple</vendor>
+        <description>это флагманский смартфон Apple 2026 года с 6,3-дюймовым дисплеем, передовым 2-нм процессором A20 Pro и тройной 48-мегапиксельной камерой с переменной диафрагмой</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="02162607-f094-411d-a056-edc92d8d81e2" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-se-3-siiaiushchaia-zvezda-starlight-sport-band-m-l-40mm</url>
+        <price>22990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/02162607-f094-411d-a056-edc92d8d81e2/3b1cab2a-6b7c-4865-8823-69d7603ff9ad.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch SE 3 Сияющая звезда (Starlight), Sport Band, M/L, 40mm</name>
+        <vendor>Apple</vendor>
+        <description>доступные умные часы от Apple,  объединяющие ключевые функции флагманских моделей по более низкой цене</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="18e32f45-4514-48ee-b7ce-cfb815a1b405" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-se-3-siiaiushchaia-zvezda-starlight-sport-band-m-l-44mm</url>
+        <price>24990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/18e32f45-4514-48ee-b7ce-cfb815a1b405/ed5cd806-f498-407a-a6d6-4a25cc09fe35.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch SE 3 Сияющая звезда (Starlight), Sport Band, M/L, 44mm</name>
+        <vendor>Apple</vendor>
+        <description>доступные умные часы от Apple,  объединяющие ключевые функции флагманских моделей по более низкой цене</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="a3c0bdcc-294c-473c-8b98-ecfcd1ad893d" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-se-3-siiaiushchaia-zvezda-starlight-sport-band-s-m-40mm</url>
+        <price>22990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/a3c0bdcc-294c-473c-8b98-ecfcd1ad893d/ec9d9606-b380-4f53-80ce-2796ec6c1e07.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch SE 3 Сияющая звезда (Starlight), Sport Band, S/M, 40mm</name>
+        <vendor>Apple</vendor>
+        <description>доступные умные часы от Apple,  объединяющие ключевые функции флагманских моделей по более низкой цене</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="81756cfb-c3ec-4b5a-a212-5cbf9761f10c" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-se-3-siiaiushchaia-zvezda-starlight-sport-band-s-m-44mm</url>
+        <price>24990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/81756cfb-c3ec-4b5a-a212-5cbf9761f10c/131959fa-ee1d-419b-9af0-b637f99187ed.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch SE 3 Сияющая звезда (Starlight), Sport Band, S/M, 44mm</name>
+        <vendor>Apple</vendor>
+        <description>доступные умные часы от Apple,  объединяющие ключевые функции флагманских моделей по более низкой цене</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="104bd509-6108-47ef-a406-2238a37248ad" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-se-3-temnaia-noch-midnight-sport-band-m-l-40mm</url>
+        <price>22990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/104bd509-6108-47ef-a406-2238a37248ad/9a656bc2-d570-40e9-b68f-331f9a68bea1.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch SE 3 Темная ночь (Midnight), Sport Band, M/L, 40mm</name>
+        <vendor>Apple</vendor>
+        <description>доступные умные часы от Apple,  объединяющие ключевые функции флагманских моделей по более низкой цене</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="a9d3acb6-518c-4ee8-80e6-d19d74f70047" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-se-3-temnaia-noch-midnight-sport-band-m-l-44mm</url>
+        <price>24990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/a9d3acb6-518c-4ee8-80e6-d19d74f70047/85062740-c80a-4870-8b84-65cc5bb7960d.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch SE 3 Темная ночь (Midnight), Sport Band, M/L, 44mm</name>
+        <vendor>Apple</vendor>
+        <description>доступные умные часы от Apple,  объединяющие ключевые функции флагманских моделей по более низкой цене</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="14fb9789-7f95-4b03-b2be-0d2ad7913e65" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-se-3-temnaia-noch-midnight-sport-band-s-m-40mm</url>
+        <price>22990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/14fb9789-7f95-4b03-b2be-0d2ad7913e65/155747b9-f892-475b-a477-dbc4ada103be.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch SE 3 Темная ночь (Midnight), Sport Band, S/M, 40mm</name>
+        <vendor>Apple</vendor>
+        <description>доступные умные часы от Apple,  объединяющие ключевые функции флагманских моделей по более низкой цене</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="e7804633-80d0-4960-ad2d-80ff99fb1a43" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-se-3-temnaia-noch-midnight-sport-band-s-m-44mm</url>
+        <price>24990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/e7804633-80d0-4960-ad2d-80ff99fb1a43/9811f9bd-e248-4022-8459-09783cfd7d29.jpg&amp;v=2</picture>
+        <name>Часы Apple Watch SE 3 Темная ночь (Midnight), Sport Band, S/M, 44mm</name>
+        <vendor>Apple</vendor>
+        <description>доступные умные часы от Apple,  объединяющие ключевые функции флагманских моделей по более низкой цене</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="91d9d820-24b9-494c-981a-756e0e4504fc" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-ultra-3-2025-49mm-chernyi-titan-black-titanium-milanskaia-petlia-iz-chernogo-titana-titanium-milanese-loop-black-l</url>
+        <price>72990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/91d9d820-24b9-494c-981a-756e0e4504fc/4c125b25-a9c9-4988-b8c0-3c9a0191a846.jpeg&amp;v=2</picture>
+        <name>Часы Apple Watch Ultra 3 (2025) 49мм черный титан (Black Titanium) Миланская петля из черного титана (Titanium Milanese Loop Black) L</name>
+        <vendor>Apple</vendor>
+        <description>Apple Watch Ultra 3 (2025) — это вершина защищенных технологий Apple, сохранившая культовый 49-мм титановый корпус, но вышедшая на новый уровень производительности. Благодаря мощному чипу S10 SiP и поддержке Apple Intelligence, часы стали не просто аксессуаром, а полноценным ИИ-ассистентом на запястье. Главным визуальным обновлением стал сверхъяркий дисплей 3000 нит с уменьшенными рамками, обеспечивающий идеальную читаемость даже под прямым солнцем. Для экстремалов добавлена поддержка спутниковой связи для SOS и обмена сообщениями вне зоны покрытия, а время автономной работы увеличилось до внушительных 42 часов (до 72 в режиме экономии). Функционал здоровья пополнился долгожданным датчиком для уведомлений о гипертонии и анализом качества сна на базе нейросетей. Модель доступна в классическом натуральном титане и новом строгом цвете Black Titanium, предлагая беспрецедентную надежность по стандарту MIL-STD 810H и водонепроницаемость WR100.
+</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="e0e84c5c-6d50-460f-904e-421dcbd3f39f" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-ultra-3-2025-49mm-chernyi-titan-black-titanium-milanskaia-petlia-iz-chernogo-titana-titanium-milanese-loop-black-m</url>
+        <price>70990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/e0e84c5c-6d50-460f-904e-421dcbd3f39f/950a2f9d-9c73-41b0-8a18-f681ff807e0c.jpeg&amp;v=2</picture>
+        <name>Часы Apple Watch Ultra 3 (2025) 49мм черный титан (Black Titanium) Миланская петля из черного титана (Titanium Milanese Loop Black) M</name>
+        <vendor>Apple</vendor>
+        <description>Apple Watch Ultra 3 (2025) — это вершина защищенных технологий Apple, сохранившая культовый 49-мм титановый корпус, но вышедшая на новый уровень производительности. Благодаря мощному чипу S10 SiP и поддержке Apple Intelligence, часы стали не просто аксессуаром, а полноценным ИИ-ассистентом на запястье. Главным визуальным обновлением стал сверхъяркий дисплей 3000 нит с уменьшенными рамками, обеспечивающий идеальную читаемость даже под прямым солнцем. Для экстремалов добавлена поддержка спутниковой связи для SOS и обмена сообщениями вне зоны покрытия, а время автономной работы увеличилось до внушительных 42 часов (до 72 в режиме экономии). Функционал здоровья пополнился долгожданным датчиком для уведомлений о гипертонии и анализом качества сна на базе нейросетей. Модель доступна в классическом натуральном титане и новом строгом цвете Black Titanium, предлагая беспрецедентную надежность по стандарту MIL-STD 810H и водонепроницаемость WR100.
+</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+      <offer id="5d92221d-343a-46da-ba84-2e54767f6740" available="true">
+        <url>https://takesmart.ru/product/chasy-apple-watch-ultra-3-2025-49mm-chernyi-titan-black-titanium-milanskaia-petlia-iz-chernogo-titana-titanium-milanese-loop-black-s</url>
+        <price>70990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://takesmart.ru/api/v1/feed/img?key=products/5d92221d-343a-46da-ba84-2e54767f6740/517f4bf3-33b4-434f-846e-f79494fb4fd7.jpeg&amp;v=2</picture>
+        <name>Часы Apple Watch Ultra 3 (2025) 49мм черный титан (Black Titanium) Миланская петля из черного титана (Titanium Milanese Loop Black) S</name>
+        <vendor>Apple</vendor>
+        <description>Apple Watch Ultra 3 (2025) — это вершина защищенных технологий Apple, сохранившая культовый 49-мм титановый корпус, но вышедшая на новый уровень производительности. Благодаря мощному чипу S10 SiP и поддержке Apple Intelligence, часы стали не просто аксессуаром, а полноценным ИИ-ассистентом на запястье. Главным визуальным обновлением стал сверхъяркий дисплей 3000 нит с уменьшенными рамками, обеспечивающий идеальную читаемость даже под прямым солнцем. Для экстремалов добавлена поддержка спутниковой связи для SOS и обмена сообщениями вне зоны покрытия, а время автономной работы увеличилось до внушительных 42 часов (до 72 в режиме экономии). Функционал здоровья пополнился долгожданным датчиком для уведомлений о гипертонии и анализом качества сна на базе нейросетей. Модель доступна в классическом натуральном титане и новом строгом цвете Black Titanium, предлагая беспрецедентную надежность по стандарту MIL-STD 810H и водонепроницаемость WR100.
+</description>
+        <sales_notes>Гарантия 12 мес.</sales_notes>
+      </offer>
+    </offers>
+  </shop>
+</yml_catalog>

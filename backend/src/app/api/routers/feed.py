@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import io
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -275,20 +276,22 @@ async def yandex_preorder_feed(
     )
 
 
-def _parse_model_query(raw: str | None) -> list[list[str]]:
-    """«iphone 18, watch series 12» → [["iphone","18"], ["watch","series","12"]]:
-    товар — новинка, если ВСЕ слова хотя бы одной фразы входят в его название."""
-    phrases: list[list[str]] = []
+def _parse_model_query(raw: str | None) -> list[re.Pattern[str]]:
+    """«iphone 18, watch se 3» → регэкспы фраз ЦЕЛИКОМ по границам слов.
+    Слова фразы должны идти подряд (через пробелы/знаки) — «watch se 3» не
+    матчит «Watch Ultra 3 … се…», а «airpods pro 3» не матчит «AirPods Pro 2 (2023)»."""
+    phrases: list[re.Pattern[str]] = []
     for chunk in (raw or "").split(","):
         words = [w for w in chunk.lower().split() if w]
-        if words:
-            phrases.append(words)
+        if not words:
+            continue
+        body = r"[\s\-–—,.()/]+".join(re.escape(w) for w in words)
+        phrases.append(re.compile(r"(?<![\w])" + body + r"(?![\w])", re.IGNORECASE))
     return phrases
 
 
-def _matches_new_models(name: str, phrases: list[list[str]]) -> bool:
-    low = name.lower()
-    return any(all(w in low for w in words) for words in phrases)
+def _matches_new_models(name: str, phrases: list[re.Pattern[str]]) -> bool:
+    return any(rx.search(name) for rx in phrases)
 
 
 @router.get("/yandex-new.yml", summary="Фид YML «Новинки»: предзаказы + новые модели по маске названия")
