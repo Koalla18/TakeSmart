@@ -43,7 +43,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     items: [
       { id: 'orders', label: 'Заказы', icon: 'orders', hint: 'Новые, в работе, отправленные' },
       { id: 'analytics', label: 'Аналитика', icon: 'chart', hint: 'Выручка, визиты, конверсия' },
-      { id: 'installs', label: 'Приложения на iPhone', icon: 'zap', hint: 'Станция в павильоне и история установок' },
+      { id: 'installs', label: 'Приложения', icon: 'zap', hint: 'Установка приложений на iPhone покупателя' },
     ],
   },
   {
@@ -77,7 +77,7 @@ export const ADMIN_SECTION_META: Record<AdminSection, AdminSectionMeta> = {
   overview: { title: 'Обзор', navId: 'overview' },
   orders: { title: 'Заказы', eyebrow: 'Продажи', description: 'Клик по строке открывает заказ: состав, адрес, смена статуса', navId: 'orders' },
   analytics: { title: 'Аналитика', eyebrow: 'Продажи', navId: 'analytics' },
-  installs: { title: 'Приложения на iPhone', eyebrow: 'Продажи', description: 'Ставим покупателям приложения, которых нет в App Store, из истории покупок их Apple ID: iPhone подключается кабелем к Mac в павильоне, всё делается на странице станции. Здесь — станции и история установок', navId: 'installs' },
+  installs: { title: 'Приложения на iPhone', eyebrow: 'Продажи', description: 'Подключите iPhone покупателя кабелем, введите его Apple ID и выберите, что поставить: всё, что когда-либо было в его покупках, включая банки, которых больше нет в App Store', navId: 'installs' },
   products: { title: 'Товары', eyebrow: 'Каталог', description: 'Карточки товаров, группы вариантов, цены и наличие', navId: 'products' },
   preorder: { title: 'Предзаказ', eyebrow: 'Каталог', description: 'Новинки, которые можно заказать до поступления: добавьте товары, задайте сроки и включите раздел на сайте. Когда товар приедет — одной кнопкой перенесите его в основной каталог', navId: 'preorder' },
   categories: { title: 'Категории', eyebrow: 'Каталог', description: 'Разделы каталога: название, адрес, картинка, порядок и видимость на сайте', navId: 'categories' },
