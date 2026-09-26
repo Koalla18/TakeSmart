@@ -380,14 +380,6 @@ function CatalogMegaMenu() {
                 <p className="text-sm font-bold text-gray-900">🚚 Доставка сегодня</p>
                 <p className="mt-0.5 text-xs text-gray-500">По Москве и МО в день заказа</p>
               </Link>
-              <Link
-                to="/iphone-apps"
-                onClick={closeNow}
-                className="rounded-2xl border border-gray-200 p-4 transition-colors hover:border-yellow-300 hover:bg-yellow-50"
-              >
-                <p className="text-sm font-bold text-gray-900">📱 Приложения на iPhone</p>
-                <p className="mt-0.5 text-xs text-gray-500">Сбер, Т-Банк и другие, которых нет в App Store</p>
-              </Link>
             </aside>
           </div>
         </Container>
@@ -482,7 +474,6 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                 { to: '/', label: 'Главная' },
                 { to: '/catalog', label: 'Каталог' },
                 ...(preorderAvailable ? [{ to: '/preorder', label: 'Предзаказ новинок' }] : []),
-                { to: '/iphone-apps', label: 'Приложения на iPhone' },
                 { to: '/delivery', label: 'Доставка и оплата' },
                 { to: '/trade-in', label: 'Trade-in' },
                 { to: '/cart', label: 'Корзина' },
@@ -795,7 +786,6 @@ export function Shell({ children }: PropsWithChildren) {
                   Предзаказ
                 </NavLink>
               )}
-              <NavItem to="/iphone-apps" label="Приложения" />
               <NavItem to="/delivery" label="Доставка" />
               <NavItem to="/trade-in" label="Trade-in" />
               <NavItem to="/cart" label="Заявка" />
@@ -938,7 +928,6 @@ export function Shell({ children }: PropsWithChildren) {
                 <ul className="space-y-2.5">
                   {[
                     ...(preorderAvailable ? [{ label: 'Предзаказ новинок', to: '/preorder' }] : []),
-                    { label: 'Приложения на iPhone', to: '/iphone-apps' },
                     { label: 'Apple iPhone', to: '/catalog?category=smartphones' },
                     { label: 'Apple MacBook', to: '/catalog?category=laptops' },
                     { label: 'Apple iPad', to: '/catalog?category=tablets' },
