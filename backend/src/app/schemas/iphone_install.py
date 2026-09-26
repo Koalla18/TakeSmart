@@ -83,13 +83,13 @@ class HeartbeatIn(BaseModel):
         return clean
 
 
-COMMAND_TYPES = ("login", "code", "reset_login", "logout", "refresh_purchases", "install", "cancel", "settings")
+COMMAND_TYPES = ("login", "code", "resend_code", "reset_login", "logout", "refresh_purchases", "install", "cancel", "settings")
 
 
 class StationCommandIn(BaseModel):
     """Команда помощнику из раздела админки. Apple ID покупателя внутри login живёт в памяти сервера
     до ближайшего пульса и никуда не пишется."""
-    type: Literal["login", "code", "reset_login", "logout", "refresh_purchases", "install", "cancel", "settings"]
+    type: Literal["login", "code", "resend_code", "reset_login", "logout", "refresh_purchases", "install", "cancel", "settings"]
     payload: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("payload")
