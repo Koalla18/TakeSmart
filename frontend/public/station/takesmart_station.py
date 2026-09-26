@@ -39,7 +39,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 CONFIG_DIR = Path.home() / "Library" / "Application Support" / "TakeSmart Station"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LOG_PATH = CONFIG_DIR / "station.log"
@@ -342,7 +342,9 @@ class StoreTools:
         low = error.lower()
         if any(k in low for k in ("2fa", "auth code", "two-factor", "verification code", "authcode")):
             return {"status": "need_code", "message": "Введите код, который Apple прислала на устройства покупателя"}
-        if any(k in low for k in ("password", "credentials", "invalid", "incorrect")):
+        if any(k in low for k in ("password", "credentials", "invalid", "incorrect", "unexpected status")):
+            if code:
+                return {"status": "error", "message": "Apple не приняла пароль или код. Если код не приходил, ошибка была в почте или пароле — проверьте и войдите заново"}
             return {"status": "error", "message": "Apple не приняла почту или пароль"}
         return {"status": "error", "message": error or "Не удалось войти"}
 
@@ -364,13 +366,14 @@ class StoreTools:
                     for p in SIM_PURCHASES]
         result: list[dict] = []
         seen: set[str] = set()
-        for page in range(1, 60):
-            rc, out, err = run(self._base("list-purchases", "-l", "200", "-p", str(page), "--platform", "iphone"), timeout=120)
+        page_size = 100  # ipatool: «max results must not exceed 100»
+        for page in range(1, 200):
+            rc, out, err = run(self._base("list-purchases", "-l", str(page_size), "-p", str(page), "--platform", "iphone"), timeout=120)
             data = last_json(out + err)
             apps = data.get("apps") or []
             if rc != 0 or not isinstance(apps, list) or not apps:
-                if rc != 0 and page == 1:
-                    log(f"list-purchases: {error_text(data, out, err)}")
+                if rc != 0:
+                    log(f"list-purchases (стр. {page}): {error_text(data, out, err)}")
                 break
             if not self._logged_purchases_shape and apps:
                 self._logged_purchases_shape = True
@@ -381,10 +384,12 @@ class StoreTools:
                     continue
                 seen.add(bundle)
                 result.append({"bundle_id": bundle, "name": pick(a, "name", "trackName") or bundle,
-                               "id": pick(a, "id", "trackId"), "version": pick(a, "version")})
+                               "id": pick(a, "id", "trackId"), "version": pick(a, "version"),
+                               "purchase_date": pick(a, "purchaseDate", "purchase_date")})
             total = data.get("totalCount") or 0
-            if len(apps) < 200 or (total and len(result) >= total):
+            if len(apps) < page_size or (total and len(result) >= total):
                 break
+        result.sort(key=lambda a: str(a.get("purchase_date") or ""), reverse=True)  # свежие покупки первыми
         try:
             self.enrich(result)
         except Exception as exc:  # noqa: BLE001
@@ -589,6 +594,9 @@ class Station:
                 if not self.busy:
                     self.set(apple=self.store.info())
                 apple = self.state["apple"]
+                if apple.get("logged_in") and self.state.get("purchases") is None and not self.state.get("purchases_loading") and not self.busy:
+                    self.set(purchases_loading=True)
+                    threading.Thread(target=self.refresh_purchases, daemon=True).start()
                 purchases = self.state.get("purchases")
                 if not self.backend.configured:
                     self.set(connected=False, last_error=None, backend_configured=False, station_id=None)

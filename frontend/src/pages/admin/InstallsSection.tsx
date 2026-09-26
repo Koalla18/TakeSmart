@@ -520,7 +520,7 @@ function AppleIdCard({ station, c, purchasesCount, send }: { station: Station; c
             <button type="button" onClick={() => send('reset_login')} className="text-sm text-slate-400 hover:text-white">Другой Apple ID</button>
           </div>
           {l.message && l.status !== 'working' && <p className="mt-2 text-xs text-yellow-200">{l.message}</p>}
-          <p className="mt-2 text-xs text-slate-500">Если код нигде не появился: разблокируйте телефон покупателя и посмотрите уведомления, затем «Отправить код ещё раз». Не пришёл и по SMS — проверьте доверенный номер на appleid.apple.com.</p>
+          <p className="mt-2 text-xs text-slate-500">Код нигде не появился? Чаще всего это ошибка в почте или пароле: Apple в таком случае всё равно спрашивает код, но не присылает его. Нажмите «Другой Apple ID» и введите данные заново. Если данные точно верные — «Отправить код ещё раз» и проверьте уведомления на разблокированном телефоне.</p>
         </form>
       ) : (
         <form onSubmit={login} className="mt-2">
