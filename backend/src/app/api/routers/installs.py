@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import time
 from datetime import datetime, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import Response
@@ -24,8 +25,8 @@ from src.app.database.models.iphone_install import InstallJob, InstallStation
 from src.app.database.repositories.iphone_install_repository import station_online
 from src.app.database.unit_of_work import UnitOfWork
 from src.app.schemas.iphone_install import (
-    HeartbeatIn, HeartbeatOut, InstallStatsOut, JobFinishIn, JobOut, JobProgressIn,
-    SessionStartIn, StationCreate, StationCreatedOut, StationOut,
+    ConsoleOut, HeartbeatIn, HeartbeatOut, InstallStatsOut, JobFinishIn, JobOut, JobProgressIn,
+    SessionStartIn, StationCommandIn, StationCommandOut, StationCreate, StationCreatedOut, StationOut,
 )
 
 logger = get_logger(__name__)
@@ -33,6 +34,16 @@ router = APIRouter(prefix="/installs", tags=["iPhone installs"])
 
 ADMIN = [Depends(get_current_admin)]
 MAX_LOG = 200
+DEFAULT_STATION_NAME = "Помощник"
+
+# Очередь команд помощнику и «кто сейчас смотрит консоль» живут в памяти процесса (бэк — один
+# процесс). Команда «login» несёт Apple ID покупателя: в базу и в логи она не попадает, помощник
+# забирает её ближайшим пульсом (≤1 с) — после этого от неё не остаётся ничего.
+COMMAND_QUEUE: dict[str, list[dict]] = {}
+CONSOLE_WATCHERS: dict[str, float] = {}
+WATCH_SECONDS = 20
+COMMAND_TTL_SECONDS = 90
+MAX_QUEUE = 20
 
 
 def _hash_token(token: str) -> str:
@@ -90,6 +101,39 @@ async def admin_delete_station(station_id: UUID) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.get("/stations/{station_id}/console", response_model=ConsoleOut, dependencies=ADMIN,
+            summary="Состояние помощника для консоли раздела")
+async def admin_station_console(station_id: UUID) -> ConsoleOut:
+    async with UnitOfWork() as uow:
+        station = await uow.install_stations.get_by_id(station_id)
+    if not station:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Помощник не найден")
+    CONSOLE_WATCHERS[str(station_id)] = time.monotonic()
+    return ConsoleOut(station=_station_out(station), console=(station.state or {}).get("console") or {},
+                      purchases=station.purchases or [], purchases_version=station.purchases_version or 0,
+                      pending_commands=len(COMMAND_QUEUE.get(str(station_id), [])))
+
+
+@router.post("/stations/{station_id}/commands", status_code=status.HTTP_202_ACCEPTED, dependencies=ADMIN,
+             summary="Команда помощнику: вход в Apple ID, установка, отмена…")
+async def admin_station_command(station_id: UUID, body: StationCommandIn) -> dict:
+    async with UnitOfWork() as uow:
+        station = await uow.install_stations.get_by_id(station_id)
+    if not station:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Помощник не найден")
+    if not station_online(station):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Помощник на Mac не на связи")
+    queue = COMMAND_QUEUE.setdefault(str(station_id), [])
+    now = time.time()
+    queue[:] = [c for c in queue if now - c["t"] < COMMAND_TTL_SECONDS]
+    if len(queue) >= MAX_QUEUE:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Помощник не успевает выполнять команды — подождите")
+    cmd = {"id": uuid4().hex, "type": body.type, "payload": body.payload, "t": now}
+    queue.append(cmd)
+    CONSOLE_WATCHERS[str(station_id)] = time.monotonic()
+    return {"id": cmd["id"], "queued": len(queue)}
+
+
 @router.get("/sessions", response_model=list[JobOut], dependencies=ADMIN, summary="История установок")
 async def admin_sessions(limit: int = Query(200, ge=1, le=500)) -> list[JobOut]:
     async with UnitOfWork() as uow:
@@ -128,19 +172,31 @@ async def admin_stats() -> InstallStatsOut:
 # Станционный контур
 # ═════════════════════════════════════════════════════════════════════════════
 
-@router.post("/station/heartbeat", response_model=HeartbeatOut, summary="Пульс станции")
+@router.post("/station/heartbeat", response_model=HeartbeatOut, summary="Пульс помощника: состояние → команды")
 async def station_heartbeat(body: HeartbeatIn, station: InstallStation = Depends(get_current_station)) -> HeartbeatOut:
     state = {
         "device": body.device.model_dump() if body.device else None,
         "apple": body.apple.model_dump() if body.apple else None,
         "busy": body.busy,
+        "host_name": body.host_name,
+        "console": body.console or {},
     }
+    data: dict = {"last_seen_at": datetime.now(timezone.utc), "version": body.version, "state": state}
+    if body.purchases is not None:
+        data["purchases"] = body.purchases
+        data["purchases_version"] = body.purchases_version
+    if body.host_name and station.name in (DEFAULT_STATION_NAME, ""):
+        data["name"] = body.host_name.strip()[:80] or station.name
     async with UnitOfWork() as uow:
-        fresh = await uow.install_stations.update(
-            station.id, last_seen_at=datetime.now(timezone.utc), version=body.version, state=state,
-        )
+        fresh = await uow.install_stations.update(station.id, **data)
         await uow.commit()
-        return HeartbeatOut(station=_station_out(fresh or station))
+    current = fresh or station
+    sid = str(station.id)
+    now = time.time()
+    commands = [c for c in COMMAND_QUEUE.pop(sid, []) if now - c["t"] < COMMAND_TTL_SECONDS]
+    watch = time.monotonic() - CONSOLE_WATCHERS.get(sid, -1e9) < WATCH_SECONDS
+    return HeartbeatOut(station=_station_out(current), watch=watch, purchases_version=current.purchases_version or 0,
+                        commands=[StationCommandOut(id=c["id"], type=c["type"], payload=c["payload"]) for c in commands])
 
 
 @router.post("/station/sessions", response_model=JobOut, status_code=status.HTTP_201_CREATED,

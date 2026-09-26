@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, func, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, func, text, Integer
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,6 +34,9 @@ class InstallStation(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     state: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"),
                                                   comment="Что станция сообщила последним пульсом: устройство, вход Apple ID")
+    # История покупок Apple ID, который сейчас введён на помощнике: обновляется только при смене
+    purchases: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    purchases_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"), default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
