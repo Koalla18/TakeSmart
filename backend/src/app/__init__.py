@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from src.app.core.config import settings
@@ -175,6 +176,8 @@ def create_app() -> FastAPI:
     #  Middleware                                                          #
     # ------------------------------------------------------------------ #
     app.add_middleware(LoggingMiddleware)
+    # Сжатие ответов: список товаров для админки — 2 МБ JSON, без gzip на мобильной сети грузился 7–10 с
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     cors_origins = _build_cors_origins()
     logger.info("cors_configured", origins=cors_origins)
     app.add_middleware(
