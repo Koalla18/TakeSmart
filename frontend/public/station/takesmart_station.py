@@ -2,16 +2,14 @@
 """
 TakeSmart Station — установка приложений на iPhone покупателя (как у bmrng).
 
-Работает на Mac в павильоне. Сотрудник открывает страницу http://127.0.0.1:8765:
-  1. подключает iPhone покупателя кабелем (телефон спросит «Доверять?»);
-  2. покупатель вводит на этой странице свой Apple ID, пароль и код;
-  3. станция показывает всё из истории покупок аккаунта, отмечаем нужное,
-     жмём «Установить» — приложения скачиваются оригинальным файлом Apple
-     (ipatool) и ставятся по кабелю (ideviceinstaller);
-  4. после установки станция сама выходит из Apple ID и удаляет файлы.
-
-Пароль и код уходят напрямую в Apple с этого Mac. На сервер TakeSmart уходят
-только пульс (модель, iOS, есть ли вход) и история установок.
+Работает на Mac в павильоне в фоне. Вся работа идёт в админке TakeSmart, раздел
+«Приложения»: там видно подключённый iPhone, покупатель вводит Apple ID, вы
+отмечаете приложения из истории его покупок и жмёте «Установить». Помощник раз в
+секунду забирает команды из админки (пульс), выполняет их (ipatool — скачивание
+оригинального файла Apple, ideviceinstaller — установка по кабелю) и отдаёт
+состояние обратно. Пароль и код покупателя через сервер только проходят —
+не сохраняются и не пишутся в журнал; после установки помощник сам выходит из
+Apple ID и удаляет файлы. Запасной вход — страница http://127.0.0.1:8765.
 
 Зависимости: Python 3.9+ из macOS и утилиты из Homebrew:
     brew tap majd/repo && brew install ipatool libimobiledevice ideviceinstaller
@@ -27,6 +25,7 @@ import argparse
 import json
 import os
 import plistlib
+import queue
 import re
 import shutil
 import subprocess
@@ -40,11 +39,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 CONFIG_DIR = Path.home() / "Library" / "Application Support" / "TakeSmart Station"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LOG_PATH = CONFIG_DIR / "station.log"
-HEARTBEAT_SECONDS = 2.0
+HEARTBEAT_SECONDS = 3.0      # когда админку никто не смотрит
+HEARTBEAT_WATCHED_SECONDS = 1.0  # раздел «Приложения» открыт — команды и состояние ходят быстрее
 TOOL_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
 
 IPHONE_MODELS = {
@@ -519,8 +519,11 @@ class Station:
             "session": None, "history": [], "events": [], "auto_logout": cfg.auto_logout,
             "tools_missing": self.devices.missing + self.store.missing,
             "host_name": host_name(), "backend_configured": self.backend.configured, "station_id": None,
-            "ui_port": cfg.ui_port,
+            "ui_port": cfg.ui_port, "purchases_version": 0, "notice": None,
         }
+        self._server_purchases_version: int | None = None
+        self.commands: "queue.Queue[dict]" = queue.Queue()
+        self.watched = False
         self.stop = threading.Event()
         self.busy = False
         self.cancel_requested = False
@@ -571,23 +574,81 @@ class Station:
                 if not self.backend.configured:
                     self.set(connected=False, last_error=None, backend_configured=False, station_id=None)
                 else:
-                    code, data = self.backend.heartbeat({
-                        "version": VERSION, "busy": self.busy, "device": device,
-                        "apple": {"logged_in": bool(apple.get("logged_in")),
-                                  "purchases_count": len(purchases) if purchases is not None else None},
-                    })
-                    if code == 200:
-                        self.set(connected=True, last_error=None, backend_configured=True,
-                                 station_name=data["station"]["name"], station_id=data["station"].get("id"))
-                    elif code == 401:
-                        self.set(connected=False, backend_configured=True, last_error="Админка не принимает токен помощника — привяжите заново")
-                    else:
-                        self.set(connected=False, backend_configured=True,
-                                 last_error=f"Ответ админки {code}: {data.get('detail')}" if code else str(data.get("detail")))
+                    self.heartbeat_once(device, apple, purchases)
             except Exception as exc:  # noqa: BLE001
                 self.set(connected=False, last_error=str(exc)[:200])
                 log(f"heartbeat error: {exc}")
-            self.stop.wait(HEARTBEAT_SECONDS)
+            self.stop.wait(HEARTBEAT_WATCHED_SECONDS if self.watched else HEARTBEAT_SECONDS)
+
+    def heartbeat_once(self, device: dict | None, apple: dict, purchases: list | None) -> None:
+        snap = self.snapshot()
+        payload = {
+            "version": VERSION, "busy": self.busy, "device": device, "host_name": snap.get("host_name"),
+            "apple": {"logged_in": bool(apple.get("logged_in")), "email": apple.get("email"), "name": apple.get("name"),
+                      "purchases_count": len(purchases) if purchases is not None else None},
+            "console": {k: snap.get(k) for k in ("login", "session", "installed", "tools_missing", "auto_logout",
+                                                  "simulate", "purchases_loading", "notice", "last_error")},
+            "purchases_version": snap.get("purchases_version", 0),
+        }
+        payload["console"]["history"] = (snap.get("history") or [])[:10]
+        payload["console"]["events"] = (snap.get("events") or [])[-15:]
+        if self._server_purchases_version != snap.get("purchases_version", 0):
+            payload["purchases"] = snap.get("purchases") or []
+        code, data = self.backend.heartbeat(payload)
+        if code == 200:
+            self._server_purchases_version = int(data.get("purchases_version") or 0)
+            self.watched = bool(data.get("watch"))
+            self.set(connected=True, last_error=None, backend_configured=True,
+                     station_name=data["station"]["name"], station_id=data["station"].get("id"))
+            for cmd in data.get("commands") or []:
+                self.commands.put(cmd)
+        elif code == 401:
+            self.set(connected=False, backend_configured=True, last_error="Админка не принимает токен помощника — получите новую команду в разделе «Приложения»")
+        else:
+            self.set(connected=False, backend_configured=True,
+                     last_error=f"Ответ админки {code}: {data.get('detail')}" if code else str(data.get("detail")))
+
+    # ── команды из админки ───────────────────────────────────────────────
+
+    def notice(self, message: str, tone: str = "info") -> None:
+        log(f"notice: {message}")
+        self.set(notice={"t": round(time.time(), 3), "message": message[:300], "tone": tone})
+
+    def command_worker(self) -> None:
+        while not self.stop.is_set():
+            try:
+                cmd = self.commands.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            try:
+                self.run_command(cmd)
+            except Exception as exc:  # noqa: BLE001
+                log(f"command {cmd.get('type')} error: {exc}")
+                self.notice(f"Не удалось выполнить «{cmd.get('type')}»: {str(exc)[:160]}", "error")
+
+    def run_command(self, cmd: dict) -> None:
+        kind, p = cmd.get("type"), cmd.get("payload") or {}
+        if kind == "login":
+            self.login(p.get("email"), p.get("password"), None)
+        elif kind == "code":
+            self.login(None, None, p.get("code"))
+        elif kind == "reset_login":
+            self.reset_login()
+        elif kind == "logout":
+            self.logout()
+        elif kind == "refresh_purchases":
+            self.refresh_purchases()
+        elif kind == "install":
+            ok, message = self.start_install(p.get("apps") or [], p.get("note"))
+            if not ok:
+                self.notice(message, "error")
+        elif kind == "cancel":
+            self.cancel_requested = True
+            self.event("Остановим после текущего приложения")
+        elif kind == "settings":
+            self.apply_settings(None, None, p.get("auto_logout"))
+        else:
+            self.notice(f"Неизвестная команда: {kind}", "error")
 
     def apply_settings(self, backend_url: str | None, token: str | None, auto_logout: bool | None) -> None:
         if backend_url is not None and token is not None:
@@ -625,6 +686,8 @@ class Station:
     def logout(self) -> None:
         self.store.revoke()
         self._pending_login = None
+        with self.lock:
+            self.state["purchases_version"] += 1
         self.set(apple={"logged_in": False, "email": None, "name": None}, purchases=None,
                  login={"status": "idle", "message": None, "pending": False})
         self.event("Вышли из Apple ID, данные аккаунта удалены со станции")
@@ -633,7 +696,9 @@ class Station:
         self.set(purchases_loading=True)
         try:
             purchases = self.store.purchases()
-            self.set(purchases=purchases)
+            with self.lock:
+                self.state["purchases"] = purchases
+                self.state["purchases_version"] += 1
             self.event(f"В истории покупок аккаунта {len(purchases)} приложений для iPhone")
         except Exception as exc:  # noqa: BLE001
             self.event(f"Не удалось прочитать покупки: {exc}")
@@ -1053,6 +1118,7 @@ def main() -> int:
         raise
     threading.Thread(target=server.serve_forever, daemon=True).start()
     threading.Thread(target=station.heartbeat_loop, daemon=True).start()
+    threading.Thread(target=station.command_worker, daemon=True).start()
     log(f"Станция v{VERSION} запущена. Страница сотрудника: http://127.0.0.1:{cfg.ui_port}  (Ctrl+C — стоп)")
     if not args.no_open:
         try:
