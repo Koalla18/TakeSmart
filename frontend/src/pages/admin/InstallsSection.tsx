@@ -30,7 +30,7 @@ interface HistoryItem { t: string; device: string | null; status: string; apps: 
 interface StationState { device?: Device | null; apple?: { logged_in?: boolean; email?: string | null; name?: string | null; purchases_count?: number | null } | null; busy?: boolean; host_name?: string | null; console?: HelperConsole }
 interface HelperConsole {
   login?: { status: 'idle' | 'working' | 'need_code' | 'ok' | 'error'; message: string | null; pending?: boolean }
-  session?: { id: string | null; apps: SessionApp[]; status: string; started: string } | null
+  session?: { id: string | null; apps: SessionApp[]; status: string; started: string; finished?: boolean } | null
   installed?: Record<string, { name: string; version: string }>
   tools_missing?: string[]
   auto_logout?: boolean
@@ -42,11 +42,11 @@ interface HelperConsole {
   events?: { t: string; msg: string }[]
 }
 interface Station { id: string; name: string; version: string | null; last_seen_at: string | null; state: StationState; is_active: boolean; online: boolean; created_at: string }
-interface ConsoleData { station: Station; console: HelperConsole; purchases: Purchase[]; purchases_version: number; pending_commands: number }
+interface ConsoleData { station: Station; console: HelperConsole; purchases: Purchase[] | null; purchases_version: number; pending_commands: number }
 interface JobApp { bundle_id: string; name: string; status: string; version: string | null; error: string | null }
 interface Session { id: string; station_id: string | null; status: string; apps: JobApp[]; device_model: string | null; ios_version: string | null; note: string | null; log: { t: string; msg: string }[]; created_at: string; finished_at: string | null }
 interface Stats { installed_today: number; installed_month: number; sessions_today: number; sessions_month: number; stations_online: number }
-type CommandType = 'login' | 'code' | 'resend_code' | 'reset_login' | 'logout' | 'refresh_purchases' | 'install' | 'cancel' | 'settings'
+type CommandType = 'login' | 'code' | 'resend_code' | 'reset_login' | 'logout' | 'refresh_purchases' | 'install' | 'cancel' | 'dismiss_session' | 'settings'
 type Api = (path: string, init?: RequestInit) => Promise<Response>
 
 const INPUT = 'w-full rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-2.5 text-[15px] text-white placeholder:text-slate-600 focus:border-yellow-400/60 focus:bg-white/10 focus:outline-none'
@@ -367,8 +367,17 @@ function SetupModal({ api, onClose, onCreated }: { api: Api; onClose: () => void
 // ── Консоль: iPhone → Apple ID → приложения ──────────────────────────────────
 function useConsole(api: Api, stationId: string) {
   const [data, setData] = useState<ConsoleData | null>(null)
+  const purchasesRef = useRef<{ version: number; list: Purchase[] }>({ version: -1, list: [] })
   const refresh = useCallback(async () => {
-    try { const r = await api(`/stations/${stationId}/console`); if (r.ok) setData(await r.json()) } catch { /* сеть */ }
+    try {
+      const known = purchasesRef.current
+      const r = await api(`/stations/${stationId}/console${known.version >= 0 ? `?pv=${known.version}` : ''}`)
+      if (!r.ok) return
+      const d: ConsoleData = await r.json()
+      if (d.purchases !== null && d.purchases !== undefined) purchasesRef.current = { version: d.purchases_version, list: d.purchases }
+      else if (d.purchases_version !== known.version) purchasesRef.current = { version: -1, list: known.list }  // версия ушла вперёд — дозапросим
+      setData({ ...d, purchases: purchasesRef.current.list })
+    } catch { /* сеть */ }
   }, [api, stationId])
   useEffect(() => {
     setData(null); refresh()
@@ -401,7 +410,7 @@ function Console({ api, station }: { api: Api; station: Station }) {
   const steps = [
     { n: 1, label: phoneReady ? `${device?.model || 'iPhone'} подключён` : device ? 'Подтвердите доверие на iPhone' : 'Подключите iPhone кабелем', done: phoneReady },
     { n: 2, label: loggedIn ? 'Apple ID покупателя введён' : 'Введите Apple ID покупателя', done: loggedIn },
-    { n: 3, label: session ? 'Идёт установка' : 'Выберите приложения и установите', done: false },
+    { n: 3, label: session ? (session.finished ? 'Установка завершена' : 'Идёт установка') : 'Выберите приложения и установите', done: false },
   ]
   return (
     <div data-console data-station-id={station.id}>
@@ -427,7 +436,7 @@ function Console({ api, station }: { api: Api; station: Station }) {
       <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
         <div className="space-y-4">
           <DeviceCard device={device} installedCount={Object.keys(c.installed || {}).length} />
-          <AppleIdCard station={station} c={c} purchasesCount={data?.purchases.length ?? null} send={send} />
+          <AppleIdCard station={station} c={c} purchasesCount={data?.purchases?.length ?? null} send={send} />
         </div>
         <div className="min-w-0">
           {session ? <InstallProgress session={session} device={device} send={send} /> : loggedIn ? <AppPicker c={c} purchases={data?.purchases || []} phoneReady={phoneReady} send={send} /> : <PickerPlaceholder history={c.history || []} />}
@@ -646,15 +655,18 @@ function AppPicker({ c, purchases, phoneReady, send }: { c: HelperConsole; purch
 }
 
 function InstallProgress({ session: s, device, send }: { session: NonNullable<HelperConsole['session']>; device: Device | null; send: (t: CommandType, p?: Record<string, unknown>) => Promise<boolean> }) {
-  const running = s.status === 'running'
+  const running = s.status === 'running' && !s.finished
   const done = s.apps.filter(a => a.status === 'installed').length
+  const failed = s.apps.filter(a => a.status === 'failed' || a.status === 'not_owned').length
+  const title = running ? `Ставим на ${device?.model || 'iPhone'}…` : done === s.apps.length ? `Готово: установлено ${done} из ${s.apps.length}` : done > 0 ? `Установлено ${done} из ${s.apps.length}` : 'Не установлено'
   return (
-    <div className={CARD} data-install-progress>
+    <div className={`${CARD} ${!running && failed ? 'border-red-400/30' : ''}`} data-install-progress data-finished={s.finished ? '1' : '0'}>
       <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">Установка</div>
       <div className="mt-1 flex items-center gap-3">
         {running && <span className="h-3 w-3 animate-pulse rounded-full bg-sky-400" />}
-        <div className="text-lg font-semibold text-white">{running ? `Ставим на ${device?.model || 'iPhone'}…` : `Готово: установлено ${done} из ${s.apps.length}`}</div>
+        <div className={`text-lg font-semibold ${!running && failed && !done ? 'text-red-200' : 'text-white'}`}>{title}</div>
       </div>
+      {!running && failed > 0 && <p className="mt-2 text-sm text-slate-300">Причина у каждого приложения подписана ниже. Вход в Apple ID сохранён — можно выбрать другое приложение или повторить.</p>}
       <ul className="mt-4 space-y-2">
         {s.apps.map(a => {
           const r = resolveApp(a)
@@ -667,11 +679,13 @@ function InstallProgress({ session: s, device, send }: { session: NonNullable<He
           )
         })}
       </ul>
-      {running && (
+      {running ? (
         <div className="mt-4 flex items-center gap-3">
           <button type="button" onClick={() => send('cancel')} className={BTN_SECONDARY}>Остановить после текущего</button>
           <span className="text-xs text-slate-500">Не отключайте iPhone до конца установки.</span>
         </div>
+      ) : (
+        <div className="mt-4"><button type="button" onClick={() => send('dismiss_session')} data-dismiss-session className={BTN_PRIMARY}>Готово</button></div>
       )}
     </div>
   )

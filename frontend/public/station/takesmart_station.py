@@ -39,7 +39,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.3.2"
+VERSION = "0.3.3"
 CONFIG_DIR = Path.home() / "Library" / "Application Support" / "TakeSmart Station"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LOG_PATH = CONFIG_DIR / "station.log"
@@ -183,30 +183,53 @@ class DeviceTools:
         return [n for n, p in (("idevice_id", self.idevice_id), ("ideviceinfo", self.ideviceinfo),
                                 ("idevicepair", self.idevicepair), ("ideviceinstaller", self.ideviceinstaller)) if not p]
 
+    _info_cache: dict[str, dict] = {}
+    _last_seen: dict[str, float] = {}
+    _last_pair_attempt: dict[str, float] = {}
+    _last_validate: dict[str, float] = {}
+
     def detect(self) -> dict | None:
         if self.simulate:
             return dict(SIM_DEVICE)
         if not self.idevice_id:
             return None
+        now = time.time()
         code, out, _ = run([self.idevice_id, "-l"], timeout=10)
         udids = [u.strip() for u in out.splitlines() if u.strip()]
         if code != 0 or not udids:
-            return None
+            # usbmuxd иногда пропускает один ответ: телефон считаем отключённым, только если его нет 6 с подряд
+            recent = [u for u, t in self._last_seen.items() if now - t < 6]
+            if not recent:
+                return None
+            udids = recent[:1]
         udid = udids[0]
-        info: dict[str, Any] = {"udid": udid, "model": None, "ios_version": None, "name": None, "paired": None}
+        self._last_seen[udid] = now
+        info = self._info_cache.get(udid)
+        if info and info.get("paired"):
+            # Доверие перепроверяем раз в 15 с, а не каждый пульс
+            if now - self._last_validate.get(udid, 0) > 15:
+                self._last_validate[udid] = now
+                if run([self.idevicepair, "-u", udid, "validate"], timeout=10)[0] != 0:
+                    self._info_cache.pop(udid, None)
+                    info = None
+            if info:
+                return dict(info)
         pcode, _, _ = run([self.idevicepair, "-u", udid, "validate"], timeout=10)
-        info["paired"] = pcode == 0
-        if not info["paired"]:
-            run([self.idevicepair, "-u", udid, "pair"], timeout=10)  # на телефоне появится «Доверять?»
-            info["model"] = "iPhone"
-            info["name"] = "Подтвердите доверие на iPhone"
-            return info
+        self._last_validate[udid] = now
+        if pcode != 0:
+            # Запрос «Доверять?» показываем не чаще раза в 20 с, иначе телефон заваливает окнами
+            if now - self._last_pair_attempt.get(udid, 0) > 20:
+                self._last_pair_attempt[udid] = now
+                run([self.idevicepair, "-u", udid, "pair"], timeout=10)
+            return {"udid": udid, "model": "iPhone", "ios_version": None, "name": "Подтвердите доверие на iPhone", "paired": False}
+        info = {"udid": udid, "model": None, "ios_version": None, "name": None, "paired": True}
         for key, field in (("ProductType", "model"), ("ProductVersion", "ios_version"), ("DeviceName", "name")):
             c, o, _ = run([self.ideviceinfo, "-u", udid, "-k", key], timeout=10)
             if c == 0 and o.strip():
                 info[field] = o.strip()[:80]
         info["model"] = IPHONE_MODELS.get(info["model"] or "", info["model"] or "iPhone")
-        return info
+        self._info_cache[udid] = info
+        return dict(info)
 
     def _list_xml(self, udid: str, extra: list[str]) -> list[dict]:
         """ideviceinstaller 1.2 (brew 2025): `list --xml`; старые сборки: `-l --xml`."""
@@ -418,10 +441,19 @@ class StoreTools:
         if rc == 0 and data.get("success") and Path(path).exists():
             return {"status": "ok", "path": path, "message": "Скачано"}
         error = error_text(data, out, err)
+        log(f"ipatool download {key}: code {rc}: {error[:300]}")
         low = error.lower()
-        if any(k in low for k in ("license", "purchase", "not found", "no app", "does not exist", "unavailable", "not available")):
+        if "license is required" in low or "license" in low and "purchase" in low:
             return {"status": "not_owned", "path": None, "message": "Нет в истории покупок этого Apple ID"}
-        return {"status": "error", "path": None, "message": error or "Не удалось скачать"}
+        if "paid apps" in low:
+            return {"status": "not_owned", "path": None, "message": "Платное приложение, которого нет в покупках этого Apple ID"}
+        if "temporarily unavailable" in low:
+            return {"status": "error", "path": None, "message": "Apple: приложение временно недоступно — попробуйте позже"}
+        if "password token" in low or "sign in" in low or "signin" in low:
+            return {"status": "error", "path": None, "message": "Apple просит войти заново: выйдите из Apple ID и войдите снова"}
+        if "does not declare" in low:
+            return {"status": "error", "path": None, "message": "Скачанная версия не для iPhone"}
+        return {"status": "error", "path": None, "message": f"Apple не отдала приложение: {error[:200]}" if error else "Не удалось скачать"}
 
 
 def ipa_version(path: str) -> str | None:
@@ -678,6 +710,10 @@ class Station:
         elif kind == "cancel":
             self.cancel_requested = True
             self.event("Остановим после текущего приложения")
+        elif kind == "dismiss_session":
+            with self.lock:
+                if self.state.get("session") and self.state["session"].get("finished"):
+                    self.state["session"] = None
         elif kind == "settings":
             self.apply_settings(None, None, p.get("auto_logout"))
         else:
@@ -819,9 +855,11 @@ class Station:
                 hist.insert(0, {"t": session["started"], "device": device.get("model"), "status": session["status"],
                                 "apps": [{"name": a["name"], "status": a["status"], "version": a["version"]} for a in apps]})
                 del hist[20:]
-            if self.cfg.auto_logout and self.store.info().get("logged_in"):
+            installed_any = any(a["status"] == "installed" for a in apps)
+            if self.cfg.auto_logout and installed_any and self.store.info().get("logged_in"):
                 self.logout()
-            self.set(session=None)
+            # Карточка с итогом (и ошибками) висит, пока сотрудник не нажмёт «Готово» или не начнёт новую установку
+            self.set(session={**session, "apps": apps, "finished": True})
             self.busy = False
 
     def push(self, job_id: str | None, apps: list[dict], line: str) -> None:
