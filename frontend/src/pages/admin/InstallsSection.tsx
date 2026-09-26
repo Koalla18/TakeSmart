@@ -621,7 +621,11 @@ function AppPicker({ c, purchases, phoneReady, send }: { c: HelperConsole; purch
         {purchases.length === 0 && c.purchases_loading ? (
           <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-3">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-[68px] animate-pulse rounded-2xl bg-white/[0.05]" />)}</div>
         ) : visible.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-white/10 p-8 text-center text-sm text-slate-500">{purchases.length === 0 ? (c.purchases_loading ? 'Читаем историю покупок…' : 'В истории покупок этого Apple ID пусто для iPhone') : 'Ничего не найдено'}</div>
+          <div className="rounded-2xl border border-dashed border-white/10 p-8 text-center text-sm text-slate-500">
+            {purchases.length === 0 ? (c.purchases_loading ? 'Читаем историю покупок…' : 'В истории покупок этого Apple ID пусто для iPhone') : filter === 'bank' && !q.trim() ? (
+              <>В истории покупок этого Apple ID банков нет.<br /><span className="text-slate-600">Вернуть банк можно только с того Apple ID, на котором он когда-то стоял: Apple убрала эти приложения из App Store, и взять их больше неоткуда. Спросите покупателя про старый Apple ID.</span></>
+            ) : 'Ничего не найдено'}
+          </div>
         ) : (
           <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-3">
             {visible.map(({ p, r, have }) => {
