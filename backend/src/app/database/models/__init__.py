@@ -12,12 +12,12 @@ from src.app.database.models.brand import Brand
 from src.app.database.models.trade_in_offer import TradeInOffer
 from src.app.database.models.page_visit import PageVisit
 from src.app.database.models.site_setting import SiteSetting
-from src.app.database.models.iphone_install import IphoneApp, InstallStation, InstallRequest, InstallJob
+from src.app.database.models.iphone_install import InstallStation, InstallJob
 
 __all__ = [
     "Category", "Product", "ProductSpec",
     "ProductImage", "ProductVariant", "ProductGroup",
     "WeeklySlide", "HeroBanner", "Order", "OrderItem", "Admin", "PushSubscription",
     "Brand", "TradeInOffer", "PageVisit", "SiteSetting",
-    "IphoneApp", "InstallStation", "InstallRequest", "InstallJob",
+    "InstallStation", "InstallJob",
 ]

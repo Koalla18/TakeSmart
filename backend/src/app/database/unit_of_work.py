@@ -18,9 +18,7 @@ from src.app.database.repositories.order_repository import OrderRepository, Orde
 from src.app.database.repositories.brand_repository import BrandRepository
 from src.app.database.repositories.trade_in_offer_repository import TradeInOfferRepository
 from src.app.database.repositories.site_setting_repository import SiteSettingRepository
-from src.app.database.repositories.iphone_install_repository import (
-    IphoneAppRepository, InstallStationRepository, InstallRequestRepository, InstallJobRepository,
-)
+from src.app.database.repositories.iphone_install_repository import InstallStationRepository, InstallJobRepository
 
 
 class UnitOfWork:
@@ -68,9 +66,7 @@ class UnitOfWork:
         self.brands = BrandRepository(self._session)
         self.trade_in_offers = TradeInOfferRepository(self._session)
         self.site_settings = SiteSettingRepository(self._session)
-        self.iphone_apps = IphoneAppRepository(self._session)
         self.install_stations = InstallStationRepository(self._session)
-        self.install_requests = InstallRequestRepository(self._session)
         self.install_jobs = InstallJobRepository(self._session)
 
     async def commit(self) -> None:

@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """
-TakeSmart Station — установка приложений на iPhone покупателя.
+TakeSmart Station — установка приложений на iPhone покупателя (как у bmrng).
 
-Запускается на Mac в павильоне. Что делает:
-  • видит iPhone, подключённый по кабелю (libimobiledevice);
-  • держит связь с админкой TakeSmart по токену станции: пульс раз в 2 секунды,
-    забирает задания из очереди, отчитывается о ходе установки;
-  • скачивает приложение из истории покупок Apple ID покупателя (ipatool)
-    и ставит его по кабелю (ideviceinstaller);
-  • даёт сотруднику локальную страницу http://127.0.0.1:8765 — единственное
-    место, где вводятся Apple ID, пароль и код. На сервер TakeSmart они не
-    уходят и нигде не сохраняются; после задания станция сама выходит из аккаунта.
+Работает на Mac в павильоне. Сотрудник открывает страницу http://127.0.0.1:8765:
+  1. подключает iPhone покупателя кабелем (телефон спросит «Доверять?»);
+  2. покупатель вводит на этой странице свой Apple ID, пароль и код;
+  3. станция показывает всё из истории покупок аккаунта, отмечаем нужное,
+     жмём «Установить» — приложения скачиваются оригинальным файлом Apple
+     (ipatool) и ставятся по кабелю (ideviceinstaller);
+  4. после установки станция сама выходит из Apple ID и удаляет файлы.
 
-Зависимости: только Python 3.9+ из macOS и утилиты из Homebrew:
+Пароль и код уходят напрямую в Apple с этого Mac. На сервер TakeSmart уходят
+только пульс (модель, iOS, есть ли вход) и история установок.
+
+Зависимости: Python 3.9+ из macOS и утилиты из Homebrew:
     brew tap majd/repo && brew install ipatool libimobiledevice ideviceinstaller
 
 Первый запуск:
@@ -33,22 +34,19 @@ import sys
 import tempfile
 import threading
 import time
-import urllib.error
-import urllib.request
 import zipfile
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 CONFIG_DIR = Path.home() / "Library" / "Application Support" / "TakeSmart Station"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LOG_PATH = CONFIG_DIR / "station.log"
 HEARTBEAT_SECONDS = 2.0
 TOOL_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
 
-# ProductType → торговое имя. Незнакомое устройство покажется своим кодом.
 IPHONE_MODELS = {
     "iPhone10,1": "iPhone 8", "iPhone10,4": "iPhone 8", "iPhone10,2": "iPhone 8 Plus", "iPhone10,5": "iPhone 8 Plus",
     "iPhone10,3": "iPhone X", "iPhone10,6": "iPhone X", "iPhone11,2": "iPhone XS", "iPhone11,4": "iPhone XS Max",
@@ -92,9 +90,9 @@ def find_tool(name: str) -> str | None:
     return None
 
 
-def run(cmd: list[str], timeout: int = 60, env: dict | None = None) -> tuple[int, str, str]:
+def run(cmd: list[str], timeout: int = 60) -> tuple[int, str, str]:
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired:
         return 124, "", "timeout"
@@ -104,7 +102,7 @@ def run(cmd: list[str], timeout: int = 60, env: dict | None = None) -> tuple[int
 
 def last_json(text: str) -> dict:
     """ipatool печатает по одному JSON на строку; берём последний объект."""
-    for line in reversed([l for l in text.splitlines() if l.strip()]):
+    for line in reversed([ln for ln in text.splitlines() if ln.strip()]):
         try:
             data = json.loads(line)
             if isinstance(data, dict):
@@ -121,6 +119,17 @@ def mask_email(email: str | None) -> str | None:
     return f"{name[:2]}***@{domain}"
 
 
+def pick(d: dict, *keys: str) -> Any:
+    for k in keys:
+        if k in d and d[k] not in (None, ""):
+            return d[k]
+    return None
+
+
+def error_text(data: dict, out: str, err: str) -> str:
+    return str(data.get("error") or err.strip() or out.strip())[:300]
+
+
 class Config:
     def __init__(self) -> None:
         self.backend_url = ""
@@ -135,9 +144,8 @@ class Config:
         cfg = cls()
         if CONFIG_PATH.exists():
             try:
-                data = json.loads(CONFIG_PATH.read_text())
-                for k, v in data.items():
-                    if hasattr(cfg, k):
+                for k, v in json.loads(CONFIG_PATH.read_text()).items():
+                    if hasattr(cfg, k) and k != "simulate":
                         setattr(cfg, k, v)
             except (OSError, json.JSONDecodeError):
                 pass
@@ -154,6 +162,10 @@ class Config:
 # iPhone по кабелю
 # ─────────────────────────────────────────────────────────────────────────────
 
+SIM_DEVICE = {"udid": "SIMULATED-0000-DEVICE", "model": "iPhone 15 Pro (эмуляция)", "ios_version": "18.6",
+              "name": "iPhone покупателя (эмуляция)", "paired": True}
+
+
 class DeviceTools:
     def __init__(self, simulate: bool) -> None:
         self.simulate = simulate
@@ -161,6 +173,7 @@ class DeviceTools:
         self.ideviceinfo = find_tool("ideviceinfo")
         self.idevicepair = find_tool("idevicepair")
         self.ideviceinstaller = find_tool("ideviceinstaller")
+        self._sim_installed: dict[str, dict] = {"com.vk.vkclient": {"name": "ВКонтакте", "version": "8.5"}}
 
     @property
     def missing(self) -> list[str]:
@@ -171,8 +184,7 @@ class DeviceTools:
 
     def detect(self) -> dict | None:
         if self.simulate:
-            return {"udid": "SIMULATED-0000-DEVICE", "model": "iPhone 15 Pro (эмуляция)", "ios_version": "18.6",
-                    "name": "iPhone (эмуляция)", "paired": True}
+            return dict(SIM_DEVICE)
         if not self.idevice_id:
             return None
         code, out, _ = run([self.idevice_id, "-l"], timeout=10)
@@ -181,37 +193,67 @@ class DeviceTools:
             return None
         udid = udids[0]
         info: dict[str, Any] = {"udid": udid, "model": None, "ios_version": None, "name": None, "paired": None}
-        pcode, _, perr = run([self.idevicepair, "-u", udid, "validate"], timeout=10)
+        pcode, _, _ = run([self.idevicepair, "-u", udid, "validate"], timeout=10)
         info["paired"] = pcode == 0
         if not info["paired"]:
-            # Запускаем сопряжение: на телефоне появится «Доверять этому компьютеру?»
-            run([self.idevicepair, "-u", udid, "pair"], timeout=10)
+            run([self.idevicepair, "-u", udid, "pair"], timeout=10)  # на телефоне появится «Доверять?»
             info["model"] = "iPhone"
             info["name"] = "Подтвердите доверие на iPhone"
             return info
         for key, field in (("ProductType", "model"), ("ProductVersion", "ios_version"), ("DeviceName", "name")):
             c, o, _ = run([self.ideviceinfo, "-u", udid, "-k", key], timeout=10)
             if c == 0 and o.strip():
-                info[field] = o.strip()
+                info[field] = o.strip()[:80]
         info["model"] = IPHONE_MODELS.get(info["model"] or "", info["model"] or "iPhone")
         return info
 
-    def install(self, udid: str, ipa_path: str) -> tuple[bool, str]:
+    def installed_apps(self, udid: str) -> dict[str, dict]:
+        """Что уже стоит на телефоне: {bundle_id: {name, version}}."""
+        if self.simulate:
+            return dict(self._sim_installed)
+        code, out, _ = run([self.ideviceinstaller, "-u", udid, "-l", "--xml"], timeout=60)
+        if code != 0 or not out.strip():
+            return {}
+        try:
+            items = plistlib.loads(out.encode())
+        except Exception:  # noqa: BLE001
+            return {}
+        result: dict[str, dict] = {}
+        for it in items or []:
+            if not isinstance(it, dict):
+                continue
+            bundle = it.get("CFBundleIdentifier")
+            if bundle:
+                result[bundle] = {"name": it.get("CFBundleDisplayName") or it.get("CFBundleName") or bundle,
+                                  "version": str(it.get("CFBundleShortVersionString") or it.get("CFBundleVersion") or "")}
+        return result
+
+    def install(self, udid: str, ipa_path: str, bundle_id: str, name: str, version: str | None) -> tuple[bool, str]:
         if self.simulate:
             time.sleep(1.2)
+            self._sim_installed[bundle_id] = {"name": name, "version": version or "1.0"}
             return True, "Install: Complete (эмуляция)"
-        code, out, err = run([self.ideviceinstaller, "-u", udid, "-i", ipa_path], timeout=600)
+        code, out, err = run([self.ideviceinstaller, "-u", udid, "-i", ipa_path], timeout=900)
         text = (out + "\n" + err).strip()
-        ok = code == 0 and ("Complete" in text or "complete" in text)
-        if ok:
+        if code == 0 and "complete" in text.lower():
             return True, "Install: Complete"
-        tail = [l for l in text.splitlines() if l.strip()][-3:]
+        tail = [ln for ln in text.splitlines() if ln.strip()][-3:]
         return False, " | ".join(tail)[:300] or f"ideviceinstaller завершился с кодом {code}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Apple ID и скачивание (ipatool)
 # ─────────────────────────────────────────────────────────────────────────────
+
+SIM_PURCHASES = [
+    {"bundle_id": "ru.sberbankmobile", "name": "СберБанк Онлайн", "id": 492224193, "version": "16.3.0"},
+    {"bundle_id": "com.idamob.tinkoff.ios", "name": "Т-Банк", "id": 596862101, "version": "7.2"},
+    {"bundle_id": "ru.alfabank.mobile.ios", "name": "Альфа-Банк", "id": 968942583, "version": "15.1"},
+    {"bundle_id": "com.vk.vkclient", "name": "ВКонтакте", "id": 564177498, "version": "8.6"},
+    {"bundle_id": "ph.telegra.Telegraph", "name": "Telegram", "id": 686449807, "version": "11.2"},
+    {"bundle_id": "ru.ozon.app.ios", "name": "Ozon", "id": 1039891718, "version": "17.0"},
+]
+
 
 class StoreTools:
     def __init__(self, simulate: bool, keychain_passphrase: str) -> None:
@@ -220,6 +262,7 @@ class StoreTools:
         self.passphrase = keychain_passphrase
         self._sim_logged_in = False
         self._sim_email: str | None = None
+        self._logged_purchases_shape = False
 
     @property
     def missing(self) -> list[str]:
@@ -233,18 +276,18 @@ class StoreTools:
 
     def info(self) -> dict:
         if self.simulate:
-            return {"logged_in": self._sim_logged_in, "email": mask_email(self._sim_email)}
+            return {"logged_in": self._sim_logged_in, "email": mask_email(self._sim_email), "name": "Покупатель (эмуляция)" if self._sim_logged_in else None}
         code, out, err = run(self._base("auth", "info"), timeout=30)
         data = last_json(out + err)
-        if data.get("success") is False or code != 0:
-            return {"logged_in": False, "email": None}
-        return {"logged_in": True, "email": mask_email(data.get("email"))}
+        if code != 0 or data.get("success") is False:
+            return {"logged_in": False, "email": None, "name": None}
+        return {"logged_in": True, "email": mask_email(data.get("email")), "name": data.get("name")}
 
     def login(self, email: str, password: str, code: str | None) -> dict:
         """→ {status: ok|need_code|error, message}"""
         if self.simulate:
             if code is None and not password.startswith("nocode"):
-                return {"status": "need_code", "message": "Введите код из SMS или с другого устройства Apple"}
+                return {"status": "need_code", "message": "Введите код, который Apple прислала на устройства покупателя"}
             self._sim_logged_in, self._sim_email = True, email
             return {"status": "ok", "message": "Вход выполнен (эмуляция)"}
         args = ["auth", "login", "--email", email, "--password", password]
@@ -252,69 +295,82 @@ class StoreTools:
             args += ["--auth-code", code]
         rc, out, err = run(self._base(*args), timeout=120)
         data = last_json(out + err)
-        if data.get("success") and rc == 0:
+        if rc == 0 and data.get("success"):
             return {"status": "ok", "message": "Вход выполнен"}
-        error = str(data.get("error") or err or out).strip()
+        error = error_text(data, out, err)
         low = error.lower()
         if any(k in low for k in ("2fa", "auth code", "two-factor", "verification code", "authcode")):
             return {"status": "need_code", "message": "Введите код, который Apple прислала на устройства покупателя"}
-        if "password" in low or "credentials" in low or "invalid" in low:
+        if any(k in low for k in ("password", "credentials", "invalid", "incorrect")):
             return {"status": "error", "message": "Apple не приняла почту или пароль"}
-        return {"status": "error", "message": error[:200] or "Не удалось войти"}
+        return {"status": "error", "message": error or "Не удалось войти"}
 
     def revoke(self) -> None:
         if self.simulate:
             self._sim_logged_in, self._sim_email = False, None
             return
         run(self._base("auth", "revoke"), timeout=30)
-        for extra in (Path.home() / ".ipatool",):
-            for f in extra.glob("cookies*"):
-                try:
-                    f.unlink()
-                except OSError:
-                    pass
+        for f in (Path.home() / ".ipatool").glob("cookies*"):
+            try:
+                f.unlink()
+            except OSError:
+                pass
 
     def purchases(self) -> list[dict]:
-        """Что есть в истории покупок аккаунта: [{bundle_id, name, id}]."""
+        """Вся история покупок аккаунта для iPhone: [{bundle_id, name, id, version}]."""
         if self.simulate:
-            return [{"bundle_id": "ru.sberbankmobile", "name": "СберБанк Онлайн", "id": 1},
-                    {"bundle_id": "com.vk.vkclient", "name": "ВКонтакте", "id": 2},
-                    {"bundle_id": "ph.telegra.Telegraph", "name": "Telegram", "id": 3}]
+            return [dict(p) for p in SIM_PURCHASES]
         result: list[dict] = []
-        for page in range(1, 40):
-            rc, out, err = run(self._base("list-purchases", "-l", "200", "-p", str(page), "--platform", "iphone"), timeout=90)
+        seen: set[str] = set()
+        for page in range(1, 60):
+            rc, out, err = run(self._base("list-purchases", "-l", "200", "-p", str(page), "--platform", "iphone"), timeout=120)
             data = last_json(out + err)
-            apps = data.get("apps") or data.get("purchases") or []
-            if rc != 0 or not apps:
+            apps = data.get("apps") or []
+            if rc != 0 or not isinstance(apps, list) or not apps:
+                if rc != 0 and page == 1:
+                    log(f"list-purchases: {error_text(data, out, err)}")
                 break
+            if not self._logged_purchases_shape and apps:
+                self._logged_purchases_shape = True
+                log(f"list-purchases keys: {sorted(apps[0].keys())}")
             for a in apps:
-                result.append({"bundle_id": a.get("bundleID") or a.get("bundle_id") or "",
-                               "name": a.get("name") or "", "id": a.get("id")})
-            if len(apps) < 200:
+                bundle = pick(a, "bundleID", "bundleId", "bundle_id") or ""
+                if not bundle or bundle in seen:
+                    continue
+                seen.add(bundle)
+                result.append({"bundle_id": bundle, "name": pick(a, "name", "trackName") or bundle,
+                               "id": pick(a, "id", "trackId"), "version": pick(a, "version")})
+            total = data.get("totalCount") or 0
+            if len(apps) < 200 or (total and len(result) >= total):
                 break
         return result
 
-    def download(self, bundle_id: str, out_dir: str) -> dict:
+    def download(self, bundle_id: str | None, app_id: int | None, out_dir: str) -> dict:
         """→ {status: ok|not_owned|error, path, message}"""
+        key = str(app_id) if app_id else bundle_id
         if self.simulate:
-            time.sleep(1.5)
-            if bundle_id in ("ru.sberbankmobile", "com.vk.vkclient", "ph.telegra.Telegraph"):
-                p = Path(out_dir) / f"{bundle_id}.ipa"
+            time.sleep(1.2)
+            owned = {p["bundle_id"] for p in SIM_PURCHASES} | {str(p["id"]) for p in SIM_PURCHASES}
+            if key in owned:
+                p = Path(out_dir) / f"{key}.ipa"
                 with zipfile.ZipFile(p, "w") as z:
                     z.writestr("iTunesMetadata.plist", plistlib.dumps({"bundleShortVersionString": "16.3.0"}))
                 return {"status": "ok", "path": str(p), "message": "Скачано (эмуляция)"}
             return {"status": "not_owned", "path": None, "message": "Нет в истории покупок этого Apple ID"}
-        path = str(Path(out_dir) / f"{bundle_id}.ipa")
-        rc, out, err = run(self._base("download", "-b", bundle_id, "-o", path, "--purchase", "--platform", "iphone"),
-                           timeout=900)
+        path = str(Path(out_dir) / f"{key}.ipa")
+        args = ["download", "-o", path, "--purchase", "--platform", "iphone"]
+        # По ID — из истории покупок напрямую; по bundle ipatool сначала ищет приложение в витрине
+        # App Store, а удалённых оттуда банков там нет. Поэтому bundle — только когда ID неизвестен.
+        args += ["-i", str(app_id)] if app_id else ["-b", bundle_id]
+        rc, out, err = run(self._base(*args), timeout=1200)
         data = last_json(out + err)
         if rc == 0 and data.get("success") and Path(path).exists():
             return {"status": "ok", "path": path, "message": "Скачано"}
-        error = str(data.get("error") or err or out).strip()
+        error = error_text(data, out, err)
         low = error.lower()
-        if any(k in low for k in ("license", "purchase", "not found", "no app", "does not exist", "unavailable")):
+        if any(k in low for k in ("license", "purchase", "not found", "no app", "does not exist", "unavailable", "not available")):
             return {"status": "not_owned", "path": None, "message": "Нет в истории покупок этого Apple ID"}
-        return {"status": "error", "path": None, "message": error[:300] or "Не удалось скачать"}
+        return {"status": "error", "path": None, "message": error or "Не удалось скачать"}
 
 
 def ipa_version(path: str) -> str | None:
@@ -329,55 +385,81 @@ def ipa_version(path: str) -> str | None:
             for n in names:
                 if re.match(r"Payload/[^/]+\.app/Info\.plist$", n):
                     info = plistlib.loads(z.read(n))
-                    return str(info.get("CFBundleShortVersionString") or info.get("CFBundleVersion") or "")
+                    return str(info.get("CFBundleShortVersionString") or info.get("CFBundleVersion") or "") or None
     except Exception:  # noqa: BLE001
         return None
     return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Связь с админкой TakeSmart
+# Связь с админкой TakeSmart (через curl: системные сертификаты macOS)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class Backend:
     def __init__(self, base_url: str, token: str) -> None:
-        self.base = base_url.rstrip("/") + "/api/v1/installs/station"
+        self.base = base_url.rstrip("/")
         self.token = token
+        self.prefix: str | None = None  # /api/v1 напрямую к бэку или /api через сайт
 
-    def call(self, method: str, path: str, body: dict | None = None, timeout: int = 15) -> tuple[int, dict]:
-        data = json.dumps(body or {}, ensure_ascii=False).encode()
-        req = urllib.request.Request(self.base + path, data=data, method=method,
-                                     headers={"Content-Type": "application/json", "X-Station-Token": self.token,
-                                              "User-Agent": f"TakeSmartStation/{VERSION}"})
+    def _probe(self) -> str:
+        if self.prefix:
+            return self.prefix
+        # Напрямую к бэку API живёт на /api/v1, через сайт takesmart.ru — на /api (прокси дописывает /v1).
+        for prefix in ("/api/v1", "/api"):
+            _, out, _ = run(["curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10",
+                             f"{self.base}{prefix}/health"], timeout=15)
+            if out.strip() == "200":
+                self.prefix = prefix
+                log(f"Адрес API: {self.base}{prefix}")
+                return prefix
+        return "/api/v1"
+
+    def call(self, method: str, path: str, body: dict | None = None, timeout: int = 20) -> tuple[int, dict]:
+        prefix = self._probe()
+        url = f"{self.base}{prefix}/installs/station{path}"
+        cmd = ["curl", "-sS", "-X", method, "--max-time", str(timeout), "-H", "Content-Type: application/json",
+               "-H", f"X-Station-Token: {self.token}", "-H", f"User-Agent: TakeSmartStation/{VERSION}",
+               "-w", "\n%{http_code}", "--data-binary", json.dumps(body or {}, ensure_ascii=False), url]
+        code, out, err = run(cmd, timeout=timeout + 5)
+        if code != 0:
+            return 0, {"detail": (err or "нет связи").strip()[:200]}
+        lines = out.rstrip("\n").split("\n")
+        status_line = lines[-1].strip()
+        raw = "\n".join(lines[:-1])
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                raw = resp.read().decode()
-                return resp.status, (json.loads(raw) if raw else {})
-        except urllib.error.HTTPError as exc:
-            raw = exc.read().decode(errors="ignore")
-            try:
-                return exc.code, json.loads(raw)
-            except json.JSONDecodeError:
-                return exc.code, {"detail": raw[:200]}
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            return 0, {"detail": str(exc)[:200]}
+            status = int(status_line)
+        except ValueError:
+            return 0, {"detail": "непонятный ответ"}
+        if status == 404 and self.prefix and isinstance(data, dict) and data.get("detail") == "Not Found":
+            self.prefix = None  # маршрута нет по этому адресу: в следующий раз перепроверим префикс
+        try:
+            data = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            data = {"detail": raw[:200]}
+        if isinstance(data, dict) and isinstance(data.get("detail"), list):
+            data["detail"] = "; ".join(f"{'.'.join(map(str, e.get('loc', [])))}: {e.get('msg')}" for e in data["detail"])[:300]
+        return status, data if isinstance(data, dict) else {"data": data}
 
     def heartbeat(self, payload: dict) -> tuple[int, dict]:
         return self.call("POST", "/heartbeat", payload)
 
-    def claim(self, job_id: str, device: dict) -> tuple[int, dict]:
-        return self.call("POST", f"/jobs/{job_id}/claim", {"device": device})
+    def start_session(self, device: dict, apps: list[dict], note: str | None) -> tuple[int, dict]:
+        return self.call("POST", "/sessions", {"device": device, "apps": apps, "note": note})
 
     def progress(self, job_id: str, apps: list[dict] | None, log_line: str | None) -> tuple[int, dict]:
-        return self.call("POST", f"/jobs/{job_id}/progress", {"apps": apps, "log": log_line})
+        return self.call("POST", f"/sessions/{job_id}/progress", {"apps": apps, "log": log_line})
 
     def finish(self, job_id: str, status: str, apps: list[dict], log_line: str | None) -> tuple[int, dict]:
-        return self.call("POST", f"/jobs/{job_id}/finish", {"status": status, "apps": apps, "log": log_line})
+        return self.call("POST", f"/sessions/{job_id}/finish", {"status": status, "apps": apps, "log": log_line})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Станция
 # ─────────────────────────────────────────────────────────────────────────────
+
+def job_app(bundle_id: str, name: str) -> dict:
+    return {"bundle_id": bundle_id, "name": name[:160], "status": "pending", "version": None, "error": None}
+
 
 class Station:
     def __init__(self, cfg: Config) -> None:
@@ -389,14 +471,18 @@ class Station:
         self.state: dict[str, Any] = {
             "version": VERSION, "backend_url": cfg.backend_url, "simulate": cfg.simulate,
             "connected": False, "station_name": None, "last_error": None,
-            "device": None, "apple": {"logged_in": False, "email": None},
-            "purchases": None, "job": None, "request": None, "current": None,
-            "login": {"status": "idle", "message": None}, "events": [], "auto_logout": cfg.auto_logout,
+            "device": None, "installed": {}, "apple": {"logged_in": False, "email": None, "name": None},
+            "purchases": None, "purchases_loading": False, "login": {"status": "idle", "message": None, "pending": False},
+            "session": None, "history": [], "events": [], "auto_logout": cfg.auto_logout,
             "tools_missing": self.devices.missing + self.store.missing,
         }
         self.stop = threading.Event()
         self.busy = False
         self.cancel_requested = False
+        self._last_udid: str | None = None
+        # Почта и пароль между первым шагом входа и кодом подтверждения. Только в памяти,
+        # стираются сразу после ответа Apple или по кнопке «Другой Apple ID».
+        self._pending_login: tuple[str, str] | None = None
 
     # ── состояние ────────────────────────────────────────────────────────
 
@@ -405,7 +491,7 @@ class Station:
         with self.lock:
             ev = self.state["events"]
             ev.append({"t": datetime.now().strftime("%H:%M:%S"), "msg": msg})
-            del ev[:-60]
+            del ev[:-80]
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -415,216 +501,276 @@ class Station:
         with self.lock:
             self.state.update(kw)
 
-    # ── циклы ────────────────────────────────────────────────────────────
+    # ── пульс ────────────────────────────────────────────────────────────
 
     def heartbeat_loop(self) -> None:
         while not self.stop.is_set():
             try:
                 device = self.devices.detect()
-                apple = self.store.info() if not self.busy else self.state["apple"]
-                self.set(device=device, apple=apple)
+                udid = device.get("udid") if device and device.get("paired") else None
+                if udid != self._last_udid:
+                    self._last_udid = udid
+                    if udid:
+                        self.set(device=device, installed=self.devices.installed_apps(udid))
+                        self.event(f"Подключён {device.get('model')} · iOS {device.get('ios_version')}")
+                    else:
+                        self.set(installed={})
+                        if self.busy:
+                            self.cancel_requested = True
+                            self.event("iPhone отключён — установка прервана")
+                self.set(device=device)
+                if not self.busy:
+                    self.set(apple=self.store.info())
+                apple = self.state["apple"]
+                purchases = self.state.get("purchases")
                 code, data = self.backend.heartbeat({
-                    "version": VERSION, "busy": self.busy,
-                    "device": device, "apple": {"logged_in": bool(apple.get("logged_in")),
-                                                "purchases_count": (len(self.state["purchases"]) if self.state.get("purchases") else None)},
+                    "version": VERSION, "busy": self.busy, "device": device,
+                    "apple": {"logged_in": bool(apple.get("logged_in")),
+                              "purchases_count": len(purchases) if purchases is not None else None},
                 })
                 if code == 200:
                     self.set(connected=True, last_error=None, station_name=data["station"]["name"])
-                    job, req = data.get("next_job"), data.get("request")
-                    if not self.busy:
-                        self.set(job=job, request=req)
-                        if job and job["status"] in ("queued", "running") and device and device.get("paired"):
-                            threading.Thread(target=self.run_job, args=(job, req, device), daemon=True).start()
                 elif code == 401:
                     self.set(connected=False, last_error="Админка не принимает токен станции")
                 else:
-                    self.set(connected=False, last_error=data.get("detail") or f"Ответ {code}")
+                    self.set(connected=False, last_error=f"Ответ админки {code}: {data.get('detail')}" if code else str(data.get("detail")))
             except Exception as exc:  # noqa: BLE001
                 self.set(connected=False, last_error=str(exc)[:200])
                 log(f"heartbeat error: {exc}")
             self.stop.wait(HEARTBEAT_SECONDS)
 
-    # ── вход в Apple ID (вызывается из локальной страницы) ──────────────
+    # ── Apple ID ─────────────────────────────────────────────────────────
 
-    def login(self, email: str, password: str, code: str | None) -> None:
-        self.set(login={"status": "working", "message": "Связываемся с Apple…"})
+    def login(self, email: str | None, password: str | None, code: str | None) -> None:
+        if not email or not password:
+            if not self._pending_login:
+                self.set(login={"status": "error", "message": "Введите почту и пароль", "pending": False})
+                return
+            email, password = self._pending_login
+        self.set(login={"status": "working", "message": "Связываемся с Apple…", "pending": bool(self._pending_login)})
         result = self.store.login(email.strip(), password, (code or "").strip() or None)
-        self.set(login={"status": result["status"], "message": result["message"]})
+        self._pending_login = (email, password) if result["status"] == "need_code" else None
+        self.set(login={"status": result["status"], "message": result["message"], "pending": result["status"] == "need_code"})
         if result["status"] == "ok":
+            self.set(apple=self.store.info())
             self.event("Вход в Apple ID выполнен")
             self.refresh_purchases()
 
+    def reset_login(self) -> None:
+        self._pending_login = None
+        self.set(login={"status": "idle", "message": None, "pending": False})
+
     def logout(self) -> None:
         self.store.revoke()
-        self.set(apple={"logged_in": False, "email": None}, purchases=None, login={"status": "idle", "message": None})
+        self._pending_login = None
+        self.set(apple={"logged_in": False, "email": None, "name": None}, purchases=None,
+                 login={"status": "idle", "message": None, "pending": False})
         self.event("Вышли из Apple ID, данные аккаунта удалены со станции")
 
     def refresh_purchases(self) -> None:
+        self.set(purchases_loading=True)
         try:
             purchases = self.store.purchases()
             self.set(purchases=purchases)
-            self.event(f"В истории покупок аккаунта {len(purchases)} приложений")
+            self.event(f"В истории покупок аккаунта {len(purchases)} приложений для iPhone")
         except Exception as exc:  # noqa: BLE001
             self.event(f"Не удалось прочитать покупки: {exc}")
+        finally:
+            self.set(purchases_loading=False)
 
-    # ── задание ──────────────────────────────────────────────────────────
+    # ── установка ────────────────────────────────────────────────────────
 
-    @staticmethod
-    def resolve_bundle(app: dict, purchases: list[dict]) -> str | None:
-        """Точное совпадение по Bundle ID, иначе по названию из истории покупок."""
-        wanted = app["bundle_id"].lower()
-        for p in purchases:
-            if (p.get("bundle_id") or "").lower() == wanted:
-                return p["bundle_id"]
-        name = re.sub(r"[^a-zа-яё0-9]+", " ", app["name"].lower()).strip()
-        for p in purchases:
-            pname = re.sub(r"[^a-zа-яё0-9]+", " ", (p.get("name") or "").lower())
-            if name and (name in pname or pname.strip() in name):
-                return p["bundle_id"]
-        return None
-
-    def run_job(self, job: dict, req: dict | None, device: dict) -> None:
+    def start_install(self, items: list[dict], note: str | None) -> tuple[bool, str]:
         if self.busy:
-            return
+            return False, "Установка уже идёт"
+        device = self.state.get("device")
+        if not device or not device.get("paired"):
+            return False, "Подключите iPhone и подтвердите «Доверять» на телефоне"
+        if not self.state["apple"].get("logged_in"):
+            return False, "Сначала войдите в Apple ID покупателя"
+        clean = []
+        for it in items:
+            bundle = (it.get("bundle_id") or "").strip()
+            app_id = it.get("id")
+            if not bundle and not app_id:
+                continue
+            clean.append({"bundle_id": bundle or f"id{app_id}", "app_id": app_id, "name": (it.get("name") or bundle or str(app_id))[:160]})
+        if not clean:
+            return False, "Отметьте хотя бы одно приложение"
+        threading.Thread(target=self.run_install, args=(clean, device, note), daemon=True).start()
+        return True, "Начали"
+
+    def run_install(self, items: list[dict], device: dict, note: str | None) -> None:
         self.busy = True
         self.cancel_requested = False
-        job_id = job["id"]
-        apps = [dict(a) for a in job["apps"]]
+        apps = [job_app(it["bundle_id"], it["name"]) for it in items]
+        session = {"id": None, "apps": apps, "status": "running", "started": datetime.now().strftime("%H:%M:%S")}
+        self.set(session=session)
+        code, data = self.backend.start_session(device, apps, note)
+        job_id = data.get("id") if code in (200, 201) else None
+        if not job_id:
+            self.event(f"Админка не приняла сессию ({code}: {data.get('detail')}) — ставим без записи в историю")
+        session["id"] = job_id
         tmp = tempfile.mkdtemp(prefix="takesmart-")
         try:
-            who = (req or {}).get("customer_name") or "покупатель"
-            self.event(f"Задание {job_id[:8]}: {who}, {len(apps)} прил., {device.get('model')} iOS {device.get('ios_version')}")
-            code, data = self.backend.claim(job_id, device)
-            if code not in (200, 201):
-                self.event(f"Не удалось взять задание: {data.get('detail')}")
-                return
-            self.set(current={"job_id": job_id, "step": "wait_login"})
-
-            # Ждём вход в Apple ID покупателя на локальной странице
-            waited = 0
-            while not self.store.info().get("logged_in"):
-                if waited == 0:
-                    self.backend.progress(job_id, None, "Ждём вход в Apple ID покупателя на станции")
-                    self.event("Введите Apple ID покупателя на странице станции")
-                if self.cancel_requested or self.stop.is_set():
-                    self.backend.finish(job_id, "cancelled", apps, "Отменено на станции")
-                    return
-                time.sleep(2)
-                waited += 2
-            self.set(apple=self.store.info())
-            if self.state.get("purchases") is None:
-                self.refresh_purchases()
-            purchases = self.state.get("purchases") or []
-
-            self.set(current={"job_id": job_id, "step": "install"})
-            for app in apps:
+            self.event(f"Установка: {len(apps)} прил. на {device.get('model')} iOS {device.get('ios_version')}")
+            for it, app in zip(items, apps):
                 if self.cancel_requested:
-                    break
-                bundle = self.resolve_bundle(app, purchases) if purchases else app["bundle_id"]
-                if not bundle:
-                    app.update(status="not_owned", error="Нет в истории покупок этого Apple ID")
-                    self.event(f"{app['name']}: нет в истории покупок")
-                    self.backend.progress(job_id, apps, f"{app['name']}: нет в истории покупок")
+                    app.update(status="skipped", error="Отменено")
                     continue
                 app.update(status="downloading", error=None)
-                code, _ = self.backend.progress(job_id, apps, f"{app['name']}: скачиваем из App Store")
-                if code == 409:
-                    self.cancel_requested = True
-                    break
-                dl = self.store.download(bundle, tmp)
+                self.push(job_id, apps, f"{app['name']}: скачиваем из App Store")
+                dl = self.store.download(None if it.get("app_id") else it["bundle_id"], it.get("app_id"), tmp)
                 if dl["status"] != "ok":
                     app.update(status="not_owned" if dl["status"] == "not_owned" else "failed", error=dl["message"])
                     self.event(f"{app['name']}: {dl['message']}")
-                    self.backend.progress(job_id, apps, f"{app['name']}: {dl['message']}")
+                    self.push(job_id, apps, f"{app['name']}: {dl['message']}")
                     continue
                 app["version"] = ipa_version(dl["path"])
                 app.update(status="installing")
-                self.backend.progress(job_id, apps, f"{app['name']} {app['version'] or ''}: ставим по кабелю")
-                ok, msg = self.devices.install(device["udid"], dl["path"])
+                self.push(job_id, apps, f"{app['name']} {app['version'] or ''}: ставим по кабелю")
+                ok, msg = self.devices.install(device["udid"], dl["path"], app["bundle_id"], app["name"], app["version"])
                 app.update(status="installed" if ok else "failed", error=None if ok else msg)
                 self.event(f"{app['name']}: {'установлено' if ok else msg}")
-                self.backend.progress(job_id, apps, f"{app['name']}: {'установлено' if ok else 'ошибка: ' + msg}")
+                self.push(job_id, apps, f"{app['name']}: {'установлено' if ok else 'ошибка: ' + msg}")
                 try:
                     os.remove(dl["path"])
                 except OSError:
                     pass
-
-            status = "cancelled" if self.cancel_requested else "done"
+            status = "cancelled" if self.cancel_requested and not all(a["status"] in ("installed", "not_owned", "failed") for a in apps) else "done"
             installed = sum(1 for a in apps if a["status"] == "installed")
-            self.backend.finish(job_id, status, apps, None if status == "done" else "Отменено на станции")
-            self.event(f"Задание завершено: установлено {installed} из {len(apps)}")
+            if job_id:
+                self.backend.finish(job_id, status, apps, None)
+            session["status"] = status
+            self.event(f"Готово: установлено {installed} из {len(apps)}")
         except Exception as exc:  # noqa: BLE001
-            log(f"job error: {exc}")
-            self.backend.finish(job_id, "failed", apps, f"Ошибка станции: {str(exc)[:200]}")
-            self.event(f"Ошибка задания: {exc}")
+            log(f"install error: {exc}")
+            session["status"] = "failed"
+            if job_id:
+                self.backend.finish(job_id, "failed", apps, f"Ошибка станции: {str(exc)[:200]}")
+            self.event(f"Ошибка установки: {exc}")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+            udid = device.get("udid")
+            if udid and self.state.get("device") and self.state["device"].get("udid") == udid:
+                self.set(installed=self.devices.installed_apps(udid))
+            with self.lock:
+                hist = self.state["history"]
+                hist.insert(0, {"t": session["started"], "device": device.get("model"), "status": session["status"],
+                                "apps": [{"name": a["name"], "status": a["status"], "version": a["version"]} for a in apps]})
+                del hist[20:]
             if self.cfg.auto_logout and self.store.info().get("logged_in"):
                 self.logout()
-            self.set(current=None, job=None, request=None)
+            self.set(session=None)
             self.busy = False
 
+    def push(self, job_id: str | None, apps: list[dict], line: str) -> None:
+        self.set(session={**self.state["session"], "apps": apps} if self.state.get("session") else None)
+        if job_id:
+            self.backend.progress(job_id, apps, line)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Локальная страница сотрудника (127.0.0.1)
+# Страница сотрудника (127.0.0.1)
 # ─────────────────────────────────────────────────────────────────────────────
 
-PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>TakeSmart · Станция</title>
+PAGE = r"""<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>TakeSmart · Станция</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#0b1220;color:#e5e7eb;font:15px/1.45 -apple-system,Inter,system-ui,sans-serif}
-.wrap{max-width:980px;margin:0 auto;padding:28px 20px 60px}h1{margin:0;font-size:22px}h1 span{color:#facc15}
-.grid{display:grid;gap:16px;grid-template-columns:1fr 1fr}@media(max-width:760px){.grid{grid-template-columns:1fr}}
-.card{background:#111a2e;border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:18px}
-.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8;margin-bottom:8px}
-.big{font-size:20px;font-weight:700}.muted{color:#94a3b8;font-size:13px}
-.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px;background:#64748b}.dot.on{background:#22c55e}.dot.warn{background:#facc15}.dot.off{background:#ef4444}
-label{display:block;font-size:12px;color:#94a3b8;margin:12px 0 4px}input{width:100%;padding:11px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:#0b1220;color:#fff;font-size:15px}
-button{margin-top:12px;padding:11px 16px;border:0;border-radius:12px;font-weight:700;font-size:14px;cursor:pointer;background:#facc15;color:#0b1220}button.sec{background:rgba(255,255,255,.1);color:#fff}button:disabled{opacity:.5;cursor:default}
-.apps{list-style:none;margin:10px 0 0;padding:0}.apps li{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid rgba(255,255,255,.07)}
-.st{font-size:12px;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.08)}.st.installed{background:rgba(34,197,94,.18);color:#86efac}.st.not_owned{background:rgba(250,204,21,.15);color:#fde68a}.st.failed{background:rgba(239,68,68,.18);color:#fca5a5}.st.downloading,.st.installing{background:rgba(56,189,248,.18);color:#bae6fd}
-.events{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#94a3b8;max-height:220px;overflow:auto;margin-top:8px}.events div{padding:2px 0}
-.note{margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(250,204,21,.08);color:#fde68a;font-size:13px}.err{color:#fca5a5}
-</style></head><body><div class="wrap">
-<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
-<h1><span>TakeSmart</span> · Станция установки</h1><div class="muted" id="hdr"></div></div>
-<div class="grid" style="margin-top:20px">
-<div class="card"><div class="eyebrow">iPhone по кабелю</div><div id="device"></div></div>
-<div class="card"><div class="eyebrow">Apple ID покупателя</div><div id="apple"></div></div>
-<div class="card" style="grid-column:1/-1"><div class="eyebrow">Задание</div><div id="job"></div></div>
-<div class="card" style="grid-column:1/-1"><div class="eyebrow">Журнал станции</div><div class="events" id="events"></div></div>
-</div></div>
+:root{color-scheme:dark}*{box-sizing:border-box}html,body{height:100%}body{margin:0;background:#0b1220;color:#e5e7eb;font:15px/1.45 -apple-system,Inter,system-ui,sans-serif}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 22px;border-bottom:1px solid rgba(255,255,255,.08);background:#0e1628;position:sticky;top:0;z-index:5}
+.top h1{margin:0;font-size:18px}.top h1 span{color:#facc15}.muted{color:#94a3b8;font-size:13px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;background:#64748b;vertical-align:middle}.dot.on{background:#22c55e}.dot.warn{background:#facc15}.dot.off{background:#ef4444}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 22px 40px;display:grid;gap:16px;grid-template-columns:340px 1fr}@media(max-width:900px){.wrap{grid-template-columns:1fr}}
+.card{background:#111a2e;border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:18px}.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8;margin-bottom:8px}
+.big{font-size:20px;font-weight:700;line-height:1.25}
+label{display:block;font-size:12px;color:#94a3b8;margin:12px 0 4px}input[type=text],input[type=password],input[type=search]{width:100%;padding:11px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:#0b1220;color:#fff;font-size:15px}
+button{padding:10px 16px;border:0;border-radius:12px;font-weight:700;font-size:14px;cursor:pointer;background:#facc15;color:#0b1220}button.sec{background:rgba(255,255,255,.1);color:#fff}button.ghost{background:transparent;color:#94a3b8;padding:6px 10px;font-weight:500}button:disabled{opacity:.45;cursor:default}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}.chip{padding:5px 11px;border-radius:999px;background:rgba(255,255,255,.08);color:#cbd5e1;font-size:13px;cursor:pointer;border:0}.chip.on{background:#fff;color:#0b1220}
+.list{max-height:52vh;overflow:auto;border:1px solid rgba(255,255,255,.07);border-radius:14px}.row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-top:1px solid rgba(255,255,255,.06);cursor:pointer}.row:first-child{border-top:0}.row:hover{background:rgba(255,255,255,.03)}.row input{width:18px;height:18px}.row .n{flex:1;min-width:0}.row .n b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.row .n small{color:#64748b;font-family:ui-monospace,Menlo,monospace;font-size:11px}
+.st{font-size:12px;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.08);white-space:nowrap}.st.installed{background:rgba(34,197,94,.18);color:#86efac}.st.not_owned{background:rgba(250,204,21,.15);color:#fde68a}.st.failed{background:rgba(239,68,68,.18);color:#fca5a5}.st.downloading,.st.installing{background:rgba(56,189,248,.18);color:#bae6fd}.st.have{background:rgba(148,163,184,.15);color:#cbd5e1}
+.bar{position:sticky;bottom:0;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding:12px;border-radius:14px;background:#0e1628;border:1px solid rgba(255,255,255,.1)}
+.note{margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(250,204,21,.08);color:#fde68a;font-size:13px}.err{color:#fca5a5}.ok{color:#86efac}
+.events{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#94a3b8;max-height:180px;overflow:auto;margin-top:8px}.events div{padding:2px 0}
+.apps li{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid rgba(255,255,255,.07)}.apps{list-style:none;margin:8px 0 0;padding:0}
+.switch{display:flex;align-items:center;gap:8px;font-size:13px;color:#94a3b8;cursor:pointer}.switch input{width:16px;height:16px}
+.hist{font-size:13px;color:#cbd5e1}.hist div{padding:6px 0;border-top:1px solid rgba(255,255,255,.07)}
+</style></head><body>
+<div class="top"><h1><span>TakeSmart</span> · Станция установки</h1><div class="muted" id="hdr"></div></div>
+<div class="wrap">
+  <div>
+    <div class="card"><div class="eyebrow">iPhone по кабелю</div><div id="device"></div></div>
+    <div class="card" style="margin-top:16px"><div class="eyebrow">Apple ID покупателя</div><div id="apple"></div></div>
+    <div class="card" style="margin-top:16px"><div class="eyebrow">Журнал</div><div class="events" id="events"></div></div>
+  </div>
+  <div>
+    <div class="card" id="main"></div>
+    <div class="card" style="margin-top:16px"><div class="eyebrow">Сегодня на этой станции</div><div class="hist" id="hist"></div></div>
+  </div>
+</div>
 <script>
-const $=s=>document.querySelector(s);let st=null;
+const $=s=>document.querySelector(s);let st=null,q='',filter='all',sel=new Set(),hideHave=false,lastEmail='';
+const BANK=/сбер|sber|т-банк|tinkoff|тиньк|втб|vtb|альфа|alfa|газпром|gazprom|райф|raif|совком|sovcom|халва|halva|открыти|psb|псб|росбанк|rosbank|почта банк|pochta|мтс банк|mts bank|озон банк|ozon bank|юmoney|yoomoney|сбп|банк|bank|уралсиб|uralsib|дом\.рф|domrf|россельхоз|rshb|ренессанс|renaissance|синара|zenit|зенит|akbars|ак барс|мкб|mkb|credit|кредит/i;
 async function api(p,b){const r=await fetch(p,{method:b?'POST':'GET',headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined});return r.json()}
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+const L={pending:'в очереди',downloading:'скачиваем',installing:'ставим',installed:'установлено',not_owned:'нет в покупках',failed:'ошибка',skipped:'пропущено'};
 function render(){if(!st)return;
-$('#hdr').innerHTML=`<span class="dot ${st.connected?'on':'off'}"></span>${st.connected?'Связь с админкой есть · '+esc(st.station_name||''):'Нет связи с админкой'+(st.last_error?': '+esc(st.last_error):'')}${st.simulate?' · <b style=color:#fde68a>ЭМУЛЯЦИЯ</b>':''}`;
-const d=st.device;$('#device').innerHTML=d?(d.paired?`<div class="big">${esc(d.model)}</div><div class="muted">iOS ${esc(d.ios_version||'?')} · ${esc(d.name||'')}</div><div class="muted">UDID …${esc((d.udid||'').slice(-8))}</div>`:`<div class="big">Подтвердите доверие</div><div class="muted">На iPhone нажмите «Доверять» и введите код-пароль</div>`):`<div class="big" style="color:#94a3b8">Не подключён</div><div class="muted">Подключите iPhone кабелем и разблокируйте его</div>`;
+$('#hdr').innerHTML=`<span class="dot ${st.connected?'on':'off'}"></span>${st.connected?'Админка: связь есть · '+esc(st.station_name||''):'Нет связи с админкой'+(st.last_error?': '+esc(st.last_error):'')} · v${st.version}${st.simulate?' · <b style="color:#fde68a">ЭМУЛЯЦИЯ</b>':''}`;
+const d=st.device,have=st.installed||{},n=Object.keys(have).length;
+$('#device').innerHTML=d?(d.paired?`<div class="big">${esc(d.model)}</div><div class="muted">iOS ${esc(d.ios_version||'?')} · ${esc(d.name||'')}</div><div class="muted" style="margin-top:6px">На телефоне ${n} приложений</div>`:`<div class="big" style="color:#fde68a">Подтвердите доверие</div><div class="muted">На iPhone нажмите «Доверять» и введите код-пароль</div>`):`<div class="big" style="color:#94a3b8">Не подключён</div><div class="muted">Подключите iPhone кабелем и разблокируйте его</div>`;
 if(st.tools_missing&&st.tools_missing.length)$('#device').innerHTML+=`<div class="note err">Не найдены утилиты: ${st.tools_missing.join(', ')}. Установите: brew tap majd/repo && brew install ipatool libimobiledevice ideviceinstaller</div>`;
 const a=st.apple,l=st.login;let h='';
-if(a.logged_in){h=`<div class="big"><span class="dot on"></span>${esc(a.email||'вход выполнен')}</div><div class="muted">${st.purchases?('В истории покупок: '+st.purchases.length+' приложений'):'Читаем историю покупок…'}</div><button class="sec" onclick="api('/api/logout',{}).then(load)">Выйти из Apple ID</button>`;}
-else{h=`<div class="muted">Пароль и код уходят напрямую в Apple с этого Mac. На сервер TakeSmart они не попадают и после установки удаляются.</div>
-<label>Apple ID (почта)</label><input id="em" autocomplete="off" placeholder="name@icloud.com">
-<label>Пароль</label><input id="pw" type="password" autocomplete="off">
-${l.status==='need_code'?'<label>Код подтверждения</label><input id="cd" inputmode="numeric" placeholder="6 цифр">':''}
-<button id="lg" onclick="login()" ${l.status==='working'?'disabled':''}>${l.status==='working'?'Связываемся с Apple…':(l.status==='need_code'?'Подтвердить код':'Войти')}</button>
+if(a.logged_in){h=`<div class="big"><span class="dot on"></span>${esc(a.name||'Вход выполнен')}</div><div class="muted">${esc(a.email||'')}</div><div class="muted" style="margin-top:6px">${st.purchases_loading?'Читаем историю покупок…':(st.purchases?'В истории покупок: '+st.purchases.length:'')}</div><div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="sec" onclick="api('/api/purchases',{}).then(load)">Обновить список</button><button class="sec" onclick="api('/api/logout',{}).then(()=>{sel.clear();load()})">Выйти из Apple ID</button></div>`;}
+else if(l.status==='need_code'||(l.status==='working'&&l.pending)){h=`<div class="muted">Apple прислала код на устройства покупателя (или по SMS). Почту и пароль повторять не нужно.</div>
+<label>Код подтверждения</label><input type="text" id="cd" inputmode="numeric" autocomplete="one-time-code" placeholder="6 цифр" onkeydown="if(event.key==='Enter')sendCode()">
+<div style="margin-top:12px;display:flex;gap:8px;align-items:center"><button onclick="sendCode()" ${l.status==='working'?'disabled':''}>${l.status==='working'?'Проверяем код…':'Подтвердить код'}</button><button class="ghost" onclick="api('/api/login',{reset:true}).then(load)">Другой Apple ID</button></div>
+${l.message&&l.status!=='working'?`<div class="note">${esc(l.message)}</div>`:''}`;}
+else{h=`<div class="muted">Покупатель вводит свой Apple ID здесь. Пароль и код уходят напрямую в Apple с этого Mac, у нас не сохраняются.</div>
+<label>Apple ID (почта)</label><input type="text" id="em" autocomplete="off" placeholder="name@icloud.com" value="${esc(lastEmail)}">
+<label>Пароль</label><input type="password" id="pw" autocomplete="off" onkeydown="if(event.key==='Enter')login()">
+<div style="margin-top:12px"><button id="lg" onclick="login()" ${l.status==='working'?'disabled':''}>${l.status==='working'?'Связываемся с Apple…':'Войти'}</button></div>
 ${l.message?`<div class="note ${l.status==='error'?'err':''}">${esc(l.message)}</div>`:''}`;}
-if($('#apple').dataset.mode!==(a.logged_in?'in':'out')+l.status){$('#apple').innerHTML=h;$('#apple').dataset.mode=(a.logged_in?'in':'out')+l.status;}
-const j=st.job,r=st.request;
-$('#job').innerHTML=j?`<div class="big">${esc(r?r.customer_name:'')} <span class="muted">${esc(r?r.request_number:'')}</span></div><div class="muted">${esc(r?r.customer_phone:'')} · статус: ${esc(j.status)}${st.current?' · '+(st.current.step==='wait_login'?'ждём вход в Apple ID':'установка'):''}</div>
-<ul class="apps">${j.apps.map(x=>`<li><span>${esc(x.name)} <span class="muted">${esc(x.version||'')}</span>${x.error?`<div class="muted err">${esc(x.error)}</div>`:''}</span><span class="st ${x.status}">${({pending:'в очереди',downloading:'скачиваем',installing:'ставим',installed:'установлено',not_owned:'нет в покупках',failed:'ошибка',skipped:'пропущено'})[x.status]||x.status}</span></li>`).join('')}</ul>`
-:`<div class="muted">Заданий нет. Отправьте заявку на эту станцию из админки: раздел «Установка приложений».</div>`;
-$('#events').innerHTML=(st.events||[]).slice().reverse().map(e=>`<div>${e.t} ${esc(e.msg)}</div>`).join('');}
+const mode=(a.logged_in?'in':'out')+l.status+(l.pending?'P':'')+(l.message||'')+(st.purchases?st.purchases.length:0)+(st.purchases_loading?'L':'');
+if($('#apple').dataset.mode!==mode){$('#apple').innerHTML=h;$('#apple').dataset.mode=mode;}
+renderMain();
+$('#events').innerHTML=(st.events||[]).slice().reverse().map(e=>`<div>${e.t} ${esc(e.msg)}</div>`).join('');
+$('#hist').innerHTML=(st.history||[]).length?st.history.map(s=>`<div><b>${s.t}</b> · ${esc(s.device||'')} · ${s.apps.map(x=>esc(x.name)+(x.version?' '+x.version:'')+' — '+(L[x.status]||x.status)).join(', ')}</div>`).join(''):'<div class="muted">Пока пусто</div>';}
+let mainMode=null,lastSig='';
+function renderMain(){const s=st.session,a=st.apple,d=st.device,have=st.installed||{};
+const mode=s?'session':(!a.logged_in?'nologin':'purchases');
+if(mode==='session'){$('#main').innerHTML=`<div class="eyebrow">Установка</div><div class="big">${s.status==='running'?'Идёт установка…':'Готово'}</div><ul class="apps">${s.apps.map(x=>`<li><span>${esc(x.name)} <span class="muted">${esc(x.version||'')}</span>${x.error?`<div class="muted err">${esc(x.error)}</div>`:''}</span><span class="st ${x.status}">${L[x.status]||x.status}</span></li>`).join('')}</ul>${s.status==='running'?'<div style="margin-top:12px"><button class="sec" onclick="api(\'/api/cancel\',{}).then(load)">Остановить после текущего</button></div>':''}`;mainMode=mode;return;}
+if(mode==='nologin'){if(mainMode!==mode){$('#main').innerHTML=`<div class="eyebrow">Что ставим</div><div class="big" style="color:#94a3b8">Войдите в Apple ID покупателя</div><div class="muted" style="margin-top:6px">После входа здесь появится всё, что когда-либо было на его аккаунте: банки, соцсети, мессенджеры. Отметьте нужное и нажмите «Установить».</div>`;mainMode=mode;}return;}
+if(mainMode!==mode){$('#main').innerHTML=`<div class="eyebrow">История покупок аккаунта</div>
+<input type="search" id="q" placeholder="Поиск: Сбер, Т-Банк, ВК…" oninput="q=this.value;renderList()">
+<div class="chips"><button class="chip" id="chip-all" onclick="filter='all';renderList()">Все</button><button class="chip" id="chip-bank" onclick="filter='bank';renderList()">Банки</button><button class="chip" id="chip-hide" onclick="hideHave=!hideHave;renderList()">Скрыть уже установленные</button><span class="muted" style="align-self:center" id="cnt"></span></div>
+<div class="list" id="plist"></div>
+<div class="bar"><span class="muted" id="barinfo"></span><button id="barbtn" onclick="install()">Установить выбранные</button></div>
+<details style="margin-top:12px"><summary class="muted" style="cursor:pointer">Поставить по App Store ID или Bundle ID</summary><div style="display:flex;gap:8px;margin-top:8px"><input type="text" id="byid" placeholder="например 492224193 или ru.sberbankmobile"><button class="sec" onclick="byId()">Поставить</button></div><div class="muted" style="margin-top:6px">Сработает, только если приложение есть в истории покупок этого Apple ID или ещё доступно в App Store.</div></details>`;mainMode=mode;lastSig='';$('#q').value=q;}
+const sig=JSON.stringify([(st.purchases||[]).length,Object.keys(have).sort().join(),!!(d&&d.paired),st.purchases_loading]);
+if(sig!==lastSig){lastSig=sig;renderList();}}
+function renderList(){const d=st.device,have=st.installed||{};
+const list=(st.purchases||[]).filter(p=>{const t=(p.name+' '+p.bundle_id).toLowerCase();if(q&&!t.includes(q.toLowerCase()))return false;if(filter==='bank'&&!BANK.test(p.name+' '+p.bundle_id))return false;if(hideHave&&have[p.bundle_id])return false;return true;});
+$('#chip-all').classList.toggle('on',filter==='all');$('#chip-bank').classList.toggle('on',filter==='bank');$('#chip-hide').classList.toggle('on',hideHave);
+$('#cnt').textContent=`${list.length} из ${(st.purchases||[]).length}`;
+const el=$('#plist'),top=el.scrollTop;
+el.innerHTML=list.length?list.map(p=>{const hv=have[p.bundle_id];return `<label class="row"><input type="checkbox" ${sel.has(p.bundle_id)?'checked':''} onchange="tog('${esc(p.bundle_id)}',this.checked)"><span class="n"><b>${esc(p.name)}</b><small>${esc(p.bundle_id)}${p.version?' · '+esc(p.version):''}</small></span>${hv?`<span class="st have">стоит ${esc(hv.version||'')}</span>`:''}</label>`}).join(''):`<div class="muted" style="padding:16px">${st.purchases_loading?'Читаем историю покупок…':'Ничего не найдено'}</div>`;
+el.scrollTop=top;renderBar();}
+function renderBar(){const d=st.device;const canInstall=d&&d.paired&&sel.size>0;
+$('#barinfo').textContent=(sel.size?`Выбрано ${sel.size}`:'Отметьте приложения')+(!d||!d.paired?' · подключите iPhone':'');
+const b=$('#barbtn');b.disabled=!canInstall;b.textContent='Установить выбранные'+(sel.size?' ('+sel.size+')':'');}
+function tog(b,on){if(on)sel.add(b);else sel.delete(b);renderBar()}
 async function load(){try{st=await api('/api/state');render()}catch(e){}}
-async function login(){const em=$('#em').value,pw=$('#pw').value,cd=$('#cd')?$('#cd').value:'';await api('/api/login',{email:em,password:pw,code:cd});setTimeout(load,300)}
+async function login(){const em=$('#em').value.trim(),pw=$('#pw').value;if(!em||!pw)return;lastEmail=em;await api('/api/login',{email:em,password:pw});setTimeout(load,300)}
+async function sendCode(){const cd=$('#cd').value.trim();if(!cd)return;await api('/api/login',{code:cd});setTimeout(load,300)}
+async function install(){const items=(st.purchases||[]).filter(p=>sel.has(p.bundle_id)).map(p=>({bundle_id:p.bundle_id,name:p.name,id:p.id}));const r=await api('/api/install',{apps:items});if(!r.ok)alert(r.message);sel.clear();load()}
+async function byId(){const v=$('#byid').value.trim();if(!v)return;const isId=/^\d+$/.test(v);const r=await api('/api/install',{apps:[isId?{id:Number(v),name:'App Store #'+v}:{bundle_id:v,name:v}]});if(!r.ok)alert(r.message);load()}
 load();setInterval(load,1500);
 </script></body></html>"""
 
 
 def make_handler(station: Station):
     class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *_: Any) -> None:  # тихий сервер
+        def log_message(self, *_: Any) -> None:
             pass
 
         def _json(self, code: int, data: dict) -> None:
@@ -648,13 +794,21 @@ def make_handler(station: Station):
 
         def do_POST(self) -> None:  # noqa: N802
             length = int(self.headers.get("Content-Length") or 0)
-            body = json.loads(self.rfile.read(length) or b"{}") if length else {}
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}") if length else {}
+            except json.JSONDecodeError:
+                body = {}
             if self.path == "/api/login":
-                email, password = body.get("email", ""), body.get("password", "")
-                if not email or not password:
-                    self._json(400, {"detail": "Нужны почта и пароль"})
+                if body.get("reset"):
+                    station.reset_login()
+                    self._json(200, {"ok": True})
                     return
-                threading.Thread(target=station.login, args=(email, password, body.get("code")), daemon=True).start()
+                email, password = (body.get("email") or "").strip(), body.get("password") or ""
+                code = (body.get("code") or "").strip() or None
+                if not (email and password) and not (code and station._pending_login):
+                    self._json(400, {"ok": False, "message": "Нужны почта и пароль"})
+                    return
+                threading.Thread(target=station.login, args=(email or None, password or None, code), daemon=True).start()
                 self._json(202, {"ok": True})
             elif self.path == "/api/logout":
                 station.logout()
@@ -662,11 +816,19 @@ def make_handler(station: Station):
             elif self.path == "/api/purchases":
                 threading.Thread(target=station.refresh_purchases, daemon=True).start()
                 self._json(202, {"ok": True})
+            elif self.path == "/api/install":
+                ok, message = station.start_install(body.get("apps") or [], body.get("note"))
+                self._json(200 if ok else 400, {"ok": ok, "message": message})
             elif self.path == "/api/cancel":
                 station.cancel_requested = True
                 self._json(200, {"ok": True})
+            elif self.path == "/api/settings":
+                if "auto_logout" in body:
+                    station.cfg.auto_logout = bool(body["auto_logout"])
+                    station.set(auto_logout=station.cfg.auto_logout)
+                self._json(200, {"ok": True})
             else:
-                self._json(404, {"detail": "not found"})
+                self._json(404, {"ok": False, "message": "not found"})
 
     return Handler
 
@@ -681,8 +843,9 @@ def main() -> int:
     parser.add_argument("--backend", help="адрес сайта, напр. https://takesmart.ru")
     parser.add_argument("--token", help="токен станции из админки")
     parser.add_argument("--port", type=int, help="порт локальной страницы (по умолчанию 8765)")
-    parser.add_argument("--simulate", action="store_true", help="эмуляция iPhone и Apple ID, для проверки связки без телефона")
-    parser.add_argument("--no-auto-logout", action="store_true", help="не выходить из Apple ID после задания")
+    parser.add_argument("--simulate", action="store_true", help="эмуляция iPhone и Apple ID, для проверки без телефона")
+    parser.add_argument("--no-auto-logout", action="store_true", help="не выходить из Apple ID после установки")
+    parser.add_argument("--no-open", action="store_true", help="не открывать страницу в браузере")
     args = parser.parse_args()
 
     cfg = Config.load()
@@ -714,10 +877,11 @@ def main() -> int:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     threading.Thread(target=station.heartbeat_loop, daemon=True).start()
     log(f"Станция v{VERSION} запущена. Страница сотрудника: http://127.0.0.1:{cfg.ui_port}  (Ctrl+C — стоп)")
-    try:
-        subprocess.Popen(["open", f"http://127.0.0.1:{cfg.ui_port}"])
-    except OSError:
-        pass
+    if not args.no_open:
+        try:
+            subprocess.Popen(["open", f"http://127.0.0.1:{cfg.ui_port}"])
+        except OSError:
+            pass
     try:
         while True:
             time.sleep(1)
