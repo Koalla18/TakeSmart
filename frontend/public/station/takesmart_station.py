@@ -39,7 +39,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.3.3"
+VERSION = "0.3.4"
 CONFIG_DIR = Path.home() / "Library" / "Application Support" / "TakeSmart Station"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LOG_PATH = CONFIG_DIR / "station.log"
@@ -391,7 +391,9 @@ class StoreTools:
         seen: set[str] = set()
         page_size = 100  # ipatool: «max results must not exceed 100»
         for page in range(1, 200):
-            rc, out, err = run(self._base("list-purchases", "-l", str(page_size), "-p", str(page), "--platform", "iphone"), timeout=120)
+            # Без --platform: у старых покупок (в том числе удалённых из App Store банков) в истории Apple
+            # нет пометки платформы, и фильтр ipatool молча выбрасывал их. Отсеиваем сами только явно чужое.
+            rc, out, err = run(self._base("list-purchases", "-l", str(page_size), "-p", str(page)), timeout=120)
             data = last_json(out + err)
             apps = data.get("apps") or []
             if rc != 0 or not isinstance(apps, list) or not apps:
@@ -405,6 +407,9 @@ class StoreTools:
                 bundle = pick(a, "bundleID", "bundleId", "bundle_id") or ""
                 if not bundle or bundle in seen:
                     continue
+                platforms = [str(x).lower() for x in (a.get("platforms") or [])]
+                if platforms and not any(x in ("iphone", "unknown", "ios") for x in platforms):
+                    continue  # только Mac / Apple TV / Vision / iPad — на iPhone не встанет
                 seen.add(bundle)
                 result.append({"bundle_id": bundle, "name": pick(a, "name", "trackName") or bundle,
                                "id": pick(a, "id", "trackId"), "version": pick(a, "version"),
