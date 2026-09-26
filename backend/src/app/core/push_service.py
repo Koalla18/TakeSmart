@@ -152,3 +152,17 @@ async def send_order_push(order: "Order") -> None:
         await send_push_to_all(title, body, url="/app", tag=f"order-{order.order_number}")
     except Exception as exc:  # noqa: BLE001
         logger.error("push_order_error", error=str(exc))
+
+
+async def send_install_request_push(number: str, customer_name: str, device_model: str | None, apps: str) -> None:
+    """Пуш о новой заявке на установку приложений на iPhone (с сайта)."""
+    try:
+        body = " · ".join(x for x in (customer_name, device_model or "iPhone", apps) if x)
+        await send_push_to_all(
+            title="Заявка на установку приложений",
+            body=body[:180],
+            url="/admin?tab=installs",
+            tag=f"install-{number}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error("install_push_error", error=str(exc))
