@@ -46,7 +46,7 @@ interface ConsoleData { station: Station; console: HelperConsole; purchases: Pur
 interface JobApp { bundle_id: string; name: string; status: string; version: string | null; error: string | null }
 interface Session { id: string; station_id: string | null; status: string; apps: JobApp[]; device_model: string | null; ios_version: string | null; note: string | null; log: { t: string; msg: string }[]; created_at: string; finished_at: string | null }
 interface Stats { installed_today: number; installed_month: number; sessions_today: number; sessions_month: number; stations_online: number }
-type CommandType = 'login' | 'code' | 'reset_login' | 'logout' | 'refresh_purchases' | 'install' | 'cancel' | 'settings'
+type CommandType = 'login' | 'code' | 'resend_code' | 'reset_login' | 'logout' | 'refresh_purchases' | 'install' | 'cancel' | 'settings'
 type Api = (path: string, init?: RequestInit) => Promise<Response>
 
 const INPUT = 'w-full rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-2.5 text-[15px] text-white placeholder:text-slate-600 focus:border-yellow-400/60 focus:bg-white/10 focus:outline-none'
@@ -512,13 +512,15 @@ function AppleIdCard({ station, c, purchasesCount, send }: { station: Station; c
         </>
       ) : codeStep ? (
         <form onSubmit={sendCode} className="mt-2">
-          <p className="text-sm text-slate-300">Apple прислала код на устройства покупателя или по SMS. Почту и пароль повторять не нужно.</p>
+          <p className="text-sm text-slate-300">Apple прислала 6‑значный код. Он приходит <b className="text-white">не на почту</b>: всплывает на устройствах, где выполнен вход в этот Apple ID (iPhone, iPad, Mac), или приходит по SMS на доверенный номер.</p>
           <input id="helper-code" value={code} onChange={e => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" placeholder="Код подтверждения" className={`${INPUT} mt-3`} autoFocus />
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button type="submit" disabled={working || !code.trim()} className={BTN_PRIMARY}>{working ? 'Проверяем код…' : 'Подтвердить код'}</button>
+            <button type="button" disabled={working} onClick={() => { setSending(true); send('resend_code').then(okk => { if (!okk) setSending(false) }) }} className={BTN_SECONDARY} data-resend-code>Отправить код ещё раз</button>
             <button type="button" onClick={() => send('reset_login')} className="text-sm text-slate-400 hover:text-white">Другой Apple ID</button>
           </div>
           {l.message && l.status !== 'working' && <p className="mt-2 text-xs text-yellow-200">{l.message}</p>}
+          <p className="mt-2 text-xs text-slate-500">Если код нигде не появился: разблокируйте телефон покупателя и посмотрите уведомления, затем «Отправить код ещё раз». Не пришёл и по SMS — проверьте доверенный номер на appleid.apple.com.</p>
         </form>
       ) : (
         <form onSubmit={login} className="mt-2">

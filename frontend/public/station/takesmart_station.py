@@ -39,7 +39,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 CONFIG_DIR = Path.home() / "Library" / "Application Support" / "TakeSmart Station"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LOG_PATH = CONFIG_DIR / "station.log"
@@ -208,21 +208,27 @@ class DeviceTools:
         info["model"] = IPHONE_MODELS.get(info["model"] or "", info["model"] or "iPhone")
         return info
 
+    def _list_xml(self, udid: str, extra: list[str]) -> list[dict]:
+        """ideviceinstaller 1.2 (brew 2025): `list --xml`; старые сборки: `-l --xml`."""
+        for args in (["list", "--user", "--xml", *extra], ["-l", "--xml"]):
+            code, out, err = run([self.ideviceinstaller, "-u", udid, *args], timeout=90)
+            if code != 0 and "invalid option" in (out + err).lower():
+                continue
+            if code != 0 or not out.strip():
+                return []
+            try:
+                items = plistlib.loads(out.encode())
+            except Exception:  # noqa: BLE001
+                return []
+            return [it for it in (items or []) if isinstance(it, dict)]
+        return []
+
     def installed_apps(self, udid: str) -> dict[str, dict]:
         """Что уже стоит на телефоне: {bundle_id: {name, version}}."""
         if self.simulate:
             return dict(self._sim_installed)
-        code, out, _ = run([self.ideviceinstaller, "-u", udid, "-l", "--xml"], timeout=60)
-        if code != 0 or not out.strip():
-            return {}
-        try:
-            items = plistlib.loads(out.encode())
-        except Exception:  # noqa: BLE001
-            return {}
         result: dict[str, dict] = {}
-        for it in items or []:
-            if not isinstance(it, dict):
-                continue
+        for it in self._list_xml(udid, []):
             bundle = it.get("CFBundleIdentifier")
             if bundle:
                 result[bundle] = {"name": it.get("CFBundleDisplayName") or it.get("CFBundleName") or bundle,
@@ -234,10 +240,22 @@ class DeviceTools:
             time.sleep(1.2)
             self._sim_installed[bundle_id] = {"name": name, "version": version or "1.0"}
             return True, "Install: Complete (эмуляция)"
-        code, out, err = run([self.ideviceinstaller, "-u", udid, "-i", ipa_path], timeout=900)
+        already = bool(bundle_id and not bundle_id.startswith("id") and self._list_xml(udid, ["-b", bundle_id]))
+        cmd = [self.ideviceinstaller, "-u", udid, "-w", "upgrade" if already else "install", ipa_path]
+        code, out, err = run(cmd, timeout=900)
         text = (out + "\n" + err).strip()
-        if code == 0 and "complete" in text.lower():
-            return True, "Install: Complete"
+        if code != 0 and "invalid option" in text.lower():  # старая сборка ideviceinstaller
+            code, out, err = run([self.ideviceinstaller, "-u", udid, "-i", ipa_path], timeout=900)
+            text = (out + "\n" + err).strip()
+        log(f"ideviceinstaller {'upgrade' if already else 'install'} {bundle_id}: code {code}: {text[-300:]}")
+        # Итог проверяем по телефону, а не по тексту: приложение должно появиться в списке
+        if bundle_id and not bundle_id.startswith("id"):
+            time.sleep(1.0)
+            for it in self._list_xml(udid, ["-b", bundle_id]):
+                if it.get("CFBundleIdentifier") == bundle_id:
+                    return True, "Установлено"
+        if code == 0:
+            return True, "Установлено"
         tail = [ln for ln in text.splitlines() if ln.strip()][-3:]
         return False, " | ".join(tail)[:300] or f"ideviceinstaller завершился с кодом {code}"
 
@@ -320,6 +338,7 @@ class StoreTools:
         if rc == 0 and data.get("success"):
             return {"status": "ok", "message": "Вход выполнен"}
         error = error_text(data, out, err)
+        log(f"ipatool login ({'с кодом' if code else 'без кода'}): {error[:220]}")
         low = error.lower()
         if any(k in low for k in ("2fa", "auth code", "two-factor", "verification code", "authcode")):
             return {"status": "need_code", "message": "Введите код, который Apple прислала на устройства покупателя"}
@@ -632,6 +651,12 @@ class Station:
             self.login(p.get("email"), p.get("password"), None)
         elif kind == "code":
             self.login(None, None, p.get("code"))
+        elif kind == "resend_code":
+            if self._pending_login:
+                self.event("Просим Apple прислать код ещё раз")
+                self.login(None, None, None)
+            else:
+                self.notice("Сначала введите почту и пароль Apple ID", "error")
         elif kind == "reset_login":
             self.reset_login()
         elif kind == "logout":
