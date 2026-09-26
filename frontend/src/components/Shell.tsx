@@ -57,7 +57,7 @@ function NavItem({ to, label, onClick }: { to: string; label: string; onClick?: 
       to={to}
       onClick={onClick}
       className={({ isActive }) =>
-        `relative px-1 py-2 text-sm font-medium transition-colors ${
+        `relative whitespace-nowrap px-1 py-2 text-sm font-medium transition-colors ${
           isActive
             ? 'text-yellow-500'
             : 'text-gray-700 hover:text-yellow-500'
@@ -380,6 +380,14 @@ function CatalogMegaMenu() {
                 <p className="text-sm font-bold text-gray-900">🚚 Доставка сегодня</p>
                 <p className="mt-0.5 text-xs text-gray-500">По Москве и МО в день заказа</p>
               </Link>
+              <Link
+                to="/iphone-apps"
+                onClick={closeNow}
+                className="rounded-2xl border border-gray-200 p-4 transition-colors hover:border-yellow-300 hover:bg-yellow-50"
+              >
+                <p className="text-sm font-bold text-gray-900">📱 Приложения на iPhone</p>
+                <p className="mt-0.5 text-xs text-gray-500">Сбер, Т-Банк и другие, которых нет в App Store</p>
+              </Link>
             </aside>
           </div>
         </Container>
@@ -474,6 +482,7 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                 { to: '/', label: 'Главная' },
                 { to: '/catalog', label: 'Каталог' },
                 ...(preorderAvailable ? [{ to: '/preorder', label: 'Предзаказ новинок' }] : []),
+                { to: '/iphone-apps', label: 'Приложения на iPhone' },
                 { to: '/delivery', label: 'Доставка и оплата' },
                 { to: '/trade-in', label: 'Trade-in' },
                 { to: '/cart', label: 'Корзина' },
@@ -774,7 +783,7 @@ export function Shell({ children }: PropsWithChildren) {
             </Link>
             
             {/* Desktop nav */}
-            <nav className="hidden items-center gap-6 lg:flex">
+            <nav className="hidden items-center gap-4 lg:flex xl:gap-6">
               <NavItem to="/" label="Главная" />
               <CatalogMegaMenu />
               {preorderAvailable && (
@@ -786,13 +795,14 @@ export function Shell({ children }: PropsWithChildren) {
                   Предзаказ
                 </NavLink>
               )}
+              <NavItem to="/iphone-apps" label="Приложения" />
               <NavItem to="/delivery" label="Доставка" />
               <NavItem to="/trade-in" label="Trade-in" />
               <NavItem to="/cart" label="Заявка" />
             </nav>
 
             {/* Desktop search */}
-            <div className="hidden lg:block w-64 xl:w-80">
+            <div className="hidden w-52 lg:block xl:w-80">
               <GlobalSearch />
             </div>
             
@@ -928,6 +938,7 @@ export function Shell({ children }: PropsWithChildren) {
                 <ul className="space-y-2.5">
                   {[
                     ...(preorderAvailable ? [{ label: 'Предзаказ новинок', to: '/preorder' }] : []),
+                    { label: 'Приложения на iPhone', to: '/iphone-apps' },
                     { label: 'Apple iPhone', to: '/catalog?category=smartphones' },
                     { label: 'Apple MacBook', to: '/catalog?category=laptops' },
                     { label: 'Apple iPad', to: '/catalog?category=tablets' },

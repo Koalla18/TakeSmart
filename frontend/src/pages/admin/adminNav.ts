@@ -12,10 +12,10 @@ import type { AdminIconName } from './AdminIcons'
 export type AdminSection =
   | 'overview' | 'orders' | 'analytics'
   | 'products' | 'preorder' | 'categories' | 'fields' | 'quickfilters' | 'brands'
-  | 'banners' | 'tradein' | 'slides' | 'used'
+  | 'banners' | 'tradein' | 'slides' | 'used' | 'installs'
 
 export const ADMIN_SECTIONS: readonly AdminSection[] = [
-  'overview', 'orders', 'analytics', 'products', 'preorder', 'categories', 'fields', 'quickfilters', 'brands', 'banners', 'tradein', 'slides', 'used',
+  'overview', 'orders', 'analytics', 'products', 'preorder', 'categories', 'fields', 'quickfilters', 'brands', 'banners', 'tradein', 'slides', 'used', 'installs',
 ]
 
 export function isAdminSection(value: string | null | undefined): value is AdminSection {
@@ -43,6 +43,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     items: [
       { id: 'orders', label: 'Заказы', icon: 'orders', hint: 'Новые, в работе, отправленные' },
       { id: 'analytics', label: 'Аналитика', icon: 'chart', hint: 'Выручка, визиты, конверсия' },
+      { id: 'installs', label: 'Приложения на iPhone', icon: 'zap', hint: 'Заявки покупателей, станция в павильоне, каталог приложений' },
     ],
   },
   {
@@ -76,6 +77,7 @@ export const ADMIN_SECTION_META: Record<AdminSection, AdminSectionMeta> = {
   overview: { title: 'Обзор', navId: 'overview' },
   orders: { title: 'Заказы', eyebrow: 'Продажи', description: 'Клик по строке открывает заказ: состав, адрес, смена статуса', navId: 'orders' },
   analytics: { title: 'Аналитика', eyebrow: 'Продажи', navId: 'analytics' },
+  installs: { title: 'Приложения на iPhone', eyebrow: 'Продажи', description: 'Установка приложений, которых нет в App Store: заявки с сайта и от прилавка, станция с Mac в павильоне, каталог и цены. Apple ID покупателя вводится только на станции и на сервер не попадает', navId: 'installs' },
   products: { title: 'Товары', eyebrow: 'Каталог', description: 'Карточки товаров, группы вариантов, цены и наличие', navId: 'products' },
   preorder: { title: 'Предзаказ', eyebrow: 'Каталог', description: 'Новинки, которые можно заказать до поступления: добавьте товары, задайте сроки и включите раздел на сайте. Когда товар приедет — одной кнопкой перенесите его в основной каталог', navId: 'preorder' },
   categories: { title: 'Категории', eyebrow: 'Каталог', description: 'Разделы каталога: название, адрес, картинка, порядок и видимость на сайте', navId: 'categories' },

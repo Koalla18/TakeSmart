@@ -20,6 +20,7 @@ const OfferPage = lazy(() => import('./pages/OfferPage').then(m => ({ default: m
 const PersonalDataPage = lazy(() => import('./pages/PersonalDataPage').then(m => ({ default: m.PersonalDataPage })))
 const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage').then(m => ({ default: m.PrivacyPolicyPage })))
 const PreorderPage = lazy(() => import('./pages/PreorderPage').then(m => ({ default: m.PreorderPage })))
+const IphoneAppsPage = lazy(() => import('./pages/IphoneAppsPage').then(m => ({ default: m.IphoneAppsPage })))
 const ProductPage = lazy(() => import('./pages/ProductPage').then(m => ({ default: m.ProductPage })))
 const TradeInPage = lazy(() => import('./pages/TradeInPage').then(m => ({ default: m.TradeInPage })))
 const UsedPage = lazy(() => import('./pages/UsedPage').then(m => ({ default: m.UsedPage })))
@@ -109,6 +110,7 @@ export default function App() {
             <Route path="/" element={<Shell><HomePage /></Shell>} />
             <Route path="/catalog" element={<Shell><CatalogPage /></Shell>} />
             <Route path="/preorder" element={<Shell><PreorderPage /></Shell>} />
+            <Route path="/iphone-apps" element={<Shell><IphoneAppsPage /></Shell>} />
             <Route path="/product/:id" element={<Shell><ProductPage /></Shell>} />
             <Route path="/cart" element={<Shell><CartPage /></Shell>} />
             <Route path="/delivery" element={<Shell><DeliveryPage /></Shell>} />

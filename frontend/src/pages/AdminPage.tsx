@@ -13,6 +13,7 @@ import { ADMIN_NAV, ADMIN_SECTION_META, CATEGORY_SEGMENTS, isAdminSection, type 
 import { CommandPalette, type PaletteItem } from './admin/CommandPalette'
 import { OverviewTab } from './admin/OverviewTab'
 import { PreorderSection } from './admin/PreorderSection'
+import { InstallsSection } from './admin/InstallsSection'
 import { PriceCommandBar } from '../components/PriceCommand'
 import { rankSearch } from '../lib/searchRank'
 
@@ -363,6 +364,18 @@ export function AdminPage() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [priceCommandOpen, setPriceCommandOpen] = useState(false)
   const [preorderAddOpen, setPreorderAddOpen] = useState(false)
+  // Бейдж «новые заявки на установку» в меню: лёгкий опрос сводки раз в 30 с
+  const [installsNew, setInstallsNew] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    const tick = () => authFetch(`${API_BASE_URL}/api/installs/stats`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d) setInstallsNew(Number(d.new_requests) || 0) })
+      .catch(() => {})
+    tick()
+    const id = window.setInterval(tick, 30000)
+    return () => { cancelled = true; window.clearInterval(id) }
+  }, [authFetch])
   // Вид каркаса: «док» внизу или боковое меню — запоминается в браузере
   const [layout, setLayout] = useState<AdminLayoutMode>(readLayoutMode)
   const toggleLayout = () => setLayout(mode => { const next: AdminLayoutMode = mode === 'dock' ? 'sidebar' : 'dock'; storeLayoutMode(next); return next })
@@ -1001,7 +1014,7 @@ export function AdminPage() {
       <AdminShell
         active={meta.navId}
         onNavigate={setActiveTab}
-        counts={{ products: newProductsCount, preorder: preorderCount, categories: categories.length, brands: brands.length, banners: banners.length, tradein: tradeInOffers.length }}
+        counts={{ products: newProductsCount, preorder: preorderCount, installs: installsNew, categories: categories.length, brands: brands.length, banners: banners.length, tradein: tradeInOffers.length }}
         attention={{ orders: pendingOrders.length }}
         title={meta.title}
         eyebrow={meta.eyebrow}
@@ -1249,6 +1262,8 @@ export function AdminPage() {
             setAddOpen={setPreorderAddOpen}
           />
         )}
+
+        {activeTab === 'installs' && <InstallsSection authFetch={authFetch} />}
 
         {/* ============ USED PRODUCTS TAB ============ */}
         {activeTab === 'used' && (
