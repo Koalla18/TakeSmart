@@ -103,14 +103,17 @@ async def admin_delete_station(station_id: UUID) -> Response:
 
 @router.get("/stations/{station_id}/console", response_model=ConsoleOut, dependencies=ADMIN,
             summary="Состояние помощника для консоли раздела")
-async def admin_station_console(station_id: UUID) -> ConsoleOut:
+async def admin_station_console(station_id: UUID, pv: int | None = Query(None, ge=0, description="версия списка покупок, которая уже есть у клиента")) -> ConsoleOut:
     async with UnitOfWork() as uow:
         station = await uow.install_stations.get_by_id(station_id)
     if not station:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Помощник не найден")
     CONSOLE_WATCHERS[str(station_id)] = time.monotonic()
+    version = station.purchases_version or 0
+    # Список покупок бывает на сотни строк — отдаём его только когда он изменился, иначе раздел опрашивается тяжело
+    purchases = None if (pv is not None and pv == version) else (station.purchases or [])
     return ConsoleOut(station=_station_out(station), console=(station.state or {}).get("console") or {},
-                      purchases=station.purchases or [], purchases_version=station.purchases_version or 0,
+                      purchases=purchases, purchases_version=version,
                       pending_commands=len(COMMAND_QUEUE.get(str(station_id), [])))
 
 

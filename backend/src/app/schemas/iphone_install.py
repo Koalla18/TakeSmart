@@ -83,13 +83,13 @@ class HeartbeatIn(BaseModel):
         return clean
 
 
-COMMAND_TYPES = ("login", "code", "resend_code", "reset_login", "logout", "refresh_purchases", "install", "cancel", "settings")
+COMMAND_TYPES = ("login", "code", "resend_code", "reset_login", "logout", "refresh_purchases", "install", "cancel", "dismiss_session", "settings")
 
 
 class StationCommandIn(BaseModel):
     """Команда помощнику из раздела админки. Apple ID покупателя внутри login живёт в памяти сервера
     до ближайшего пульса и никуда не пишется."""
-    type: Literal["login", "code", "resend_code", "reset_login", "logout", "refresh_purchases", "install", "cancel", "settings"]
+    type: Literal["login", "code", "resend_code", "reset_login", "logout", "refresh_purchases", "install", "cancel", "dismiss_session", "settings"]
     payload: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("payload")
@@ -138,7 +138,7 @@ class HeartbeatOut(BaseModel):
 class ConsoleOut(BaseModel):
     station: StationOut
     console: dict[str, Any]
-    purchases: list[dict[str, Any]]
+    purchases: list[dict[str, Any]] | None = None   # None — у клиента уже эта версия списка (см. ?pv=)
     purchases_version: int
     pending_commands: int
 
