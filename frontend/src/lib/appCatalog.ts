@@ -15,15 +15,17 @@ export interface CatalogEntry {
 export const APP_CATALOG: CatalogEntry[] = [
   // Банки и финансы
   { key: 'sbermarket', name: 'Купер', match: /купер|сбермаркет|sbermarket/i },
-  { key: 'sber', name: 'Сбербанк Онлайн', match: /сбер|sber/i, bank: true },
-  { key: 'tbank', name: 'Т-Банк', match: /т-банк|t-bank|tbank|тиньк|tinkoff|idamob/i, bank: true },
-  { key: 'alfa', name: 'Альфа-Банк', match: /альфа|alfa/i, bank: true },
-  { key: 'vtb', name: 'ВТБ Онлайн', match: /втб|vtb/i, bank: true },
+  { key: 'sber', name: 'Сбербанк Онлайн', match: /сбербанк|sberbank|сбер банк|^сбер$|сбер онлайн|сбер:/i, bank: true },
+  { key: 'sber', name: 'Сбер', match: /сбер|sber/i },
+  { key: 'tbank', name: 'Т-Банк', match: /т-банк|t-bank|tbank|idamob\.tinkoff\.ios|^тинькофф$|тинькофф банк|тинькофф:|tinkoff bank/i, bank: true },
+  { key: 'tbank', name: 'Т-Банк', match: /тиньк|tinkoff|\bt-?bank\b/i },
+  { key: 'alfa', name: 'Альфа-Банк', match: /альфа-?банк|альфа банк|альфа-?мобайл|alfa-?bank|alfabank|ru\.alfabank/i, bank: true },
+  { key: 'vtb', name: 'ВТБ Онлайн', match: /втб.?онлайн|vtb.?online|^втб$|ru\.vtb24/i, bank: true },
   { key: 'gazprombank', name: 'Газпромбанк', match: /газпромбанк|gazprombank|\bgpb\b/i, bank: true },
   { key: 'raiffeisen', name: 'Райффайзен Онлайн', match: /райф|raif/i, bank: true },
   { key: 'halva', name: 'Халва', match: /халва|halva/i, bank: true },
   { key: 'sovcombank', name: 'Совкомбанк', match: /совком|sovcom/i, bank: true },
-  { key: 'otkritie', name: 'Открытие', match: /открыти|otkrit|openbank|open\.ru/i, bank: true },
+  { key: 'otkritie', name: 'Открытие', match: /^открытие|банк открытие|открытие банк|otkritie|openbank|open\.ru/i, bank: true },
   { key: 'psb', name: 'ПСБ', match: /\bпсб|psbank|промсвязь|\bpsb\b/i, bank: true },
   { key: 'rosbank', name: 'Росбанк', match: /росбанк|rosbank/i, bank: true },
   { key: 'pochtabank', name: 'Почта Банк', match: /почта.?банк|pochta.?bank/i, bank: true },
@@ -36,13 +38,13 @@ export const APP_CATALOG: CatalogEntry[] = [
   { key: 'akbars', name: 'Ак Барс', match: /ак.?барс|akbars/i, bank: true },
   { key: 'uralsib', name: 'Уралсиб', match: /уралсиб|uralsib/i, bank: true },
   { key: 'mkb', name: 'МКБ', match: /\bмкб\b|\bmkb\b|московский кредитный/i, bank: true },
-  { key: 'zenit', name: 'Банк Зенит', match: /зенит|zenit/i, bank: true },
+  { key: 'zenit', name: 'Банк Зенит', match: /банк зенит|зенит банк|зенит онлайн|zenit.?bank|zenit\.ru/i, bank: true },
   { key: 'rsb', name: 'Русский Стандарт', match: /русский стандарт|rsb\b|russian standard/i, bank: true },
-  { key: 'renaissance', name: 'Ренессанс Банк', match: /ренессанс|renaissance|rencredit/i, bank: true },
-  { key: 'homebank', name: 'Хоум Банк', match: /хоум|home.?bank|home.?credit|хкф/i, bank: true },
+  { key: 'renaissance', name: 'Ренессанс Банк', match: /ренессанс.?(банк|кредит)|renaissance.?(bank|credit)|rencredit/i, bank: true },
+  { key: 'homebank', name: 'Хоум Банк', match: /хоум.?(банк|кредит)|home.?bank|home.?credit|хкф/i, bank: true },
   { key: 'sinara', name: 'Банк Синара', match: /синара|sinara|скб.?банк/i, bank: true },
-  { key: 'tochka', name: 'Точка', match: /точка|tochka/i, bank: true },
-  { key: 'lokobank', name: 'Локо-Банк', match: /локо|locko|loko/i, bank: true },
+  { key: 'tochka', name: 'Точка', match: /^точка\b|точка банк|банк точка|tochka/i, bank: true },
+  { key: 'lokobank', name: 'Локо-Банк', match: /локо-?банк|lockobank|loko-?bank/i, bank: true },
   { key: 'bspb', name: 'Банк Санкт-Петербург', match: /банк санкт-петербург|bspb/i, bank: true },
   { key: 'otp', name: 'ОТП Банк', match: /отп.?банк|otp.?bank|otpbank/i, bank: true },
   { key: 'unicredit', name: 'ЮниКредит', match: /юникредит|unicredit/i, bank: true },
@@ -69,7 +71,7 @@ export const APP_CATALOG: CatalogEntry[] = [
   { key: 'megafon', name: 'МегаФон', match: /мегафон|megafon/i },
   { key: 'beeline', name: 'билайн', match: /билайн|beeline/i },
   { key: 'tele2', name: 't2', match: /tele2|теле2|\bt2\b/i },
-  { key: 'mts', name: 'МТС', match: /\bмтс\b|\bmts\b/i },
+  { key: 'mts', name: 'МТС', match: /мой мтс|\bмтс\b|\bmts\b/i },
   { key: 'dodo', name: 'Додо Пицца', match: /додо|dodo/i },
   { key: 'samokat', name: 'Самокат', match: /самокат|samokat/i },
   { key: 'lamoda', name: 'Lamoda', match: /lamoda|ламода/i },
@@ -110,9 +112,9 @@ export function findCatalogEntry(p: PurchaseLike): CatalogEntry | null {
 
 export function resolveApp(p: PurchaseLike): ResolvedApp {
   const entry = findCatalogEntry(p)
-  const name = entry?.name || p.name || p.bundle_id
+  const name = p.name || entry?.name || p.bundle_id
   const catalogIcon = entry && AVAILABLE_ICONS.has(entry.key) ? `/app-icons/${entry.key}.png` : null
-  const bank = Boolean(entry?.bank) || p.genre === 'Finance' || /банк|bank/i.test(p.name)
+  const bank = Boolean(entry?.bank) || p.genre === 'Finance' || /\bбанк\b|\bbank\b/i.test(p.name)
   let h = 0
   for (const ch of p.bundle_id || name) h = (h * 31 + ch.charCodeAt(0)) >>> 0
   return { name, icon: p.icon || catalogIcon, bank, letter: (name.trim()[0] || '?').toUpperCase(), hue: h % 360 }

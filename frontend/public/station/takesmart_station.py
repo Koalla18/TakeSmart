@@ -39,7 +39,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.3.4"
+VERSION = "0.3.5"
 CONFIG_DIR = Path.home() / "Library" / "Application Support" / "TakeSmart Station"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LOG_PATH = CONFIG_DIR / "station.log"
@@ -308,21 +308,27 @@ class StoreTools:
         self._lookup_cache: dict[str, dict] = {}
 
     def enrich(self, apps: list[dict]) -> None:
-        """Иконка и жанр из iTunes Lookup — только для приложений, которые ещё есть в витрине."""
+        """Иконка и жанр из iTunes Lookup — только для приложений, которые ещё есть в витрине. Батчи параллельно."""
         ids = [str(a["id"]) for a in apps if a.get("id") and str(a["id"]) not in self._lookup_cache]
-        for i in range(0, len(ids), 100):
-            chunk = ids[i:i + 100]
-            _, out, _ = run(["curl", "-sS", "--max-time", "15",
+        chunks = [ids[i:i + 100] for i in range(0, len(ids), 100)]
+
+        def lookup(chunk: list[str]) -> dict[str, dict]:
+            _, out, _ = run(["curl", "-sS", "--max-time", "15", "--compressed",
                              f"https://itunes.apple.com/lookup?id={','.join(chunk)}&country=ru&entity=software"], timeout=20)
             try:
                 results = json.loads(out).get("results") or []
             except (json.JSONDecodeError, AttributeError):
                 results = []
-            found = {str(r.get("trackId")): r for r in results if r.get("trackId")}
-            for tid in chunk:
-                r = found.get(tid) or {}
-                self._lookup_cache[tid] = {"icon": r.get("artworkUrl100"), "genre": r.get("primaryGenreName"),
-                                           "store_name": r.get("trackName")}
+            return {str(r.get("trackId")): r for r in results if r.get("trackId")}
+
+        if chunks:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                for chunk, found in zip(chunks, ex.map(lookup, chunks)):
+                    for tid in chunk:
+                        r = found.get(tid) or {}
+                        self._lookup_cache[tid] = {"icon": r.get("artworkUrl100"), "genre": r.get("primaryGenreName"),
+                                                   "store_name": r.get("trackName")}
         for a in apps:
             meta = self._lookup_cache.get(str(a.get("id") or ""), {})
             a["icon"], a["genre"], a["store_name"] = meta.get("icon"), meta.get("genre"), meta.get("store_name")
@@ -383,26 +389,43 @@ class StoreTools:
                 pass
 
     def purchases(self) -> list[dict]:
-        """Вся история покупок аккаунта для iPhone: [{bundle_id, name, id, version}]."""
+        """Вся история покупок аккаунта: [{bundle_id, name, id, version, purchase_date, icon, genre}].
+        ipatool отдаёт не больше 100 записей за вызов, а каждый вызов заново читает всю историю у Apple —
+        поэтому страницы после первой читаем параллельно."""
         if self.simulate:
-            return [{**p, "icon": None, "genre": "Finance" if "bank" in p["bundle_id"] or "sber" in p["bundle_id"] else None, "store_name": None}
-                    for p in SIM_PURCHASES]
-        result: list[dict] = []
-        seen: set[str] = set()
+            return [{**p, "icon": None, "genre": "Finance" if "bank" in p["bundle_id"] or "sber" in p["bundle_id"] else None,
+                     "store_name": None, "purchase_date": None} for p in SIM_PURCHASES]
         page_size = 100  # ipatool: «max results must not exceed 100»
-        for page in range(1, 200):
+
+        def fetch(page: int) -> tuple[int, dict, list, str, str]:
             # Без --platform: у старых покупок (в том числе удалённых из App Store банков) в истории Apple
             # нет пометки платформы, и фильтр ipatool молча выбрасывал их. Отсеиваем сами только явно чужое.
-            rc, out, err = run(self._base("list-purchases", "-l", str(page_size), "-p", str(page)), timeout=120)
+            rc, out, err = run(self._base("list-purchases", "-l", str(page_size), "-p", str(page)), timeout=180)
             data = last_json(out + err)
             apps = data.get("apps") or []
-            if rc != 0 or not isinstance(apps, list) or not apps:
-                if rc != 0:
-                    log(f"list-purchases (стр. {page}): {error_text(data, out, err)}")
-                break
-            if not self._logged_purchases_shape and apps:
-                self._logged_purchases_shape = True
-                log(f"list-purchases keys: {sorted(apps[0].keys())}")
+            return rc, data, (apps if isinstance(apps, list) else []), out, err
+
+        rc, data, first, out, err = fetch(1)
+        if rc != 0:
+            log(f"list-purchases (стр. 1): {error_text(data, out, err)}")
+            return []
+        if first and not self._logged_purchases_shape:
+            self._logged_purchases_shape = True
+            log(f"list-purchases keys: {sorted(first[0].keys())}")
+        total = int(data.get("totalCount") or len(first))
+        batches = [first]
+        pages = list(range(2, (total + page_size - 1) // page_size + 1)) if len(first) >= page_size else []
+        if pages:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                for prc, pdata, papps, pout, perr in ex.map(fetch, pages):
+                    if prc != 0:
+                        log(f"list-purchases (стр. {pdata.get('page', '?')}): {error_text(pdata, pout, perr)}")
+                        continue
+                    batches.append(papps)
+        result: list[dict] = []
+        seen: set[str] = set()
+        for apps in batches:
             for a in apps:
                 bundle = pick(a, "bundleID", "bundleId", "bundle_id") or ""
                 if not bundle or bundle in seen:
@@ -414,10 +437,8 @@ class StoreTools:
                 result.append({"bundle_id": bundle, "name": pick(a, "name", "trackName") or bundle,
                                "id": pick(a, "id", "trackId"), "version": pick(a, "version"),
                                "purchase_date": pick(a, "purchaseDate", "purchase_date")})
-            total = data.get("totalCount") or 0
-            if len(apps) < page_size or (total and len(result) >= total):
-                break
         result.sort(key=lambda a: str(a.get("purchase_date") or ""), reverse=True)  # свежие покупки первыми
+        log(f"list-purchases: всего {total}, страниц {1 + len(pages)}, для iPhone {len(result)}")
         try:
             self.enrich(result)
         except Exception as exc:  # noqa: BLE001
