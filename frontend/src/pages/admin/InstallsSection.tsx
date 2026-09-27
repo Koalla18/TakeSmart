@@ -322,7 +322,7 @@ function HelperOffline({ stations, onSetup }: { stations: Station[]; onSetup: ()
         {known.length > 0 ? (
           <div className="mt-4 rounded-xl bg-black/30 p-3 text-sm text-slate-300">
             {known.map(s => <div key={s.id}>{s.name}: был на связи {timeAgo(s.last_seen_at)}</div>)}
-            <div className="mt-2 text-xs text-slate-500">Помощник стартует сам при входе в macOS. Если Mac включён, а связи нет — в Терминале: <code className="rounded bg-black/40 px-1.5 py-0.5 text-yellow-100">python3 ~/takesmart_station.py --autostart</code></div>
+            <div className="mt-2 text-xs text-slate-500">Помощник стартует сам при входе в macOS и сам обновляется. Если Mac включён, а связи нет — в Терминале: <code className="rounded bg-black/40 px-1.5 py-0.5 text-yellow-100">python3 ~/takesmart_station.py --autostart</code></div>
           </div>
         ) : (
           <div className="mt-4 rounded-xl bg-black/30 p-3 text-sm text-slate-300">Ни один Mac ещё не подключён. Настройка занимает пару минут — шаги справа.</div>
@@ -357,7 +357,7 @@ function SetupModal({ api, onClose, onCreated }: { api: Api; onClose: () => void
         <div className="space-y-3 text-sm text-slate-300">
           <p>Выполните в Терминале на том Mac, к которому будут подключать iPhone. Команда показывается <b className="text-white">только сейчас</b> — внутри неё ключ этого Mac.</p>
           <div data-setup-command><Cmd text={setupCommand(token)} /></div>
-          <p className="text-xs text-slate-500">Помощник скачается, привяжется к админке и будет запускаться сам при входе в macOS. Обновить его потом — та же команда. Имя Mac появится в списке само.</p>
+          <p className="text-xs text-slate-500">Помощник скачается, привяжется к админке и будет запускаться сам при входе в macOS. Дальше он обновляется сам с сайта. Имя Mac появится в списке само.</p>
           <div className="flex justify-end"><button type="button" onClick={onClose} className={BTN_PRIMARY}>Готово</button></div>
         </div>
       )}

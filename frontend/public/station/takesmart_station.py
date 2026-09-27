@@ -39,12 +39,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.3.6"
+VERSION = "0.3.7"
 CONFIG_DIR = Path.home() / "Library" / "Application Support" / "TakeSmart Station"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LOG_PATH = CONFIG_DIR / "station.log"
 HEARTBEAT_SECONDS = 3.0      # когда админку никто не смотрит
 HEARTBEAT_WATCHED_SECONDS = 1.0  # раздел «Приложения» открыт — команды и состояние ходят быстрее
+UPDATE_CHECK_SECONDS = 6 * 3600   # помощник сам подтягивает новую версию с сайта
 TOOL_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
 
 IPHONE_MODELS = {
@@ -690,6 +691,43 @@ class Station:
         with self.lock:
             self.state.update(kw)
 
+    # ── самообновление ───────────────────────────────────────────────────
+
+    def self_update(self) -> None:
+        """Скачивает свежий файл помощника с сайта админки, проверяет, что он компилируется,
+        подменяет себя и перезапускается. Пока идёт установка — откладывает."""
+        if self.cfg.simulate or not self.cfg.backend_url or self.busy:
+            return
+        url = f"{self.cfg.backend_url.rstrip('/')}/station/takesmart_station.py"
+        code, out, _ = run(["curl", "-fsSL", "--max-time", "40", url], timeout=50)
+        m = re.search(r'^VERSION = "([\d.]+)"', out or "", re.M) if code == 0 else None
+        if not m:
+            return
+        new = m.group(1)
+        if tuple(int(x) for x in new.split(".")) <= tuple(int(x) for x in VERSION.split(".")):
+            return
+        try:
+            compile(out, "takesmart_station.py", "exec")
+        except SyntaxError as exc:
+            log(f"Обновление {new} не прошло проверку: {exc}")
+            return
+        path = Path(__file__).resolve()
+        tmp = path.with_name(path.name + ".new")
+        tmp.write_text(out)
+        os.replace(tmp, path)
+        log(f"Обновление {VERSION} → {new}: перезапуск")
+        self.event(f"Помощник обновился до {new}, перезапуск")
+        os.execv(sys.executable, [sys.executable, str(path), *sys.argv[1:]])
+
+    def update_loop(self) -> None:
+        self.stop.wait(60)
+        while not self.stop.is_set():
+            try:
+                self.self_update()
+            except Exception as exc:  # noqa: BLE001
+                log(f"self-update: {exc}")
+            self.stop.wait(UPDATE_CHECK_SECONDS)
+
     # ── пульс ────────────────────────────────────────────────────────────
 
     def heartbeat_loop(self) -> None:
@@ -1286,6 +1324,7 @@ def main() -> int:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     threading.Thread(target=station.heartbeat_loop, daemon=True).start()
     threading.Thread(target=station.command_worker, daemon=True).start()
+    threading.Thread(target=station.update_loop, daemon=True).start()
     log(f"Станция v{VERSION} запущена. Страница сотрудника: http://127.0.0.1:{cfg.ui_port}  (Ctrl+C — стоп)")
     if not args.no_open:
         try:
