@@ -251,6 +251,40 @@ async def yandex_feed(
     )
 
 
+# ─── Именованные маркетинговые фиды ──────────────────────────────────────────
+# Фиксированный состав по моделям под отдельные кампании: /feed/<имя>.yml.
+# Правила — по названию товара; цены, фото и наличие живые из каталога, как в основном фиде.
+MARKETING_FEEDS: dict[str, tuple[str, list[re.Pattern[str]]]] = {
+    "marketingmainpos": (
+        "Galaxy S25 Ultra, Galaxy S26 Ultra, iPhone 17 Pro / Pro Max, iPhone 18 Pro / Pro Max",
+        [
+            re.compile(r"galaxy\s*s25\s*ultra", re.I),
+            re.compile(r"galaxy\s*s26\s*ultra", re.I),
+            re.compile(r"iphone\s*17\s*pro\b", re.I),  # Pro и Pro Max
+            re.compile(r"iphone\s*18\s*pro\b", re.I),
+        ],
+    ),
+}
+
+
+def _register_marketing_feed(feed_name: str, title: str, rules: list[re.Pattern[str]]) -> None:
+    @router.get(f"/{feed_name}.yml", summary=f"Маркетинговый фид «{feed_name}»: {title}", name=f"feed_{feed_name}")
+    async def marketing_feed() -> Response:
+        async with UnitOfWork() as uow:
+            products = await uow.products.list_for_feed()
+        picked = [p for p in products if any(r.search(p.name or "") for r in rules)]
+        # Порядок: по правилам (как перечислены), внутри — по цене
+        order = {id(p): next(i for i, r in enumerate(rules) if r.search(p.name or "")) for p in picked}
+        picked.sort(key=lambda p: (order[id(p)], p.discount_price if p.discount_price is not None else (p.price or 0)))
+        xml = _build_yml(picked)
+        return Response(content=xml, media_type="application/xml; charset=utf-8",
+                        headers={"Cache-Control": "public, max-age=1800"})
+
+
+for _name, (_title, _rules) in MARKETING_FEEDS.items():
+    _register_marketing_feed(_name, _title, _rules)
+
+
 @router.get("/yandex-preorder.yml", summary="Фид YML только с предзаказами (новинки) для Яндекс.Директа")
 async def yandex_preorder_feed(
     q: str | None = Query(
