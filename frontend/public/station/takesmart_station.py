@@ -39,7 +39,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.3.5"
+VERSION = "0.3.6"
 CONFIG_DIR = Path.home() / "Library" / "Application Support" / "TakeSmart Station"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LOG_PATH = CONFIG_DIR / "station.log"
@@ -246,16 +246,42 @@ class DeviceTools:
             return [it for it in (items or []) if isinstance(it, dict)]
         return []
 
+    @staticmethod
+    def _purchaser(it: dict) -> tuple[str | None, str | None]:
+        """Apple ID (почта) и DSID аккаунта, с которого приложение было скачано из App Store."""
+        meta = it.get("iTunesMetadata")
+        if isinstance(meta, (bytes, bytearray)):
+            try:
+                meta = plistlib.loads(bytes(meta))
+            except Exception:  # noqa: BLE001
+                meta = None
+        email = dsid = None
+        if isinstance(meta, dict):
+            info = meta.get("com.apple.iTunesStore.downloadInfo") or {}
+            acc = info.get("accountInfo") if isinstance(info, dict) else None
+            if isinstance(acc, dict):
+                email = acc.get("AppleID") or None
+                dsid = acc.get("DSPersonID")
+            email = email or meta.get("appleId") or None
+        if dsid is None:
+            dsid = it.get("ApplicationDSID")
+        return (str(email) if email else None), (str(dsid) if dsid not in (None, "", 0) else None)
+
     def installed_apps(self, udid: str) -> dict[str, dict]:
-        """Что уже стоит на телефоне: {bundle_id: {name, version}}."""
+        """Что уже стоит на телефоне: {bundle_id: {name, version, owner (маска почты), dsid}}."""
         if self.simulate:
             return dict(self._sim_installed)
         result: dict[str, dict] = {}
-        for it in self._list_xml(udid, []):
+        for it in self._list_xml(udid, ["-a", "CFBundleIdentifier", "-a", "CFBundleDisplayName", "-a", "CFBundleName",
+                                        "-a", "CFBundleShortVersionString", "-a", "CFBundleVersion",
+                                        "-a", "ApplicationDSID", "-a", "iTunesMetadata"]):
             bundle = it.get("CFBundleIdentifier")
-            if bundle:
-                result[bundle] = {"name": it.get("CFBundleDisplayName") or it.get("CFBundleName") or bundle,
-                                  "version": str(it.get("CFBundleShortVersionString") or it.get("CFBundleVersion") or "")}
+            if not bundle:
+                continue
+            email, dsid = self._purchaser(it)
+            result[bundle] = {"name": it.get("CFBundleDisplayName") or it.get("CFBundleName") or bundle,
+                              "version": str(it.get("CFBundleShortVersionString") or it.get("CFBundleVersion") or ""),
+                              "owner": mask_email(email), "owner_full": email, "dsid": dsid}
         return result
 
     def install(self, udid: str, ipa_path: str, bundle_id: str, name: str, version: str | None) -> tuple[bool, str]:
@@ -445,7 +471,7 @@ class StoreTools:
             log(f"lookup icons: {exc}")
         return result
 
-    def download(self, bundle_id: str | None, app_id: int | None, out_dir: str) -> dict:
+    def download(self, bundle_id: str | None, app_id: int | None, out_dir: str, progress=None) -> dict:
         """→ {status: ok|not_owned|error, path, message}"""
         key = str(app_id) if app_id else bundle_id
         if self.simulate:
@@ -458,11 +484,25 @@ class StoreTools:
                 return {"status": "ok", "path": str(p), "message": "Скачано (эмуляция)"}
             return {"status": "not_owned", "path": None, "message": "Нет в истории покупок этого Apple ID"}
         path = str(Path(out_dir) / f"{key}.ipa")
+        stop = threading.Event()
+        if progress:
+            def watch() -> None:
+                last = -1
+                while not stop.wait(2.0):
+                    try:
+                        size = os.path.getsize(path)
+                    except OSError:
+                        continue
+                    if size != last:
+                        last = size
+                        progress(size)
+            threading.Thread(target=watch, daemon=True).start()
         args = ["download", "-o", path, "--purchase", "--platform", "iphone"]
         # По ID — из истории покупок напрямую; по bundle ipatool сначала ищет приложение в витрине
         # App Store, а удалённых оттуда банков там нет. Поэтому bundle — только когда ID неизвестен.
         args += ["-i", str(app_id)] if app_id else ["-b", bundle_id]
-        rc, out, err = run(self._base(*args), timeout=1200)
+        rc, out, err = run(self._base(*args), timeout=1800)
+        stop.set()
         data = last_json(out + err)
         if rc == 0 and data.get("success") and Path(path).exists():
             return {"status": "ok", "path": path, "message": "Скачано"}
@@ -601,7 +641,7 @@ class Station:
             "session": None, "history": [], "events": [], "auto_logout": cfg.auto_logout,
             "tools_missing": self.devices.missing + self.store.missing,
             "host_name": host_name(), "backend_configured": self.backend.configured, "station_id": None,
-            "ui_port": cfg.ui_port, "purchases_version": 0, "notice": None,
+            "ui_port": cfg.ui_port, "purchases_version": 0, "notice": None, "owners": [],
         }
         self._server_purchases_version: int | None = None
         self.commands: "queue.Queue[dict]" = queue.Queue()
@@ -615,6 +655,25 @@ class Station:
         self._pending_login: tuple[str, str] | None = None
 
     # ── состояние ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _public_installed(installed: dict[str, dict]) -> dict[str, dict]:
+        """В состояние (и в админку) полная почта покупателя не уходит — только маска."""
+        return {b: {k: v for k, v in info.items() if k != "owner_full"} for b, info in installed.items()}
+
+    @staticmethod
+    def _owners_summary(installed: dict[str, dict]) -> list[dict]:
+        """С каких Apple ID скачаны приложения на телефоне: [{owner, dsid, count, apps[:12]}] по убыванию."""
+        groups: dict[str, dict] = {}
+        for info in installed.values():
+            key = info.get("dsid") or info.get("owner") or ""
+            if not key:
+                continue
+            g = groups.setdefault(key, {"owner": info.get("owner"), "dsid": info.get("dsid"), "count": 0, "apps": []})
+            g["count"] += 1
+            if len(g["apps"]) < 12:
+                g["apps"].append(info.get("name"))
+        return sorted(groups.values(), key=lambda g: -g["count"])
 
     def event(self, msg: str) -> None:
         log(msg)
@@ -641,7 +700,8 @@ class Station:
                 if udid != self._last_udid:
                     self._last_udid = udid
                     if udid:
-                        self.set(device=device, installed=self.devices.installed_apps(udid))
+                        installed = self.devices.installed_apps(udid)
+                        self.set(device=device, installed=self._public_installed(installed), owners=self._owners_summary(installed))
                         self.event(f"Подключён {device.get('model')} · iOS {device.get('ios_version')}")
                     else:
                         self.set(installed={})
@@ -671,7 +731,7 @@ class Station:
             "version": VERSION, "busy": self.busy, "device": device, "host_name": snap.get("host_name"),
             "apple": {"logged_in": bool(apple.get("logged_in")), "email": apple.get("email"), "name": apple.get("name"),
                       "purchases_count": len(purchases) if purchases is not None else None},
-            "console": {k: snap.get(k) for k in ("login", "session", "installed", "tools_missing", "auto_logout",
+            "console": {k: snap.get(k) for k in ("login", "session", "installed", "owners", "tools_missing", "auto_logout",
                                                   "simulate", "purchases_loading", "notice", "last_error")},
             "purchases_version": snap.get("purchases_version", 0),
         }
@@ -840,9 +900,18 @@ class Station:
                 if self.cancel_requested:
                     app.update(status="skipped", error="Отменено")
                     continue
-                app.update(status="downloading", error=None)
+                app.update(status="downloading", error=None, progress=None)
                 self.push(job_id, apps, f"{app['name']}: скачиваем из App Store")
-                dl = self.store.download(None if it.get("app_id") else it["bundle_id"], it.get("app_id"), tmp)
+                last_push = [0.0]
+
+                def on_progress(size: int, app=app) -> None:
+                    app["progress"] = f"{size / 1_000_000:.0f} МБ"
+                    if time.time() - last_push[0] > 4:
+                        last_push[0] = time.time()
+                        self.push(job_id, apps, None)
+
+                dl = self.store.download(None if it.get("app_id") else it["bundle_id"], it.get("app_id"), tmp, progress=on_progress)
+                app["progress"] = None
                 if dl["status"] != "ok":
                     app.update(status="not_owned" if dl["status"] == "not_owned" else "failed", error=dl["message"])
                     self.event(f"{app['name']}: {dl['message']}")
@@ -875,7 +944,8 @@ class Station:
             shutil.rmtree(tmp, ignore_errors=True)
             udid = device.get("udid")
             if udid and self.state.get("device") and self.state["device"].get("udid") == udid:
-                self.set(installed=self.devices.installed_apps(udid))
+                installed = self.devices.installed_apps(udid)
+                self.set(installed=self._public_installed(installed), owners=self._owners_summary(installed))
             with self.lock:
                 hist = self.state["history"]
                 hist.insert(0, {"t": session["started"], "device": device.get("model"), "status": session["status"],
@@ -888,7 +958,7 @@ class Station:
             self.set(session={**session, "apps": apps, "finished": True})
             self.busy = False
 
-    def push(self, job_id: str | None, apps: list[dict], line: str) -> None:
+    def push(self, job_id: str | None, apps: list[dict], line: str | None) -> None:
         self.set(session={**self.state["session"], "apps": apps} if self.state.get("session") else None)
         if job_id:
             self.backend.progress(job_id, apps, line)

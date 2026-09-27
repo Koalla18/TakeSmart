@@ -25,13 +25,14 @@ const BREW_CMD = 'brew tap majd/repo && brew install ipatool libimobiledevice id
 
 interface Device { udid: string | null; model: string | null; ios_version: string | null; name: string | null; paired: boolean | null }
 interface Purchase { bundle_id: string; name: string; id: number | null; version: string | null; icon?: string | null; genre?: string | null }
-interface SessionApp { bundle_id: string; name: string; status: string; version: string | null; error: string | null }
+interface SessionApp { bundle_id: string; name: string; status: string; version: string | null; error: string | null; progress?: string | null }
 interface HistoryItem { t: string; device: string | null; status: string; apps: { name: string; status: string; version: string | null }[] }
 interface StationState { device?: Device | null; apple?: { logged_in?: boolean; email?: string | null; name?: string | null; purchases_count?: number | null } | null; busy?: boolean; host_name?: string | null; console?: HelperConsole }
 interface HelperConsole {
   login?: { status: 'idle' | 'working' | 'need_code' | 'ok' | 'error'; message: string | null; pending?: boolean }
   session?: { id: string | null; apps: SessionApp[]; status: string; started: string; finished?: boolean } | null
-  installed?: Record<string, { name: string; version: string }>
+  installed?: Record<string, { name: string; version: string; owner?: string | null; dsid?: string | null }>
+  owners?: { owner: string | null; dsid: string | null; count: number; apps: string[] }[]
   tools_missing?: string[]
   auto_logout?: boolean
   simulate?: boolean
@@ -435,18 +436,18 @@ function Console({ api, station }: { api: Api; station: Station }) {
 
       <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
         <div className="space-y-4">
-          <DeviceCard device={device} installedCount={Object.keys(c.installed || {}).length} />
+          <DeviceCard device={device} installedCount={Object.keys(c.installed || {}).length} owners={c.owners || []} currentEmail={station.state?.apple?.email || null} />
           <AppleIdCard station={station} c={c} purchasesCount={data?.purchases?.length ?? null} send={send} />
         </div>
         <div className="min-w-0">
-          {session ? <InstallProgress session={session} device={device} send={send} /> : loggedIn ? <AppPicker c={c} purchases={data?.purchases || []} phoneReady={phoneReady} send={send} /> : <PickerPlaceholder history={c.history || []} />}
+          {session ? <InstallProgress session={session} device={device} send={send} /> : loggedIn ? <AppPicker c={c} purchases={data?.purchases || []} phoneReady={phoneReady} send={send} currentEmail={station.state?.apple?.email || null} /> : <PickerPlaceholder history={c.history || []} />}
         </div>
       </div>
     </div>
   )
 }
 
-function DeviceCard({ device: d, installedCount }: { device: Device | null; installedCount: number }) {
+function DeviceCard({ device: d, installedCount, owners, currentEmail }: { device: Device | null; installedCount: number; owners: NonNullable<HelperConsole['owners']>; currentEmail: string | null }) {
   return (
     <div className={CARD} data-device-card>
       <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">iPhone</div>
@@ -473,6 +474,20 @@ function DeviceCard({ device: d, installedCount }: { device: Device | null; inst
             <div><div className="text-lg font-semibold text-white">{d.model || 'iPhone'}</div><div className="text-sm text-slate-400">iOS {d.ios_version || '?'}{d.name ? ` · ${d.name}` : ''}</div></div>
           </div>
           <div className="mt-3 text-sm text-slate-400">На телефоне {installedCount} приложений</div>
+          {owners.length > 0 && (
+            <div className="mt-2 space-y-1 text-xs text-slate-400" data-owners>
+              <div className="text-slate-500">Скачаны с Apple ID:</div>
+              {owners.map((o, i) => {
+                const foreign = Boolean(currentEmail && o.owner && o.owner !== currentEmail)
+                return (
+                  <div key={i} className={foreign ? 'text-yellow-200' : ''}>
+                    <span className="font-medium">{o.owner || (o.dsid ? `аккаунт ${o.dsid}` : 'неизвестно')}</span> · {o.count} шт.{foreign ? ' · это другой Apple ID' : currentEmail && o.owner === currentEmail ? ' · тот, что введён' : ''}
+                    {foreign && o.apps.length > 0 && <div className="text-slate-500">{o.apps.slice(0, 6).join(', ')}{o.apps.length > 6 ? '…' : ''}</div>}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </>
       )}
     </div>
@@ -563,7 +578,7 @@ function PickerPlaceholder({ history }: { history: HistoryItem[] }) {
   )
 }
 
-function AppPicker({ c, purchases, phoneReady, send }: { c: HelperConsole; purchases: Purchase[]; phoneReady: boolean; send: (t: CommandType, p?: Record<string, unknown>) => Promise<boolean> }) {
+function AppPicker({ c, purchases, phoneReady, send, currentEmail }: { c: HelperConsole; purchases: Purchase[]; phoneReady: boolean; send: (t: CommandType, p?: Record<string, unknown>) => Promise<boolean>; currentEmail: string | null }) {
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<'all' | 'bank'>('all')
   const [hideInstalled, setHideInstalled] = useState(false)
@@ -574,6 +589,9 @@ function AppPicker({ c, purchases, phoneReady, send }: { c: HelperConsole; purch
   useEffect(() => { if (!starting) return; const t = window.setTimeout(() => setStarting(false), 4000); return () => window.clearTimeout(t) }, [starting])
 
   const items = useMemo(() => purchases.map(p => ({ p, r: resolveApp(p), have: installed[p.bundle_id] })), [purchases, installed])
+  const foreignBanks = useMemo(() => Object.entries(installed)
+    .filter(([bundle, info]) => resolveApp({ name: info.name, bundle_id: bundle }).bank && Boolean(info.owner || info.dsid) && (!currentEmail || info.owner !== currentEmail))
+    .map(([, info]) => info), [installed, currentEmail])
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase()
     return items.filter(({ p, r, have }) => {
@@ -623,7 +641,8 @@ function AppPicker({ c, purchases, phoneReady, send }: { c: HelperConsole; purch
         ) : visible.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-white/10 p-8 text-center text-sm text-slate-500">
             {purchases.length === 0 ? (c.purchases_loading ? 'Читаем историю покупок…' : 'В истории покупок этого Apple ID пусто для iPhone') : filter === 'bank' && !q.trim() ? (
-              <>В истории покупок этого Apple ID банков нет.<br /><span className="text-slate-600">Вернуть банк можно только с того Apple ID, на котором он когда-то стоял: Apple убрала эти приложения из App Store, и взять их больше неоткуда. Спросите покупателя про старый Apple ID.</span></>
+              <>В истории покупок этого Apple ID банков нет.<br /><span className="text-slate-600">Вернуть банк можно только с того Apple ID, на котором он когда-то стоял: Apple убрала эти приложения из App Store, и взять их больше неоткуда. Спросите покупателя про старый Apple ID.</span>
+                {foreignBanks.length > 0 && <div className="mt-2 text-yellow-200">На телефоне уже стоят {foreignBanks.map(b => b.name).join(', ')} — скачаны с другого Apple ID ({foreignBanks[0].owner || 'аккаунт ' + foreignBanks[0].dsid}). Войдите под ним.</div>}</>
             ) : 'Ничего не найдено'}
           </div>
         ) : (
@@ -677,7 +696,7 @@ function InstallProgress({ session: s, device, send }: { session: NonNullable<He
           return (
             <li key={a.bundle_id} data-progress-app={a.bundle_id} data-status={a.status} className="flex items-center gap-3 rounded-xl bg-white/[0.04] px-3 py-2">
               <AppIcon app={r} size={36} />
-              <span className="min-w-0 flex-1"><span className="block truncate text-sm text-white">{r.name}{a.version ? <span className="ml-1 text-xs text-slate-500">{a.version}</span> : null}</span>{a.error ? <span className="block text-xs text-red-300/90">{a.error}</span> : null}</span>
+              <span className="min-w-0 flex-1"><span className="block truncate text-sm text-white">{r.name}{a.version ? <span className="ml-1 text-xs text-slate-500">{a.version}</span> : null}</span>{a.error ? <span className="block text-xs text-red-300/90">{a.error}</span> : a.status === 'downloading' && a.progress ? <span className="block text-xs text-sky-300/80">скачано {a.progress}</span> : null}</span>
               <Badge map={APP_STATUS} value={a.status} />
             </li>
           )
