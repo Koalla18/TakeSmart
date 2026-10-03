@@ -23,13 +23,18 @@ class InstallAppRepository(BaseRepository[InstallApp]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(InstallApp, session)
 
-    async def list_for(self, *, account_id: UUID | None = None, only_active: bool = False) -> Sequence[InstallApp]:
+    async def list_for(self, *, account_id: UUID | None = None, only_active: bool = False,
+                       pool_only: bool = False) -> Sequence[InstallApp]:
         q = select(InstallApp)
-        if account_id is not None:
+        if pool_only:
+            q = q.where(InstallApp.account_id.is_(None))
+        elif account_id is not None:
             q = q.where(InstallApp.account_id == account_id)
         if only_active:
-            q = q.join(InstallAccount, InstallAccount.id == InstallApp.account_id).where(
-                InstallApp.is_active.is_(True), InstallAccount.is_active.is_(True))
+            # Показываем, если приложение включено и его аккаунт тоже включён (у записей пула аккаунта нет)
+            q = q.outerjoin(InstallAccount, InstallAccount.id == InstallApp.account_id).where(
+                InstallApp.is_active.is_(True),
+                (InstallApp.account_id.is_(None)) | (InstallAccount.is_active.is_(True)))
         q = q.order_by(InstallApp.sort, func.lower(func.coalesce(InstallApp.title, InstallApp.name)))
         return (await self.session.execute(q)).scalars().all()
 
@@ -38,17 +43,28 @@ class InstallAppRepository(BaseRepository[InstallApp]):
             return []
         return (await self.session.execute(select(InstallApp).where(InstallApp.id.in_(ids)))).scalars().all()
 
-    async def by_bundle(self, account_id: UUID) -> dict[str, InstallApp]:
-        rows = (await self.session.execute(select(InstallApp).where(InstallApp.account_id == account_id))).scalars().all()
+    async def by_bundle(self, account_id: UUID | None) -> dict[str, InstallApp]:
+        q = select(InstallApp).where(InstallApp.account_id == account_id) if account_id is not None \
+            else select(InstallApp).where(InstallApp.account_id.is_(None))
+        rows = (await self.session.execute(q)).scalars().all()
         return {r.bundle_id: r for r in rows}
 
     async def counts(self) -> dict[UUID, tuple[int, int]]:
-        """account_id → (всего, показывается в каталоге)."""
+        """account_id → (всего, показывается в каталоге). Записи пула (account_id пуст) сюда не попадают."""
         rows = (await self.session.execute(
             select(InstallApp.account_id, func.count(), func.count().filter(InstallApp.is_active.is_(True)))
+            .where(InstallApp.account_id.isnot(None))
             .group_by(InstallApp.account_id)
         )).all()
         return {r[0]: (int(r[1]), int(r[2])) for r in rows}
+
+    async def pool_count(self) -> tuple[int, int]:
+        """Пул: (всего, показывается в каталоге)."""
+        row = (await self.session.execute(
+            select(func.count(), func.count().filter(InstallApp.is_active.is_(True)))
+            .where(InstallApp.account_id.is_(None))
+        )).one()
+        return int(row[0]), int(row[1])
 
     async def set_active(self, ids: list[UUID], is_active: bool) -> int:
         if not ids:

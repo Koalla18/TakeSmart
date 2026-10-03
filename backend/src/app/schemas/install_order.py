@@ -69,7 +69,7 @@ class AccountOut(BaseModel):
 # ── Каталог ──────────────────────────────────────────────────────────────────
 class AppOut(BaseModel):
     id: UUID
-    account_id: UUID
+    account_id: UUID | None
     store_id: int | None
     bundle_id: str
     name: str
@@ -77,6 +77,9 @@ class AppOut(BaseModel):
     icon_url: str | None
     version: str | None
     genre: str | None
+    category: str | None
+    is_bank: bool
+    source: str
     in_store: bool | None
     is_active: bool
     sort: int
@@ -85,19 +88,21 @@ class AppOut(BaseModel):
 
 
 class AppCreate(BaseModel):
-    account_id: UUID
+    account_id: UUID | None = None  # пусто — запись в общий пул
     name: str = Field(..., min_length=1, max_length=200)
     bundle_id: str = Field(..., min_length=3, max_length=200)
     store_id: int | None = Field(None, ge=1)
     icon_url: str | None = Field(None, max_length=500)
     version: str | None = Field(None, max_length=40)
+    category: str | None = Field(None, max_length=40)
+    is_bank: bool = False
 
     @field_validator("name", "bundle_id", mode="before")
     @classmethod
     def _strip(cls, v: Any) -> Any:
         return v.strip() if isinstance(v, str) else v
 
-    @field_validator("icon_url", "version", mode="before")
+    @field_validator("icon_url", "version", "category", mode="before")
     @classmethod
     def _opt(cls, v: Any) -> Any:
         return _clean(v)
@@ -111,9 +116,12 @@ class AppCreate(BaseModel):
 
 
 class AppPatch(BaseModel):
+    bundle_id: str | None = Field(None, min_length=3, max_length=200)  # только у записей общего пула
     title: str | None = Field(None, max_length=120)
     icon_url: str | None = Field(None, max_length=500)
     store_id: int | None = Field(None, ge=1)
+    category: str | None = Field(None, max_length=40)
+    is_bank: bool | None = None
     is_active: bool | None = None
     sort: int | None = Field(None, ge=-10000, le=10000)
 
@@ -164,11 +172,26 @@ class InstallsConfig(BaseModel):
     payment_text: str = Field("", max_length=600)
     support_phone: str = Field("", max_length=40)
     support_telegram: str = Field("", max_length=80)
+    # Только для чтения: задан ли пароль менеджера (сам хэш наружу не отдаётся)
+    staff_code_set: bool = False
+
+
+class StaffCodeIn(BaseModel):
+    code: str = Field(..., min_length=4, max_length=40, description="Пароль менеджера для режима установки")
+
+    @field_validator("code")
+    @classmethod
+    def _code(cls, v: str) -> str:
+        v = v.strip()
+        if len(v) < 4:
+            raise ValueError("Пароль менеджера — минимум 4 символа")
+        return v
 
 
 # ── Заказы ───────────────────────────────────────────────────────────────────
 class OrderCreateIn(BaseModel):
     app_ids: list[UUID] = Field(..., min_length=1, max_length=30)
+    account_id: UUID | None = None  # каким Apple ID салона ставить; пусто — единственный активный
     mode: Literal["staff", "self"] = "staff"
     customer_name: str | None = Field(None, max_length=120)
     customer_phone: str | None = Field(None, max_length=32)
@@ -301,10 +324,13 @@ class PublicCatalogApp(BaseModel):
     icon_url: str | None
     version: str | None
     genre: str | None
+    category: str | None
+    is_bank: bool
 
 
 class PublicCatalogOut(BaseModel):
-    enabled: bool
+    enabled: bool               # витрина (приём заявок с сайта) включена
+    staff_mode: bool            # задан пароль менеджера → доступен режим установки
     price: int
     bulk_price: int
     bulk_min: int
@@ -312,6 +338,17 @@ class PublicCatalogOut(BaseModel):
     support_phone: str
     support_telegram: str
     apps: list[PublicCatalogApp]
+
+
+class PublicStaffCheckIn(BaseModel):
+    code: str = Field(..., min_length=1, max_length=40)
+
+
+class PublicStaffOrderIn(BaseModel):
+    """Менеджер в салоне: выбрал приложения на /apps и ввёл свой пароль, чтобы начать установку."""
+    app_ids: list[UUID] = Field(..., min_length=1, max_length=30)
+    code: str = Field(..., min_length=1, max_length=40)
+    account_id: UUID | None = None
 
 
 class PublicOrderCreatedOut(BaseModel):

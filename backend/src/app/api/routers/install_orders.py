@@ -17,6 +17,7 @@ Apple ID салона. На время установки на телефоне 
 """
 from __future__ import annotations
 
+import re
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
@@ -34,11 +35,13 @@ from src.app.core.push_service import send_push_to_all
 from src.app.database.models.admin import Admin
 from src.app.database.models.install_order import InstallAccount, InstallApp, InstallOrder
 from src.app.database.unit_of_work import UnitOfWork
+from src.app.core.security import get_password_hash, verify_password
 from src.app.schemas.install_order import (
     AccountIn, AccountOut, AccountPatch, AppBulkIn, AppCreate, AppOut, AppPatch, ImportIn, ImportOut,
     InstallsConfig, OrderActionIn, OrderAppPatch, OrderCodeIn, OrderCreateIn, OrderOut, OrderStatsOut,
     PublicAppDoneIn, PublicCatalogApp, PublicCatalogOut, PublicCodeState, PublicFinishIn,
-    PublicOrderCreatedOut, PublicOrderCreateIn, PublicOrderOut, StoreCheckIn, StoreCheckOut,
+    PublicOrderCreatedOut, PublicOrderCreateIn, PublicOrderOut, PublicStaffCheckIn, PublicStaffOrderIn, StaffCodeIn,
+    StoreCheckIn, StoreCheckOut,
 )
 
 logger = get_logger(__name__)
@@ -60,6 +63,12 @@ PUBLIC_CREATE_LIMIT = 5
 ITUNES_LOOKUP_URL = "https://itunes.apple.com/lookup"
 ITUNES_CHUNK = 150
 
+# Подбор пароля менеджера: не больше STAFF_TRY_LIMIT неверных попыток с адреса за окно
+STAFF_TRY_HITS: dict[str, list[float]] = {}
+STAFF_TRY_LIMIT = 8
+STAFF_TRY_WINDOW = 300
+STAFF_HASH_KEY = "staff_code_hash"
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -80,14 +89,40 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-async def _config(uow: UnitOfWork) -> InstallsConfig:
+async def _raw_config(uow: UnitOfWork) -> dict[str, Any]:
     raw = await uow.site_settings.get(CONFIG_KEY)
-    if isinstance(raw, dict):
-        try:
-            return InstallsConfig(**raw)
-        except ValidationError:
-            logger.warning("installs_config_invalid")
-    return InstallsConfig()
+    return raw if isinstance(raw, dict) else {}
+
+
+async def _config(uow: UnitOfWork) -> InstallsConfig:
+    raw = await _raw_config(uow)
+    try:
+        cfg = InstallsConfig(**{k: v for k, v in raw.items() if k != STAFF_HASH_KEY})
+    except ValidationError:
+        logger.warning("installs_config_invalid")
+        cfg = InstallsConfig()
+    cfg.staff_code_set = bool(raw.get(STAFF_HASH_KEY))
+    return cfg
+
+
+def _staff_allowed(ip: str) -> bool:
+    now = time.time()
+    hits = [t for t in STAFF_TRY_HITS.get(ip, []) if now - t < STAFF_TRY_WINDOW]
+    STAFF_TRY_HITS[ip] = hits
+    return len(hits) < STAFF_TRY_LIMIT
+
+
+def _staff_fail(ip: str) -> None:
+    STAFF_TRY_HITS.setdefault(ip, []).append(time.time())
+
+
+async def _verify_staff(uow: UnitOfWork, code: str) -> bool:
+    raw = await _raw_config(uow)
+    h = raw.get(STAFF_HASH_KEY)
+    try:
+        return bool(h) and verify_password(code, h)
+    except Exception:  # noqa: BLE001 — битый хэш не должен ронять запрос
+        return False
 
 
 def _price_for(cfg: InstallsConfig, count: int) -> int:
@@ -148,34 +183,87 @@ def _order_out(order: InstallOrder, cfg: InstallsConfig, accounts: dict[UUID, In
     )
 
 
+BANK_WORDS = ("банк", "bank", "сбер", "втб", "тинькофф", "халва")
+
+
+def _norm_name(name: str | None) -> str:
+    low = (name or "").lower().replace("ё", "е")
+    return " ".join(re.sub(r"[^0-9a-zа-я]+", " ", low).split())
+
+
+def _match_pool_by_name(name: str, pool_by_name: dict[str, InstallApp]) -> InstallApp | None:
+    """Запись пула для покупки, у которой bundle_id не совпал: по точному названию или по началу
+    названия («Сбербанк Онлайн» → «СберБанк Онлайн — с Салютом»). Короткие однословные названия
+    по началу не сравниваем, чтобы «Яндекс» не съел «Яндекс Карты»."""
+    key = _norm_name(name)
+    if not key:
+        return None
+    if key in pool_by_name:
+        return pool_by_name[key]
+    for pkey, row in pool_by_name.items():
+        if (" " in pkey or len(pkey) >= 9) and key.startswith(pkey + " "):
+            return row
+    return None
+
+
+def _guess_bank(name: str, genre: str | None) -> bool:
+    low = (name or "").lower()
+    return (genre or "") == "Finance" or any(w in low for w in BANK_WORDS)
+
+
+def _pool_meta(app: InstallApp, pool: dict[str, InstallApp]) -> tuple[str | None, bool, str | None]:
+    """Группа, пометка «банк» и иконка: у записи аккаунта их может не быть — берём из общего пула."""
+    ref = pool.get(app.bundle_id) if app.account_id is not None else None
+    category = app.category or (ref.category if ref else None)
+    is_bank = app.is_bank or bool(ref and ref.is_bank)
+    icon = app.icon_url or (ref.icon_url if ref else None)
+    return category, is_bank, icon
+
+
 async def _accounts_map(uow: UnitOfWork) -> dict[UUID, InstallAccount]:
     return {a.id: a for a in await uow.install_accounts.list_all()}
 
 
-async def _pick_apps(uow: UnitOfWork, app_ids: list[UUID], *, public: bool) -> tuple[list[InstallApp], InstallAccount]:
-    """Приложения заказа в том порядке, в каком их выбрали, и аккаунт салона, на котором они лежат."""
+async def _resolve_account(uow: UnitOfWork, apps: list[InstallApp], want: UUID | None) -> InstallAccount | None:
+    """Каким Apple ID салона ставить заказ. Пусто — значит аккаунт ещё не настроен."""
+    owned = {a.account_id for a in apps if a.account_id}
+    if len(owned) > 1:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "Выбранные приложения привязаны к разным Apple ID салона. Оформите их отдельными заказами: "
+                            "на телефоне одновременно вводится только один аккаунт.")
+    if want is not None:
+        acc = await uow.install_accounts.get_by_id(want)
+        if not acc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Apple ID салона не найден")
+        return acc
+    if owned:
+        return await uow.install_accounts.get_by_id(next(iter(owned)))
+    # Все приложения из общего пула — берём единственный активный Apple ID салона, если он один
+    actives = [a for a in await uow.install_accounts.list_all() if a.is_active]
+    return actives[0] if len(actives) == 1 else None
+
+
+async def _pick_apps(uow: UnitOfWork, app_ids: list[UUID], *, public: bool,
+                     want_account_id: UUID | None = None) -> tuple[list[InstallApp], InstallAccount | None]:
+    """Приложения заказа в порядке выбора и аккаунт салона для установки (может быть пустым)."""
     ids = list(dict.fromkeys(app_ids))
     rows = {r.id: r for r in await uow.install_apps.get_many(ids)}
     if len(rows) != len(ids):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Приложение не найдено в каталоге — обновите страницу")
     apps = [rows[i] for i in ids]
-    account_ids = {a.account_id for a in apps}
-    if len(account_ids) > 1:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            "Выбранные приложения лежат на разных Apple ID салона. Оформите их отдельными заказами: "
-                            "на телефоне одновременно может быть введён только один аккаунт.")
-    account = await uow.install_accounts.get_by_id(next(iter(account_ids)))
-    if not account:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Аккаунт салона для этих приложений удалён")
-    if public and (not account.is_active or any(not a.is_active for a in apps)):
+    if public and any(not a.is_active for a in apps):
         raise HTTPException(status.HTTP_409_CONFLICT, "Часть приложений больше недоступна — обновите страницу")
+    account = await _resolve_account(uow, apps, want_account_id)
+    if public and account and not account.is_active:
+        account = None
     return apps, account
 
 
-def _order_apps(apps: list[InstallApp]) -> list[dict[str, Any]]:
+def _order_apps(apps: list[InstallApp], pool: dict[str, InstallApp] | None = None) -> list[dict[str, Any]]:
+    pool = pool or {}
     return [{
         "key": uuid4().hex[:10], "app_id": str(a.id), "bundle_id": a.bundle_id, "store_id": a.store_id,
-        "name": a.title or a.name, "icon_url": a.icon_url, "version": a.version, "status": "pending",
+        "name": a.title or a.name, "icon_url": _pool_meta(a, pool)[2], "version": a.version, "status": "pending",
     } for a in apps]
 
 
@@ -263,6 +351,8 @@ async def import_catalog(account_id: UUID, body: ImportIn) -> ImportOut:
                 "station_email": got, "account_email": expected,
             })
         known = await uow.install_apps.by_bundle(account_id)
+        pool = await uow.install_apps.by_bundle(None)
+        pool_by_name = {_norm_name(r.name): r for r in pool.values()}
         created_ids: list[UUID] = []
         updated = 0
         new_rows: list[InstallApp] = []
@@ -276,10 +366,27 @@ async def import_catalog(account_id: UUID, body: ImportIn) -> ImportOut:
             version = str(p.get("version"))[:40] if p.get("version") else None
             genre = str(p.get("genre"))[:80] if p.get("genre") else None
             row = known.get(bundle)
+            ref = pool.get(bundle)  # это приложение уже есть в общем пуле
+            if ref is None:
+                # bundle в пуле был указан неточно — узнаём приложение по названию и исправляем запись пула
+                guess = _match_pool_by_name(name, pool_by_name)
+                if guess is not None and guess.bundle_id not in known and guess.bundle_id != bundle:
+                    pool.pop(guess.bundle_id, None)
+                    guess.bundle_id = bundle
+                    if store_id and not guess.store_id:
+                        guess.store_id = store_id
+                    pool[bundle] = guess
+                    ref = guess
+            is_bank = bool(ref.is_bank) if ref else _guess_bank(name, genre)
+            category = (ref.category if ref else None) or ("Банки" if is_bank else None)
             if row is None:
                 app_id = uuid4()
-                new_rows.append(InstallApp(id=app_id, account_id=account_id, store_id=store_id, bundle_id=bundle, name=name,
-                                           icon_url=icon[:500] if icon else None, version=version, genre=genre))
+                # Совпало с пулом — показываем так же, как в пуле; прочие покупки (игры и т.п.) — скрытыми
+                new_rows.append(InstallApp(
+                    id=app_id, account_id=account_id, store_id=store_id, bundle_id=bundle, name=name,
+                    icon_url=(icon[:500] if icon else (ref.icon_url if ref else None)), version=version, genre=genre,
+                    category=category, is_bank=is_bank, source="import", is_active=bool(ref and ref.is_active),
+                    sort=(ref.sort if ref else 10000)))
                 created_ids.append(app_id)
                 known[bundle] = new_rows[-1]
                 continue
@@ -289,6 +396,15 @@ async def import_catalog(account_id: UUID, body: ImportIn) -> ImportOut:
                 if value is not None and getattr(row, field) != value:
                     setattr(row, field, value)
                     changed = True
+            if row.category is None and category:
+                row.category = category
+                changed = True
+            if is_bank and not row.is_bank:
+                row.is_bank = True
+                changed = True
+            if not row.icon_url and ref and ref.icon_url:
+                row.icon_url = ref.icon_url
+                changed = True
             updated += int(changed)
         if new_rows:
             uow.install_apps.session.add_all(new_rows)
@@ -302,21 +418,25 @@ async def import_catalog(account_id: UUID, body: ImportIn) -> ImportOut:
 # ═════════════════════════════════════════════════════════════════════════════
 
 @router.get("/catalog", response_model=list[AppOut], dependencies=ADMIN, summary="Каталог приложений")
-async def list_catalog(account_id: UUID | None = None, only_active: bool = False) -> list[AppOut]:
+async def list_catalog(account_id: UUID | None = None, only_active: bool = False, pool: bool = False) -> list[AppOut]:
     async with UnitOfWork() as uow:
-        return [AppOut.model_validate(a) for a in await uow.install_apps.list_for(account_id=account_id, only_active=only_active)]
+        rows = await uow.install_apps.list_for(account_id=account_id, only_active=only_active, pool_only=pool)
+        return [AppOut.model_validate(a) for a in rows]
 
 
 @router.post("/catalog", response_model=AppOut, status_code=status.HTTP_201_CREATED, dependencies=ADMIN,
-             summary="Добавить приложение вручную")
+             summary="Добавить приложение (в общий пул или в каталог аккаунта)")
 async def create_app(body: AppCreate) -> AppOut:
     async with UnitOfWork() as uow:
-        if not await uow.install_accounts.get_by_id(body.account_id):
+        if body.account_id is not None and not await uow.install_accounts.get_by_id(body.account_id):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Аккаунт не найден")
         if body.bundle_id in await uow.install_apps.by_bundle(body.account_id):
-            raise HTTPException(status.HTTP_409_CONFLICT, "Это приложение уже есть в каталоге аккаунта")
-        app = await uow.install_apps.create(account_id=body.account_id, name=body.name, bundle_id=body.bundle_id,
-                                            store_id=body.store_id, icon_url=body.icon_url, version=body.version, is_active=True)
+            where = "в каталоге аккаунта" if body.account_id else "в общем пуле"
+            raise HTTPException(status.HTTP_409_CONFLICT, f"Это приложение уже есть {where}")
+        app = await uow.install_apps.create(
+            account_id=body.account_id, name=body.name, bundle_id=body.bundle_id, store_id=body.store_id,
+            icon_url=body.icon_url, version=body.version, category=body.category, is_bank=body.is_bank,
+            source="manual", is_active=True)
         await uow.commit()
         return AppOut.model_validate(app)
 
@@ -378,6 +498,16 @@ async def patch_app(app_id: UUID, body: AppPatch) -> AppOut:
         app = await uow.install_apps.get_by_id(app_id)
         if not app:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Приложение не найдено")
+        if "bundle_id" in data:
+            new_bundle = (data["bundle_id"] or "").strip()
+            if new_bundle == app.bundle_id:
+                data.pop("bundle_id")
+            elif app.account_id is not None:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Bundle ID приложения из истории покупок не меняется")
+            elif new_bundle in await uow.install_apps.by_bundle(None):
+                raise HTTPException(status.HTTP_409_CONFLICT, "Такой bundle ID уже есть в общем пуле")
+            else:
+                data["bundle_id"] = new_bundle
         if data:
             app = await uow.install_apps.update(app_id, **data)
             await uow.commit()
@@ -406,10 +536,40 @@ async def get_settings() -> InstallsConfig:
 @router.put("/settings", response_model=InstallsConfig, dependencies=ADMIN)
 async def put_settings(body: InstallsConfig) -> InstallsConfig:
     async with UnitOfWork() as uow:
-        await uow.site_settings.set(CONFIG_KEY, body.model_dump())
+        raw = await _raw_config(uow)
+        data = body.model_dump(exclude={"staff_code_set"})
+        if raw.get(STAFF_HASH_KEY):  # пароль менеджера хранится отдельно и не стирается при сохранении настроек
+            data[STAFF_HASH_KEY] = raw[STAFF_HASH_KEY]
+        await uow.site_settings.set(CONFIG_KEY, data)
         await uow.commit()
+        cfg = await _config(uow)
     logger.info("installs_config_updated", storefront=body.storefront_enabled, price=body.price)
-    return body
+    return cfg
+
+
+@router.post("/staff-code", response_model=InstallsConfig, dependencies=ADMIN,
+             summary="Задать пароль менеджера для режима установки на /apps")
+async def set_staff_code(body: StaffCodeIn) -> InstallsConfig:
+    async with UnitOfWork() as uow:
+        data = dict(await _raw_config(uow))
+        data[STAFF_HASH_KEY] = get_password_hash(body.code)
+        await uow.site_settings.set(CONFIG_KEY, data)
+        await uow.commit()
+        cfg = await _config(uow)
+    logger.info("installs_staff_code_set")
+    return cfg
+
+
+@router.delete("/staff-code", response_model=InstallsConfig, dependencies=ADMIN,
+               summary="Убрать пароль менеджера (режим установки на /apps выключается)")
+async def clear_staff_code() -> InstallsConfig:
+    async with UnitOfWork() as uow:
+        data = dict(await _raw_config(uow))
+        data.pop(STAFF_HASH_KEY, None)
+        await uow.site_settings.set(CONFIG_KEY, data)
+        await uow.commit()
+        cfg = await _config(uow)
+    return cfg
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -461,17 +621,18 @@ async def orders_stats() -> OrderStatsOut:
 async def create_order(body: OrderCreateIn, admin: Admin = Depends(get_current_admin)) -> OrderOut:
     async with UnitOfWork() as uow:
         cfg = await _config(uow)
-        apps, account = await _pick_apps(uow, body.app_ids, public=False)
+        apps, account = await _pick_apps(uow, body.app_ids, public=False, want_account_id=body.account_id)
         order = await uow.install_orders.create(
-            token=secrets.token_urlsafe(18), account_id=account.id, account_label=account.label, status="ready",
-            mode=body.mode, source="admin", apps=_order_apps(apps),
+            token=secrets.token_urlsafe(18), account_id=(account.id if account else None),
+            account_label=(account.label if account else None), status="ready",
+            mode=body.mode, source="admin", apps=_order_apps(apps, await uow.install_apps.by_bundle(None)),
             price=body.price if body.price is not None else _price_for(cfg, len(apps)),
             customer_name=body.customer_name, customer_phone=body.customer_phone, note=body.note,
             created_by=admin.username, paid_at=_now() if body.paid else None,
             events=_events(None, "admin", f"Заказ оформлен: {len(apps)} прил."),
         )
         await uow.commit()
-        return _order_out(order, cfg, {account.id: account})
+        return _order_out(order, cfg, {account.id: account} if account else {})
 
 
 async def _admin_order(uow: UnitOfWork, order_id: UUID) -> InstallOrder:
@@ -589,16 +750,50 @@ async def delete_order(order_id: UUID) -> Response:
 # Публичная часть: витрина и страница заказа
 # ═════════════════════════════════════════════════════════════════════════════
 
-@router.get("/public/catalog", response_model=PublicCatalogOut, summary="Витрина услуги (если включена)")
+def catalog_winners(apps: list[InstallApp], active_accounts: set[UUID]) -> list[InstallApp]:
+    """Одно приложение — одна запись. Приоритет: запись включённого Apple ID салона → запись общего
+    пула → запись выключенного аккаунта. Видимость решает именно эта запись: если менеджер скрыл
+    приложение у аккаунта, запись пула его обратно не «вытащит»."""
+    def rank(a: InstallApp) -> int:
+        if a.account_id is not None and a.account_id in active_accounts:
+            return 2
+        return 1 if a.account_id is None else 0
+    best: dict[str, InstallApp] = {}
+    for a in apps:
+        cur = best.get(a.bundle_id)
+        if cur is None or rank(a) > rank(cur):
+            best[a.bundle_id] = a
+    return [a for a in best.values()]
+
+
+def catalog_visible(apps: list[InstallApp], active_accounts: set[UUID]) -> list[InstallApp]:
+    out = [a for a in catalog_winners(apps, active_accounts)
+           if a.is_active and (a.account_id is None or a.account_id in active_accounts)]
+    out.sort(key=lambda a: (a.sort, (a.title or a.name).lower()))
+    return out
+
+
+@router.get("/public/catalog", response_model=PublicCatalogOut, summary="Витрина услуги и каталог приложений")
 async def public_catalog() -> PublicCatalogOut:
     async with UnitOfWork() as uow:
         cfg = await _config(uow)
-        apps = await uow.install_apps.list_for(only_active=True) if cfg.storefront_enabled else []
+        # Каталог отдаём, если открыта витрина или задан пароль менеджера (ему он нужен для установки).
+        apps: list[InstallApp] = []
+        pool: dict[str, InstallApp] = {}
+        if cfg.storefront_enabled or cfg.staff_code_set:
+            active = {a.id for a in await uow.install_accounts.list_all() if a.is_active}
+            rows = list(await uow.install_apps.list_for())
+            pool = {a.bundle_id: a for a in rows if a.account_id is None}
+            apps = catalog_visible(rows, active)
+    def _out(a: InstallApp) -> PublicCatalogApp:
+        category, is_bank, icon = _pool_meta(a, pool)
+        return PublicCatalogApp(id=a.id, name=a.title or a.name, bundle_id=a.bundle_id, icon_url=icon,
+                                version=a.version, genre=a.genre, category=category, is_bank=is_bank)
     return PublicCatalogOut(
-        enabled=cfg.storefront_enabled, price=cfg.price, bulk_price=cfg.bulk_price, bulk_min=cfg.bulk_min,
-        window_minutes=cfg.window_minutes, support_phone=cfg.support_phone, support_telegram=cfg.support_telegram,
-        apps=[PublicCatalogApp(id=a.id, name=a.title or a.name, bundle_id=a.bundle_id, icon_url=a.icon_url,
-                               version=a.version, genre=a.genre) for a in apps],
+        enabled=cfg.storefront_enabled, staff_mode=cfg.staff_code_set, price=cfg.price, bulk_price=cfg.bulk_price,
+        bulk_min=cfg.bulk_min, window_minutes=cfg.window_minutes, support_phone=cfg.support_phone,
+        support_telegram=cfg.support_telegram,
+        apps=[_out(a) for a in apps],
     )
 
 
@@ -616,8 +811,9 @@ async def public_create_order(body: PublicOrderCreateIn, request: Request, backg
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Заказ через сайт сейчас не принимается — приходите в салон")
         apps, account = await _pick_apps(uow, body.app_ids, public=True)
         order = await uow.install_orders.create(
-            token=secrets.token_urlsafe(18), account_id=account.id, account_label=account.label, status="new",
-            mode="self", source="site", apps=_order_apps(apps), price=_price_for(cfg, len(apps)),
+            token=secrets.token_urlsafe(18), account_id=(account.id if account else None),
+            account_label=(account.label if account else None), status="new",
+            mode="self", source="site", apps=_order_apps(apps, await uow.install_apps.by_bundle(None)), price=_price_for(cfg, len(apps)),
             customer_name=body.name, customer_phone=body.phone,
             events=_events(None, "customer", f"Заявка с сайта: {len(apps)} прил."),
         )
@@ -629,6 +825,46 @@ async def public_create_order(body: PublicOrderCreateIn, request: Request, backg
             PUBLIC_CREATE_HITS.pop(key, None)
     background.add_task(_push, "Новая заявка: приложения на iPhone",
                         f"№{order.number} · {body.name} · {len(apps)} прил. · {order.price} ₽", order)
+    return PublicOrderCreatedOut(number=order.number, token=order.token)
+
+
+async def _staff_gate(uow: UnitOfWork, code: str, ip: str) -> InstallsConfig:
+    if not _staff_allowed(ip):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Слишком много попыток. Подождите несколько минут.")
+    cfg = await _config(uow)
+    if not cfg.staff_code_set:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Режим сотрудника не настроен")
+    if not await _verify_staff(uow, code.strip()):
+        _staff_fail(ip)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный пароль менеджера")
+    STAFF_TRY_HITS.pop(ip, None)
+    return cfg
+
+
+@router.post("/public/staff/check", status_code=status.HTTP_204_NO_CONTENT,
+             summary="Режим сотрудника: проверить пароль менеджера")
+async def public_staff_check(body: PublicStaffCheckIn, request: Request) -> Response:
+    async with UnitOfWork() as uow:
+        await _staff_gate(uow, body.code, _client_ip(request))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/public/staff/order", response_model=PublicOrderCreatedOut, status_code=status.HTTP_201_CREATED,
+             summary="Режим сотрудника: менеджер ввёл пароль и начинает установку выбранного")
+async def public_staff_order(body: PublicStaffOrderIn, request: Request) -> PublicOrderCreatedOut:
+    async with UnitOfWork() as uow:
+        cfg = await _staff_gate(uow, body.code, _client_ip(request))
+        apps, account = await _pick_apps(uow, body.app_ids, public=True, want_account_id=body.account_id)
+        if account is None and not await uow.install_accounts.list_all():
+            raise HTTPException(status.HTTP_409_CONFLICT, "Сначала добавьте Apple ID салона в админке (раздел «Приложения» → «Каталог»).")
+        order = await uow.install_orders.create(
+            token=secrets.token_urlsafe(18), account_id=(account.id if account else None),
+            account_label=(account.label if account else None), status="ready",
+            mode="staff", source="site", apps=_order_apps(apps, await uow.install_apps.by_bundle(None)), price=_price_for(cfg, len(apps)),
+            created_by="сотрудник (сайт)", paid_at=_now(),
+            events=_events(None, "admin", f"Установка из режима сотрудника: {len(apps)} прил."),
+        )
+        await uow.commit()
     return PublicOrderCreatedOut(number=order.number, token=order.token)
 
 

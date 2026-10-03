@@ -37,13 +37,20 @@ class InstallAccount(Base):
 
 
 class InstallApp(Base):
-    """Приложение из истории покупок аккаунта салона."""
+    """Приложение в каталоге «Приложения на iPhone».
+
+    account_id — Apple ID салона, в истории покупок которого это приложение лежит.
+    Он может быть пустым: тогда это запись ОБЩЕГО ПУЛА (справочный каталог — какие
+    приложения салон предлагает). Пул наполняется вручную и начальным набором; при
+    чтении истории покупок салонного Apple ID совпадающие записи к нему привязываются.
+    """
     __tablename__ = "install_apps"
     __table_args__ = (UniqueConstraint("account_id", "bundle_id", name="uq_install_apps_account_bundle"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("install_accounts.id", ondelete="CASCADE"),
-                                                  nullable=False, index=True)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("install_accounts.id", ondelete="CASCADE"),
+                                                         nullable=True, index=True,
+                                                         comment="Apple ID салона с этим приложением; пусто — запись общего пула")
     store_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, comment="App Store ID (trackId)")
     bundle_id: Mapped[str] = mapped_column(String(200), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False, comment="Название как в истории покупок")
@@ -51,6 +58,9 @@ class InstallApp(Base):
     icon_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     version: Mapped[str | None] = mapped_column(String(40), nullable=True)
     genre: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(40), nullable=True, comment="Группа в каталоге: Банки, Маркетплейсы…")
+    is_bank: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    source: Mapped[str] = mapped_column(String(10), nullable=False, server_default="import", comment="seed | import | manual")
     in_store: Mapped[bool | None] = mapped_column(Boolean, nullable=True, comment="Есть ли сейчас в российском App Store")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), comment="Показывать в каталоге")
     sort: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
