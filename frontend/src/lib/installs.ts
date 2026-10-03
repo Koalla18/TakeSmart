@@ -6,8 +6,8 @@ export type OrderStatus = 'new' | 'ready' | 'active' | 'done' | 'expired' | 'can
 export type OrderMode = 'staff' | 'self'
 
 export interface InstallAccount { id: string; label: string; apple_id: string; note: string | null; is_active: boolean; apps_total: number; apps_active: number; created_at: string }
-export interface CatalogApp { id: string; account_id: string; store_id: number | null; bundle_id: string; name: string; title: string | null; icon_url: string | null; version: string | null; genre: string | null; in_store: boolean | null; is_active: boolean; sort: number }
-export interface InstallsConfig { price: number; bulk_price: number; bulk_min: number; window_minutes: number; code_limit: number; storefront_enabled: boolean; payment_text: string; support_phone: string; support_telegram: string }
+export interface CatalogApp { id: string; account_id: string | null; store_id: number | null; bundle_id: string; name: string; title: string | null; icon_url: string | null; version: string | null; genre: string | null; category: string | null; is_bank: boolean; source: string; in_store: boolean | null; is_active: boolean; sort: number }
+export interface InstallsConfig { price: number; bulk_price: number; bulk_min: number; window_minutes: number; code_limit: number; storefront_enabled: boolean; payment_text: string; support_phone: string; support_telegram: string; staff_code_set: boolean }
 export interface OrderApp { key: string; app_id?: string; bundle_id: string; store_id: number | null; name: string; icon_url: string | null; version: string | null; status: 'pending' | 'installed' }
 export interface OrderEvent { t: string; who: string; msg: string }
 export interface InstallOrder {
@@ -27,13 +27,50 @@ export interface PublicOrder {
   created_at: string; expires_at: string | null; seconds_left: number | null; window_minutes: number
   apple_id: string | null; code: PublicCodeState; payment_text: string; support_phone: string; support_telegram: string; rating: number | null
 }
-export interface PublicCatalogApp { id: string; name: string; bundle_id: string; icon_url: string | null; version: string | null; genre: string | null }
-export interface PublicCatalog { enabled: boolean; price: number; bulk_price: number; bulk_min: number; window_minutes: number; support_phone: string; support_telegram: string; apps: PublicCatalogApp[] }
+export interface PublicCatalogApp { id: string; name: string; bundle_id: string; icon_url: string | null; version: string | null; genre: string | null; category: string | null; is_bank: boolean }
+export interface PublicCatalog { enabled: boolean; staff_mode: boolean; price: number; bulk_price: number; bulk_min: number; window_minutes: number; support_phone: string; support_telegram: string; apps: PublicCatalogApp[] }
+
+/** Порядок групп каталога; остальные группы — после, по алфавиту. */
+export const CATEGORY_ORDER = ['Банки', 'Маркетплейсы', 'Транспорт', 'Сервисы', 'Связь', 'Госуслуги']
+
+export function categoriesOf(apps: { category: string | null }[]): string[] {
+  const present = new Set(apps.map(a => a.category || 'Прочее'))
+  const known = CATEGORY_ORDER.filter(c => present.has(c))
+  const rest = [...present].filter(c => !CATEGORY_ORDER.includes(c)).sort((a, b) => a.localeCompare(b, 'ru'))
+  return [...known, ...rest]
+}
+
+/**
+ * Одно приложение — одна запись (как на сервере). Приоритет: запись включённого Apple ID салона →
+ * запись общего пула → запись выключенного аккаунта. Показывается ли приложение, решает эта запись.
+ */
+export function catalogWinners<T extends { bundle_id: string; account_id: string | null }>(apps: T[], activeAccounts: Set<string>): T[] {
+  const rank = (a: T) => (a.account_id !== null && activeAccounts.has(a.account_id) ? 2 : a.account_id === null ? 1 : 0)
+  const best = new Map<string, T>()
+  for (const a of apps) {
+    const cur = best.get(a.bundle_id)
+    if (!cur || rank(a) > rank(cur)) best.set(a.bundle_id, a)
+  }
+  return apps.filter(a => best.get(a.bundle_id) === a)
+}
+
+/** У записи Apple ID салона может не быть группы и иконки — берём их у такой же записи общего пула. */
+export function withPoolMeta(apps: CatalogApp[]): CatalogApp[] {
+  const pool = new Map(apps.filter(a => a.account_id === null).map(a => [a.bundle_id, a]))
+  return apps.map(a => {
+    const ref = a.account_id !== null ? pool.get(a.bundle_id) : undefined
+    return ref ? { ...a, category: a.category ?? ref.category, is_bank: a.is_bank || ref.is_bank, icon_url: a.icon_url ?? ref.icon_url } : a
+  })
+}
+
+export function catalogVisible<T extends { bundle_id: string; account_id: string | null; is_active: boolean }>(apps: T[], activeAccounts: Set<string>): T[] {
+  return catalogWinners(apps, activeAccounts).filter(a => a.is_active && (a.account_id === null || activeAccounts.has(a.account_id)))
+}
 
 /** Настройки по умолчанию — как на сервере, пока их ни разу не сохраняли. */
 export const DEFAULT_INSTALLS_CONFIG: InstallsConfig = {
   price: 350, bulk_price: 300, bulk_min: 3, window_minutes: 60, code_limit: 3,
-  storefront_enabled: false, payment_text: '', support_phone: '', support_telegram: '',
+  storefront_enabled: false, payment_text: '', support_phone: '', support_telegram: '', staff_code_set: false,
 }
 
 export const ORDER_STATUS: Record<OrderStatus, { label: string; dark: string; light: string }> = {
@@ -98,6 +135,18 @@ export const publicInstalls = {
   catalog: () => publicRequest<PublicCatalog>('/catalog'),
   createOrder: (body: { app_ids: string[]; name: string; phone: string; consent: boolean }) =>
     publicRequest<{ number: number; token: string }>('/orders', { method: 'POST', body: JSON.stringify(body) }),
+  staffCheck: async (code: string): Promise<void> => {
+    const res = await fetch(`${API_BASE_URL}/api/installs/public/staff/check`, {
+      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ code }),
+    })
+    if (!res.ok) {
+      const err = new Error(res.status === 401 ? 'Неверный пароль менеджера' : await errorText(res)) as Error & { status?: number }
+      err.status = res.status
+      throw err
+    }
+  },
+  staffOrder: (body: { app_ids: string[]; code: string }) =>
+    publicRequest<{ number: number; token: string }>('/staff/order', { method: 'POST', body: JSON.stringify(body) }),
   order: (token: string) => publicRequest<PublicOrder>(`/orders/${encodeURIComponent(token)}`),
   start: (token: string) => publicRequest<PublicOrder>(`/orders/${encodeURIComponent(token)}/start`, { method: 'POST' }),
   requestCode: (token: string) => publicRequest<PublicOrder>(`/orders/${encodeURIComponent(token)}/code`, { method: 'POST' }),

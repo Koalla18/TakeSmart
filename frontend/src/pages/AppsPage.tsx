@@ -4,21 +4,39 @@ import { Container } from '../components/ui/Layout'
 import { resolveApp } from '../lib/appCatalog'
 import { orderPrice, publicInstalls, rub, type PublicCatalog, type PublicCatalogApp } from '../lib/installs'
 
-// Витрина услуги «Приложения на iPhone»: /apps. Заявки принимаются, только если это
-// включено в админке; иначе страница рассказывает об услуге и зовёт в салон.
+// Витрина услуги «Приложения на iPhone»: /apps.
+// Обычный посетитель выбирает приложения и оставляет заявку (если приём с сайта включён).
+// Менеджер открывает «Режим сотрудника» своим паролем — тогда то же самое можно поставить
+// сразу (кнопка «Установить»). Пароль знает только менеджер, у обычного пользователя его нет.
 
-function Tile({ app, size = 52 }: { app: PublicCatalogApp; size?: number }) {
+const CATEGORY_ORDER = ['Банки', 'Маркетплейсы', 'Транспорт', 'Сервисы', 'Связь', 'Госуслуги']
+const STAFF_KEY = 'ts-apps-staff'
+
+function Tile({ app, selected, onToggle }: { app: PublicCatalogApp; selected: boolean; onToggle: () => void }) {
   const r = resolveApp({ name: app.name, bundle_id: app.bundle_id, icon: app.icon_url, genre: app.genre })
   const [broken, setBroken] = useState(false)
-  const style = { width: size, height: size, borderRadius: Math.round(size * 0.24) }
-  if (r.icon && !broken) return <img src={r.icon} alt="" width={size} height={size} loading="lazy" style={style} className="shrink-0 bg-gray-100 object-cover" onError={() => setBroken(true)} />
-  return <span aria-hidden="true" style={{ ...style, background: `hsl(${r.hue} 45% 40%)`, fontSize: Math.round(size * 0.42) }} className="flex shrink-0 items-center justify-center font-bold text-white">{r.letter}</span>
+  const size = 48
+  const style = { width: size, height: size, borderRadius: 12 }
+  const icon = r.icon && !broken
+    ? <img src={r.icon} alt="" width={size} height={size} loading="lazy" style={style} className="shrink-0 bg-gray-100 object-cover" onError={() => setBroken(true)} />
+    : <span aria-hidden="true" style={{ ...style, background: `hsl(${r.hue} 45% 42%)`, fontSize: 20 }} className="flex shrink-0 items-center justify-center font-bold text-white">{r.letter}</span>
+  return (
+    <button type="button" onClick={onToggle} aria-pressed={selected} data-app-tile={app.bundle_id}
+      className={`flex items-center gap-3 rounded-2xl border p-3 text-left transition ${selected ? 'border-yellow-400 bg-yellow-50 ring-1 ring-yellow-400' : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'}`}>
+      {icon}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-semibold text-gray-900">{app.name}</span>
+        <span className="block truncate text-xs text-gray-500">{app.version ? `версия ${app.version}` : (app.category || 'Приложение')}</span>
+      </span>
+      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-sm ${selected ? 'border-yellow-400 bg-yellow-400 text-gray-900' : 'border-gray-300 text-transparent'}`}>✓</span>
+    </button>
+  )
 }
 
 const STEPS = [
   ['Выбираете приложения', 'Банки, маркетплейсы и сервисы, которых больше нет в App Store.'],
   ['Входите в аккаунт TakeSmart', 'Только в разделе «Контент и покупки». Из iCloud выходить не нужно.'],
-  ['Скачиваете из App Store', 'Приложения берутся из списка покупок нашего аккаунта — это обычная загрузка App Store.'],
+  ['Скачиваете из App Store', 'Приложения берутся из списка покупок нашего аккаунта — это обычная загрузка.'],
   ['Возвращаете свой аккаунт', 'Приложения остаются на телефоне и работают.'],
 ] as const
 
@@ -35,11 +53,16 @@ export function AppsPage() {
   const [failed, setFailed] = useState(false)
   const [picked, setPicked] = useState<string[]>([])
   const [q, setQ] = useState('')
+  const [cat, setCat] = useState<string>('Все')
+  // Заявка (обычный посетитель)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [consent, setConsent] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Режим сотрудника
+  const [staffCode, setStaffCode] = useState<string | null>(() => { try { return sessionStorage.getItem(STAFF_KEY) } catch { return null } })
+  const [askStaff, setAskStaff] = useState(false)
 
   useEffect(() => {
     const prev = document.title
@@ -49,19 +72,43 @@ export function AppsPage() {
   }, [])
 
   const apps = useMemo(() => catalog?.apps || [], [catalog])
-  const visible = useMemo(() => {
+  const categories = useMemo(() => {
+    const present = new Set(apps.map(a => a.category || 'Прочее'))
+    return CATEGORY_ORDER.filter(c => present.has(c)).concat([...present].filter(c => !CATEGORY_ORDER.includes(c)))
+  }, [apps])
+  const counts = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const a of apps) m[a.category || 'Прочее'] = (m[a.category || 'Прочее'] || 0) + 1
+    return m
+  }, [apps])
+  const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    return needle ? apps.filter(a => `${a.name} ${a.bundle_id}`.toLowerCase().includes(needle)) : apps
-  }, [apps, q])
+    return apps.filter(a => {
+      if (needle && !`${a.name} ${a.bundle_id}`.toLowerCase().includes(needle)) return false
+      if (cat !== 'Все' && (a.category || 'Прочее') !== cat) return false
+      return true
+    })
+  }, [apps, q, cat])
+  // При «Все» без поиска — группируем по категориям; иначе плоский список
+  const grouped = useMemo(() => {
+    if (cat !== 'Все' || q.trim()) return null
+    return categories.map(c => ({ cat: c, items: filtered.filter(a => (a.category || 'Прочее') === c) })).filter(g => g.items.length)
+  }, [categories, filtered, cat, q])
+
   const chosen = picked.map(id => apps.find(a => a.id === id)).filter((a): a is PublicCatalogApp => Boolean(a))
   const total = catalog ? orderPrice(catalog, chosen.length) : 0
   const toggle = (id: string) => setPicked(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
   const digits = phone.replace(/\D/g, '')
-  const canSend = chosen.length > 0 && name.trim().length >= 2 && digits.length >= 10 && consent && !sending
+  const staffMode = Boolean(staffCode)
 
-  const submit = async (e: React.FormEvent) => {
+  const setStaff = (code: string | null) => {
+    setStaffCode(code)
+    try { if (code) sessionStorage.setItem(STAFF_KEY, code); else sessionStorage.removeItem(STAFF_KEY) } catch { /* приватный режим */ }
+  }
+
+  const submitRequest = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!canSend) return
+    if (!chosen.length || name.trim().length < 2 || digits.length < 10 || !consent || sending) return
     setSending(true); setError(null)
     try {
       const res = await publicInstalls.createOrder({ app_ids: chosen.map(a => a.id), name: name.trim(), phone, consent })
@@ -71,17 +118,36 @@ export function AppsPage() {
       setSending(false)
     }
   }
+  const staffInstall = async () => {
+    if (!chosen.length || !staffCode || sending) return
+    setSending(true); setError(null)
+    try {
+      const res = await publicInstalls.staffOrder({ app_ids: chosen.map(a => a.id), code: staffCode })
+      navigate(`/i/${res.token}`)
+    } catch (err) {
+      const status = (err as { status?: number }).status
+      if (status === 401) { setStaff(null); setAskStaff(true); setError('Неверный пароль менеджера.') }
+      else setError(err instanceof Error ? err.message : 'Не получилось начать установку.')
+      setSending(false)
+    }
+  }
 
   const tg = (catalog?.support_telegram || '').trim().replace(/^@/, '').replace(/^https?:\/\/t\.me\//, '')
   const supportPhone = (catalog?.support_phone || '').trim()
-  const enabled = Boolean(catalog?.enabled) && apps.length > 0
+  const canOrder = Boolean(catalog?.enabled)
+  const hasCatalog = apps.length > 0
+  const canUseStaff = Boolean(catalog?.staff_mode)
+  // Показ каталога выключен в админке — обычный посетитель видит только «приходите в салон»,
+  // менеджер — каталог после ввода пароля
+  const showCatalog = hasCatalog && (canOrder || staffMode)
 
   return (
-    <div className="bg-white" data-apps-page data-enabled={catalog ? (enabled ? '1' : '0') : undefined}>
-      <section className="bg-gray-900 text-white">
-        <Container size="md" className="py-12 sm:py-16">
+    <div className="bg-white" data-apps-page data-enabled={catalog ? (canOrder ? '1' : '0') : undefined} data-staff={staffMode ? '1' : '0'}>
+      <section className="relative overflow-hidden bg-gray-900 text-white">
+        <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-yellow-400/20 blur-3xl" />
+        <Container size="md" className="relative py-12 sm:py-16">
           <p className="text-sm font-semibold uppercase tracking-wider text-yellow-400">Услуга TakeSmart</p>
-          <h1 className="mt-2 max-w-3xl text-3xl font-bold leading-tight sm:text-5xl">Вернём на iPhone приложения, которых нет в App Store</h1>
+          <h1 className="mt-2 max-w-3xl text-3xl font-bold leading-tight sm:text-5xl">Приложения, которых нет в App Store — обратно на ваш iPhone</h1>
           <p className="mt-4 max-w-2xl text-lg text-gray-300">Банки, маркетплейсы и сервисы, пропавшие из магазина. Ставятся из App Store — без компьютера и без изменений в системе телефона.</p>
           {catalog && (
             <p className="mt-6 inline-flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-2xl bg-white/10 px-5 py-3">
@@ -89,57 +155,67 @@ export function AppsPage() {
               {catalog.bulk_price < catalog.price && <span className="text-gray-400">· от {catalog.bulk_min} шт. — по {rub(catalog.bulk_price)}</span>}
             </p>
           )}
+          {staffMode && (
+            <div className="mt-4 inline-flex items-center gap-3 rounded-xl bg-yellow-400/15 px-4 py-2 text-sm text-yellow-100" data-staff-banner>
+              Режим сотрудника включён — можно ставить приложения сразу.
+              <button type="button" onClick={() => setStaff(null)} className="underline decoration-dotted hover:text-white">выйти</button>
+            </div>
+          )}
         </Container>
       </section>
 
       <Container size="md" className="py-10">
-        {!catalog && !failed && <div className="grid gap-3 sm:grid-cols-3">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-20 animate-pulse rounded-2xl bg-gray-100" />)}</div>}
+        {!catalog && !failed && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{Array.from({ length: 9 }).map((_, i) => <div key={i} className="h-20 animate-pulse rounded-2xl bg-gray-100" />)}</div>}
 
-        {catalog && enabled && (
-          <form onSubmit={submit} className="grid gap-8 lg:grid-cols-[1fr_340px]" data-apps-form>
+        {catalog && showCatalog && (
+          <div className="grid gap-8 lg:grid-cols-[1fr_340px]">
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-3">
-                <h2 className="text-2xl font-bold text-gray-900">Выберите приложения</h2>
-                {apps.length > 8 && <input value={q} onChange={e => setQ(e.target.value)} type="search" placeholder="Поиск" className="ml-auto w-full rounded-xl border border-gray-200 px-4 py-2.5 text-[15px] focus:border-yellow-400 focus:outline-none sm:w-56" />}
-              </div>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                {visible.map(a => {
-                  const on = picked.includes(a.id)
-                  return (
-                    <button key={a.id} type="button" onClick={() => toggle(a.id)} aria-pressed={on} data-app-tile={a.bundle_id}
-                      className={`flex items-center gap-3 rounded-2xl border p-3 text-left transition ${on ? 'border-yellow-400 bg-yellow-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                      <Tile app={a} />
-                      <span className="min-w-0 flex-1"><span className="block truncate font-semibold text-gray-900">{a.name}</span>{a.version ? <span className="block text-xs text-gray-500">версия {a.version}</span> : null}</span>
-                      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-sm ${on ? 'border-yellow-400 bg-yellow-400 text-gray-900' : 'border-gray-300 text-transparent'}`}>✓</span>
+              <div className="sticky top-16 z-10 -mx-4 bg-white/95 px-4 py-3 backdrop-blur sm:top-20">
+                <input value={q} onChange={e => setQ(e.target.value)} type="search" placeholder="Поиск: Сбер, ВТБ, Госуслуги…" className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-[15px] focus:border-yellow-400 focus:outline-none" data-apps-search />
+                <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+                  {['Все', ...categories].map(c => (
+                    <button key={c} type="button" onClick={() => setCat(c)} data-cat={c}
+                      className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition ${cat === c ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                      {c}{c !== 'Все' && <span className="ml-1.5 text-xs opacity-60">{counts[c]}</span>}
                     </button>
-                  )
-                })}
+                  ))}
+                </div>
               </div>
-              {visible.length === 0 && <p className="mt-4 text-gray-500">Ничего не найдено.</p>}
+
+              {filtered.length === 0 ? (
+                <p className="mt-6 text-gray-500">Ничего не найдено.</p>
+              ) : grouped ? (
+                <div className="mt-4 space-y-7">
+                  {grouped.map(g => (
+                    <section key={g.cat} data-cat-section={g.cat}>
+                      <h2 className="mb-3 text-lg font-bold text-gray-900">{g.cat} <span className="text-sm font-normal text-gray-400">{g.items.length}</span></h2>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {g.items.map(a => <Tile key={a.id} app={a} selected={picked.includes(a.id)} onToggle={() => toggle(a.id)} />)}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  {filtered.map(a => <Tile key={a.id} app={a} selected={picked.includes(a.id)} onToggle={() => toggle(a.id)} />)}
+                </div>
+              )}
             </div>
 
-            <div className="h-fit rounded-3xl border border-gray-200 p-5 lg:sticky lg:top-24">
-              <h3 className="text-lg font-bold text-gray-900">Заявка</h3>
-              {chosen.length === 0 ? <p className="mt-2 text-sm text-gray-500">Отметьте приложения — посчитаем стоимость.</p> : (
-                <ul className="mt-3 space-y-2">
-                  {chosen.map(a => <li key={a.id} className="flex items-center gap-2.5 text-sm"><Tile app={a} size={28} /><span className="min-w-0 flex-1 truncate text-gray-900">{a.name}</span></li>)}
-                </ul>
-              )}
-              <div className="mt-3 flex items-baseline justify-between border-t border-gray-100 pt-3"><span className="text-gray-500">Итого</span><span className="text-2xl font-bold text-gray-900" data-apps-total>{rub(total)}</span></div>
-              <input value={name} onChange={e => setName(e.target.value)} required minLength={2} maxLength={80} autoComplete="name" placeholder="Ваше имя" className="mt-4 w-full rounded-xl border border-gray-200 px-4 py-3 text-[15px] focus:border-yellow-400 focus:outline-none" data-apps-name />
-              <input value={phone} onChange={e => setPhone(e.target.value)} required type="tel" autoComplete="tel" placeholder="+7 900 000-00-00" className="mt-2 w-full rounded-xl border border-gray-200 px-4 py-3 text-[15px] focus:border-yellow-400 focus:outline-none" data-apps-phone />
-              <label className="mt-3 flex items-start gap-2.5 text-sm text-gray-600">
-                <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-yellow-400" data-apps-consent />
-                <span>Согласен на <Link to="/personal-data" className="underline">обработку персональных данных</Link></span>
-              </label>
-              {error && <p role="alert" className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-              <button type="submit" disabled={!canSend} className="mt-4 w-full rounded-2xl bg-yellow-400 px-5 py-3.5 text-base font-semibold text-gray-900 transition hover:bg-yellow-300 disabled:opacity-50" data-apps-submit>{sending ? 'Отправляем…' : 'Оставить заявку'}</button>
-              <p className="mt-2 text-xs text-gray-500">Менеджер свяжется с вами, подтвердит оплату и поможет с установкой.</p>
+            {/* Панель заказа: справа на компьютере, под каталогом на телефоне */}
+            <div id="order" className="scroll-mt-24">
+              <div className="rounded-3xl border border-gray-200 p-5 lg:sticky lg:top-24">
+                <SummaryBody
+                  chosen={chosen} total={total} canOrder={canOrder} staffMode={staffMode} sending={sending} error={error}
+                  name={name} setName={setName} phone={phone} setPhone={setPhone} consent={consent} setConsent={setConsent}
+                  onToggle={toggle} onRequest={submitRequest} onStaffInstall={staffInstall}
+                  canRequest={chosen.length > 0 && name.trim().length >= 2 && digits.length >= 10 && consent} />
+              </div>
             </div>
-          </form>
+          </div>
         )}
 
-        {((catalog && !enabled) || failed) && (
+        {((catalog && !showCatalog) || failed) && (
           <div className="rounded-3xl border border-gray-200 p-6 sm:p-8" data-apps-offline>
             <h2 className="text-2xl font-bold text-gray-900">Приходите в салон TakeSmart</h2>
             <p className="mt-2 max-w-2xl text-gray-600">Сотрудник поставит приложения на ваш iPhone за 10–15 минут. С собой — только телефон.</p>
@@ -152,7 +228,7 @@ export function AppsPage() {
           </div>
         )}
 
-        <h2 className="mt-12 text-2xl font-bold text-gray-900">Как это работает</h2>
+        <h2 className="mt-14 text-2xl font-bold text-gray-900">Как это работает</h2>
         <ol className="mt-4 grid gap-3 sm:grid-cols-2">
           {STEPS.map(([title, text], i) => (
             <li key={title} className="flex gap-4 rounded-2xl bg-gray-50 p-5">
@@ -171,7 +247,115 @@ export function AppsPage() {
             </details>
           ))}
         </div>
+
+        {canUseStaff && !staffMode && (
+          <div className="mt-10 text-center">
+            <button type="button" onClick={() => setAskStaff(true)} data-staff-open className="text-sm text-gray-400 underline decoration-dotted hover:text-gray-700">Я сотрудник TakeSmart</button>
+          </div>
+        )}
       </Container>
+
+      {/* Нижняя панель на телефоне */}
+      {catalog && showCatalog && chosen.length > 0 && (
+        <div className="sticky bottom-0 z-20 border-t border-gray-200 bg-white/95 p-3 backdrop-blur lg:hidden" data-apps-bar>
+          {/* справа место под круглую кнопку Telegram сайта — иначе она закрывает «Установить» */}
+          <div className="mx-auto flex max-w-md items-center gap-3 pr-16">
+            <div className="min-w-0 flex-1"><div className="text-xs text-gray-500">{chosen.length} выбрано</div><div className="text-lg font-bold text-gray-900">{rub(total)}</div></div>
+            {staffMode
+              ? <button type="button" onClick={staffInstall} disabled={sending} className="rounded-2xl bg-gray-900 px-5 py-3 font-semibold text-white disabled:opacity-50" data-mobile-install>{sending ? '…' : 'Установить'}</button>
+              : canOrder
+                ? <a href="#order" className="rounded-2xl bg-yellow-400 px-5 py-3 font-semibold text-gray-900">Оформить</a>
+                : <button type="button" onClick={() => setAskStaff(true)} className="rounded-2xl bg-gray-100 px-5 py-3 font-semibold text-gray-900">Я сотрудник</button>}
+          </div>
+        </div>
+      )}
+
+      {askStaff && <StaffModal onClose={() => setAskStaff(false)} onSubmit={code => { setStaff(code); setAskStaff(false); setError(null) }} />}
+    </div>
+  )
+}
+
+function SummaryBody({ chosen, total, canOrder, staffMode, sending, error, name, setName, phone, setPhone, consent, setConsent, onToggle, onRequest, onStaffInstall, canRequest }: {
+  chosen: PublicCatalogApp[]; total: number; canOrder: boolean; staffMode: boolean; sending: boolean; error: string | null
+  name: string; setName: (v: string) => void; phone: string; setPhone: (v: string) => void; consent: boolean; setConsent: (v: boolean) => void
+  onToggle: (id: string) => void; onRequest: (e: React.FormEvent) => void; onStaffInstall: () => void; canRequest: boolean
+}) {
+  return (
+    <div>
+      <h3 className="text-lg font-bold text-gray-900">{staffMode ? 'Установка' : 'Заявка'}</h3>
+      {chosen.length === 0 ? <p className="mt-2 text-sm text-gray-500">Отметьте приложения слева — посчитаем стоимость.</p> : (
+        <ul className="mt-3 space-y-2">
+          {chosen.map(a => {
+            const r = resolveApp({ name: a.name, bundle_id: a.bundle_id, icon: a.icon_url })
+            return (
+              <li key={a.id} className="flex items-center gap-2.5 text-sm">
+                {r.icon ? <img src={r.icon} alt="" width={26} height={26} className="rounded-md bg-gray-100 object-cover" /> : <span style={{ background: `hsl(${r.hue} 45% 42%)` }} className="flex h-[26px] w-[26px] items-center justify-center rounded-md text-xs font-bold text-white">{r.letter}</span>}
+                <span className="min-w-0 flex-1 truncate text-gray-900">{a.name}</span>
+                <button type="button" onClick={() => onToggle(a.id)} aria-label={`Убрать ${a.name}`} className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700">✕</button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      <div className="mt-3 flex items-baseline justify-between border-t border-gray-100 pt-3"><span className="text-gray-500">Итого</span><span className="text-2xl font-bold text-gray-900" data-apps-total>{rub(total)}</span></div>
+
+      {staffMode ? (
+        <>
+          <button type="button" onClick={onStaffInstall} disabled={!chosen.length || sending} className="mt-4 w-full rounded-2xl bg-gray-900 px-5 py-3.5 text-base font-semibold text-white transition hover:bg-gray-800 disabled:opacity-50" data-staff-install>
+            {sending ? 'Начинаем…' : chosen.length ? `Установить ${chosen.length}` : 'Выберите приложения'}
+          </button>
+          <p className="mt-2 text-xs text-gray-500">Откроется страница установки: вход в аккаунт TakeSmart и шаги по скачиванию.</p>
+        </>
+      ) : canOrder ? (
+        <form onSubmit={onRequest} className="mt-3">
+          <input value={name} onChange={e => setName(e.target.value)} required minLength={2} maxLength={80} autoComplete="name" placeholder="Ваше имя" className="w-full rounded-xl border border-gray-200 px-4 py-3 text-[15px] focus:border-yellow-400 focus:outline-none" data-apps-name />
+          <input value={phone} onChange={e => setPhone(e.target.value)} required type="tel" autoComplete="tel" placeholder="+7 900 000-00-00" className="mt-2 w-full rounded-xl border border-gray-200 px-4 py-3 text-[15px] focus:border-yellow-400 focus:outline-none" data-apps-phone />
+          <label className="mt-3 flex items-start gap-2.5 text-sm text-gray-600">
+            <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-yellow-400" data-apps-consent />
+            <span>Согласен на <Link to="/personal-data" className="underline">обработку персональных данных</Link></span>
+          </label>
+          <button type="submit" disabled={!canRequest || sending} className="mt-4 w-full rounded-2xl bg-yellow-400 px-5 py-3.5 text-base font-semibold text-gray-900 transition hover:bg-yellow-300 disabled:opacity-50" data-apps-submit>{sending ? 'Отправляем…' : 'Оставить заявку'}</button>
+          <p className="mt-2 text-xs text-gray-500">Менеджер свяжется с вами, подтвердит оплату и поможет с установкой.</p>
+        </form>
+      ) : (
+        <p className="mt-3 text-sm text-gray-600">Эти приложения ставят в салоне TakeSmart. Выберите нужное и приходите — или позвоните нам.</p>
+      )}
+      {error && <p role="alert" className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+    </div>
+  )
+}
+
+function StaffModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (code: string) => void }) {
+  const [code, setCode] = useState('')
+  const [checking, setChecking] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const value = code.trim()
+    if (!value || checking) return
+    setChecking(true); setErr(null)
+    try { await publicInstalls.staffCheck(value); onSubmit(value) } catch (x) { setErr(x instanceof Error ? x.message : 'Не получилось проверить пароль') }
+    setChecking(false)
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-6" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div role="dialog" aria-label="Режим сотрудника" className="w-full rounded-t-3xl bg-white p-6 shadow-2xl sm:max-w-sm sm:rounded-3xl">
+        <h3 className="text-lg font-bold text-gray-900">Режим сотрудника</h3>
+        <p className="mt-1 text-sm text-gray-600">Введите пароль менеджера, чтобы ставить приложения сразу. У покупателей этого пароля нет.</p>
+        <form onSubmit={submit}>
+          <input value={code} onChange={e => { setCode(e.target.value); setErr(null) }} type="password" autoFocus autoComplete="off" placeholder="Пароль менеджера" className={`mt-4 w-full rounded-xl border px-4 py-3 text-[15px] focus:border-yellow-400 focus:outline-none ${err ? 'border-red-300' : 'border-gray-200'}`} data-staff-code />
+          {err && <p role="alert" className="mt-2 text-sm text-red-600" data-staff-error>{err}</p>}
+          <div className="mt-4 flex gap-2">
+            <button type="button" onClick={onClose} className="flex-1 rounded-2xl border border-gray-200 px-4 py-3 font-medium text-gray-700">Отмена</button>
+            <button type="submit" disabled={!code.trim() || checking} className="flex-1 rounded-2xl bg-gray-900 px-4 py-3 font-semibold text-white disabled:opacity-50" data-staff-submit>{checking ? 'Проверяем…' : 'Войти'}</button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }

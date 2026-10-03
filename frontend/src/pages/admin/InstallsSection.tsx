@@ -4,7 +4,7 @@ import { API_BASE_URL } from '../../lib/config'
 import { toast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirm'
 import { resolveApp } from '../../lib/appCatalog'
-import { DEFAULT_INSTALLS_CONFIG, type CatalogApp, type InstallAccount, type InstallOrder, type InstallsConfig, type OrderStats } from '../../lib/installs'
+import { DEFAULT_INSTALLS_CONFIG, withPoolMeta, type CatalogApp, type InstallAccount, type InstallOrder, type InstallsConfig, type OrderStats } from '../../lib/installs'
 import { AdminIcon } from './AdminIcons'
 import { BTN_PRIMARY, BTN_SECONDARY, SegmentedTabs } from './AdminShell'
 import { timeAgo } from './format'
@@ -95,7 +95,7 @@ export function InstallsSection({ authFetch }: { authFetch: AuthFetch }) {
     try {
       const [a, c, s] = await Promise.all([api('/accounts'), api('/catalog'), api('/settings')])
       if (a.ok) setAccounts(await a.json())
-      if (c.ok) setCatalog(await c.json())
+      if (c.ok) setCatalog(withPoolMeta(await c.json()))
       if (s.ok) setConfig(await s.json())
       if (!a.ok || !s.ok) toast('Раздел загрузился не полностью — обновите страницу', 'error')
     } catch { toast('Нет связи с сервером', 'error') }

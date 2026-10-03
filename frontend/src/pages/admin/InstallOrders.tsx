@@ -3,7 +3,7 @@ import { toast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirm'
 import { resolveApp } from '../../lib/appCatalog'
 import {
-  ORDER_STATUS, clock, errorText, orderPrice, orderUrl, rub,
+  ORDER_STATUS, catalogVisible, catalogWinners, categoriesOf, clock, errorText, orderPrice, orderUrl, rub,
   type CatalogApp, type InstallAccount, type InstallOrder, type InstallsConfig, type OrderMode, type OrderStats,
 } from '../../lib/installs'
 import { AdminIcon } from './AdminIcons'
@@ -56,11 +56,11 @@ export function NewOrderTab({ api, accounts, catalog, config, onCreated, goCatal
   api: Api; accounts: InstallAccount[]; catalog: CatalogApp[]; config: InstallsConfig
   onCreated: (order: InstallOrder) => void; goCatalog: () => void
 }) {
-  const liveAccounts = useMemo(() => accounts.filter(a => a.is_active && catalog.some(c => c.account_id === a.id && c.is_active)), [accounts, catalog])
+  const activeAccounts = useMemo(() => accounts.filter(a => a.is_active), [accounts])
   const [accountId, setAccountId] = useState<string | null>(null)
-  const account = liveAccounts.find(a => a.id === accountId) || liveAccounts[0] || null
+  const account = activeAccounts.find(a => a.id === accountId) || (activeAccounts.length === 1 ? activeAccounts[0] : null)
   const [q, setQ] = useState('')
-  const [filter, setFilter] = useState<'all' | 'bank'>('all')
+  const [cat, setCat] = useState('Все')
   const [picked, setPicked] = useState<string[]>([])
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
@@ -70,12 +70,15 @@ export function NewOrderTab({ api, accounts, catalog, config, onCreated, goCatal
   const [priceText, setPriceText] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const apps = useMemo(() => (account ? catalog.filter(c => c.account_id === account.id && c.is_active).map(c => ({ c, r: viewOf(c) })) : []), [catalog, account])
+  // Весь каталог: общий пул + приложения аккаунтов (одно приложение — одна плитка)
+  const activeIds = useMemo(() => new Set(activeAccounts.map(a => a.id)), [activeAccounts])
+  const apps = useMemo(() => catalogVisible(catalog, activeIds).map(c => ({ c, r: viewOf(c) })), [catalog, activeIds])
+  const categories = useMemo(() => categoriesOf(apps.map(a => a.c)), [apps])
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    return apps.filter(({ c, r }) => (!needle || `${r.name} ${c.name} ${c.bundle_id}`.toLowerCase().includes(needle)) && (filter === 'all' || r.bank))
-  }, [apps, q, filter])
-  // Выбранное из другого аккаунта или скрытое из каталога в заказ не попадает
+    return apps.filter(({ c, r }) => (!needle || `${r.name} ${c.name} ${c.bundle_id}`.toLowerCase().includes(needle))
+      && (cat === 'Все' || (c.category || 'Прочее') === cat))
+  }, [apps, q, cat])
   const chosen = useMemo(() => picked.map(id => apps.find(a => a.c.id === id)).filter((a): a is NonNullable<typeof a> => Boolean(a)), [picked, apps])
 
   const auto = orderPrice(config, chosen.length)
@@ -91,7 +94,10 @@ export function NewOrderTab({ api, accounts, catalog, config, onCreated, goCatal
     setSaving(true)
     const order = await call<InstallOrder>(api, '/orders', {
       method: 'POST',
-      body: { app_ids: chosen.map(a => a.c.id), mode, customer_name: name.trim() || null, customer_phone: phone.trim() || null, note: note.trim() || null, paid, ...(custom !== null ? { price: custom } : {}) },
+      body: {
+        app_ids: chosen.map(a => a.c.id), mode, customer_name: name.trim() || null, customer_phone: phone.trim() || null,
+        note: note.trim() || null, paid, ...(account ? { account_id: account.id } : {}), ...(custom !== null ? { price: custom } : {}),
+      },
     })
     setSaving(false)
     if (!order) return
@@ -100,13 +106,13 @@ export function NewOrderTab({ api, accounts, catalog, config, onCreated, goCatal
     onCreated(order)
   }
 
-  if (!liveAccounts.length) {
+  if (!apps.length) {
     return (
       <div className={`${CARD} mx-auto max-w-2xl text-center`} data-new-order-empty>
         <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-yellow-400/15 text-yellow-300"><AdminIcon name="layers" className="h-6 w-6" /></span>
         <div className="mt-3 text-lg font-semibold text-white">Каталог пока пуст</div>
-        <p className="mx-auto mt-1 max-w-md text-sm text-slate-400">Добавьте Apple ID салона и отметьте, какие приложения из его истории покупок вы ставите покупателям. После этого здесь появятся плитки приложений.</p>
-        <button type="button" onClick={goCatalog} className={`${BTN_PRIMARY} mt-4`} data-go-catalog>Настроить каталог</button>
+        <p className="mx-auto mt-1 max-w-md text-sm text-slate-400">Включите приложения во вкладке «Каталог» — после этого здесь появятся плитки.</p>
+        <button type="button" onClick={goCatalog} className={`${BTN_PRIMARY} mt-4`} data-go-catalog>Открыть каталог</button>
       </div>
     )
   }
@@ -116,17 +122,18 @@ export function NewOrderTab({ api, accounts, catalog, config, onCreated, goCatal
       <div className={`${CARD} min-w-0`}>
         <div className="flex flex-wrap items-center gap-2">
           <div className={LABEL}>Что поставить <span className="font-normal normal-case tracking-normal text-slate-500">· {visible.length} из {apps.length}</span></div>
-          {liveAccounts.length > 1 && (
+          {activeAccounts.length > 1 && (
             <div className="ml-auto flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-              Аккаунт:
-              {liveAccounts.map(a => <Chip key={a.id} active={a.id === account?.id} onClick={() => setAccountId(a.id)}>{a.label}</Chip>)}
+              Apple ID:
+              {activeAccounts.map(a => <Chip key={a.id} active={a.id === account?.id} onClick={() => setAccountId(a.id)}>{a.label}</Chip>)}
             </div>
           )}
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <input value={q} onChange={e => setQ(e.target.value)} type="search" placeholder="Поиск: Сбер, Т-Банк, ВТБ…" data-order-search className={`${INPUT} sm:max-w-xs`} />
-          <Chip active={filter === 'all'} onClick={() => setFilter('all')}>Все</Chip>
-          <Chip active={filter === 'bank'} onClick={() => setFilter('bank')}>Банки</Chip>
+        </div>
+        <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+          {['Все', ...categories].map(c => <Chip key={c} active={cat === c} onClick={() => setCat(c)} testId={`order-cat-${c}`}>{c}</Chip>)}
         </div>
         <div className="mt-3 max-h-[64vh] overflow-auto pr-1">
           {visible.length === 0 ? (
@@ -141,7 +148,7 @@ export function NewOrderTab({ api, accounts, catalog, config, onCreated, goCatal
                     <AppIcon app={r} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium text-white">{r.name}</span>
-                      <span className="block truncate text-xs text-slate-500">{c.version ? `версия ${c.version}` : c.bundle_id}</span>
+                      <span className="block truncate text-xs text-slate-500">{c.category || 'Приложение'}{c.account_id ? ' · есть у Apple ID салона' : ''}</span>
                     </span>
                     <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${on ? 'border-yellow-400 bg-yellow-400 text-slate-950' : 'border-white/20 text-transparent'}`}><AdminIcon name="check" className="h-3.5 w-3.5" /></span>
                   </button>
@@ -184,16 +191,18 @@ export function NewOrderTab({ api, accounts, catalog, config, onCreated, goCatal
           <input value={name} onChange={e => setName(e.target.value)} placeholder="Имя покупателя (необязательно)" maxLength={120} className={INPUT} data-order-name />
           <input value={phone} onChange={e => setPhone(e.target.value)} type="tel" placeholder="Телефон (необязательно)" maxLength={32} className={INPUT} data-order-phone />
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="Пометка для себя" maxLength={300} className={INPUT} />
-          <div className="flex items-center gap-2">
-            <input value={priceText} onChange={e => setPriceText(e.target.value)} inputMode="numeric" placeholder={`Своя сумма (по умолчанию ${auto.toLocaleString('ru-RU')})`} className={`${INPUT} ${priceBad ? 'border-red-400/60' : ''}`} data-order-price />
-          </div>
+          <input value={priceText} onChange={e => setPriceText(e.target.value)} inputMode="numeric" placeholder={`Своя сумма (по умолчанию ${auto.toLocaleString('ru-RU')})`} className={`${INPUT} ${priceBad ? 'border-red-400/60' : ''}`} data-order-price />
           {priceBad && <p className="text-xs text-red-300">Сумма — целое число рублей</p>}
         </div>
         <div className="mt-3"><Toggle checked={paid} onChange={setPaid} label="Оплата получена" hint="Выключите, если покупатель заплатит позже" /></div>
         <button type="submit" disabled={!chosen.length || priceBad || saving} className={`${BTN_PRIMARY} mt-4 w-full justify-center`} data-create-order>
           <AdminIcon name="check" className="h-4 w-4" />{saving ? 'Оформляем…' : chosen.length ? `Оформить · ${chosen.length} ${appsWord(chosen.length)}` : 'Оформить заказ'}
         </button>
-        {account && <p className="mt-2 text-xs text-slate-500">Аккаунт: {account.label} · {account.apple_id}</p>}
+        {account
+          ? <p className="mt-2 text-xs text-slate-500">Apple ID салона: {account.label} · {account.apple_id}</p>
+          : activeAccounts.length > 1
+            ? <p className="mt-2 text-xs text-yellow-200">Выберите вверху, каким Apple ID салона ставить.</p>
+            : <p className="mt-2 text-xs text-yellow-200" data-no-account>Apple ID салона не добавлен: заказ сохранится, а установка заработает, когда вы добавите его во вкладке «Каталог».</p>}
       </div>
     </form>
   )
@@ -489,7 +498,7 @@ export function OrderCard({ api, orderId, onClose, onCable, onChanged }: {
 // ═════════════════════════════════════════════════════════════════════════════
 
 interface StationLite { id: string; name: string; online: boolean; state: { apple?: { logged_in?: boolean; email?: string | null; purchases_count?: number | null } | null } }
-type CatalogFilter = 'all' | 'shown' | 'hidden' | 'removed' | 'bank'
+type CatalogFilter = 'all' | 'shown' | 'hidden' | 'removed' | 'owned'
 const PAGE = 120
 
 function maskEmail(email: string): string {
@@ -497,199 +506,290 @@ function maskEmail(email: string): string {
   return domain ? `${name.slice(0, 2)}***@${domain}` : email
 }
 
+const SOURCE_LABEL: Record<string, string> = { seed: 'стандартный набор', manual: 'добавлено вручную', import: 'из истории покупок' }
+
 export function CatalogTab({ api, accounts, catalog, config, reload, goCable }: {
   api: Api; accounts: InstallAccount[]; catalog: CatalogApp[]; config: InstallsConfig; reload: () => Promise<void>; goCable: () => void
 }) {
-  const [accountId, setAccountId] = useState<string | null>(null)
-  const account = accounts.find(a => a.id === accountId) || accounts[0] || null
-  const [stations, setStations] = useState<StationLite[]>([])
-  const [addOpen, setAddOpen] = useState(false)
-  const [busy, setBusy] = useState<string | null>(null)
+  const activeIds = useMemo(() => new Set(accounts.filter(a => a.is_active).map(a => a.id)), [accounts])
+  const accountsById = useMemo(() => new Map(accounts.map(a => [a.id, a])), [accounts])
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<CatalogFilter>('all')
+  const [cat, setCat] = useState('Все')
   const [shown, setShown] = useState(PAGE)
   const [editing, setEditing] = useState<CatalogApp | null>(null)
+  const [addAppOpen, setAddAppOpen] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
 
-  useEffect(() => {
-    let alive = true
-    const load = async () => { try { const r = await api('/stations'); if (r.ok && alive) setStations(await r.json()) } catch { /* сеть */ } }
-    load()
-    const id = window.setInterval(load, 3000)
-    return () => { alive = false; window.clearInterval(id) }
-  }, [api])
-
-  const station = stations.find(s => s.online && s.state?.apple?.logged_in) || null
-  const rows = useMemo(() => (account ? catalog.filter(c => c.account_id === account.id).map(c => ({ c, r: viewOf(c) })) : []), [catalog, account])
+  // Одна строка на приложение — та запись, которая решает, показывается ли оно на сайте
+  const rows = useMemo(() => catalogWinners(catalog, activeIds)
+    .map(c => ({ c, r: viewOf(c) }))
+    .sort((a, b) => a.c.sort - b.c.sort || a.r.name.localeCompare(b.r.name, 'ru')), [catalog, activeIds])
+  const categories = useMemo(() => categoriesOf(rows.map(x => x.c)), [rows])
+  const isShown = (c: CatalogApp) => c.is_active && (c.account_id === null || activeIds.has(c.account_id))
   const counts = useMemo(() => ({
-    all: rows.length, shown: rows.filter(x => x.c.is_active).length, hidden: rows.filter(x => !x.c.is_active).length,
-    removed: rows.filter(x => x.c.in_store === false).length, bank: rows.filter(x => x.r.bank).length,
-  }), [rows])
+    all: rows.length, shown: rows.filter(x => isShown(x.c)).length, hidden: rows.filter(x => !isShown(x.c)).length,
+    removed: rows.filter(x => x.c.in_store === false).length, owned: rows.filter(x => x.c.account_id !== null).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [rows, activeIds])
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase()
     return rows.filter(({ c, r }) => {
       if (needle && !`${r.name} ${c.name} ${c.bundle_id}`.toLowerCase().includes(needle)) return false
-      if (filter === 'shown') return c.is_active
-      if (filter === 'hidden') return !c.is_active
+      if (cat !== 'Все' && (c.category || 'Прочее') !== cat) return false
+      if (filter === 'shown') return isShown(c)
+      if (filter === 'hidden') return !isShown(c)
       if (filter === 'removed') return c.in_store === false
-      if (filter === 'bank') return r.bank
+      if (filter === 'owned') return c.account_id !== null
       return true
     })
-  }, [rows, q, filter])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, q, filter, cat, activeIds])
   const hiddenInView = visible.filter(x => !x.c.is_active)
   const shownInView = visible.filter(x => x.c.is_active)
 
-  const checkStore = async (silent = false) => {
-    if (!account) return
+  const checkStore = async () => {
     setBusy('check')
-    const res = await call<{ checked: number; in_store: number; removed: number; failed: number }>(api, '/catalog/check-store', { method: 'POST', body: { account_id: account.id } })
+    const res = await call<{ checked: number; in_store: number; removed: number; failed: number }>(api, '/catalog/check-store', { method: 'POST', body: {} })
     setBusy(null)
     if (!res) return
     await reload()
-    if (!silent || res.failed) toast(`Сверили с App Store: ${res.in_store} есть, ${res.removed} нет${res.failed ? `, ${res.failed} проверить не удалось` : ''}`, res.failed ? 'info' : 'success')
-  }
-  const runImport = async (force = false) => {
-    if (!account || !station) return
-    setBusy('import')
-    try {
-      const res = await api(`/accounts/${account.id}/import`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ station_id: station.id, force }) })
-      if (res.status === 409) {
-        const d = await res.clone().json().catch(() => null)
-        if (d?.detail?.code === 'account_mismatch') {
-          setBusy(null)
-          if (await confirmDialog({ title: 'На помощнике другой Apple ID', message: `${d.detail.message}\n\nЗаполнить каталог из его истории покупок всё равно?`, confirmLabel: 'Заполнить' })) runImport(true)
-          return
-        }
-      }
-      if (!res.ok) { toast(await errorText(res), 'error'); setBusy(null); return }
-      const out: { total: number; created: number; updated: number } = await res.json()
-      toast(`История покупок прочитана: ${out.total}. Новых в каталоге: ${out.created}`, 'success')
-      await reload()
-      setBusy(null)
-      await checkStore(true)
-      setFilter(out.created ? 'removed' : 'all'); setShown(PAGE)
-    } catch { toast('Нет связи с сервером', 'error'); setBusy(null) }
+    toast(`Сверили с App Store: ${res.in_store} есть, ${res.removed} нет${res.failed ? `, ${res.failed} проверить не удалось` : ''}`, res.failed ? 'info' : 'success')
   }
   const bulk = async (ids: string[], isActive: boolean) => {
     if (!ids.length) return
     setBusy('bulk')
     const res = await call<{ changed: number }>(api, '/catalog/bulk', { method: 'POST', body: { ids, is_active: isActive } })
     setBusy(null)
-    if (res) { await reload(); toast(isActive ? `В каталоге теперь ещё ${res.changed}` : `Скрыто: ${res.changed}`, 'success') }
+    if (res) { await reload(); toast(isActive ? `Показывается ещё ${res.changed}` : `Скрыто: ${res.changed}`, 'success') }
   }
   const setActive = async (app: CatalogApp, isActive: boolean) => { if (await call(api, `/catalog/${app.id}`, { method: 'PATCH', body: { is_active: isActive } })) reload() }
   const removeApp = async (app: CatalogApp) => {
-    if (!(await confirmDialog({ title: `Убрать «${app.title || app.name}» из каталога?`, message: 'Запись удалится из списка. При следующем чтении истории покупок приложение появится снова — скрытым.', confirmLabel: 'Убрать', danger: true }))) return
-    if (await call(api, `/catalog/${app.id}`, { method: 'DELETE' })) { toast('Убрано', 'success'); reload() }
+    const owned = app.account_id !== null
+    if (!(await confirmDialog({
+      title: `Удалить «${app.title || app.name}» из каталога?`,
+      message: owned ? 'Запись Apple ID салона удалится. При следующем чтении его истории покупок приложение появится снова — скрытым.' : 'Приложение уйдёт из общего пула. Вернуть можно кнопкой «Добавить приложение».',
+      confirmLabel: 'Удалить', danger: true,
+    }))) return
+    if (await call(api, `/catalog/${app.id}`, { method: 'DELETE' })) { toast('Удалено', 'success'); reload() }
+  }
+  const resetPaging = () => setShown(PAGE)
+
+  return (
+    <div className="space-y-8" data-catalog-tab>
+      <Memo open={false} />
+
+      <section data-pool>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Каталог приложений</h3>
+          <span className="text-xs text-slate-500" data-pool-counts>на сайте показывается {counts.shown} из {counts.all}</span>
+          <span className="ml-auto flex flex-wrap gap-2">
+            <button type="button" onClick={() => setAddAppOpen(true)} className={BTN_PRIMARY} data-add-app><AdminIcon name="plus" className="h-4 w-4" />Добавить приложение</button>
+            <button type="button" disabled={busy !== null} onClick={checkStore} className={BTN_SECONDARY} data-check-store>{busy === 'check' ? 'Сверяем…' : 'Сверить с App Store'}</button>
+          </span>
+        </div>
+        <p className="mb-3 max-w-3xl text-sm text-slate-400">Это общий пул: его видят покупатели на странице /apps и вы во вкладке «Новый заказ». Скачать приложение получится, только если оно есть в истории покупок Apple ID салона — такие отмечены зелёным.</p>
+
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <input value={q} onChange={e => { setQ(e.target.value); resetPaging() }} type="search" placeholder="Поиск по названию или bundle" className={`${INPUT} sm:max-w-xs`} data-catalog-search />
+          {([['all', 'Все'], ['shown', 'На сайте'], ['hidden', 'Скрытые'], ['owned', 'Есть у Apple ID салона'], ['removed', 'Нет в App Store']] as const).map(([k, label]) => (
+            <Chip key={k} active={filter === k} onClick={() => { setFilter(k); resetPaging() }} testId={`catalog-filter-${k}`}>{label} · {counts[k]}</Chip>
+          ))}
+        </div>
+        <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
+          {['Все', ...categories].map(c => <Chip key={c} active={cat === c} onClick={() => { setCat(c); resetPaging() }} testId={`catalog-cat-${c}`}>{c}</Chip>)}
+        </div>
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-slate-400">
+          Найдено {visible.length}.
+          {hiddenInView.length > 0 && <button type="button" disabled={busy !== null} onClick={() => bulk(hiddenInView.map(x => x.c.id), true)} className={BTN_ROW} data-bulk-show>Показать все {hiddenInView.length}</button>}
+          {shownInView.length > 0 && <button type="button" disabled={busy !== null} onClick={() => bulk(shownInView.map(x => x.c.id), false)} className={BTN_ROW} data-bulk-hide>Скрыть все {shownInView.length}</button>}
+        </div>
+        {visible.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-white/10 p-8 text-center text-sm text-slate-500">Ничего не найдено.</div>
+        ) : (
+          <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-2xl border border-white/10">
+            {visible.slice(0, shown).map(({ c, r }) => {
+              const acc = c.account_id ? accountsById.get(c.account_id) : null
+              return (
+                <li key={c.id} data-catalog-row={c.bundle_id} data-active={c.is_active ? '1' : '0'} className="flex items-center gap-3 px-3 py-2">
+                  <AppIcon app={r} size={36} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-white">{r.name}{c.title && c.title !== c.name ? <span className="ml-2 text-xs text-slate-500">в покупках: {c.name}</span> : null}</span>
+                    <span className="block truncate text-xs text-slate-500">{c.category || 'Без группы'} · {c.bundle_id}{c.store_id ? ` · id ${c.store_id}` : ''}</span>
+                  </span>
+                  <span className="hidden shrink-0 flex-wrap justify-end gap-1 md:flex">
+                    {acc
+                      ? <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300" data-owned>у Apple ID «{acc.label}»</span>
+                      : <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-400">{SOURCE_LABEL[c.source] || 'общий пул'}</span>}
+                    {c.in_store === false && <span className="rounded-full bg-yellow-400/15 px-2 py-0.5 text-xs text-yellow-300">нет в App Store</span>}
+                    {c.in_store === true && <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-400">есть в App Store</span>}
+                  </span>
+                  <button type="button" onClick={() => setEditing(c)} aria-label={`Изменить ${r.name}`} className="shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-white/10 hover:text-white"><AdminIcon name="edit" className="h-4 w-4" /></button>
+                  <button type="button" role="switch" aria-checked={c.is_active} aria-label={`${r.name}: показывать на сайте`} onClick={() => setActive(c, !c.is_active)} data-row-toggle
+                    className={`relative h-6 w-11 shrink-0 rounded-full transition ${c.is_active ? 'bg-yellow-400' : 'bg-white/15'}`}>
+                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${c.is_active ? 'left-[22px]' : 'left-0.5'}`} />
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+        {visible.length > shown && <div className="mt-2 text-center"><button type="button" onClick={() => setShown(n => n + PAGE)} className={BTN_SECONDARY}>Показать ещё {Math.min(PAGE, visible.length - shown)}</button></div>}
+      </section>
+
+      <StaffCodeCard api={api} config={config} onSaved={reload} />
+
+      <AccountsSection api={api} accounts={accounts} catalog={catalog} reload={reload} goCable={goCable} />
+
+      <SettingsForm api={api} config={config} onSaved={reload} />
+
+      {addAppOpen && <AddAppModal api={api} categories={categories} onClose={() => setAddAppOpen(false)} onAdded={async () => { setAddAppOpen(false); await reload() }} />}
+      {editing && <EditAppModal api={api} app={editing} categories={categories} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await reload() }} onDelete={async () => { const app = editing; setEditing(null); await removeApp(app) }} />}
+    </div>
+  )
+}
+
+// ── Режим сотрудника: пароль менеджера для установки со страницы /apps ───────
+function StaffCodeCard({ api, config, onSaved }: { api: Api; config: InstallsConfig; onSaved: () => Promise<void> }) {
+  const [code, setCode] = useState('')
+  const [show, setShow] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (code.trim().length < 4) { toast('Пароль — минимум 4 символа', 'error'); return }
+    setSaving(true)
+    const ok = await call<InstallsConfig>(api, '/staff-code', { method: 'POST', body: { code: code.trim() } })
+    setSaving(false)
+    if (ok) { setCode(''); await onSaved(); toast('Пароль менеджера сохранён', 'success') }
+  }
+  const clear = async () => {
+    if (!(await confirmDialog({ title: 'Убрать пароль менеджера?', message: 'Режим сотрудника на странице /apps выключится: ставить приложения оттуда будет нельзя.', confirmLabel: 'Убрать', danger: true }))) return
+    if (await call(api, '/staff-code', { method: 'DELETE' })) { await onSaved(); toast('Пароль убран', 'success') }
+  }
+  return (
+    <section data-staff-card data-set={config.staff_code_set ? '1' : '0'}>
+      <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-400">Режим сотрудника на сайте</h3>
+      <div className={CARD}>
+        <div className="flex flex-wrap items-start gap-4">
+          <div className="min-w-0 flex-1 basis-72 text-sm text-slate-300">
+            <div className="flex items-center gap-2 font-medium text-white">
+              <span className={`h-2.5 w-2.5 rounded-full ${config.staff_code_set ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+              {config.staff_code_set ? 'Пароль менеджера задан' : 'Пароль менеджера не задан'}
+            </div>
+            <p className="mt-1">Менеджер открывает на телефоне покупателя страницу <a href="/apps" target="_blank" rel="noreferrer" className="text-yellow-300 underline decoration-dotted">/apps</a>, выбирает приложения, нажимает внизу «Я сотрудник TakeSmart» и вводит этот пароль — дальше страница сразу ведёт к установке. У покупателей пароля нет: они могут только посмотреть каталог или оставить заявку.</p>
+            <p className="mt-1 text-xs text-slate-500">Это пароль для доступа к установке на нашем сайте, а не пароль Apple ID — его вводят на телефоне при входе, у нас он не хранится.</p>
+          </div>
+          <form onSubmit={save} className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            <div className="relative">
+              <input value={code} onChange={e => setCode(e.target.value)} type={show ? 'text' : 'password'} autoComplete="new-password" placeholder={config.staff_code_set ? 'Новый пароль' : 'Придумайте пароль'} minLength={4} maxLength={40} className={`${INPUT} pr-10 sm:w-56`} data-staff-code-input />
+              <button type="button" onClick={() => setShow(v => !v)} aria-label={show ? 'Скрыть пароль' : 'Показать пароль'} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-500 hover:text-white"><AdminIcon name="eye" className="h-4 w-4" /></button>
+            </div>
+            <button type="submit" disabled={saving || code.trim().length < 4} className={BTN_PRIMARY} data-staff-code-save>{saving ? 'Сохраняем…' : config.staff_code_set ? 'Сменить' : 'Сохранить'}</button>
+            {config.staff_code_set && <button type="button" onClick={clear} className={`${BTN_ROW} text-red-300`} data-staff-code-clear>Убрать</button>}
+          </form>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// ── Apple ID салона: с них на самом деле скачиваются приложения ──────────────
+function AccountsSection({ api, accounts, catalog, reload, goCable }: { api: Api; accounts: InstallAccount[]; catalog: CatalogApp[]; reload: () => Promise<void>; goCable: () => void }) {
+  const [accountId, setAccountId] = useState<string | null>(null)
+  const account = accounts.find(a => a.id === accountId) || accounts[0] || null
+  const [stations, setStations] = useState<StationLite[]>([])
+  const [addOpen, setAddOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    const load = async () => { try { const r = await api('/stations'); if (r.ok && alive) setStations(await r.json()) } catch { /* сеть */ } }
+    const first = window.setTimeout(load, 0)
+    const id = window.setInterval(load, 3000)
+    return () => { alive = false; window.clearTimeout(first); window.clearInterval(id) }
+  }, [api])
+
+  const station = stations.find(s => s.online && s.state?.apple?.logged_in) || null
+  const ownedCount = account ? catalog.filter(c => c.account_id === account.id).length : 0
+  const stationMatches = Boolean(account && station && (station.state.apple?.email || '').toLowerCase() === maskEmail(account.apple_id).toLowerCase())
+
+  const runImport = async (force = false) => {
+    if (!account || !station) return
+    setBusy(true)
+    try {
+      const res = await api(`/accounts/${account.id}/import`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ station_id: station.id, force }) })
+      if (res.status === 409) {
+        const d = await res.clone().json().catch(() => null)
+        if (d?.detail?.code === 'account_mismatch') {
+          setBusy(false)
+          if (await confirmDialog({ title: 'На помощнике другой Apple ID', message: `${d.detail.message}\n\nЗаполнить из его истории покупок всё равно?`, confirmLabel: 'Заполнить' })) runImport(true)
+          return
+        }
+      }
+      if (!res.ok) { toast(await errorText(res), 'error'); setBusy(false); return }
+      const out: { total: number; created: number; updated: number } = await res.json()
+      toast(`История покупок прочитана: ${out.total}. Новых приложений у аккаунта: ${out.created}`, 'success')
+      await reload()
+    } catch { toast('Нет связи с сервером', 'error') }
+    setBusy(false)
   }
   const removeAccount = async (a: InstallAccount) => {
-    if (!(await confirmDialog({ title: `Удалить аккаунт «${a.label}»?`, message: `Вместе с ним удалится его каталог (${a.apps_total}). Закрытые заказы останутся в истории.`, confirmLabel: 'Удалить', danger: true }))) return
-    if (await call(api, `/accounts/${a.id}`, { method: 'DELETE' })) { toast('Аккаунт удалён', 'success'); setAccountId(null); reload() }
+    if (!(await confirmDialog({ title: `Удалить Apple ID «${a.label}»?`, message: `Вместе с ним удалятся его записи в каталоге (${a.apps_total}). Общий пул и закрытые заказы останутся.`, confirmLabel: 'Удалить', danger: true }))) return
+    if (await call(api, `/accounts/${a.id}`, { method: 'DELETE' })) { toast('Apple ID удалён', 'success'); setAccountId(null); reload() }
   }
   const toggleAccount = async (a: InstallAccount) => { if (await call(api, `/accounts/${a.id}`, { method: 'PATCH', body: { is_active: !a.is_active } })) reload() }
 
-  const stationMatches = Boolean(account && station && (station.state.apple?.email || '').toLowerCase() === maskEmail(account.apple_id).toLowerCase())
-
   return (
-    <div className="space-y-6" data-catalog-tab>
-      <Memo open={accounts.length === 0} />
-
-      <section>
-        <div className="mb-2 flex items-center gap-2">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Apple ID салона</h3>
-          <button type="button" onClick={() => setAddOpen(true)} className={`${BTN_ROW} ml-auto`} data-add-account><span className="inline-flex items-center gap-1.5"><AdminIcon name="plus" className="h-4 w-4" />Добавить аккаунт</span></button>
+    <section data-accounts>
+      <div className="mb-2 flex items-center gap-2">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Apple ID салона</h3>
+        <button type="button" onClick={() => setAddOpen(true)} className={`${BTN_ROW} ml-auto`} data-add-account><span className="inline-flex items-center gap-1.5"><AdminIcon name="plus" className="h-4 w-4" />Добавить Apple ID</span></button>
+      </div>
+      {accounts.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-400" data-no-accounts>
+          Пока ни одного. Это аккаунт, с которого на самом деле скачиваются приложения: в его истории покупок должны быть банки и другие приложения из каталога.
+          <div className="mt-3"><button type="button" onClick={() => setAddOpen(true)} className={BTN_PRIMARY}>Добавить Apple ID салона</button></div>
         </div>
-        {accounts.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-400">
-            Пока ни одного. Нужен Apple ID, в истории покупок которого есть приложения, пропавшие из App Store: банки, авиакомпании, маркетплейсы.
-            <div className="mt-3"><button type="button" onClick={() => setAddOpen(true)} className={BTN_PRIMARY}>Добавить Apple ID салона</button></div>
-          </div>
-        ) : (
+      ) : (
+        <>
           <ul className="grid gap-2 md:grid-cols-2">
             {accounts.map(a => (
               <li key={a.id} data-account={a.apple_id} className={`flex items-center gap-3 rounded-2xl border px-4 py-3 ${a.id === account?.id ? 'border-yellow-400/50 bg-yellow-400/[0.05]' : 'border-white/10 bg-white/[0.03]'}`}>
-                <button type="button" onClick={() => { setAccountId(a.id); setShown(PAGE) }} className="min-w-0 flex-1 text-left">
+                <button type="button" onClick={() => setAccountId(a.id)} className="min-w-0 flex-1 text-left">
                   <span className="block truncate font-medium text-white">{a.label}{!a.is_active && <span className="ml-2 rounded-full bg-white/10 px-2 py-0.5 text-xs font-normal text-slate-400">выключен</span>}</span>
                   <span className="block truncate text-sm text-slate-400">{a.apple_id}</span>
-                  <span className="block text-xs text-slate-500">в каталоге {a.apps_active} из {a.apps_total}</span>
+                  <span className="block text-xs text-slate-500">приложений в истории покупок: {a.apps_total}</span>
                 </button>
                 <button type="button" onClick={() => toggleAccount(a)} className={BTN_ROW}>{a.is_active ? 'Выключить' : 'Включить'}</button>
                 <button type="button" onClick={() => removeAccount(a)} aria-label={`Удалить ${a.label}`} className={`${BTN_ROW} text-red-300`}><AdminIcon name="trash" className="h-4 w-4" /></button>
               </li>
             ))}
           </ul>
-        )}
-      </section>
-
-      {account && (
-        <section data-catalog-of={account.apple_id}>
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Каталог · {account.label}</h3>
-            <span className="text-xs text-slate-500">в каталоге {counts.shown} из {counts.all}</span>
-          </div>
-
-          <div className={`${CARD} mb-3`} data-import-box>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="min-w-0 flex-1 basis-64 text-sm">
-                <div className="font-medium text-white">Заполнить из истории покупок</div>
-                {station ? (
-                  <div className={stationMatches ? 'text-slate-400' : 'text-yellow-200'}>
-                    Помощник «{station.name}»: введён {station.state.apple?.email || 'Apple ID'}{typeof station.state.apple?.purchases_count === 'number' ? ` · покупок: ${station.state.apple.purchases_count}` : ''}
-                    {!stationMatches && <span className="block text-xs">Это не {maskEmail(account.apple_id)}. Войдите на помощнике в аккаунт салона.</span>}
-                  </div>
-                ) : (
-                  <div className="text-slate-400">Историю покупок читает помощник на Mac. Откройте вкладку «По кабелю» и войдите там в Apple ID салона — после этого вернитесь сюда.</div>
-                )}
+          {account && (
+            <div className={`${CARD} mt-3`} data-import-box>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="min-w-0 flex-1 basis-64 text-sm">
+                  <div className="font-medium text-white">Проверить, какие приложения есть у «{account.label}»</div>
+                  {station ? (
+                    <div className={stationMatches ? 'text-slate-400' : 'text-yellow-200'}>
+                      Помощник «{station.name}»: введён {station.state.apple?.email || 'Apple ID'}{typeof station.state.apple?.purchases_count === 'number' ? ` · покупок: ${station.state.apple.purchases_count}` : ''}
+                      {!stationMatches && <span className="block text-xs">Это не {maskEmail(account.apple_id)}. Войдите на помощнике в этот Apple ID.</span>}
+                    </div>
+                  ) : (
+                    <div className="text-slate-400">Историю покупок читает помощник на Mac: во вкладке «По кабелю» войдите в этот Apple ID и вернитесь сюда. После проверки приложения из каталога, которые у него есть, отметятся зелёным.</div>
+                  )}
+                  {ownedCount > 0 && <div className="mt-1 text-xs text-emerald-300">Уже известно приложений у этого Apple ID: {ownedCount}</div>}
+                </div>
+                {station
+                  ? <button type="button" disabled={busy} onClick={() => runImport(false)} className={BTN_PRIMARY} data-import-btn><AdminIcon name="refresh" className="h-4 w-4" />{busy ? 'Читаем…' : 'Прочитать историю покупок'}</button>
+                  : <button type="button" onClick={goCable} className={BTN_SECONDARY}>Открыть «По кабелю»</button>}
               </div>
-              {station
-                ? <button type="button" disabled={busy !== null} onClick={() => runImport(false)} className={BTN_PRIMARY} data-import-btn><AdminIcon name="refresh" className="h-4 w-4" />{busy === 'import' ? 'Читаем…' : busy === 'check' ? 'Сверяем с App Store…' : 'Заполнить каталог'}</button>
-                : <button type="button" onClick={goCable} className={BTN_SECONDARY}>Открыть «По кабелю»</button>}
-              {rows.length > 0 && <button type="button" disabled={busy !== null} onClick={() => checkStore(false)} className={BTN_SECONDARY} data-check-store>{busy === 'check' ? 'Сверяем…' : 'Сверить с App Store'}</button>}
             </div>
-          </div>
-
-          {rows.length > 0 && (
-            <>
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <input value={q} onChange={e => { setQ(e.target.value); setShown(PAGE) }} type="search" placeholder="Поиск по названию или bundle" className={`${INPUT} sm:max-w-xs`} data-catalog-search />
-                {([['all', 'Все'], ['shown', 'В каталоге'], ['hidden', 'Скрытые'], ['removed', 'Нет в App Store'], ['bank', 'Банки']] as const).map(([k, label]) => (
-                  <Chip key={k} active={filter === k} onClick={() => { setFilter(k); setShown(PAGE) }} testId={`catalog-filter-${k}`}>{label} · {counts[k]}</Chip>
-                ))}
-              </div>
-              <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-slate-400">
-                Найдено {visible.length}.
-                {hiddenInView.length > 0 && <button type="button" disabled={busy !== null} onClick={() => bulk(hiddenInView.map(x => x.c.id), true)} className={BTN_ROW} data-bulk-show>Показать в каталоге все {hiddenInView.length}</button>}
-                {shownInView.length > 0 && filter !== 'all' && <button type="button" disabled={busy !== null} onClick={() => bulk(shownInView.map(x => x.c.id), false)} className={BTN_ROW} data-bulk-hide>Скрыть все {shownInView.length}</button>}
-              </div>
-              <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-2xl border border-white/10">
-                {visible.slice(0, shown).map(({ c, r }) => (
-                  <li key={c.id} data-catalog-row={c.bundle_id} data-active={c.is_active ? '1' : '0'} className="flex items-center gap-3 px-3 py-2">
-                    <AppIcon app={r} size={36} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm text-white">{r.name}{c.title && c.title !== c.name ? <span className="ml-2 text-xs text-slate-500">в покупках: {c.name}</span> : null}</span>
-                      <span className="block truncate text-xs text-slate-500">{c.bundle_id}{c.version ? ` · ${c.version}` : ''}{c.store_id ? ` · id ${c.store_id}` : ''}</span>
-                    </span>
-                    {c.in_store === false && <span className="hidden shrink-0 rounded-full bg-yellow-400/15 px-2 py-0.5 text-xs text-yellow-300 sm:inline">нет в App Store</span>}
-                    {c.in_store === true && <span className="hidden shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-400 sm:inline">есть в App Store</span>}
-                    <button type="button" onClick={() => setEditing(c)} aria-label={`Изменить ${r.name}`} className="shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-white/10 hover:text-white"><AdminIcon name="edit" className="h-4 w-4" /></button>
-                    <button type="button" role="switch" aria-checked={c.is_active} aria-label={`${r.name}: показывать в каталоге`} onClick={() => setActive(c, !c.is_active)} data-row-toggle
-                      className={`relative h-6 w-11 shrink-0 rounded-full transition ${c.is_active ? 'bg-yellow-400' : 'bg-white/15'}`}>
-                      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${c.is_active ? 'left-[22px]' : 'left-0.5'}`} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {visible.length > shown && <div className="mt-2 text-center"><button type="button" onClick={() => setShown(n => n + PAGE)} className={BTN_SECONDARY}>Показать ещё {Math.min(PAGE, visible.length - shown)}</button></div>}
-            </>
           )}
-          <ManualAdd api={api} account={account} onAdded={reload} />
-        </section>
+        </>
       )}
-
-      <SettingsForm api={api} config={config} onSaved={reload} />
-
-      {addOpen && <AddAccountModal api={api} onClose={() => setAddOpen(false)} onAdded={async a => { setAddOpen(false); await reload(); setAccountId(a.id); setShown(PAGE) }} />}
-      {editing && <EditAppModal api={api} app={editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await reload() }} onDelete={async () => { const app = editing; setEditing(null); await removeApp(app) }} />}
-    </div>
+      {addOpen && <AddAccountModal api={api} onClose={() => setAddOpen(false)} onAdded={async a => { setAddOpen(false); await reload(); setAccountId(a.id) }} />}
+    </section>
   )
 }
 
@@ -746,34 +846,63 @@ function AddAccountModal({ api, onClose, onAdded }: { api: Api; onClose: () => v
   )
 }
 
-function EditAppModal({ api, app, onClose, onSaved, onDelete }: { api: Api; app: CatalogApp; onClose: () => void; onSaved: () => void; onDelete: () => void }) {
+function CategoryField({ value, onChange, categories }: { value: string; onChange: (v: string) => void; categories: string[] }) {
+  const options = Array.from(new Set([...categories.filter(c => c !== 'Прочее'), 'Банки', 'Маркетплейсы', 'Транспорт', 'Сервисы', 'Связь', 'Госуслуги']))
+  return (
+    <label className="block text-sm text-slate-300">Группа в каталоге
+      <input value={value} onChange={e => onChange(e.target.value)} list="install-categories" maxLength={40} placeholder="Банки, Маркетплейсы…" className={`${INPUT} mt-1`} data-app-category />
+      <datalist id="install-categories">{options.map(c => <option key={c} value={c} />)}</datalist>
+    </label>
+  )
+}
+
+function EditAppModal({ api, app, categories, onClose, onSaved, onDelete }: { api: Api; app: CatalogApp; categories: string[]; onClose: () => void; onSaved: () => void; onDelete: () => void }) {
   const [title, setTitle] = useState(app.title || '')
   const [icon, setIcon] = useState(app.icon_url || '')
   const [storeId, setStoreId] = useState(app.store_id ? String(app.store_id) : '')
+  const [category, setCategory] = useState(app.category || '')
+  const [isBank, setIsBank] = useState(app.is_bank)
+  const [bundle, setBundle] = useState(app.bundle_id)
   const [saving, setSaving] = useState(false)
+  const isPool = app.account_id === null
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (storeId.trim() && !/^\d+$/.test(storeId.trim())) { toast('App Store ID — только цифры', 'error'); return }
+    if (isPool && bundle.trim().length < 3) { toast('Bundle ID — минимум 3 символа', 'error'); return }
     setSaving(true)
-    const ok = await call(api, `/catalog/${app.id}`, { method: 'PATCH', body: { title: title.trim() || null, icon_url: icon.trim() || null, store_id: storeId.trim() ? Number(storeId.trim()) : null } })
+    const ok = await call(api, `/catalog/${app.id}`, {
+      method: 'PATCH',
+      body: {
+        title: title.trim() || null, icon_url: icon.trim() || null, store_id: storeId.trim() ? Number(storeId.trim()) : null,
+        category: category.trim() || null, is_bank: isBank, ...(isPool && bundle.trim() !== app.bundle_id ? { bundle_id: bundle.trim() } : {}),
+      },
+    })
     setSaving(false)
     if (ok) { toast('Сохранено', 'success'); onSaved() }
   }
   return (
     <Modal title={app.title || app.name} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
-        <p className="text-xs text-slate-500">В истории покупок: {app.name} · {app.bundle_id}</p>
+        <p className="text-xs text-slate-500">{app.account_id ? 'В истории покупок' : 'В общем пуле'}: {app.name} · {app.bundle_id}</p>
         <label className="block text-sm text-slate-300">Название в каталоге
           <input value={title} onChange={e => setTitle(e.target.value)} maxLength={120} placeholder={app.name} className={`${INPUT} mt-1`} />
         </label>
+        <CategoryField value={category} onChange={setCategory} categories={categories} />
+        <Toggle checked={isBank} onChange={setIsBank} label="Это банк" hint="Попадает в фильтр «Банки»" />
         <label className="block text-sm text-slate-300">Ссылка на иконку
-          <input value={icon} onChange={e => setIcon(e.target.value)} maxLength={500} placeholder="https://…" className={`${INPUT} mt-1`} />
+          <input value={icon} onChange={e => setIcon(e.target.value)} maxLength={500} placeholder="https://… или /app-icons/sber.png" className={`${INPUT} mt-1`} />
         </label>
         <label className="block text-sm text-slate-300">App Store ID
           <input value={storeId} onChange={e => setStoreId(e.target.value)} inputMode="numeric" placeholder="например 492224193" className={`${INPUT} mt-1`} />
         </label>
+        {isPool && (
+          <label className="block text-sm text-slate-300">Bundle ID
+            <input value={bundle} onChange={e => setBundle(e.target.value)} minLength={3} maxLength={200} className={`${INPUT} mt-1 font-mono text-sm`} data-edit-bundle />
+            <span className="mt-1 block text-xs text-slate-500">Должен совпадать с настоящим — иначе после чтения истории покупок приложение задвоится. Обычно исправляется само при чтении истории.</span>
+          </label>
+        )}
         <div className="flex items-center gap-2">
-          <button type="button" onClick={onDelete} className={`${BTN_ROW} text-red-300`}>Убрать из списка</button>
+          <button type="button" onClick={onDelete} className={`${BTN_ROW} text-red-300`}>Удалить</button>
           <span className="ml-auto flex gap-2">
             <button type="button" onClick={onClose} className={BTN_SECONDARY}>Отмена</button>
             <button type="submit" disabled={saving} className={BTN_PRIMARY}>{saving ? 'Сохраняем…' : 'Сохранить'}</button>
@@ -784,30 +913,51 @@ function EditAppModal({ api, app, onClose, onSaved, onDelete }: { api: Api; app:
   )
 }
 
-function ManualAdd({ api, account, onAdded }: { api: Api; account: InstallAccount; onAdded: () => Promise<void> }) {
+function AddAppModal({ api, categories, onClose, onAdded }: { api: Api; categories: string[]; onClose: () => void; onAdded: () => Promise<void> }) {
   const [name, setName] = useState('')
   const [bundle, setBundle] = useState('')
   const [storeId, setStoreId] = useState('')
+  const [category, setCategory] = useState('')
+  const [isBank, setIsBank] = useState(false)
+  const [icon, setIcon] = useState('')
   const [saving, setSaving] = useState(false)
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (storeId.trim() && !/^\d+$/.test(storeId.trim())) { toast('App Store ID — только цифры', 'error'); return }
     setSaving(true)
-    const ok = await call(api, '/catalog', { method: 'POST', body: { account_id: account.id, name: name.trim(), bundle_id: bundle.trim(), store_id: storeId.trim() ? Number(storeId.trim()) : null } })
+    const ok = await call(api, '/catalog', {
+      method: 'POST',
+      body: { name: name.trim(), bundle_id: bundle.trim(), store_id: storeId.trim() ? Number(storeId.trim()) : null, category: category.trim() || null, is_bank: isBank, icon_url: icon.trim() || null },
+    })
     setSaving(false)
-    if (ok) { setName(''); setBundle(''); setStoreId(''); toast('Добавлено в каталог', 'success'); await onAdded() }
+    if (ok) { toast('Приложение добавлено в каталог', 'success'); await onAdded() }
   }
   return (
-    <details className="mt-3" data-manual-add>
-      <summary className="cursor-pointer text-xs text-slate-500">Добавить приложение вручную</summary>
-      <form onSubmit={submit} className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_160px_auto]">
-        <input value={name} onChange={e => setName(e.target.value)} required maxLength={200} placeholder="Название как в покупках" className={INPUT} data-manual-name />
-        <input value={bundle} onChange={e => setBundle(e.target.value)} required minLength={3} maxLength={200} placeholder="Bundle ID: ru.sberbankmobile" className={INPUT} data-manual-bundle />
-        <input value={storeId} onChange={e => setStoreId(e.target.value)} inputMode="numeric" placeholder="App Store ID" className={INPUT} />
-        <button type="submit" disabled={saving || !name.trim() || bundle.trim().length < 3} className={BTN_SECONDARY} data-manual-save>Добавить</button>
+    <Modal title="Добавить приложение в каталог" onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3" data-add-app-form>
+        <p className="text-sm text-slate-400">Приложение попадёт в общий пул и сразу появится на /apps и во вкладке «Новый заказ». Название пишите как в App Store — по нему его ищут на телефоне.</p>
+        <label className="block text-sm text-slate-300">Название
+          <input value={name} onChange={e => setName(e.target.value)} required autoFocus maxLength={200} placeholder="Например, Сбербанк Онлайн" className={`${INPUT} mt-1`} data-new-app-name />
+        </label>
+        <label className="block text-sm text-slate-300">Bundle ID
+          <input value={bundle} onChange={e => setBundle(e.target.value)} required minLength={3} maxLength={200} placeholder="ru.sberbankmobile" className={`${INPUT} mt-1`} data-new-app-bundle />
+        </label>
+        <CategoryField value={category} onChange={setCategory} categories={categories} />
+        <Toggle checked={isBank} onChange={setIsBank} label="Это банк" hint="Попадает в фильтр «Банки»" />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block text-sm text-slate-300">App Store ID (необязательно)
+            <input value={storeId} onChange={e => setStoreId(e.target.value)} inputMode="numeric" placeholder="492224193" className={`${INPUT} mt-1`} />
+          </label>
+          <label className="block text-sm text-slate-300">Иконка (необязательно)
+            <input value={icon} onChange={e => setIcon(e.target.value)} maxLength={500} placeholder="https://…" className={`${INPUT} mt-1`} />
+          </label>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className={BTN_SECONDARY}>Отмена</button>
+          <button type="submit" disabled={saving || !name.trim() || bundle.trim().length < 3} className={BTN_PRIMARY} data-new-app-save>{saving ? 'Добавляем…' : 'Добавить'}</button>
+        </div>
       </form>
-      <p className="mt-1 text-xs text-slate-500">Пригодится, если помощник не подключён. Название пишите так, как оно стоит в списке покупок App Store: по нему приложение ищут на телефоне.</p>
-    </details>
+    </Modal>
   )
 }
 
@@ -846,8 +996,9 @@ function SettingsForm({ api, config, onSaved }: { api: Api; config: InstallsConf
           <textarea value={form.payment_text} onChange={e => setForm(f => ({ ...f, payment_text: e.target.value }))} maxLength={600} rows={2} placeholder="Например: переводом по номеру +7 … (СБП), в комментарии укажите номер заказа" className={`${INPUT} mt-1`} data-cfg="payment_text" />
         </label>
         <Toggle checked={form.storefront_enabled} onChange={v => setForm(f => ({ ...f, storefront_enabled: v }))} testId="cfg-storefront"
-          label="Принимать заявки с сайта (страница /apps)"
-          hint="Покупатель сам выбирает приложения и оставляет заявку. Вы подтверждаете оплату, сообщаете ему пароль и передаёте код через карточку заказа. Пока выключено, страница /apps предлагает прийти в салон." />
+          label="Показывать каталог на странице /apps"
+          hint="Включено — покупатели видят все приложения и могут оставить заявку. Выключено — страница предлагает прийти в салон, а каталог виден только менеджеру после ввода пароля (блок «Режим сотрудника» выше)." />
+        <a href="/apps" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-yellow-300 underline decoration-dotted" data-open-apps><AdminIcon name="external" className="h-4 w-4" />Открыть страницу /apps</a>
         <div className="flex items-center justify-end gap-3">
           {dirty && <span className="text-xs text-yellow-300">Есть несохранённые изменения</span>}
           <button type="submit" disabled={saving || !dirty} className={BTN_PRIMARY} data-cfg-save>{saving ? 'Сохраняем…' : 'Сохранить'}</button>
