@@ -8,7 +8,7 @@ import { DEFAULT_INSTALLS_CONFIG, withPoolMeta, type CatalogApp, type InstallAcc
 import { AdminIcon } from './AdminIcons'
 import { BTN_PRIMARY, BTN_SECONDARY, SegmentedTabs } from './AdminShell'
 import { timeAgo } from './format'
-import { CatalogTab, NewOrderTab, OrderCard, OrdersTab } from './InstallOrders'
+import { CatalogTab, NewOrderTab, OrderCard, OrdersTab, SettingsTab } from './InstallOrders'
 import { AppIcon, BTN_ROW, Badge, CARD, Cmd, INPUT, Modal, PhoneGlyph, Toggle } from './installsUi'
 import { readError, type Api, type AuthFetch } from './installsApi'
 
@@ -75,8 +75,8 @@ function setupCommand(token: string): string {
   return `curl -fsSL ${window.location.origin}/station/takesmart_station.py -o ~/takesmart_station.py && python3 ~/takesmart_station.py --autostart --backend ${backendOrigin()} --token ${token}`
 }
 // ── Раздел ───────────────────────────────────────────────────────────────────
-type View = 'new' | 'orders' | 'catalog' | 'cable'
-const VIEWS: readonly View[] = ['new', 'orders', 'catalog', 'cable']
+type View = 'new' | 'orders' | 'catalog' | 'cable' | 'settings'
+const VIEWS: readonly View[] = ['new', 'orders', 'catalog', 'cable', 'settings']
 const ORDERS_POLL_MS = 5000
 
 export function InstallsSection({ authFetch }: { authFetch: AuthFetch }) {
@@ -159,6 +159,7 @@ export function InstallsSection({ authFetch }: { authFetch: AuthFetch }) {
             { id: 'orders', label: needAttention ? 'Заказы •' : 'Заказы', count: openCount || undefined },
             { id: 'catalog', label: 'Каталог', count: catalog.filter(c => c.is_active).length || undefined },
             { id: 'cable', label: 'По кабелю' },
+            { id: 'settings', label: config && !config.staff_code_set ? 'Настройки •' : 'Настройки' },
           ]}
           value={view}
           onChange={go}
@@ -174,8 +175,10 @@ export function InstallsSection({ authFetch }: { authFetch: AuthFetch }) {
           onCreated={order => { loadOrders(); openOrder(order.id) }} />
       ) : view === 'orders' ? (
         <OrdersTab orders={orders} stats={stats} onOpen={openOrder} goNew={() => go('new')} />
+      ) : view === 'settings' ? (
+        <SettingsTab api={api} accounts={accounts} catalog={catalog} config={config} reload={reload} goCable={() => go('cable')} />
       ) : (
-        <CatalogTab api={api} accounts={accounts} catalog={catalog} config={config} reload={reload} goCable={() => go('cable')} />
+        <CatalogTab api={api} accounts={accounts} catalog={catalog} reload={reload} goSettings={() => go('settings')} />
       )}
       </>
       )}

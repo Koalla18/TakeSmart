@@ -11,7 +11,7 @@
  * Бизнес-логика разделов сюда не заходит — каркас получает только активный
  * раздел, счётчики для бейджей и колбэки; содержимое вкладок не трогалось.
  */
-import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { AdminIcon } from './AdminIcons'
 import { ADMIN_NAV, type AdminSection } from './adminNav'
 
@@ -329,8 +329,30 @@ export function AdminShellSkeleton() {
 export interface SegmentItem<T extends string> { id: T; label: string; count?: number }
 
 export function SegmentedTabs<T extends string>({ items, value, onChange }: { items: SegmentItem<T>[]; value: T; onChange: (id: T) => void }) {
+  const listRef = useRef<HTMLDivElement>(null)
+  // Подписи и счётчики приходят с данными и меняют ширину вкладок — по ним тоже пересчитываем
+  const layoutKey = items.map(i => `${i.id}:${i.label}:${i.count ?? ''}`).join('|')
+  // На узком экране вкладки прокручиваются вбок — докручиваем полосу до выбранной, чтобы её было видно.
+  // Двигаем только саму полосу, страницу не трогаем.
+  useEffect(() => {
+    const list = listRef.current
+    if (!list) return
+    const align = () => {
+      const active = list.querySelector<HTMLElement>('[aria-selected="true"]')
+      if (!active) return
+      const left = active.offsetLeft
+      const right = left + active.offsetWidth
+      if (left < list.scrollLeft) list.scrollLeft = Math.max(0, left - 8)
+      else if (right > list.scrollLeft + list.clientWidth) list.scrollLeft = right - list.clientWidth + 8
+    }
+    align()
+    // Пока не догрузился шрифт, вкладки уже — после загрузки пересчитываем
+    let alive = true
+    document.fonts.ready.then(() => { if (alive) align() })
+    return () => { alive = false }
+  }, [value, layoutKey])
   return (
-    <div role="tablist" className="mb-5 inline-flex max-w-full gap-1 overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.03] p-1 backdrop-blur">
+    <div ref={listRef} role="tablist" className="relative mb-5 inline-flex max-w-full gap-1 overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.03] p-1 backdrop-blur">
       {items.map(item => {
         const isActive = item.id === value
         return (

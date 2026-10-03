@@ -7,7 +7,12 @@ export type OrderMode = 'staff' | 'self'
 
 export interface InstallAccount { id: string; label: string; apple_id: string; note: string | null; is_active: boolean; apps_total: number; apps_active: number; created_at: string }
 export interface CatalogApp { id: string; account_id: string | null; store_id: number | null; bundle_id: string; name: string; title: string | null; icon_url: string | null; version: string | null; genre: string | null; category: string | null; is_bank: boolean; source: string; in_store: boolean | null; is_active: boolean; sort: number }
-export interface InstallsConfig { price: number; bulk_price: number; bulk_min: number; window_minutes: number; code_limit: number; storefront_enabled: boolean; payment_text: string; support_phone: string; support_telegram: string; staff_code_set: boolean }
+export interface InstallsConfig {
+  price: number; bulk_price: number; bulk_min: number; window_minutes: number; code_limit: number
+  storefront_enabled: boolean; requests_enabled: boolean; show_price: boolean; menu_link: boolean
+  page_title: string; page_subtitle: string
+  payment_text: string; support_phone: string; support_telegram: string; staff_code_set: boolean
+}
 export interface OrderApp { key: string; app_id?: string; bundle_id: string; store_id: number | null; name: string; icon_url: string | null; version: string | null; status: 'pending' | 'installed' }
 export interface OrderEvent { t: string; who: string; msg: string }
 export interface InstallOrder {
@@ -28,7 +33,11 @@ export interface PublicOrder {
   apple_id: string | null; code: PublicCodeState; payment_text: string; support_phone: string; support_telegram: string; rating: number | null
 }
 export interface PublicCatalogApp { id: string; name: string; bundle_id: string; icon_url: string | null; version: string | null; genre: string | null; category: string | null; is_bank: boolean }
-export interface PublicCatalog { enabled: boolean; staff_mode: boolean; price: number; bulk_price: number; bulk_min: number; window_minutes: number; support_phone: string; support_telegram: string; apps: PublicCatalogApp[] }
+export interface PublicCatalog { enabled: boolean; requests_enabled: boolean; staff_mode: boolean; show_price: boolean; page_title: string; page_subtitle: string; price: number; bulk_price: number; bulk_min: number; window_minutes: number; support_phone: string; support_telegram: string; apps: PublicCatalogApp[] }
+
+/** Тексты страницы /apps по умолчанию — если в настройках поля пустые. */
+export const APPS_DEFAULT_TITLE = 'Приложения, которых нет в App Store — обратно на ваш iPhone'
+export const APPS_DEFAULT_SUBTITLE = 'Банки, маркетплейсы и сервисы, пропавшие из магазина. Ставятся из App Store — без компьютера и без изменений в системе телефона.'
 
 /** Порядок групп каталога; остальные группы — после, по алфавиту. */
 export const CATEGORY_ORDER = ['Банки', 'Маркетплейсы', 'Транспорт', 'Сервисы', 'Связь', 'Госуслуги']
@@ -70,7 +79,8 @@ export function catalogVisible<T extends { bundle_id: string; account_id: string
 /** Настройки по умолчанию — как на сервере, пока их ни разу не сохраняли. */
 export const DEFAULT_INSTALLS_CONFIG: InstallsConfig = {
   price: 350, bulk_price: 300, bulk_min: 3, window_minutes: 60, code_limit: 3,
-  storefront_enabled: false, payment_text: '', support_phone: '', support_telegram: '', staff_code_set: false,
+  storefront_enabled: false, requests_enabled: true, show_price: true, menu_link: false, page_title: '', page_subtitle: '',
+  payment_text: '', support_phone: '', support_telegram: '', staff_code_set: false,
 }
 
 export const ORDER_STATUS: Record<OrderStatus, { label: string; dark: string; light: string }> = {

@@ -13,6 +13,8 @@ export interface PreorderSettings {
   preorder_section_enabled: boolean
   /** Предзаказные товары попадают и в общий список каталога, а не только в раздел */
   preorder_in_catalog: boolean
+  /** Пункт «Приложения» (/apps) в меню сайта — включается в разделе «Приложения на iPhone» → «Настройки» */
+  apps_menu_enabled?: boolean
 }
 
 const DEFAULT_SETTINGS: PreorderSettings = { preorder_section_enabled: true, preorder_in_catalog: false }
@@ -106,4 +108,15 @@ export function usePreorderState(): PreorderState {
 /** Есть ли что показывать — для пункта «Предзаказ» в меню */
 export function usePreorderAvailable(): boolean {
   return usePreorderState().visible
+}
+
+/** Показывать ли пункт «Приложения» в меню сайта (те же публичные настройки, один запрос на страницу). */
+export function useAppsMenuEnabled(): boolean {
+  const [enabled, setEnabled] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    fetchPreorderSettings().then(settings => { if (!cancelled) setEnabled(Boolean(settings.apps_menu_enabled)) })
+    return () => { cancelled = true }
+  }, [])
+  return enabled
 }

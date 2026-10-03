@@ -18,7 +18,7 @@ import {
   type MenuBrandGroup,
 } from '../lib/catalogMenu'
 import { API_BASE_URL } from '../lib/config'
-import { usePreorderAvailable } from '../lib/preorder'
+import { useAppsMenuEnabled, usePreorderAvailable } from '../lib/preorder'
 
 // Подсказка о медленной загрузке: замеряем реальную задержку до нашего сервера
 // и, если медленно (часто из-за VPN с дальним выходом), мягко предлагаем выключить VPN.
@@ -51,7 +51,7 @@ function SlowConnectionHint() {
   )
 }
 
-function NavItem({ to, label, onClick }: { to: string; label: string; onClick?: () => void }) {
+function NavItem({ to, label, onClick, className = '' }: { to: string; label: string; onClick?: () => void; className?: string }) {
   return (
     <NavLink
       to={to}
@@ -61,7 +61,7 @@ function NavItem({ to, label, onClick }: { to: string; label: string; onClick?: 
           isActive
             ? 'text-yellow-500'
             : 'text-gray-700 hover:text-yellow-500'
-        }`
+        } ${className}`
       }
     >
       {({ isActive }) => (
@@ -392,6 +392,7 @@ const legalDocumentPaths = ['/offer', '/privacy-policy', '/personal-data', '/coo
 
 function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const preorderAvailable = usePreorderAvailable()
+  const appsMenu = useAppsMenuEnabled()
   const [categories, setCategories] = useState<MenuCategory[]>([])
   const [groupsByCat, setGroupsByCat] = useState<Record<string, MenuBrandGroup[]>>({})
   const [drillCat, setDrillCat] = useState<MenuCategory | null>(null)
@@ -476,6 +477,7 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                 ...(preorderAvailable ? [{ to: '/preorder', label: 'Предзаказ новинок' }] : []),
                 { to: '/delivery', label: 'Доставка и оплата' },
                 { to: '/trade-in', label: 'Trade-in' },
+                ...(appsMenu ? [{ to: '/apps', label: 'Приложения на iPhone' }] : []),
                 { to: '/cart', label: 'Корзина' },
               ].map(item => (
                 <NavLink
@@ -711,6 +713,7 @@ function CookieConsent() {
 
 export function Shell({ children }: PropsWithChildren) {
   const preorderAvailable = usePreorderAvailable()
+  const appsMenu = useAppsMenuEnabled()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const { getItemCount } = useCart()
@@ -788,6 +791,8 @@ export function Shell({ children }: PropsWithChildren) {
               )}
               <NavItem to="/delivery" label="Доставка" />
               <NavItem to="/trade-in" label="Trade-in" />
+              {/* На ноутбуках 1024–1279 px лишний пункт сжимает поиск до иконки — там ссылка есть в подвале */}
+              {appsMenu && <NavItem to="/apps" label="Приложения" className="hidden xl:block" />}
               <NavItem to="/cart" label="Заявка" />
             </nav>
 
@@ -978,6 +983,7 @@ export function Shell({ children }: PropsWithChildren) {
                     { label: 'Гарантия', to: '/delivery#warranty' },
                     { label: 'Рассрочка', to: '/delivery#installment' },
                     { label: 'Trade-in', to: '/trade-in' },
+                    ...(appsMenu ? [{ label: 'Приложения на iPhone', to: '/apps' }] : []),
                     { label: 'Контакты', to: '/#contacts' },
                   ].map(item => (
                     <li key={item.to}>

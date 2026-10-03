@@ -3,7 +3,7 @@ import { toast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirm'
 import { resolveApp } from '../../lib/appCatalog'
 import {
-  ORDER_STATUS, catalogVisible, catalogWinners, categoriesOf, clock, errorText, orderPrice, orderUrl, rub,
+  APPS_DEFAULT_SUBTITLE, APPS_DEFAULT_TITLE, ORDER_STATUS, catalogVisible, catalogWinners, categoriesOf, clock, errorText, orderPrice, orderUrl, rub,
   type CatalogApp, type InstallAccount, type InstallOrder, type InstallsConfig, type OrderMode, type OrderStats,
 } from '../../lib/installs'
 import { AdminIcon } from './AdminIcons'
@@ -508,8 +508,8 @@ function maskEmail(email: string): string {
 
 const SOURCE_LABEL: Record<string, string> = { seed: 'стандартный набор', manual: 'добавлено вручную', import: 'из истории покупок' }
 
-export function CatalogTab({ api, accounts, catalog, config, reload, goCable }: {
-  api: Api; accounts: InstallAccount[]; catalog: CatalogApp[]; config: InstallsConfig; reload: () => Promise<void>; goCable: () => void
+export function CatalogTab({ api, accounts, catalog, reload, goSettings }: {
+  api: Api; accounts: InstallAccount[]; catalog: CatalogApp[]; reload: () => Promise<void>; goSettings: () => void
 }) {
   const activeIds = useMemo(() => new Set(accounts.filter(a => a.is_active).map(a => a.id)), [accounts])
   const accountsById = useMemo(() => new Map(accounts.map(a => [a.id, a])), [accounts])
@@ -577,8 +577,6 @@ export function CatalogTab({ api, accounts, catalog, config, reload, goCable }: 
 
   return (
     <div className="space-y-8" data-catalog-tab>
-      <Memo open={false} />
-
       <section data-pool>
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Каталог приложений</h3>
@@ -588,7 +586,7 @@ export function CatalogTab({ api, accounts, catalog, config, reload, goCable }: 
             <button type="button" disabled={busy !== null} onClick={checkStore} className={BTN_SECONDARY} data-check-store>{busy === 'check' ? 'Сверяем…' : 'Сверить с App Store'}</button>
           </span>
         </div>
-        <p className="mb-3 max-w-3xl text-sm text-slate-400">Это общий пул: его видят покупатели на странице /apps и вы во вкладке «Новый заказ». Скачать приложение получится, только если оно есть в истории покупок Apple ID салона — такие отмечены зелёным.</p>
+        <p className="mb-3 max-w-3xl text-sm text-slate-400">Это общий пул: его видят покупатели на странице /apps и вы во вкладке «Новый заказ». Скачать приложение получится, только если оно есть в истории покупок Apple ID салона — такие отмечены зелёным. Apple ID, пароль менеджера и страница /apps — во вкладке <button type="button" onClick={goSettings} className="text-yellow-300 underline decoration-dotted" data-go-settings>«Настройки»</button>.</p>
 
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <input value={q} onChange={e => { setQ(e.target.value); resetPaging() }} type="search" placeholder="Поиск по названию или bundle" className={`${INPUT} sm:max-w-xs`} data-catalog-search />
@@ -637,12 +635,6 @@ export function CatalogTab({ api, accounts, catalog, config, reload, goCable }: 
         {visible.length > shown && <div className="mt-2 text-center"><button type="button" onClick={() => setShown(n => n + PAGE)} className={BTN_SECONDARY}>Показать ещё {Math.min(PAGE, visible.length - shown)}</button></div>}
       </section>
 
-      <StaffCodeCard api={api} config={config} onSaved={reload} />
-
-      <AccountsSection api={api} accounts={accounts} catalog={catalog} reload={reload} goCable={goCable} />
-
-      <SettingsForm api={api} config={config} onSaved={reload} />
-
       {addAppOpen && <AddAppModal api={api} categories={categories} onClose={() => setAddAppOpen(false)} onAdded={async () => { setAddAppOpen(false); await reload() }} />}
       {editing && <EditAppModal api={api} app={editing} categories={categories} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await reload() }} onDelete={async () => { const app = editing; setEditing(null); await removeApp(app) }} />}
     </div>
@@ -668,7 +660,6 @@ function StaffCodeCard({ api, config, onSaved }: { api: Api; config: InstallsCon
   }
   return (
     <section data-staff-card data-set={config.staff_code_set ? '1' : '0'}>
-      <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-400">Режим сотрудника на сайте</h3>
       <div className={CARD}>
         <div className="flex flex-wrap items-start gap-4">
           <div className="min-w-0 flex-1 basis-72 text-sm text-slate-300">
@@ -741,9 +732,9 @@ function AccountsSection({ api, accounts, catalog, reload, goCable }: { api: Api
 
   return (
     <section data-accounts>
-      <div className="mb-2 flex items-center gap-2">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Apple ID салона</h3>
-        <button type="button" onClick={() => setAddOpen(true)} className={`${BTN_ROW} ml-auto`} data-add-account><span className="inline-flex items-center gap-1.5"><AdminIcon name="plus" className="h-4 w-4" />Добавить Apple ID</span></button>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <p className="min-w-0 flex-1 basis-72 text-sm text-slate-400">Аккаунт, с которого на самом деле скачиваются приложения: в его истории покупок должны быть банки и другие приложения из каталога.</p>
+        <button type="button" onClick={() => setAddOpen(true)} className={BTN_ROW} data-add-account><span className="inline-flex items-center gap-1.5"><AdminIcon name="plus" className="h-4 w-4" />Добавить Apple ID</span></button>
       </div>
       {accounts.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-400" data-no-accounts>
@@ -961,49 +952,165 @@ function AddAppModal({ api, categories, onClose, onAdded }: { api: Api; categori
   )
 }
 
-function SettingsForm({ api, config, onSaved }: { api: Api; config: InstallsConfig; onSaved: () => Promise<void> }) {
+const SETTINGS_SECTIONS = [
+  ['set-staff', 'Доступ менеджера', 'zap'],
+  ['set-page', 'Страница /apps', 'external'],
+  ['set-prices', 'Цены', 'ruble'],
+  ['set-install', 'Установка', 'clock'],
+  ['set-contacts', 'Контакты и оплата', 'users'],
+  ['set-accounts', 'Apple ID салона', 'layers'],
+  ['set-memo', 'Как это работает', 'alert'],
+] as const
+
+function SettingsBlock({ id, title, hint, children }: { id: string; title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <section id={id} className="scroll-mt-6" data-settings-block={id}>
+      <h3 className="text-base font-semibold text-white">{title}</h3>
+      {hint && <p className="mt-0.5 max-w-3xl text-sm text-slate-400">{hint}</p>}
+      <div className="mt-3">{children}</div>
+    </section>
+  )
+}
+
+const escapeHtml = (v: string) => v.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string))
+
+export function SettingsTab({ api, accounts, catalog, config, reload, goCable }: {
+  api: Api; accounts: InstallAccount[]; catalog: CatalogApp[]; config: InstallsConfig; reload: () => Promise<void>; goCable: () => void
+}) {
   const [draft, setDraft] = useState<InstallsConfig | null>(null)
   const [saving, setSaving] = useState(false)
+  const qrBox = useRef<HTMLDivElement>(null)
   const form = draft ?? config
   const setForm = (fn: (f: InstallsConfig) => InstallsConfig) => setDraft(fn(form))
+  const set = <K extends keyof InstallsConfig>(key: K, value: InstallsConfig[K]) => setForm(f => ({ ...f, [key]: value }))
   const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(config)
   const num = (key: 'price' | 'bulk_price' | 'bulk_min' | 'window_minutes' | 'code_limit') => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm(f => ({ ...f, [key]: Math.max(0, Math.floor(Number(e.target.value.replace(/\D/g, '')) || 0)) }))
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault()
+    set(key, Math.max(0, Math.floor(Number(e.target.value.replace(/\D/g, '')) || 0)))
+  const appsUrl = `${window.location.origin}/apps`
+
+  const save = async () => {
     setSaving(true)
     const ok = await call<InstallsConfig>(api, '/settings', { method: 'PUT', body: form })
     setSaving(false)
-    if (ok) { await onSaved(); setDraft(null); toast('Настройки сохранены', 'success') }
+    if (ok) { await reload(); setDraft(null); toast('Настройки сохранены', 'success') }
   }
+  const printQr = () => {
+    const svg = qrBox.current?.innerHTML || ''
+    const w = window.open('', '_blank', 'width=640,height=820')
+    if (!w) { toast('Браузер не дал открыть окно печати', 'error'); return }
+    const title = escapeHtml(form.page_title.trim() || 'Приложения на iPhone')
+    w.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${title}</title><style>
+      body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;text-align:center;padding:48px 32px;color:#111}
+      h1{font-size:30px;margin:0 0 8px}p{font-size:18px;margin:6px 0;color:#333}.qr svg{width:360px;height:360px;margin:28px auto}
+      .url{font-size:14px;color:#777}</style></head><body>
+      <h1>${title}</h1><p>Банки и сервисы, которых нет в App Store</p>
+      <div class="qr">${svg}</div><p>Наведите камеру iPhone — откроется каталог</p><p class="url">${escapeHtml(appsUrl)}</p>
+      <script>window.onload=function(){window.print()}</script></body></html>`)
+    w.document.close()
+  }
+
   const field = 'block text-sm text-slate-300'
+  const one = form.price, three = form.bulk_min <= 3 ? 3 * form.bulk_price : 3 * form.price
+
   return (
-    <section data-installs-settings>
-      <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-400">Цены и правила</h3>
-      <form onSubmit={submit} className={`${CARD} space-y-4`}>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <label className={field}>Цена за приложение, ₽<input value={form.price} onChange={num('price')} inputMode="numeric" className={`${INPUT} mt-1`} data-cfg="price" /></label>
-          <label className={field}>Цена от нескольких, ₽<input value={form.bulk_price} onChange={num('bulk_price')} inputMode="numeric" className={`${INPUT} mt-1`} data-cfg="bulk_price" /></label>
-          <label className={field}>Со скольких штук<input value={form.bulk_min} onChange={num('bulk_min')} inputMode="numeric" className={`${INPUT} mt-1`} data-cfg="bulk_min" /></label>
-          <label className={field}>Время на установку, мин<input value={form.window_minutes} onChange={num('window_minutes')} inputMode="numeric" className={`${INPUT} mt-1`} data-cfg="window_minutes" /></label>
-          <label className={field}>Запросов кода на заказ<input value={form.code_limit} onChange={num('code_limit')} inputMode="numeric" className={`${INPUT} mt-1`} data-cfg="code_limit" /></label>
+    <div className="grid gap-8 lg:grid-cols-[200px_1fr]" data-installs-settings>
+      <nav className="hidden lg:block" aria-label="Разделы настроек">
+        <ul className="sticky top-4 space-y-0.5">
+          {SETTINGS_SECTIONS.map(([id, label, icon]) => (
+            <li key={id}><a href={`#${id}`} className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-slate-400 transition hover:bg-white/[0.05] hover:text-white"><AdminIcon name={icon} className="h-4 w-4 shrink-0" />{label}</a></li>
+          ))}
+        </ul>
+      </nav>
+
+      <div className="min-w-0 space-y-10 pb-24">
+        <SettingsBlock id="set-staff" title="Доступ менеджера" hint="Пароль, по которому менеджер ставит приложения прямо со страницы /apps. У покупателей его нет.">
+          <StaffCodeCard api={api} config={config} onSaved={reload} />
+        </SettingsBlock>
+
+        <SettingsBlock id="set-page" title="Страница /apps" hint="Что видят покупатели на сайте.">
+          <div className="grid gap-4 xl:grid-cols-[1fr_260px]">
+            <div className={`${CARD} space-y-4`}>
+              <Toggle checked={form.storefront_enabled} onChange={v => set('storefront_enabled', v)} testId="cfg-storefront"
+                label="Показывать каталог на странице /apps"
+                hint="Выключено — посетитель видит описание услуги и «приходите в салон», а каталог открывается только менеджеру по паролю." />
+              <Toggle checked={form.requests_enabled} onChange={v => set('requests_enabled', v)} disabled={!form.storefront_enabled} testId="cfg-requests"
+                label="Принимать заявки с сайта"
+                hint={form.storefront_enabled ? 'Покупатель выбирает приложения и оставляет имя и телефон — заявка приходит во вкладку «Заказы». Выключите, чтобы каталог был только витриной.' : 'Сначала включите показ каталога.'} />
+              <Toggle checked={form.show_price} onChange={v => set('show_price', v)} testId="cfg-show-price"
+                label="Показывать цены" hint="Цена за приложение в шапке страницы и сумма при выборе." />
+              <Toggle checked={form.menu_link} onChange={v => set('menu_link', v)} testId="cfg-menu-link"
+                label="Пункт «Приложения» в меню сайта" hint="Ссылка на /apps появится в шапке (на экранах от 1280 px), в мобильном меню и в подвале." />
+              <label className={field}>Заголовок страницы
+                <input value={form.page_title} onChange={e => set('page_title', e.target.value)} maxLength={120} placeholder={APPS_DEFAULT_TITLE} className={`${INPUT} mt-1`} data-cfg="page_title" />
+              </label>
+              <label className={field}>Подзаголовок
+                <textarea value={form.page_subtitle} onChange={e => set('page_subtitle', e.target.value)} maxLength={300} rows={2} placeholder={APPS_DEFAULT_SUBTITLE} className={`${INPUT} mt-1`} data-cfg="page_subtitle" />
+              </label>
+              <p className="text-xs text-slate-500">Пустые поля — стандартный текст (он виден серым).</p>
+            </div>
+            <div className={`${CARD} flex flex-col items-center text-center`} data-apps-qr>
+              <div className={LABEL}>QR для стойки</div>
+              <div ref={qrBox} className="mt-3"><QrCode value={appsUrl} size={170} /></div>
+              <p className="mt-2 text-xs text-slate-500">Покупатель наводит камеру — открывается /apps.</p>
+              <div className="mt-3 flex flex-wrap justify-center gap-2">
+                <button type="button" onClick={printQr} className={BTN_ROW} data-print-qr>Распечатать</button>
+                <button type="button" onClick={() => copyText(appsUrl, 'Ссылка скопирована')} className={BTN_ROW}>Ссылка</button>
+                <a href="/apps" target="_blank" rel="noreferrer" className={BTN_ROW} data-open-apps>Открыть</a>
+              </div>
+            </div>
+          </div>
+        </SettingsBlock>
+
+        <SettingsBlock id="set-prices" title="Цены" hint="Цена за одно приложение и скидка, когда ставят сразу несколько.">
+          <div className={`${CARD} space-y-3`}>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className={field}>За приложение, ₽<input value={form.price} onChange={num('price')} inputMode="numeric" className={`${INPUT} mt-1`} data-cfg="price" /></label>
+              <label className={field}>От нескольких — за каждое, ₽<input value={form.bulk_price} onChange={num('bulk_price')} inputMode="numeric" className={`${INPUT} mt-1`} data-cfg="bulk_price" /></label>
+              <label className={field}>«Несколько» — это от, шт.<input value={form.bulk_min} onChange={num('bulk_min')} inputMode="numeric" className={`${INPUT} mt-1`} data-cfg="bulk_min" /></label>
+            </div>
+            <p className="text-sm text-slate-400" data-price-preview>Пример: 1 приложение — {rub(one)}, 3 приложения — {rub(three)}.</p>
+          </div>
+        </SettingsBlock>
+
+        <SettingsBlock id="set-install" title="Установка" hint="Правила для страницы заказа, по которой покупатель ставит приложения.">
+          <div className={`${CARD} grid gap-3 sm:grid-cols-2`}>
+            <label className={field}>Время на установку, мин<input value={form.window_minutes} onChange={num('window_minutes')} inputMode="numeric" className={`${INPUT} mt-1`} data-cfg="window_minutes" />
+              <span className="mt-1 block text-xs text-slate-500">Столько у покупателя после «Начать установку». Потом заказ закрывается, продлить можно из карточки.</span></label>
+            <label className={field}>Запросов кода на заказ<input value={form.code_limit} onChange={num('code_limit')} inputMode="numeric" className={`${INPUT} mt-1`} data-cfg="code_limit" />
+              <span className="mt-1 block text-xs text-slate-500">Сколько раз покупатель может нажать «Получить код». Счётчик сбрасывается в карточке заказа.</span></label>
+          </div>
+        </SettingsBlock>
+
+        <SettingsBlock id="set-contacts" title="Контакты и оплата" hint="Показываются покупателю на /apps и на странице заказа.">
+          <div className={`${CARD} space-y-3`}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className={field}>Телефон<input value={form.support_phone} onChange={e => set('support_phone', e.target.value)} maxLength={40} placeholder="+7 …" className={`${INPUT} mt-1`} data-cfg="support_phone" /></label>
+              <label className={field}>Telegram<input value={form.support_telegram} onChange={e => set('support_telegram', e.target.value)} maxLength={80} placeholder="@takesmart" className={`${INPUT} mt-1`} data-cfg="support_telegram" /></label>
+            </div>
+            <label className={field}>Как оплатить заявку с сайта
+              <textarea value={form.payment_text} onChange={e => set('payment_text', e.target.value)} maxLength={600} rows={2} placeholder="Например: переводом по номеру +7 … (СБП), в комментарии укажите номер заказа" className={`${INPUT} mt-1`} data-cfg="payment_text" />
+            </label>
+          </div>
+        </SettingsBlock>
+
+        <SettingsBlock id="set-accounts" title="Apple ID салона">
+          <AccountsSection api={api} accounts={accounts} catalog={catalog} reload={reload} goCable={goCable} />
+        </SettingsBlock>
+
+        <SettingsBlock id="set-memo" title="Как это работает">
+          <Memo open={false} />
+        </SettingsBlock>
+      </div>
+
+      {dirty && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-slate-950/95 px-4 py-3 backdrop-blur lg:left-auto lg:right-6 lg:bottom-6 lg:w-auto lg:rounded-2xl lg:border" data-settings-bar>
+          <div className="mx-auto flex max-w-xl items-center gap-3">
+            <span className="text-sm text-yellow-200">Есть несохранённые изменения</span>
+            <button type="button" onClick={() => setDraft(null)} disabled={saving} className={`${BTN_ROW} ml-auto`} data-cfg-reset>Отменить</button>
+            <button type="button" onClick={save} disabled={saving} className={BTN_PRIMARY} data-cfg-save>{saving ? 'Сохраняем…' : 'Сохранить'}</button>
+          </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className={field}>Телефон для покупателя<input value={form.support_phone} onChange={e => setForm(f => ({ ...f, support_phone: e.target.value }))} maxLength={40} placeholder="+7 …" className={`${INPUT} mt-1`} data-cfg="support_phone" /></label>
-          <label className={field}>Telegram для покупателя<input value={form.support_telegram} onChange={e => setForm(f => ({ ...f, support_telegram: e.target.value }))} maxLength={80} placeholder="@takesmart" className={`${INPUT} mt-1`} data-cfg="support_telegram" /></label>
-        </div>
-        <label className={field}>Как оплатить заявку с сайта
-          <textarea value={form.payment_text} onChange={e => setForm(f => ({ ...f, payment_text: e.target.value }))} maxLength={600} rows={2} placeholder="Например: переводом по номеру +7 … (СБП), в комментарии укажите номер заказа" className={`${INPUT} mt-1`} data-cfg="payment_text" />
-        </label>
-        <Toggle checked={form.storefront_enabled} onChange={v => setForm(f => ({ ...f, storefront_enabled: v }))} testId="cfg-storefront"
-          label="Показывать каталог на странице /apps"
-          hint="Включено — покупатели видят все приложения и могут оставить заявку. Выключено — страница предлагает прийти в салон, а каталог виден только менеджеру после ввода пароля (блок «Режим сотрудника» выше)." />
-        <a href="/apps" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-yellow-300 underline decoration-dotted" data-open-apps><AdminIcon name="external" className="h-4 w-4" />Открыть страницу /apps</a>
-        <div className="flex items-center justify-end gap-3">
-          {dirty && <span className="text-xs text-yellow-300">Есть несохранённые изменения</span>}
-          <button type="submit" disabled={saving || !dirty} className={BTN_PRIMARY} data-cfg-save>{saving ? 'Сохраняем…' : 'Сохранить'}</button>
-        </div>
-      </form>
-    </section>
+      )}
+    </div>
   )
 }

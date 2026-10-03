@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Container } from '../components/ui/Layout'
 import { resolveApp } from '../lib/appCatalog'
-import { orderPrice, publicInstalls, rub, type PublicCatalog, type PublicCatalogApp } from '../lib/installs'
+import { APPS_DEFAULT_SUBTITLE, APPS_DEFAULT_TITLE, orderPrice, publicInstalls, rub, type PublicCatalog, type PublicCatalogApp } from '../lib/installs'
 
 // Витрина услуги «Приложения на iPhone»: /apps.
 // Обычный посетитель выбирает приложения и оставляет заявку (если приём с сайта включён).
@@ -134,22 +134,31 @@ export function AppsPage() {
 
   const tg = (catalog?.support_telegram || '').trim().replace(/^@/, '').replace(/^https?:\/\/t\.me\//, '')
   const supportPhone = (catalog?.support_phone || '').trim()
-  const canOrder = Boolean(catalog?.enabled)
+  // Показ каталога покупателям и приём заявок настраиваются в админке отдельно
+  const showToVisitors = Boolean(catalog?.enabled)
+  const canOrder = Boolean(catalog?.requests_enabled)
+  const showPrice = catalog ? catalog.show_price : true
   const hasCatalog = apps.length > 0
   const canUseStaff = Boolean(catalog?.staff_mode)
   // Показ каталога выключен в админке — обычный посетитель видит только «приходите в салон»,
   // менеджер — каталог после ввода пароля
-  const showCatalog = hasCatalog && (canOrder || staffMode)
+  const showCatalog = hasCatalog && (showToVisitors || staffMode)
 
   return (
-    <div className="bg-white" data-apps-page data-enabled={catalog ? (canOrder ? '1' : '0') : undefined} data-staff={staffMode ? '1' : '0'}>
+    <div className="bg-white" data-apps-page data-enabled={catalog ? (showToVisitors ? '1' : '0') : undefined} data-requests={canOrder ? '1' : '0'} data-staff={staffMode ? '1' : '0'}>
       <section className="relative overflow-hidden bg-gray-900 text-white">
         <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-yellow-400/20 blur-3xl" />
         <Container size="md" className="relative py-12 sm:py-16">
           <p className="text-sm font-semibold uppercase tracking-wider text-yellow-400">Услуга TakeSmart</p>
-          <h1 className="mt-2 max-w-3xl text-3xl font-bold leading-tight sm:text-5xl">Приложения, которых нет в App Store — обратно на ваш iPhone</h1>
-          <p className="mt-4 max-w-2xl text-lg text-gray-300">Банки, маркетплейсы и сервисы, пропавшие из магазина. Ставятся из App Store — без компьютера и без изменений в системе телефона.</p>
-          {catalog && (
+          {!catalog && !failed ? (
+            <div aria-hidden="true"><div className="mt-3 h-10 max-w-2xl animate-pulse rounded-xl bg-white/10 sm:h-14" /><div className="mt-5 h-5 max-w-xl animate-pulse rounded bg-white/10" /></div>
+          ) : (
+            <>
+              <h1 className="mt-2 max-w-3xl text-3xl font-bold leading-tight sm:text-5xl" data-apps-title>{catalog?.page_title || APPS_DEFAULT_TITLE}</h1>
+              <p className="mt-4 max-w-2xl whitespace-pre-line text-lg text-gray-300" data-apps-subtitle>{catalog?.page_subtitle || APPS_DEFAULT_SUBTITLE}</p>
+            </>
+          )}
+          {catalog && showPrice && (
             <p className="mt-6 inline-flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-2xl bg-white/10 px-5 py-3">
               <span className="text-3xl font-bold text-yellow-400">{rub(catalog.price)}</span><span className="text-gray-300">за приложение</span>
               {catalog.bulk_price < catalog.price && <span className="text-gray-400">· от {catalog.bulk_min} шт. — по {rub(catalog.bulk_price)}</span>}
@@ -206,7 +215,7 @@ export function AppsPage() {
             <div id="order" className="scroll-mt-24">
               <div className="rounded-3xl border border-gray-200 p-5 lg:sticky lg:top-24">
                 <SummaryBody
-                  chosen={chosen} total={total} canOrder={canOrder} staffMode={staffMode} sending={sending} error={error}
+                  chosen={chosen} total={total} showPrice={showPrice} canOrder={canOrder} staffMode={staffMode} sending={sending} error={error}
                   name={name} setName={setName} phone={phone} setPhone={setPhone} consent={consent} setConsent={setConsent}
                   onToggle={toggle} onRequest={submitRequest} onStaffInstall={staffInstall}
                   canRequest={chosen.length > 0 && name.trim().length >= 2 && digits.length >= 10 && consent} />
@@ -260,12 +269,14 @@ export function AppsPage() {
         <div className="sticky bottom-0 z-20 border-t border-gray-200 bg-white/95 p-3 backdrop-blur lg:hidden" data-apps-bar>
           {/* справа место под круглую кнопку Telegram сайта — иначе она закрывает «Установить» */}
           <div className="mx-auto flex max-w-md items-center gap-3 pr-16">
-            <div className="min-w-0 flex-1"><div className="text-xs text-gray-500">{chosen.length} выбрано</div><div className="text-lg font-bold text-gray-900">{rub(total)}</div></div>
+            <div className="min-w-0 flex-1"><div className="text-xs text-gray-500">{chosen.length} выбрано</div>{showPrice && <div className="text-lg font-bold text-gray-900">{rub(total)}</div>}</div>
             {staffMode
               ? <button type="button" onClick={staffInstall} disabled={sending} className="rounded-2xl bg-gray-900 px-5 py-3 font-semibold text-white disabled:opacity-50" data-mobile-install>{sending ? '…' : 'Установить'}</button>
               : canOrder
                 ? <a href="#order" className="rounded-2xl bg-yellow-400 px-5 py-3 font-semibold text-gray-900">Оформить</a>
-                : <button type="button" onClick={() => setAskStaff(true)} className="rounded-2xl bg-gray-100 px-5 py-3 font-semibold text-gray-900">Я сотрудник</button>}
+                : supportPhone
+                  ? <a href={`tel:${supportPhone.replace(/[^\d+]/g, '')}`} className="rounded-2xl bg-yellow-400 px-5 py-3 font-semibold text-gray-900">Позвонить</a>
+                  : null}
           </div>
         </div>
       )}
@@ -275,8 +286,8 @@ export function AppsPage() {
   )
 }
 
-function SummaryBody({ chosen, total, canOrder, staffMode, sending, error, name, setName, phone, setPhone, consent, setConsent, onToggle, onRequest, onStaffInstall, canRequest }: {
-  chosen: PublicCatalogApp[]; total: number; canOrder: boolean; staffMode: boolean; sending: boolean; error: string | null
+function SummaryBody({ chosen, total, showPrice, canOrder, staffMode, sending, error, name, setName, phone, setPhone, consent, setConsent, onToggle, onRequest, onStaffInstall, canRequest }: {
+  chosen: PublicCatalogApp[]; total: number; showPrice: boolean; canOrder: boolean; staffMode: boolean; sending: boolean; error: string | null
   name: string; setName: (v: string) => void; phone: string; setPhone: (v: string) => void; consent: boolean; setConsent: (v: boolean) => void
   onToggle: (id: string) => void; onRequest: (e: React.FormEvent) => void; onStaffInstall: () => void; canRequest: boolean
 }) {
@@ -297,7 +308,7 @@ function SummaryBody({ chosen, total, canOrder, staffMode, sending, error, name,
           })}
         </ul>
       )}
-      <div className="mt-3 flex items-baseline justify-between border-t border-gray-100 pt-3"><span className="text-gray-500">Итого</span><span className="text-2xl font-bold text-gray-900" data-apps-total>{rub(total)}</span></div>
+      {showPrice && <div className="mt-3 flex items-baseline justify-between border-t border-gray-100 pt-3"><span className="text-gray-500">Итого</span><span className="text-2xl font-bold text-gray-900" data-apps-total>{rub(total)}</span></div>}
 
       {staffMode ? (
         <>
@@ -318,7 +329,7 @@ function SummaryBody({ chosen, total, canOrder, staffMode, sending, error, name,
           <p className="mt-2 text-xs text-gray-500">Менеджер свяжется с вами, подтвердит оплату и поможет с установкой.</p>
         </form>
       ) : (
-        <p className="mt-3 text-sm text-gray-600">Эти приложения ставят в салоне TakeSmart. Выберите нужное и приходите — или позвоните нам.</p>
+        <p className="mt-3 text-sm text-gray-600" data-apps-no-requests>Эти приложения ставят в салоне TakeSmart. Отметьте нужное и приходите — или позвоните нам, подскажем.</p>
       )}
       {error && <p role="alert" className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
     </div>
