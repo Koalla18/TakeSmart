@@ -143,7 +143,8 @@ export function InstallsSection({ authFetch }: { authFetch: AuthFetch }) {
   const go = useCallback((v: View) => patchParams({ view: v, order: null }), [patchParams])
   const openOrder = useCallback((id: string | null) => patchParams({ view: 'orders', order: id }), [patchParams])
 
-  const openCount = (orders || []).filter(o => o.status === 'new' || o.status === 'ready' || o.status === 'active').length
+  // Установки на свой iPhone — не работа с покупателями: в счётчик вкладки не идут
+  const openCount = (orders || []).filter(o => o.source !== 'own' && (o.status === 'new' || o.status === 'ready' || o.status === 'active')).length
   const needAttention = (orders || []).some(o => o.code_waiting || o.status === 'new')
 
   return (
@@ -171,7 +172,7 @@ export function InstallsSection({ authFetch }: { authFetch: AuthFetch }) {
       ) : accounts === null || config === null ? (
         <div className={`${CARD} flex items-center gap-3 text-slate-300`}><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-yellow-400" />Загружаем раздел…</div>
       ) : view === 'new' ? (
-        <NewOrderTab api={api} accounts={accounts} catalog={catalog} config={config} goCatalog={() => go('catalog')}
+        <NewOrderTab api={api} accounts={accounts} catalog={catalog} config={config} goCatalog={() => go('catalog')} goSettings={() => go('settings')}
           onCreated={order => { loadOrders(); openOrder(order.id) }} />
       ) : view === 'orders' ? (
         <OrdersTab orders={orders} stats={stats} onOpen={openOrder} goNew={() => go('new')} />

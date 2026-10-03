@@ -303,6 +303,11 @@ function ActiveSteps({ order, token, step, setStep, busy, run, elapsed, installe
         <p className="text-sm text-gray-500">Раздел может называться «Медиа и покупки».</p>
         <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-[15px] text-emerald-900">Из iCloud выходить не нужно. Фото, контакты, пароли и «Локатор» остаются как были.</p>
         <button type="button" onClick={() => next(2)} className={BTN_MAIN} data-next="2">Вышел, дальше</button>
+        {order.apple_id && (
+          <button type="button" onClick={() => next(3)} className="w-full text-center text-sm text-gray-500 underline decoration-dotted" data-skip-login>
+            В «Контент и покупки» уже введён {order.apple_id}? Сразу к скачиванию
+          </button>
+        )}
       </StepCard>
 
       <StepCard n={2} title="Войдите в аккаунт TakeSmart" current={step} total={TOTAL} onOpen={setStep}>

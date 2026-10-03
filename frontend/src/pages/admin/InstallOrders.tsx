@@ -9,7 +9,7 @@ import {
 import { AdminIcon } from './AdminIcons'
 import { BTN_PRIMARY, BTN_SECONDARY } from './AdminShell'
 import { pluralRu, timeAgo } from './format'
-import { AppIcon, BTN_ROW, CARD, INPUT, LABEL, Modal, QrCode, Toggle } from './installsUi'
+import { AppIcon, BTN_ROW, CARD, INPUT, LABEL, Modal, PhoneGlyph, QrCode, Toggle } from './installsUi'
 import { call, copyText, type Api } from './installsApi'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -23,6 +23,11 @@ import { call, copyText, type Api } from './installsApi'
 
 const MODE_LABEL: Record<OrderMode, string> = { staff: 'В салоне', self: 'Удалённо' }
 const appsWord = (n: number) => pluralRu(n, 'приложение', 'приложения', 'приложений')
+/** Страница открыта на iPhone — тогда «Поставить на этот iPhone» ведёт прямо к шагам, а не к QR. */
+const ON_IPHONE = typeof navigator !== 'undefined' && /iPhone|iPod/.test(navigator.userAgent)
+/** Кто в заказе: покупатель или установка на свой iPhone. */
+const whoOf = (o: Pick<InstallOrder, 'source' | 'customer_name' | 'customer_phone'>) =>
+  o.source === 'own' ? 'Свой iPhone' : [o.customer_name, o.customer_phone].filter(Boolean).join(' · ') || 'без имени'
 const viewOf = (a: { name: string; title?: string | null; bundle_id: string; icon_url?: string | null; genre?: string | null }) =>
   resolveApp({ name: a.title || a.name, bundle_id: a.bundle_id, icon: a.icon_url, genre: a.genre })
 
@@ -52,9 +57,9 @@ function useNow(): number {
 // Новый заказ
 // ═════════════════════════════════════════════════════════════════════════════
 
-export function NewOrderTab({ api, accounts, catalog, config, onCreated, goCatalog }: {
+export function NewOrderTab({ api, accounts, catalog, config, onCreated, goCatalog, goSettings }: {
   api: Api; accounts: InstallAccount[]; catalog: CatalogApp[]; config: InstallsConfig
-  onCreated: (order: InstallOrder) => void; goCatalog: () => void
+  onCreated: (order: InstallOrder) => void; goCatalog: () => void; goSettings: () => void
 }) {
   const activeAccounts = useMemo(() => accounts.filter(a => a.is_active), [accounts])
   const [accountId, setAccountId] = useState<string | null>(null)
@@ -69,6 +74,7 @@ export function NewOrderTab({ api, accounts, catalog, config, onCreated, goCatal
   const [paid, setPaid] = useState(true)
   const [priceText, setPriceText] = useState('')
   const [saving, setSaving] = useState(false)
+  const [ownSaving, setOwnSaving] = useState(false)
 
   // Весь каталог: общий пул + приложения аккаунтов (одно приложение — одна плитка)
   const activeIds = useMemo(() => new Set(activeAccounts.map(a => a.id)), [activeAccounts])
@@ -105,6 +111,22 @@ export function NewOrderTab({ api, accounts, catalog, config, onCreated, goCatal
     toast(`Заказ №${order.number} оформлен`, 'success')
     onCreated(order)
   }
+
+  // Поставить на свой iPhone: без покупателя и оплаты. На iPhone сразу открываем шаги, на компьютере — карточку с QR.
+  const installOwn = async () => {
+    if (!chosen.length || ownSaving || saving) return
+    setOwnSaving(true)
+    const order = await call<InstallOrder>(api, '/orders', {
+      method: 'POST', body: { app_ids: chosen.map(a => a.c.id), for_self: true, ...(account ? { account_id: account.id } : {}) },
+    })
+    if (!order) { setOwnSaving(false); return }
+    if (ON_IPHONE) { window.location.assign(`/i/${order.token}`); return }
+    setOwnSaving(false)
+    setPicked([]); setQ('')
+    onCreated(order)
+  }
+  const needAccount = activeAccounts.length === 0
+  const needPick = !account && activeAccounts.length > 1
 
   if (!apps.length) {
     return (
@@ -178,6 +200,20 @@ export function NewOrderTab({ api, accounts, catalog, config, onCreated, goCatal
           <span className="text-sm text-slate-400">{chosen.length ? `${chosen.length} × ${rub(chosen.length >= config.bulk_min ? config.bulk_price : config.price)}` : 'Итого'}</span>
           <span className="text-2xl font-bold tabular-nums text-white" data-order-total>{rub(total)}</span>
         </div>
+        <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-3" data-own-install>
+          <button type="button" onClick={installOwn} disabled={!chosen.length || ownSaving || saving || needAccount || needPick}
+            className={`${BTN_SECONDARY} w-full justify-center`} data-install-own>
+            <PhoneGlyph className="h-4 w-4" />{ownSaving ? 'Открываем…' : ON_IPHONE ? 'Поставить на этот iPhone' : 'Поставить на свой iPhone'}
+          </button>
+          <p className="mt-1.5 text-xs text-slate-500">
+            {needAccount
+              ? <>Сначала добавьте Apple ID салона — <button type="button" onClick={goSettings} className="text-yellow-300 underline decoration-dotted" data-own-go-settings>в «Настройках»</button>.</>
+              : needPick ? 'Выберите вверху, каким Apple ID салона ставить.'
+                : !chosen.length ? 'Отметьте приложения — и поставьте их себе: без покупателя и оплаты.'
+                  : ON_IPHONE ? 'Без покупателя и оплаты: сразу откроется страница с шагами.'
+                    : 'Без покупателя и оплаты: покажем QR — наведите на него камеру своего iPhone.'}
+          </p>
+        </div>
         <div className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-white/[0.04] p-1">
           {(['staff', 'self'] as const).map(m => (
             <button key={m} type="button" onClick={() => setMode(m)} aria-pressed={mode === m} data-mode={m}
@@ -202,7 +238,7 @@ export function NewOrderTab({ api, accounts, catalog, config, onCreated, goCatal
           ? <p className="mt-2 text-xs text-slate-500">Apple ID салона: {account.label} · {account.apple_id}</p>
           : activeAccounts.length > 1
             ? <p className="mt-2 text-xs text-yellow-200">Выберите вверху, каким Apple ID салона ставить.</p>
-            : <p className="mt-2 text-xs text-yellow-200" data-no-account>Apple ID салона не добавлен: заказ сохранится, а установка заработает, когда вы добавите его во вкладке «Каталог».</p>}
+            : <p className="mt-2 text-xs text-yellow-200" data-no-account>Apple ID салона не добавлен: заказ сохранится, а установка заработает, когда вы добавите его во вкладке <button type="button" onClick={goSettings} className="underline decoration-dotted">«Настройки»</button>.</p>}
       </div>
     </form>
   )
@@ -272,7 +308,7 @@ export function OrdersTab({ orders, stats, onOpen, goNew }: {
                   </span>
                   <span className="min-w-0 flex-1 basis-40">
                     <span className="block truncate text-sm text-white">{o.apps.map(a => a.name).join(', ')}</span>
-                    <span className="block truncate text-xs text-slate-500">{[o.customer_name, o.customer_phone].filter(Boolean).join(' · ') || 'без имени'} · {MODE_LABEL[o.mode]}{o.source === 'site' ? ' · с сайта' : ''} · {timeAgo(o.created_at)}</span>
+                    <span className="block truncate text-xs text-slate-500">{whoOf(o)}{o.source === 'own' ? '' : ` · ${MODE_LABEL[o.mode]}`}{o.source === 'site' ? ' · с сайта' : ''} · {timeAgo(o.created_at)}</span>
                   </span>
                   <span className="flex shrink-0 flex-wrap items-center gap-1.5">
                     {o.code_waiting && <span className="inline-flex items-center gap-1.5 rounded-full bg-yellow-400 px-2 py-0.5 text-xs font-semibold text-slate-950" data-code-waiting><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-950" />Ждёт код</span>}
@@ -280,7 +316,7 @@ export function OrdersTab({ orders, stats, onOpen, goNew }: {
                     {o.status === 'active' && o.seconds_left !== null && <span className="text-xs tabular-nums text-slate-400">{clock(o.seconds_left)}</span>}
                   </span>
                   <span className="w-24 shrink-0 text-right">
-                    <span className="block text-sm font-semibold tabular-nums text-white">{rub(o.price)}</span>
+                    <span className="block text-sm font-semibold tabular-nums text-white">{o.source === 'own' ? 'без оплаты' : rub(o.price)}</span>
                     <span className={`block text-xs ${o.paid_at ? 'text-slate-500' : 'text-yellow-300'}`}>{o.paid_at ? `${done} из ${o.apps.length}` : 'не оплачен'}</span>
                   </span>
                 </button>
@@ -378,9 +414,13 @@ export function OrderCard({ api, orderId, onClose, onCable, onChanged }: {
         <div className="flex flex-wrap items-center gap-2 text-sm text-slate-300">
           <StatusBadge order={order} />
           {order.status === 'active' && left !== null && <span className={`rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${left < 300 ? 'bg-red-500/15 text-red-300' : 'bg-white/10 text-slate-300'}`} data-order-timer>осталось {clock(left)}</span>}
-          <span className="font-semibold text-white">{rub(order.price)}</span>
-          <span className={order.paid_at ? 'text-emerald-300' : 'text-yellow-300'}>{order.paid_at ? 'оплачен' : 'не оплачен'}</span>
-          <span className="text-slate-500">· {[order.customer_name, order.customer_phone].filter(Boolean).join(' · ') || 'без имени'}</span>
+          {order.source === 'own'
+            ? <span className="font-semibold text-white" data-own-order>Свой iPhone · без оплаты</span>
+            : <>
+              <span className="font-semibold text-white">{rub(order.price)}</span>
+              <span className={order.paid_at ? 'text-emerald-300' : 'text-yellow-300'}>{order.paid_at ? 'оплачен' : 'не оплачен'}</span>
+              <span className="text-slate-500">· {whoOf(order)}</span>
+            </>}
           <span className="text-slate-500">· {order.source === 'site' ? 'заявка с сайта' : `оформил ${order.created_by || 'сотрудник'}`} {timeAgo(order.created_at)}</span>
         </div>
         {order.note && <p className="mt-1 text-sm text-slate-400">Пометка: {order.note}</p>}
@@ -388,23 +428,25 @@ export function OrderCard({ api, orderId, onClose, onCable, onChanged }: {
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div className="space-y-4">
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-              <div className={LABEL}>Страница заказа для покупателя</div>
+              <div className={LABEL}>{order.source === 'own' ? 'Страница установки' : 'Страница заказа для покупателя'}</div>
               <div className="mt-3 flex items-start gap-4">
                 <QrCode value={url} size={132} />
                 <div className="min-w-0 text-sm text-slate-300">
-                  Наведите камеру iPhone покупателя на код — в Safari откроется страница с шагами и списком приложений.
+                  {order.source === 'own'
+                    ? 'Наведите камеру своего iPhone на код — в Safari откроется страница с шагами и списком приложений.'
+                    : 'Наведите камеру iPhone покупателя на код — в Safari откроется страница с шагами и списком приложений.'}
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button type="button" onClick={() => copyText(url, 'Ссылка скопирована')} className={BTN_ROW} data-copy-link>Скопировать ссылку</button>
                     <a href={url} target="_blank" rel="noreferrer" className={BTN_ROW}>Открыть</a>
                   </div>
                 </div>
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-white/[0.04] p-1">
+              {order.source !== 'own' && <div className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-white/[0.04] p-1">
                 {(['staff', 'self'] as const).map(m => (
                   <button key={m} type="button" disabled={!open} onClick={() => order.mode !== m && act('set_mode', { mode: m })} aria-pressed={order.mode === m}
                     className={`rounded-lg px-2 py-1.5 text-sm font-medium transition disabled:opacity-50 ${order.mode === m ? 'bg-white/[0.12] text-white' : 'text-slate-400 hover:text-slate-200'}`}>{MODE_LABEL[m]}</button>
                 ))}
-              </div>
+              </div>}
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">

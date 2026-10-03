@@ -17,7 +17,7 @@ export interface OrderApp { key: string; app_id?: string; bundle_id: string; sto
 export interface OrderEvent { t: string; who: string; msg: string }
 export interface InstallOrder {
   id: string; number: number; token: string; account_id: string | null; account_label: string | null; apple_id: string | null
-  status: OrderStatus; mode: OrderMode; source: 'admin' | 'site'; apps: OrderApp[]; price: number
+  status: OrderStatus; mode: OrderMode; source: 'admin' | 'site' | 'own'; apps: OrderApp[]; price: number
   customer_name: string | null; customer_phone: string | null; note: string | null; created_by: string | null
   created_at: string; paid_at: string | null; started_at: string | null; expires_at: string | null; finished_at: string | null
   seconds_left: number | null; code_requests: number; code_limit: number; code_requested_at: string | null
