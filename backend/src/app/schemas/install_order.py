@@ -168,12 +168,22 @@ class InstallsConfig(BaseModel):
     bulk_min: int = Field(3, ge=2, le=50)
     window_minutes: int = Field(60, ge=10, le=24 * 60)
     code_limit: int = Field(3, ge=1, le=20)
-    storefront_enabled: bool = False
+    storefront_enabled: bool = False      # показывать каталог на /apps покупателям
+    requests_enabled: bool = True         # принимать с /apps заявки (если каталог показан)
+    show_price: bool = True               # показывать цены на /apps
+    menu_link: bool = False               # пункт «Приложения» в меню сайта
+    page_title: str = Field("", max_length=120)     # пусто — стандартный заголовок
+    page_subtitle: str = Field("", max_length=300)  # пусто — стандартный подзаголовок
     payment_text: str = Field("", max_length=600)
     support_phone: str = Field("", max_length=40)
     support_telegram: str = Field("", max_length=80)
     # Только для чтения: задан ли пароль менеджера (сам хэш наружу не отдаётся)
     staff_code_set: bool = False
+
+    @field_validator("page_title", "page_subtitle", "payment_text", "support_phone", "support_telegram", mode="before")
+    @classmethod
+    def _strip_text(cls, v: Any) -> Any:
+        return v.strip() if isinstance(v, str) else v
 
 
 class StaffCodeIn(BaseModel):
@@ -329,8 +339,12 @@ class PublicCatalogApp(BaseModel):
 
 
 class PublicCatalogOut(BaseModel):
-    enabled: bool               # витрина (приём заявок с сайта) включена
+    enabled: bool               # каталог на /apps показывается покупателям
+    requests_enabled: bool      # с /apps принимаются заявки
     staff_mode: bool            # задан пароль менеджера → доступен режим установки
+    show_price: bool
+    page_title: str
+    page_subtitle: str
     price: int
     bulk_price: int
     bulk_min: int

@@ -22,6 +22,9 @@ class PublicSettingsOut(BaseModel):
             "Предзаказные товары попадают всегда."
         ),
     )
+    apps_menu_enabled: bool = Field(
+        False, description="Показывать пункт «Приложения» (страница /apps) в меню сайта — включается в разделе «Приложения на iPhone»"
+    )
 
 
 class SettingUpdateIn(BaseModel):

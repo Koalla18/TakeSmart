@@ -21,6 +21,10 @@ PUBLIC_KEYS: dict[str, type] = {
 
 def _public(values: dict) -> PublicSettingsOut:
     known = {k: v for k, v in values.items() if k in PUBLIC_KEYS and isinstance(v, PUBLIC_KEYS[k])}
+    # Пункт меню «Приложения» настраивается в разделе «Приложения на iPhone» (installs_config)
+    installs = values.get("installs_config")
+    if isinstance(installs, dict) and installs.get("menu_link") is True:
+        known["apps_menu_enabled"] = True
     return PublicSettingsOut(**known)
 
 

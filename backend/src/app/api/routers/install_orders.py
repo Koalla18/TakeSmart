@@ -790,7 +790,9 @@ async def public_catalog() -> PublicCatalogOut:
         return PublicCatalogApp(id=a.id, name=a.title or a.name, bundle_id=a.bundle_id, icon_url=icon,
                                 version=a.version, genre=a.genre, category=category, is_bank=is_bank)
     return PublicCatalogOut(
-        enabled=cfg.storefront_enabled, staff_mode=cfg.staff_code_set, price=cfg.price, bulk_price=cfg.bulk_price,
+        enabled=cfg.storefront_enabled, requests_enabled=cfg.storefront_enabled and cfg.requests_enabled,
+        staff_mode=cfg.staff_code_set, show_price=cfg.show_price, page_title=cfg.page_title, page_subtitle=cfg.page_subtitle,
+        price=cfg.price, bulk_price=cfg.bulk_price,
         bulk_min=cfg.bulk_min, window_minutes=cfg.window_minutes, support_phone=cfg.support_phone,
         support_telegram=cfg.support_telegram,
         apps=[_out(a) for a in apps],
@@ -807,7 +809,7 @@ async def public_create_order(body: PublicOrderCreateIn, request: Request, backg
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Слишком много заявок с этого адреса. Попробуйте позже или позвоните нам.")
     async with UnitOfWork() as uow:
         cfg = await _config(uow)
-        if not cfg.storefront_enabled:
+        if not (cfg.storefront_enabled and cfg.requests_enabled):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Заказ через сайт сейчас не принимается — приходите в салон")
         apps, account = await _pick_apps(uow, body.app_ids, public=True)
         order = await uow.install_orders.create(
