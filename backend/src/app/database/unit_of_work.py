@@ -19,6 +19,9 @@ from src.app.database.repositories.brand_repository import BrandRepository
 from src.app.database.repositories.trade_in_offer_repository import TradeInOfferRepository
 from src.app.database.repositories.site_setting_repository import SiteSettingRepository
 from src.app.database.repositories.iphone_install_repository import InstallStationRepository, InstallJobRepository
+from src.app.database.repositories.install_order_repository import (
+    InstallAccountRepository, InstallAppRepository, InstallOrderRepository,
+)
 
 
 class UnitOfWork:
@@ -68,6 +71,9 @@ class UnitOfWork:
         self.site_settings = SiteSettingRepository(self._session)
         self.install_stations = InstallStationRepository(self._session)
         self.install_jobs = InstallJobRepository(self._session)
+        self.install_accounts = InstallAccountRepository(self._session)
+        self.install_apps = InstallAppRepository(self._session)
+        self.install_orders = InstallOrderRepository(self._session)
 
     async def commit(self) -> None:
         """Зафиксировать все изменения транзакции."""

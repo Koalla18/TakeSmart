@@ -13,11 +13,13 @@ from src.app.api.routers.brands import router as brands_router
 from src.app.api.routers.trade_in import router as trade_in_router
 from src.app.api.routers.site_settings import router as site_settings_router
 from src.app.api.routers.installs import router as installs_router
+from src.app.api.routers.install_orders import router as install_orders_router
 from src.app.api.admin.endpoints import router as admin_router
 
 __all__ = [
     "site_settings_router",
     "installs_router",
+    "install_orders_router",
     "health_router",
     "product_images_router",
     "categories_router",

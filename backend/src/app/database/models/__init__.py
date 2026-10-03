@@ -13,6 +13,7 @@ from src.app.database.models.trade_in_offer import TradeInOffer
 from src.app.database.models.page_visit import PageVisit
 from src.app.database.models.site_setting import SiteSetting
 from src.app.database.models.iphone_install import InstallStation, InstallJob
+from src.app.database.models.install_order import InstallAccount, InstallApp, InstallOrder
 
 __all__ = [
     "Category", "Product", "ProductSpec",
@@ -20,4 +21,5 @@ __all__ = [
     "WeeklySlide", "HeroBanner", "Order", "OrderItem", "Admin", "PushSubscription",
     "Brand", "TradeInOffer", "PageVisit", "SiteSetting",
     "InstallStation", "InstallJob",
+    "InstallAccount", "InstallApp", "InstallOrder",
 ]
