@@ -208,6 +208,8 @@ class OrderCreateIn(BaseModel):
     note: str | None = Field(None, max_length=300)
     price: int | None = Field(None, ge=0, le=1_000_000)
     paid: bool = True
+    # Поставить на свой iPhone: без покупателя и оплаты, в выручку и сводку продаж не идёт
+    for_self: bool = False
 
     @field_validator("customer_name", "customer_phone", "note", mode="before")
     @classmethod

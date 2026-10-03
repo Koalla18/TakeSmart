@@ -82,7 +82,7 @@ class InstallOrder(Base):
                                         comment="new | ready | active | done | expired | cancelled")
     mode: Mapped[str] = mapped_column(String(8), nullable=False, server_default="staff",
                                       comment="staff — ставит сотрудник в салоне; self — покупатель сам, код выдаёт страница заказа")
-    source: Mapped[str] = mapped_column(String(8), nullable=False, server_default="admin", comment="admin | site")
+    source: Mapped[str] = mapped_column(String(8), nullable=False, server_default="admin", comment="admin | site | own (свой iPhone)")
     apps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"),
                                                        comment="key, app_id, bundle_id, store_id, name, icon_url, version, status")
     price: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"), comment="Сумма заказа, ₽")

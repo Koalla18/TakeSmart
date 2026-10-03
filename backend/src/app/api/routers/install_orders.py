@@ -607,7 +607,8 @@ async def orders_stats() -> OrderStatsOut:
         month = await uow.install_orders.since(month_start)
         counts = await uow.install_orders.status_counts()
         active = await uow.install_orders.list_recent(200, ["active"])
-    live = [o for o in month if o.status != "cancelled"]
+    # Установки на свой iPhone — не продажи: в заказы, приложения и выручку не считаем
+    live = [o for o in month if o.status != "cancelled" and o.source != "own"]
     paid = [o for o in live if o.paid_at]
     return OrderStatsOut(
         orders_today=sum(1 for o in live if o.created_at >= day_start), orders_month=len(live),
@@ -622,14 +623,26 @@ async def create_order(body: OrderCreateIn, admin: Admin = Depends(get_current_a
     async with UnitOfWork() as uow:
         cfg = await _config(uow)
         apps, account = await _pick_apps(uow, body.app_ids, public=False, want_account_id=body.account_id)
+        if body.for_self:
+            # Без Apple ID салона странице установки нечего показать — сразу говорим, что сделать
+            if account is None:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                    "Сначала добавьте Apple ID салона: «Настройки» → «Apple ID салона»"
+                                    if not any(a.is_active for a in await uow.install_accounts.list_all())
+                                    else "Выберите вверху, каким Apple ID салона ставить")
+            if not account.is_active:
+                raise HTTPException(status.HTTP_409_CONFLICT, "Этот Apple ID салона выключен — включите его в «Настройках»")
         order = await uow.install_orders.create(
             token=secrets.token_urlsafe(18), account_id=(account.id if account else None),
             account_label=(account.label if account else None), status="ready",
-            mode=body.mode, source="admin", apps=_order_apps(apps, await uow.install_apps.by_bundle(None)),
-            price=body.price if body.price is not None else _price_for(cfg, len(apps)),
-            customer_name=body.customer_name, customer_phone=body.customer_phone, note=body.note,
-            created_by=admin.username, paid_at=_now() if body.paid else None,
-            events=_events(None, "admin", f"Заказ оформлен: {len(apps)} прил."),
+            mode="staff" if body.for_self else body.mode, source="own" if body.for_self else "admin",
+            apps=_order_apps(apps, await uow.install_apps.by_bundle(None)),
+            price=0 if body.for_self else body.price if body.price is not None else _price_for(cfg, len(apps)),
+            customer_name=None if body.for_self else body.customer_name,
+            customer_phone=None if body.for_self else body.customer_phone,
+            note=body.note,
+            created_by=admin.username, paid_at=_now() if body.paid or body.for_self else None,
+            events=_events(None, "admin", f"Установка на свой iPhone: {len(apps)} прил." if body.for_self else f"Заказ оформлен: {len(apps)} прил."),
         )
         await uow.commit()
         return _order_out(order, cfg, {account.id: account} if account else {})
