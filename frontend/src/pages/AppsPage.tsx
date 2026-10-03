@@ -161,7 +161,8 @@ export function AppsPage() {
           {catalog && showPrice && (
             <p className="mt-6 inline-flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-2xl bg-white/10 px-5 py-3">
               <span className="text-3xl font-bold text-yellow-400">{rub(catalog.price)}</span><span className="text-gray-300">за приложение</span>
-              {catalog.bulk_price < catalog.price && <span className="text-gray-400">· от {catalog.bulk_min} шт. — по {rub(catalog.bulk_price)}</span>}
+              {/* На телефоне скидка — отдельной строкой: иначе перенос начинает строку с «·» */}
+              {catalog.bulk_price < catalog.price && <span className="basis-full text-gray-400 sm:basis-auto"><span className="hidden sm:inline">· </span>от {catalog.bulk_min} шт. — по {rub(catalog.bulk_price)}</span>}
             </p>
           )}
           {staffMode && (
