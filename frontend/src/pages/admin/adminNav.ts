@@ -43,7 +43,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     items: [
       { id: 'orders', label: 'Заказы', icon: 'orders', hint: 'Новые, в работе, отправленные' },
       { id: 'analytics', label: 'Аналитика', icon: 'chart', hint: 'Выручка, визиты, конверсия' },
-      { id: 'installs', label: 'Приложения', icon: 'zap', hint: 'Установка приложений на iPhone покупателя' },
+      { id: 'installs', label: 'Приложения', icon: 'zap', hint: 'Заказы на установку приложений на iPhone, каталог' },
     ],
   },
   {
@@ -77,7 +77,7 @@ export const ADMIN_SECTION_META: Record<AdminSection, AdminSectionMeta> = {
   overview: { title: 'Обзор', navId: 'overview' },
   orders: { title: 'Заказы', eyebrow: 'Продажи', description: 'Клик по строке открывает заказ: состав, адрес, смена статуса', navId: 'orders' },
   analytics: { title: 'Аналитика', eyebrow: 'Продажи', navId: 'analytics' },
-  installs: { title: 'Приложения на iPhone', eyebrow: 'Продажи', description: 'Возвращаем на iPhone то, что когда-то было в покупках Apple ID покупателя — включая банки, которых больше нет в App Store. Подключите iPhone кабелем, покупатель входит в свой Apple ID, вы выбираете, что поставить', navId: 'installs' },
+  installs: { title: 'Приложения на iPhone', eyebrow: 'Продажи', description: 'Ставим на iPhone покупателя приложения, которых больше нет в App Store: банки, маркетплейсы, сервисы. Оформите заказ, покажите покупателю QR — страница заказа проведёт по шагам. Или подключите iPhone кабелем', navId: 'installs' },
   products: { title: 'Товары', eyebrow: 'Каталог', description: 'Карточки товаров, группы вариантов, цены и наличие', navId: 'products' },
   preorder: { title: 'Предзаказ', eyebrow: 'Каталог', description: 'Новинки, которые можно заказать до поступления: добавьте товары, задайте сроки и включите раздел на сайте. Когда товар приедет — одной кнопкой перенесите его в основной каталог', navId: 'preorder' },
   categories: { title: 'Категории', eyebrow: 'Каталог', description: 'Разделы каталога: название, адрес, картинка, порядок и видимость на сайте', navId: 'categories' },

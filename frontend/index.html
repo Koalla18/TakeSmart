@@ -20,7 +20,10 @@
     <title>Take Smart — Магазин современной техники</title>
 
     <!-- Yandex.Metrika counter -->
+    <!-- На странице заказа на установку приложений (/i/<ключ>) счётчик не запускается:
+         в адресе личный ключ заказа, на экране Apple ID и код подтверждения. -->
     <script type="text/javascript">
+      if (!/^\/i\//.test(location.pathname)) {
       (function (m, e, t, r, i, k, a) {
         m[i] = m[i] || function () { (m[i].a = m[i].a || []).push(arguments) };
         m[i].l = 1 * new Date();
@@ -36,6 +39,7 @@
         accurateTrackBounce: true,
         trackLinks: true,
       });
+      }
     </script>
     <!-- /Yandex.Metrika counter -->
   </head>

@@ -1,23 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { API_BASE_URL } from '../../lib/config'
 import { toast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirm'
 import { resolveApp } from '../../lib/appCatalog'
+import { DEFAULT_INSTALLS_CONFIG, type CatalogApp, type InstallAccount, type InstallOrder, type InstallsConfig, type OrderStats } from '../../lib/installs'
 import { AdminIcon } from './AdminIcons'
-import { BTN_PRIMARY, BTN_SECONDARY } from './AdminShell'
+import { BTN_PRIMARY, BTN_SECONDARY, SegmentedTabs } from './AdminShell'
 import { timeAgo } from './format'
+import { CatalogTab, NewOrderTab, OrderCard, OrdersTab } from './InstallOrders'
+import { AppIcon, BTN_ROW, Badge, CARD, Cmd, INPUT, Modal, PhoneGlyph, Toggle } from './installsUi'
+import { readError, type Api, type AuthFetch } from './installsApi'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// «Приложения на iPhone». Раздел — консоль: iPhone подключён к Mac в павильоне,
-// на Mac в фоне живёт помощник (takesmart_station.py). Он раз в секунду шлёт
-// в админку своё состояние (телефон, вход в Apple ID, покупки, ход установки)
-// и забирает команды, которые отсюда отправляет сотрудник. Страница с помощником
-// напрямую не общается — поэтому работает в любом браузере и с любого устройства.
-// Apple ID покупателя проходит через сервер только как команда и нигде не
-// сохраняется.
+// «Приложения на iPhone». Раздел из четырёх вкладок:
+//   «Новый заказ», «Заказы», «Каталог» — схема «аккаунт салона» (InstallOrders.tsx):
+//     приложения скачиваются на телефон покупателя из истории покупок Apple ID салона;
+//   «По кабелю» — консоль помощника на Mac (ниже в этом файле): iPhone подключён
+//     кабелем, помощник раз в секунду шлёт своё состояние и забирает команды.
+//     Apple ID, введённый в консоли, проходит через сервер только как команда
+//     и нигде не сохраняется.
 // ─────────────────────────────────────────────────────────────────────────────
-
-type AuthFetch = (url: string, init?: RequestInit) => Promise<Response>
 
 const STATIONS_POLL_MS = 2000
 const CONSOLE_POLL_MS = 1000
@@ -48,11 +51,7 @@ interface JobApp { bundle_id: string; name: string; status: string; version: str
 interface Session { id: string; station_id: string | null; status: string; apps: JobApp[]; device_model: string | null; ios_version: string | null; note: string | null; log: { t: string; msg: string }[]; created_at: string; finished_at: string | null }
 interface Stats { installed_today: number; installed_month: number; sessions_today: number; sessions_month: number; stations_online: number }
 type CommandType = 'login' | 'code' | 'resend_code' | 'reset_login' | 'logout' | 'refresh_purchases' | 'install' | 'cancel' | 'dismiss_session' | 'settings'
-type Api = (path: string, init?: RequestInit) => Promise<Response>
 
-const INPUT = 'w-full rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-2.5 text-[15px] text-white placeholder:text-slate-600 focus:border-yellow-400/60 focus:bg-white/10 focus:outline-none'
-const BTN_ROW = 'rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white transition hover:bg-white/20 disabled:opacity-50'
-const CARD = 'rounded-2xl border border-white/10 bg-white/[0.03] p-5'
 const APP_STATUS: Record<string, { label: string; cls: string }> = {
   pending: { label: 'В очереди', cls: 'bg-white/10 text-slate-300' },
   downloading: { label: 'Скачиваем', cls: 'bg-sky-500/15 text-sky-300' },
@@ -75,69 +74,122 @@ function backendOrigin(): string {
 function setupCommand(token: string): string {
   return `curl -fsSL ${window.location.origin}/station/takesmart_station.py -o ~/takesmart_station.py && python3 ~/takesmart_station.py --autostart --backend ${backendOrigin()} --token ${token}`
 }
-function copyText(text: string, msg: string) { navigator.clipboard?.writeText(text).then(() => toast(msg, 'success'), () => toast('Не удалось скопировать', 'error')) }
-async function readError(res: Response): Promise<string> {
-  try {
-    const d = await res.json()
-    return typeof d.detail === 'string' ? d.detail : Array.isArray(d.detail) ? d.detail.map((x: { msg?: string }) => x.msg).join('; ') : `Ошибка ${res.status}`
-  } catch { return `Ошибка ${res.status}` }
-}
-
-function Badge({ map, value }: { map: Record<string, { label: string; cls: string }>; value: string }) {
-  const m = map[value] || { label: value, cls: 'bg-white/10 text-slate-300' }
-  return <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${m.cls}`}>{m.label}</span>
-}
-
-function Cmd({ text }: { text: string }) {
-  return (
-    <div className="flex items-center gap-2 rounded-xl bg-black/40 p-2 pl-3 font-mono text-[12px] leading-relaxed text-yellow-100">
-      <span className="min-w-0 flex-1 break-all">{text}</span>
-      <button type="button" onClick={() => copyText(text, 'Скопировано')} className={`${BTN_ROW} shrink-0 font-sans`}>Скопировать</button>
-    </div>
-  )
-}
-
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-6" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div role="dialog" aria-label={title} className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-slate-900 p-5 shadow-2xl ring-1 ring-white/10 sm:max-w-xl sm:rounded-2xl">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <h3 className="text-lg font-semibold text-white">{title}</h3>
-          <button type="button" onClick={onClose} aria-label="Закрыть" className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white"><AdminIcon name="x" className="h-5 w-5" /></button>
-        </div>
-        {children}
-      </div>
-    </div>
-  )
-}
-
-function AppIcon({ app, size = 44 }: { app: ReturnType<typeof resolveApp>; size?: number }) {
-  const [broken, setBroken] = useState(false)
-  const style = { width: size, height: size, borderRadius: Math.round(size * 0.24) }
-  if (app.icon && !broken) return <img src={app.icon} alt="" width={size} height={size} style={style} className="shrink-0 bg-white/5 object-cover" onError={() => setBroken(true)} />
-  return (
-    <span aria-hidden="true" style={{ ...style, background: `hsl(${app.hue} 45% 28%)` }} className="flex shrink-0 items-center justify-center text-lg font-bold text-white/90">
-      {app.letter}
-    </span>
-  )
-}
-
-function PhoneGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <rect x="6" y="2.5" width="12" height="19" rx="2.5" /><path d="M10 6h4" /><path d="M11 18h2" />
-    </svg>
-  )
-}
-
 // ── Раздел ───────────────────────────────────────────────────────────────────
+type View = 'new' | 'orders' | 'catalog' | 'cable'
+const VIEWS: readonly View[] = ['new', 'orders', 'catalog', 'cable']
+const ORDERS_POLL_MS = 5000
+
 export function InstallsSection({ authFetch }: { authFetch: AuthFetch }) {
   const api = useCallback<Api>((path, init) => authFetch(`${API_BASE_URL}/api/installs${path}`, init), [authFetch])
+  const [params, setParams] = useSearchParams()
+  const [accounts, setAccounts] = useState<InstallAccount[] | null>(null)
+  const [catalog, setCatalog] = useState<CatalogApp[]>([])
+  const [config, setConfig] = useState<InstallsConfig | null>(null)
+  const [orders, setOrders] = useState<InstallOrder[] | null>(null)
+  const [stats, setStats] = useState<OrderStats | null>(null)
+  const [cableOrder, setCableOrder] = useState<InstallOrder | null>(null)
+  const announced = useRef<Set<string>>(new Set())
+  const firstOrdersLoad = useRef(true)
+
+  const reload = useCallback(async () => {
+    try {
+      const [a, c, s] = await Promise.all([api('/accounts'), api('/catalog'), api('/settings')])
+      if (a.ok) setAccounts(await a.json())
+      if (c.ok) setCatalog(await c.json())
+      if (s.ok) setConfig(await s.json())
+      if (!a.ok || !s.ok) toast('Раздел загрузился не полностью — обновите страницу', 'error')
+    } catch { toast('Нет связи с сервером', 'error') }
+    // Раздел не должен зависнуть на «Загружаем…»: «По кабелю» работает и без заказов
+    setAccounts(prev => prev ?? [])
+    setConfig(prev => prev ?? DEFAULT_INSTALLS_CONFIG)
+  }, [api])
+  const loadOrders = useCallback(async () => {
+    try {
+      const [o, st] = await Promise.all([api('/orders?brief=true&limit=300'), api('/orders/stats')])
+      if (st.ok) setStats(await st.json())
+      if (!o.ok) return
+      const list: InstallOrder[] = await o.json()
+      setOrders(list)
+      // Сигнал сотруднику: покупатель просит код или пришла заявка с сайта. Один раз на событие.
+      for (const order of list) {
+        const key = order.code_waiting ? `code:${order.id}:${order.code_requested_at}` : order.status === 'new' ? `new:${order.id}` : null
+        if (!key || announced.current.has(key)) continue
+        announced.current.add(key)
+        if (!firstOrdersLoad.current || order.code_waiting) {
+          toast(order.code_waiting ? `Заказ №${order.number}: покупатель ждёт код подтверждения` : `Новая заявка с сайта: заказ №${order.number}`, 'info', 8000)
+        }
+      }
+      firstOrdersLoad.current = false
+    } catch { /* сеть */ }
+  }, [api])
+  useEffect(() => {
+    const first = window.setTimeout(() => { reload(); loadOrders() }, 0)
+    const id = window.setInterval(() => { if (!document.hidden) loadOrders() }, ORDERS_POLL_MS)
+    return () => { window.clearTimeout(first); window.clearInterval(id) }
+  }, [reload, loadOrders])
+
+  const hasCatalog = catalog.some(c => c.is_active)
+  const openOrderId = params.get('order')
+  const viewParam = params.get('view') as View | null
+  // По умолчанию — «Новый заказ»; пока каталог не настроен — «Каталог», там объяснение и первые шаги
+  const view: View | null = openOrderId ? 'orders' : viewParam && VIEWS.includes(viewParam) ? viewParam : accounts === null ? null : hasCatalog ? 'new' : 'catalog'
+  const patchParams = useCallback((patch: Record<string, string | null>) => {
+    setParams(prev => {
+      const next = new URLSearchParams(prev)
+      for (const [k, v] of Object.entries(patch)) { if (v === null) next.delete(k); else next.set(k, v) }
+      return next
+    }, { replace: true })
+  }, [setParams])
+  const go = useCallback((v: View) => patchParams({ view: v, order: null }), [patchParams])
+  const openOrder = useCallback((id: string | null) => patchParams({ view: 'orders', order: id }), [patchParams])
+
+  const openCount = (orders || []).filter(o => o.status === 'new' || o.status === 'ready' || o.status === 'active').length
+  const needAttention = (orders || []).some(o => o.code_waiting || o.status === 'new')
+
+  return (
+    <div data-installs-root data-view={view || 'loading'}>
+      {view === null ? (
+        <div className={`${CARD} flex items-center gap-3 text-slate-300`}><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-yellow-400" />Загружаем раздел…</div>
+      ) : (
+      <>
+      <div className="flex flex-wrap items-center gap-3">
+        <SegmentedTabs<View>
+          items={[
+            { id: 'new', label: 'Новый заказ' },
+            { id: 'orders', label: needAttention ? 'Заказы •' : 'Заказы', count: openCount || undefined },
+            { id: 'catalog', label: 'Каталог', count: catalog.filter(c => c.is_active).length || undefined },
+            { id: 'cable', label: 'По кабелю' },
+          ]}
+          value={view}
+          onChange={go}
+        />
+      </div>
+
+      {view === 'cable' ? (
+        <CableConsole api={api} order={cableOrder} onLeaveOrder={() => setCableOrder(null)} onOrderChanged={loadOrders} />
+      ) : accounts === null || config === null ? (
+        <div className={`${CARD} flex items-center gap-3 text-slate-300`}><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-yellow-400" />Загружаем раздел…</div>
+      ) : view === 'new' ? (
+        <NewOrderTab api={api} accounts={accounts} catalog={catalog} config={config} goCatalog={() => go('catalog')}
+          onCreated={order => { loadOrders(); openOrder(order.id) }} />
+      ) : view === 'orders' ? (
+        <OrdersTab orders={orders} stats={stats} onOpen={openOrder} goNew={() => go('new')} />
+      ) : (
+        <CatalogTab api={api} accounts={accounts} catalog={catalog} config={config} reload={reload} goCable={() => go('cable')} />
+      )}
+      </>
+      )}
+
+      {openOrderId && (
+        <OrderCard key={openOrderId} api={api} orderId={openOrderId} onClose={() => openOrder(null)} onChanged={loadOrders}
+          onCable={order => { setCableOrder(order); go('cable') }} />
+      )}
+    </div>
+  )
+}
+
+// ── Консоль «По кабелю» ──────────────────────────────────────────────────────
+function CableConsole({ api, order, onLeaveOrder, onOrderChanged }: { api: Api; order: InstallOrder | null; onLeaveOrder: () => void; onOrderChanged: () => void }) {
   const [stations, setStations] = useState<Station[] | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
@@ -182,6 +234,13 @@ export function InstallsSection({ authFetch }: { authFetch: AuthFetch }) {
 
   return (
     <div data-installs-section data-helper-status={status}>
+      {order && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-yellow-400/40 bg-yellow-400/[0.06] px-4 py-3 text-sm" data-cable-order={order.number}>
+          <span className="font-medium text-white">Ставим по заказу №{order.number}</span>
+          <span className="min-w-0 flex-1 text-slate-300">{order.apps.map(a => a.name).join(', ')}</span>
+          <button type="button" onClick={onLeaveOrder} className={BTN_ROW}>Без заказа</button>
+        </div>
+      )}
       {status === 'checking' ? (
         <div className={`${CARD} flex items-center gap-3 text-slate-300`}><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-yellow-400" />Ищем помощника…</div>
       ) : status === 'offline' ? (
@@ -194,7 +253,7 @@ export function InstallsSection({ authFetch }: { authFetch: AuthFetch }) {
               {online.map(s => <button key={s.id} type="button" onClick={() => setChosen(s.id)} className={`rounded-full px-3 py-1 text-sm ${s.id === active.id ? 'bg-white text-slate-950' : 'bg-white/10 text-slate-300 hover:bg-white/20'}`}>{s.name}</button>)}
             </div>
           )}
-          <Console api={api} station={active} />
+          <Console api={api} station={active} order={order} onOrderChanged={onOrderChanged} />
         </>
       ) : null}
 
@@ -395,10 +454,43 @@ function useConsole(api: Api, stationId: string) {
   return { data, refresh, send }
 }
 
-function Console({ api, station }: { api: Api; station: Station }) {
+function Console({ api, station, order, onOrderChanged }: { api: Api; station: Station; order: InstallOrder | null; onOrderChanged: () => void }) {
   const { data, send } = useConsole(api, station.id)
   const lastNotice = useRef<number>(0)
   const c = data?.console || {}
+  // Что стояло в консоли в момент, когда к ней привязали заказ: ту установку в заказ не засчитываем
+  const baseline = useRef<{ orderId: string; sid: string | null } | null>(null)
+  const marked = useRef<string | null>(null)
+  const sessionKey = c.session ? c.session.id || c.session.started : null
+  const sessionFinished = Boolean(c.session?.finished)
+  useEffect(() => {
+    if (!order) { baseline.current = null; return }
+    if (!data || baseline.current?.orderId === order.id) return
+    baseline.current = { orderId: order.id, sid: sessionKey }
+  }, [order, data, sessionKey])
+  useEffect(() => {
+    const s = c.session
+    if (!order || !s || !sessionFinished || !sessionKey) return
+    if (baseline.current?.orderId !== order.id || baseline.current.sid === sessionKey) return
+    const mark = `${order.id}:${sessionKey}`
+    if (marked.current === mark) return
+    marked.current = mark
+    const done = new Set(s.apps.filter(a => a.status === 'installed').map(a => a.bundle_id))
+    const targets = order.apps.filter(a => done.has(a.bundle_id))
+    if (!targets.length) return
+    ;(async () => {
+      let n = 0
+      for (const a of targets) {
+        try {
+          const r = await api(`/orders/${order.id}/apps/${a.key}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'installed' }) })
+          if (r.ok) n++
+        } catch { /* сеть: отметят вручную в карточке заказа */ }
+      }
+      if (n) { toast(`В заказе №${order.number} отмечено установленным: ${n}`, 'success'); onOrderChanged() }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order, sessionKey, sessionFinished])
+  const preselect = useMemo(() => (order ? { key: order.id, number: order.number, apps: order.apps.map(a => ({ bundle_id: a.bundle_id, name: a.name })) } : null), [order])
   useEffect(() => {
     const n = c.notice
     if (n && n.t !== lastNotice.current) { lastNotice.current = n.t; toast(n.message, n.tone === 'error' ? 'error' : 'info') }
@@ -410,7 +502,7 @@ function Console({ api, station }: { api: Api; station: Station }) {
   const session = c.session || null
   const steps = [
     { n: 1, label: phoneReady ? `${device?.model || 'iPhone'} подключён` : device ? 'Подтвердите доверие на iPhone' : 'Подключите iPhone кабелем', done: phoneReady },
-    { n: 2, label: loggedIn ? 'Apple ID покупателя введён' : 'Введите Apple ID покупателя', done: loggedIn },
+    { n: 2, label: loggedIn ? 'Apple ID введён' : 'Введите Apple ID', done: loggedIn },
     { n: 3, label: session ? (session.finished ? 'Установка завершена' : 'Идёт установка') : 'Выберите приложения и установите', done: false },
   ]
   return (
@@ -440,7 +532,7 @@ function Console({ api, station }: { api: Api; station: Station }) {
           <AppleIdCard station={station} c={c} purchasesCount={data?.purchases?.length ?? null} send={send} />
         </div>
         <div className="min-w-0">
-          {session ? <InstallProgress session={session} device={device} send={send} /> : loggedIn ? <AppPicker c={c} purchases={data?.purchases || []} phoneReady={phoneReady} send={send} currentEmail={station.state?.apple?.email || null} /> : <PickerPlaceholder history={c.history || []} />}
+          {session ? <InstallProgress session={session} device={device} send={send} /> : loggedIn ? <AppPicker c={c} purchases={data?.purchases || []} phoneReady={phoneReady} send={send} currentEmail={station.state?.apple?.email || null} preselect={preselect} /> : <PickerPlaceholder history={c.history || []} />}
         </div>
       </div>
     </div>
@@ -522,7 +614,7 @@ function AppleIdCard({ station, c, purchasesCount, send }: { station: Station; c
 
   return (
     <div className={CARD} data-apple-card>
-      <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">Apple ID покупателя</div>
+      <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">Apple ID</div>
       {apple.logged_in ? (
         <>
           <div className="mt-2 flex items-center gap-2 text-lg font-semibold text-white"><span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />{apple.name || 'Вход выполнен'}</div>
@@ -532,7 +624,10 @@ function AppleIdCard({ station, c, purchasesCount, send }: { station: Station; c
             <button type="button" onClick={() => send('logout')} className={BTN_SECONDARY}>Выйти из Apple ID</button>
             <button type="button" onClick={() => send('refresh_purchases')} className={BTN_ROW}>Обновить список</button>
           </div>
-          <p className="mt-3 text-xs text-slate-500">После установки помощник выйдет из Apple ID сам и удалит скачанные файлы.</p>
+          <div className="mt-3" data-auto-logout={c.auto_logout === false ? '0' : '1'}>
+            <Toggle checked={c.auto_logout !== false} onChange={v => send('settings', { auto_logout: v })} label="Выходить из Apple ID после установки"
+              hint={c.auto_logout === false ? 'Помощник остаётся в аккаунте — удобно для Apple ID салона. Скачанные файлы удаляются всегда.' : 'Для Apple ID покупателя оставьте включённым. Для аккаунта салона выключите — не придётся входить заново.'} />
+          </div>
         </>
       ) : codeStep ? (
         <form onSubmit={sendCode} className="mt-2">
@@ -548,7 +643,7 @@ function AppleIdCard({ station, c, purchasesCount, send }: { station: Station; c
         </form>
       ) : (
         <form onSubmit={login} className="mt-2">
-          <p className="text-sm text-slate-400">Покупатель вводит свой Apple ID здесь. Пароль и код передаются помощнику на Mac и уходят в Apple — у нас не сохраняются.</p>
+          <p className="text-sm text-slate-400">Apple ID, в истории покупок которого есть нужные приложения: аккаунт салона или самого покупателя. Пароль и код передаются помощнику на Mac и уходят в Apple — у нас не сохраняются.</p>
           <input id="helper-email" value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="off" placeholder="Apple ID (почта)" className={`${INPUT} mt-3`} />
           <input id="helper-password" value={password} onChange={e => setPassword(e.target.value)} type="password" autoComplete="off" placeholder="Пароль" className={`${INPUT} mt-2`} />
           <button type="submit" disabled={working || !email.trim() || !password} className={`${BTN_PRIMARY} mt-3`}>{working ? 'Связываемся с Apple…' : 'Войти'}</button>
@@ -564,8 +659,8 @@ function PickerPlaceholder({ history }: { history: HistoryItem[] }) {
   return (
     <div className={`${CARD} flex min-h-[260px] flex-col`}>
       <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">Что поставить</div>
-      <div className="mt-2 text-lg font-semibold text-slate-300">Сначала Apple ID покупателя</div>
-      <p className="mt-1 max-w-xl text-sm text-slate-400">После входа здесь появится всё, что когда-либо было на его аккаунте: банки, госуслуги, соцсети, авиакомпании. Отмечаете нужное — и «Установить».</p>
+      <div className="mt-2 text-lg font-semibold text-slate-300">Сначала Apple ID</div>
+      <p className="mt-1 max-w-xl text-sm text-slate-400">После входа здесь появится всё, что когда-либо было на этом аккаунте: банки, госуслуги, соцсети, авиакомпании. Отмечаете нужное — и «Установить».</p>
       {last && (
         <div className="mt-auto rounded-xl border border-emerald-400/20 bg-emerald-400/[0.05] p-3 text-sm" data-last-result>
           <div className="text-xs font-semibold uppercase tracking-wider text-emerald-300">Последняя установка · {last.t}{last.device ? ` · ${last.device}` : ''}</div>
@@ -578,7 +673,9 @@ function PickerPlaceholder({ history }: { history: HistoryItem[] }) {
   )
 }
 
-function AppPicker({ c, purchases, phoneReady, send, currentEmail }: { c: HelperConsole; purchases: Purchase[]; phoneReady: boolean; send: (t: CommandType, p?: Record<string, unknown>) => Promise<boolean>; currentEmail: string | null }) {
+type Preselect = { key: string; number: number; apps: { bundle_id: string; name: string }[] } | null
+
+function AppPicker({ c, purchases, phoneReady, send, currentEmail, preselect }: { c: HelperConsole; purchases: Purchase[]; phoneReady: boolean; send: (t: CommandType, p?: Record<string, unknown>) => Promise<boolean>; currentEmail: string | null; preselect: Preselect }) {
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<'all' | 'bank'>('all')
   const [hideInstalled, setHideInstalled] = useState(false)
@@ -587,6 +684,18 @@ function AppPicker({ c, purchases, phoneReady, send, currentEmail }: { c: Helper
   const [starting, setStarting] = useState(false)
   const installed = c.installed || {}
   useEffect(() => { if (!starting) return; const t = window.setTimeout(() => setStarting(false), 4000); return () => window.clearTimeout(t) }, [starting])
+  // Пришли из карточки заказа — его приложения отмечаются сами, как только прочитана история покупок
+  const [appliedKey, setAppliedKey] = useState<string | null>(null)
+  if (preselect && purchases.length && appliedKey !== preselect.key) {
+    setAppliedKey(preselect.key)
+    const have = new Set(purchases.map(p => p.bundle_id))
+    setSelected(new Set(preselect.apps.map(a => a.bundle_id).filter(b => have.has(b))))
+  }
+  const missingFromOrder = useMemo(() => {
+    if (!preselect || !purchases.length) return []
+    const have = new Set(purchases.map(p => p.bundle_id))
+    return preselect.apps.filter(a => !have.has(a.bundle_id))
+  }, [preselect, purchases])
 
   const items = useMemo(() => purchases.map(p => ({ p, r: resolveApp(p), have: installed[p.bundle_id] })), [purchases, installed])
   const foreignBanks = useMemo(() => Object.entries(installed)
@@ -627,6 +736,7 @@ function AppPicker({ c, purchases, phoneReady, send, currentEmail }: { c: Helper
         </button>
       </div>
       {!phoneReady && selected.size > 0 && <p className="mt-2 text-xs text-yellow-200">Подключите iPhone, чтобы установить выбранное.</p>}
+      {missingFromOrder.length > 0 && <p className="mt-2 text-xs text-yellow-200" data-order-missing>В истории покупок этого Apple ID нет приложений из заказа №{preselect?.number}: {missingFromOrder.map(a => a.name).join(', ')}. Войдите в аккаунт салона, с которого оформлен заказ.</p>}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <input value={q} onChange={e => setQ(e.target.value)} type="search" placeholder="Поиск: Сбер, Т-Банк, ВК…" data-app-search className={`${INPUT} sm:max-w-xs`} />
         {([['all', 'Все'], ['bank', 'Банки']] as const).map(([k, label]) => (
@@ -708,7 +818,10 @@ function InstallProgress({ session: s, device, send }: { session: NonNullable<He
           <span className="text-xs text-slate-500">Не отключайте iPhone до конца установки.</span>
         </div>
       ) : (
-        <div className="mt-4"><button type="button" onClick={() => send('dismiss_session')} data-dismiss-session className={BTN_PRIMARY}>Готово</button></div>
+        <>
+          {done > 0 && <p className="mt-3 rounded-xl bg-white/[0.04] px-3 py-2 text-xs text-slate-400">Если приложения куплены не с Apple ID покупателя: при первом запуске iPhone попросит пароль того Apple ID, с которого они куплены. Введите его, а потом проверьте в App Store, что в профиле снова аккаунт покупателя.</p>}
+          <div className="mt-4"><button type="button" onClick={() => send('dismiss_session')} data-dismiss-session className={BTN_PRIMARY}>Готово</button></div>
+        </>
       )}
     </div>
   )

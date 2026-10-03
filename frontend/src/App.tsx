@@ -25,6 +25,8 @@ const TradeInPage = lazy(() => import('./pages/TradeInPage').then(m => ({ defaul
 const UsedPage = lazy(() => import('./pages/UsedPage').then(m => ({ default: m.UsedPage })))
 const UsedProductPage = lazy(() => import('./pages/UsedProductPage').then(m => ({ default: m.UsedProductPage })))
 const OrdersAppPage = lazy(() => import('./pages/OrdersAppPage').then(m => ({ default: m.OrdersAppPage })))
+const InstallOrderPage = lazy(() => import('./pages/InstallOrderPage').then(m => ({ default: m.InstallOrderPage })))
+const AppsPage = lazy(() => import('./pages/AppsPage').then(m => ({ default: m.AppsPage })))
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -34,8 +36,13 @@ function ScrollToTop() {
   return null
 }
 
-/** Внутренние инструменты (админка/PWA-заказы/вход) в аналитику витрины не попадают. */
-const INTERNAL_ROUTE_PREFIXES = ['/admin', '/app', '/login']
+/**
+ * Внутренние инструменты (админка/PWA-заказы/вход) в аналитику витрины не попадают.
+ * Страница заказа на установку приложений (/i/<ключ>) — тоже: в её адресе личный ключ
+ * заказа, а на экране Apple ID и код подтверждения. Для неё Метрика не запускается вовсе
+ * (см. index.html).
+ */
+const INTERNAL_ROUTE_PREFIXES = ['/admin', '/app', '/login', '/i/']
 
 /**
  * SPA-трекинг для Яндекс.Метрики: первый просмотр отправляет сам сниппет в
@@ -70,7 +77,8 @@ function VisitTracker() {
   useEffect(() => {
     const path = location.pathname
     if (INTERNAL_ROUTE_PREFIXES.some(p => path.startsWith(p))) {
-      prevPath.current = path
+      // Ключ заказа из /i/<ключ> не должен попасть в «источник перехода» следующей страницы
+      prevPath.current = path.startsWith('/i/') ? '/i' : path
       return
     }
     const referrer = prevPath.current
@@ -104,6 +112,7 @@ export default function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/app" element={<OrdersAppPage />} />
+            <Route path="/i/:token" element={<InstallOrderPage />} />
 
             {/* Public routes (with Shell) */}
             <Route path="/" element={<Shell><HomePage /></Shell>} />
@@ -113,6 +122,7 @@ export default function App() {
             <Route path="/cart" element={<Shell><CartPage /></Shell>} />
             <Route path="/delivery" element={<Shell><DeliveryPage /></Shell>} />
             <Route path="/trade-in" element={<Shell><TradeInPage /></Shell>} />
+            <Route path="/apps" element={<Shell><AppsPage /></Shell>} />
             <Route path="/used" element={<Shell><UsedPage /></Shell>} />
             <Route path="/used/:slug" element={<Shell><UsedProductPage /></Shell>} />
             <Route path="/offer" element={<Shell><OfferPage /></Shell>} />
