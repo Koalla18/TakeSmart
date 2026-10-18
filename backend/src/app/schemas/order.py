@@ -71,6 +71,78 @@ class OrderAdminNoteUpdate(BaseModel):
     admin_note: str = Field(..., max_length=2000)
 
 
+# ------------------------------------------------------------------ #
+#  Комментарии сотрудников к заказу                                   #
+# ------------------------------------------------------------------ #
+
+COMMENT_MAX_LENGTH = 2000
+COMMENT_PREVIEW_LENGTH = 160
+
+
+def _clean_comment_body(value: str) -> str:
+    # Хвостовые пробелы и пустые строки по краям убираем, переносы внутри оставляем
+    lines = [line.rstrip() for line in value.strip().splitlines()]
+    text = "\n".join(lines).strip()
+    if not text:
+        raise ValueError("Комментарий пустой")
+    return text
+
+
+class OrderCommentCreate(BaseModel):
+    author_name: str = Field(..., min_length=1, max_length=60, description="Как подписан сотрудник")
+    body: str = Field(..., min_length=1, max_length=COMMENT_MAX_LENGTH)
+
+    @field_validator("author_name")
+    @classmethod
+    def clean_author(cls, value: str) -> str:
+        name = " ".join(value.split())
+        if not name:
+            raise ValueError("Укажите, как вас подписать")
+        return name
+
+    @field_validator("body")
+    @classmethod
+    def clean_body(cls, value: str) -> str:
+        return _clean_comment_body(value)
+
+
+class OrderCommentUpdate(BaseModel):
+    body: str = Field(..., min_length=1, max_length=COMMENT_MAX_LENGTH)
+
+    @field_validator("body")
+    @classmethod
+    def clean_body(cls, value: str) -> str:
+        return _clean_comment_body(value)
+
+
+class OrderCommentOut(BaseModel):
+    id: uuid.UUID
+    order_id: uuid.UUID
+    author_name: str
+    body: str
+    created_at: datetime
+    edited_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class OrderCommentPreview(BaseModel):
+    """Последний комментарий в списке заказов — одной строкой."""
+    author_name: str
+    body: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+    @field_validator("body")
+    @classmethod
+    def one_line(cls, value: str) -> str:
+        text = " ".join(value.split())
+        if len(text) <= COMMENT_PREVIEW_LENGTH:
+            return text
+        return text[: COMMENT_PREVIEW_LENGTH - 1].rstrip() + "…"
+
+
 class OrderOut(BaseModel):
     id: uuid.UUID
     order_number: str
@@ -89,6 +161,8 @@ class OrderOut(BaseModel):
     is_preorder: bool = False
     customer_note: Optional[str]
     admin_note: Optional[str]
+    comments_count: int = 0
+    last_comment: Optional[OrderCommentPreview] = None
     created_at: datetime
     updated_at: datetime
 
@@ -96,5 +170,6 @@ class OrderOut(BaseModel):
 
 
 class OrderDetailOut(OrderOut):
-    """Детальное представление заказа — с позициями."""
+    """Детальное представление заказа — с позициями и комментариями сотрудников."""
     items: list[OrderItemOut] = []
+    comments: list[OrderCommentOut] = []

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
@@ -12,11 +13,15 @@ from fastapi.responses import Response
 
 from src.app.core.logger import get_logger
 from src.app.core.push_service import send_order_push
-from src.app.database.models.order import OrderStatus, PaymentStatus
+from src.app.database.models.admin import Admin
+from src.app.database.models.order import Order, OrderStatus, PaymentStatus
 from src.app.database.unit_of_work import UnitOfWork
 from src.app.schemas.common import PaginatedResponse
 from src.app.schemas.order import (
     OrderAdminNoteUpdate,
+    OrderCommentCreate,
+    OrderCommentOut,
+    OrderCommentUpdate,
     OrderCreate,
     OrderDetailOut,
     OrderOut,
@@ -288,7 +293,7 @@ async def update_payment_status(
 @router.patch(
     "/{order_id}/admin-note",
     response_model=OrderOut,
-    summary="Добавить/обновить заметку администратора",
+    summary="Добавить/обновить заметку администратора (устарело: используйте комментарии)",
     responses={404: {"description": "Заказ не найден"}},
     dependencies=[Depends(get_current_admin)]
 )
@@ -306,6 +311,144 @@ order_id: UUID, body: OrderAdminNoteUpdate) -> OrderOut:
 
     logger.info("order_admin_note_updated", order_id=str(order_id))
     return updated
+
+
+# ------------------------------------------------------------------ #
+#  Комментарии сотрудников                                            #
+# ------------------------------------------------------------------ #
+
+# Сколько комментариев держим у одного заказа: лента остаётся читаемой, а список
+# заказов (он приходит вместе с комментариями) — лёгким.
+MAX_COMMENTS_PER_ORDER = 300
+
+
+async def _order_or_404(uow: UnitOfWork, order_id: UUID) -> Order:
+    order = await uow.orders.get_by_id(order_id)
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Заказ с id={order_id} не найден",
+        )
+    return order
+
+
+@router.get(
+    "/{order_id}/comments",
+    response_model=list[OrderCommentOut],
+    summary="Комментарии сотрудников к заказу",
+    responses={404: {"description": "Заказ не найден"}},
+    dependencies=[Depends(get_current_admin)],
+)
+async def list_order_comments(order_id: UUID) -> list[OrderCommentOut]:
+    async with UnitOfWork() as uow:
+        await _order_or_404(uow, order_id)
+        comments = await uow.order_comments.list_for_order(order_id)
+    return list(comments)
+
+
+@router.post(
+    "/{order_id}/comments",
+    response_model=OrderCommentOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Оставить комментарий к заказу",
+    responses={
+        404: {"description": "Заказ не найден"},
+        409: {"description": "У заказа слишком много комментариев"},
+    },
+)
+async def add_order_comment(
+    order_id: UUID,
+    body: OrderCommentCreate,
+    admin: Admin = Depends(get_current_admin),
+) -> OrderCommentOut:
+    async with UnitOfWork() as uow:
+        order = await _order_or_404(uow, order_id)
+        if len(order.comments) >= MAX_COMMENTS_PER_ORDER:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"У заказа уже {MAX_COMMENTS_PER_ORDER} комментариев — "
+                    "удалите лишние, чтобы добавить новый"
+                ),
+            )
+        comment = await uow.order_comments.create(
+            order_id=order_id,
+            author_name=body.author_name,
+            admin_username=admin.username,
+            body=body.body,
+        )
+        await uow.commit()
+
+    logger.info(
+        "order_comment_added",
+        order_id=str(order_id),
+        comment_id=str(comment.id),
+        author=comment.author_name,
+    )
+    return comment
+
+
+@router.patch(
+    "/{order_id}/comments/{comment_id}",
+    response_model=OrderCommentOut,
+    summary="Изменить текст комментария",
+    responses={404: {"description": "Комментарий не найден"}},
+)
+async def edit_order_comment(
+    order_id: UUID,
+    comment_id: UUID,
+    body: OrderCommentUpdate,
+    admin: Admin = Depends(get_current_admin),
+) -> OrderCommentOut:
+    async with UnitOfWork() as uow:
+        comment = await uow.order_comments.get_for_order(order_id, comment_id)
+        if not comment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Комментарий не найден — возможно, его уже удалили",
+            )
+        # Тот же текст — не помечаем комментарий изменённым
+        if comment.body != body.body:
+            comment.body = body.body
+            comment.edited_at = datetime.now(timezone.utc)
+            await uow.commit()
+            logger.info(
+                "order_comment_edited",
+                order_id=str(order_id),
+                comment_id=str(comment_id),
+                by=admin.username,
+            )
+    return comment
+
+
+@router.delete(
+    "/{order_id}/comments/{comment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Удалить комментарий",
+    responses={404: {"description": "Комментарий не найден"}},
+)
+async def delete_order_comment(
+    order_id: UUID,
+    comment_id: UUID,
+    admin: Admin = Depends(get_current_admin),
+) -> None:
+    async with UnitOfWork() as uow:
+        comment = await uow.order_comments.get_for_order(order_id, comment_id)
+        if not comment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Комментарий не найден — возможно, его уже удалили",
+            )
+        await uow.order_comments.delete(comment_id)
+        await uow.commit()
+
+    logger.info(
+        "order_comment_deleted",
+        order_id=str(order_id),
+        comment_id=str(comment_id),
+        by=admin.username,
+    )
 
 
 @router.delete(

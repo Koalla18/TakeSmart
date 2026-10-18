@@ -5,7 +5,7 @@ from src.app.database.models.product_variant import ProductVariant
 from src.app.database.models.product_group import ProductGroup
 from src.app.database.models.weekly_slide import WeeklySlide
 from src.app.database.models.hero_banner import HeroBanner
-from src.app.database.models.order import Order, OrderItem
+from src.app.database.models.order import Order, OrderItem, OrderComment
 from src.app.database.models.admin import Admin
 from src.app.database.models.push_subscription import PushSubscription
 from src.app.database.models.brand import Brand
@@ -18,7 +18,7 @@ from src.app.database.models.install_order import InstallAccount, InstallApp, In
 __all__ = [
     "Category", "Product", "ProductSpec",
     "ProductImage", "ProductVariant", "ProductGroup",
-    "WeeklySlide", "HeroBanner", "Order", "OrderItem", "Admin", "PushSubscription",
+    "WeeklySlide", "HeroBanner", "Order", "OrderItem", "OrderComment", "Admin", "PushSubscription",
     "Brand", "TradeInOffer", "PageVisit", "SiteSetting",
     "InstallStation", "InstallJob",
     "InstallAccount", "InstallApp", "InstallOrder",

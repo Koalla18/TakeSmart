@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import Sequence
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.app.database.models.order import Order, OrderItem, OrderStatus, PaymentStatus
+from src.app.database.models.order import Order, OrderComment, OrderItem, OrderStatus, PaymentStatus
 from src.app.database.repositories.base import BaseRepository
 
 
@@ -44,7 +44,8 @@ class OrderRepository(BaseRepository[Order]):
             select(Order)
             .where(Order.id == order_id)
             .options(
-                selectinload(Order.items).selectinload(OrderItem.product)
+                selectinload(Order.items).selectinload(OrderItem.product),
+                selectinload(Order.comments),
             )
         )
         return result.scalar_one_or_none()
@@ -155,3 +156,34 @@ class OrderItemRepository(BaseRepository[OrderItem]):
         )
         return result.scalar_one_or_none()
 
+
+
+class OrderCommentRepository(BaseRepository[OrderComment]):
+
+    def __init__(self, session: AsyncSession) -> None:
+        super().__init__(OrderComment, session)
+
+    async def list_for_order(self, order_id: UUID) -> Sequence[OrderComment]:
+        """Комментарии заказа по порядку — от первого к последнему."""
+        result = await self.session.execute(
+            select(OrderComment)
+            .where(OrderComment.order_id == order_id)
+            .order_by(OrderComment.created_at, OrderComment.id)
+        )
+        return result.scalars().all()
+
+    async def count_for_order(self, order_id: UUID) -> int:
+        result = await self.session.execute(
+            select(func.count()).select_from(OrderComment).where(OrderComment.order_id == order_id)
+        )
+        return result.scalar_one()
+
+    async def get_for_order(self, order_id: UUID, comment_id: UUID) -> OrderComment | None:
+        """Комментарий именно этого заказа (чужой id даёт None, а не чужой комментарий)."""
+        result = await self.session.execute(
+            select(OrderComment).where(
+                OrderComment.id == comment_id,
+                OrderComment.order_id == order_id,
+            )
+        )
+        return result.scalar_one_or_none()

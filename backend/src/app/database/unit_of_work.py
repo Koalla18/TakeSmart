@@ -14,7 +14,9 @@ from src.app.database.repositories.product_variant_repository import ProductVari
 from src.app.database.repositories.product_group_repository import ProductGroupRepository
 from src.app.database.repositories.weekly_slide_repository import WeeklySlideRepository
 from src.app.database.repositories.hero_banner_repository import HeroBannerRepository
-from src.app.database.repositories.order_repository import OrderRepository, OrderItemRepository
+from src.app.database.repositories.order_repository import (
+    OrderCommentRepository, OrderItemRepository, OrderRepository,
+)
 from src.app.database.repositories.brand_repository import BrandRepository
 from src.app.database.repositories.trade_in_offer_repository import TradeInOfferRepository
 from src.app.database.repositories.site_setting_repository import SiteSettingRepository
@@ -66,6 +68,7 @@ class UnitOfWork:
         self.hero_banners = HeroBannerRepository(self._session)
         self.orders = OrderRepository(self._session)
         self.order_items = OrderItemRepository(self._session)
+        self.order_comments = OrderCommentRepository(self._session)
         self.brands = BrandRepository(self._session)
         self.trade_in_offers = TradeInOfferRepository(self._session)
         self.site_settings = SiteSettingRepository(self._session)

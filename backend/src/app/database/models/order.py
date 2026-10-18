@@ -6,7 +6,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Text, Numeric, Integer, Boolean, ForeignKey, func
+from sqlalchemy import String, Text, Numeric, Integer, Boolean, DateTime, ForeignKey, Index, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -88,9 +88,58 @@ class Order(Base):
     items: Mapped[list[OrderItem]] = relationship(
         "OrderItem", back_populates="order", cascade="all, delete-orphan"
     )
+    # Комментарии сотрудников. lazy="selectin": заказ всегда приходит вместе с ними —
+    # и в списке (счётчик и последний комментарий), и в карточке, — поэтому ни одна
+    # ручка не упрётся в ленивую загрузку вне сессии.
+    comments: Mapped[list[OrderComment]] = relationship(
+        "OrderComment",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="OrderComment.created_at",
+        lazy="selectin",
+    )
+
+    @property
+    def comments_count(self) -> int:
+        return len(self.comments)
+
+    @property
+    def last_comment(self) -> OrderComment | None:
+        return self.comments[-1] if self.comments else None
 
     def __repr__(self) -> str:
         return f"<Order(id={self.id}, number={self.order_number}, status={self.status})>"
+
+
+class OrderComment(Base):
+    """Комментарий сотрудника к заказу. Виден только сотрудникам — в админке и в
+    приложении «Заказы»; покупателю не уходит."""
+    __tablename__ = "order_comments"
+    __table_args__ = (
+        Index("ix_order_comments_order_id_created_at", "order_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    order_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), nullable=False
+    )
+    # Под одной учёткой админки работают несколько человек, поэтому подпись — имя,
+    # которое сотрудник указал на своём устройстве, а учётка остаётся для журнала.
+    author_name: Mapped[str] = mapped_column(String(60), nullable=False)
+    admin_username: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    order: Mapped[Order] = relationship("Order", back_populates="comments")
+
+    def __repr__(self) -> str:
+        return f"<OrderComment(order={self.order_id}, author={self.author_name})>"
 
 
 class OrderItem(Base):
