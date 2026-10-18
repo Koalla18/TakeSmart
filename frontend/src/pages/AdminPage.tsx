@@ -15,6 +15,7 @@ import { OverviewTab } from './admin/OverviewTab'
 import { PreorderSection } from './admin/PreorderSection'
 import { InstallsSection } from './admin/InstallsSection'
 import { PriceCommandBar } from '../components/PriceCommand'
+import { OrderComments, LastCommentLine, commentsPreview, type OrderComment, type OrderCommentPreview } from '../components/OrderComments'
 import { rankSearch } from '../lib/searchRank'
 
 // ============ TYPES ============
@@ -46,12 +47,16 @@ interface Order {
   is_preorder?: boolean
   total_amount: number
   items_count: number
+  /** Комментарии сотрудников: сколько и последний — для списка */
+  comments_count?: number
+  last_comment?: OrderCommentPreview | null
   created_at: string
   updated_at: string
 }
 
 interface OrderDetail extends Order {
   items: OrderItem[]
+  comments?: OrderComment[]
 }
 
 interface Category {
@@ -552,6 +557,14 @@ export function AdminPage() {
       loadPendingOrders()
     } catch { toast('Ошибка', 'error') }
     finally { setUpdatingStatus(false) }
+  }
+
+  // Лента комментариев изменилась в карточке — обновляем счётчик и превью в списках
+  const onOrderCommentsChange = (orderId: string, comments: OrderComment[]) => {
+    const preview = commentsPreview(comments)
+    const patch = (list: Order[]) => list.map(o => (o.id === orderId ? { ...o, ...preview } : o))
+    setOrders(patch)
+    setPendingOrders(patch)
   }
 
   const deleteOrder = async (orderId: string) => {
@@ -1162,6 +1175,13 @@ export function AdminPage() {
                               <span className="h-1.5 w-1.5 rounded-full bg-current" />{cfg?.label || order.status}
                             </span>
                           </div>
+
+                          {/* Последний комментарий сотрудников — второй строкой под клиентом и адресом */}
+                          <LastCommentLine
+                            preview={order.last_comment}
+                            count={order.comments_count}
+                            className="col-start-2 col-end-4 mt-2 pr-4"
+                          />
                         </div>
                       )
                     })}
@@ -1193,6 +1213,7 @@ export function AdminPage() {
                           </span>
                           <span className="text-sm font-bold text-yellow-400">{formatPrice(order.total_amount || 0)}</span>
                         </div>
+                        <LastCommentLine preview={order.last_comment} count={order.comments_count} className="mt-2 border-t border-white/5 pt-2" />
                       </div>
                     )
                   })}
@@ -1577,6 +1598,8 @@ export function AdminPage() {
           onUpdateStatus={updateStatus}
           onDelete={deleteOrder}
           updatingStatus={updatingStatus}
+          authFetch={authFetch}
+          onCommentsChange={onOrderCommentsChange}
         />
       )}
 
@@ -2035,13 +2058,15 @@ function ProductsSection({
 // ============ ORDER MODAL COMPONENT ============
 
 function OrderModal({
-  order, onClose, onUpdateStatus, onDelete, updatingStatus
+  order, onClose, onUpdateStatus, onDelete, updatingStatus, authFetch, onCommentsChange
 }: {
   order: OrderDetail
   onClose: () => void
   onUpdateStatus: (id: string, status: string) => void
   onDelete: (id: string) => void
   updatingStatus: boolean
+  authFetch: AuthFetchFn
+  onCommentsChange: (orderId: string, comments: OrderComment[]) => void
 }) {
   const cfg = STATUS_CONFIG[order.status]
   // Подгружаем фото товаров по product_id
@@ -2119,12 +2144,14 @@ function OrderModal({
               <div className="text-sm text-slate-300 whitespace-pre-line">{order.customer_note}</div>
             </div>
           )}
-          {order.admin_note && (
-            <div className="rounded-2xl bg-yellow-500/10 border border-yellow-500/20 p-4">
-              <div className="text-xs font-semibold text-yellow-400 uppercase tracking-wider mb-1">📝 Заметка</div>
-              <div className="text-sm text-slate-300">{order.admin_note}</div>
-            </div>
-          )}
+          {/* ── Комментарии сотрудников (старая «Заметка» переехала сюда первым комментарием) ── */}
+          <OrderComments
+            key={order.id}
+            orderId={order.id}
+            initial={order.comments}
+            request={authFetch}
+            onChange={comments => onCommentsChange(order.id, comments)}
+          />
 
           {/* ── Товары ── */}
           {order.items && order.items.length > 0 && (

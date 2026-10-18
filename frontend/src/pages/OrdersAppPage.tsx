@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo, type FormEvent } fro
 import { useAuth, getAuthHeaders } from '../lib/auth'
 import { API_BASE_URL } from '../lib/config'
 import { PricesPanel } from './PricesPanel'
+import { OrderComments, LastCommentLine, commentsPreview, type OrderComment, type OrderCommentPreview, type OrderCommentsRequest } from '../components/OrderComments'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // «TakeSmart — Заказы»: отдельное премиальное мини-приложение (PWA) для владельца
@@ -42,8 +43,10 @@ interface AppOrder {
   shipping_address?: string | null; shipping_city?: string | null; shipping_postal_code?: string | null
   status: string; payment_status?: string; total_amount: number; items_count?: number; created_at: string
   is_preorder?: boolean
+  /** Комментарии сотрудников: сколько и последний — для карточки в ленте */
+  comments_count?: number; last_comment?: OrderCommentPreview | null
 }
-interface OrderDetail extends AppOrder { items: OrderItem[] }
+interface OrderDetail extends AppOrder { items: OrderItem[]; comments?: OrderComment[] }
 
 const AVATAR = ['bg-rose-500/80', 'bg-amber-500/80', 'bg-emerald-500/80', 'bg-sky-500/80', 'bg-violet-500/80', 'bg-fuchsia-500/80', 'bg-cyan-500/80', 'bg-orange-500/80']
 function avatarColor(name: string): string { let h = 0; for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0; return AVATAR[h % AVATAR.length] }
@@ -336,6 +339,7 @@ function OrderCard({ o, fresh, onOpen, onConfirm }: { o: AppOrder; fresh: boolea
           </span>
         </div>
       </div>
+      <LastCommentLine preview={o.last_comment} count={o.comments_count} className="mt-3 rounded-xl bg-white/[0.04] px-3 py-2" />
       {o.status === 'pending' && onConfirm && (
         <button onClick={(e) => { e.stopPropagation(); onConfirm() }} className="mt-3 w-full rounded-xl bg-emerald-500/15 py-2 text-sm font-semibold text-emerald-300 transition active:scale-[0.98] hover:bg-emerald-500/25">✓ Подтвердить</button>
       )}
@@ -344,8 +348,14 @@ function OrderCard({ o, fresh, onOpen, onConfirm }: { o: AppOrder; fresh: boolea
 }
 
 // ── Детальный экран заказа (слайд-овер) ──────────────────────────────────────────
-function OrderDetailSheet({ orderId, onClose, onStatusChange, onDeleted }: { orderId: string; onClose: () => void; onStatusChange: (id: string, s: string) => void; onDeleted: (id: string) => void }) {
+function OrderDetailSheet({ orderId, onClose, onStatusChange, onDeleted, onCommentsChange }: { orderId: string; onClose: () => void; onStatusChange: (id: string, s: string) => void; onDeleted: (id: string) => void; onCommentsChange: (id: string, comments: OrderComment[]) => void }) {
   const { logout } = useAuth()
+  // Запросы ленты комментариев: с токеном, по 401 — на вход
+  const commentsRequest = useCallback<OrderCommentsRequest>(async (url, init) => {
+    const res = await fetch(url, { ...init, headers: { ...getAuthHeaders(), ...(init?.headers || {}) } })
+    if (res.status === 401) logout()
+    return res
+  }, [logout])
   const [order, setOrder] = useState<OrderDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [images, setImages] = useState<Record<string, string>>({})
@@ -525,6 +535,15 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange, onDeleted }: { ord
                 </section>
               )}
 
+              {/* Комментарии сотрудников — общая лента с админкой */}
+              <OrderComments
+                key={order.id}
+                orderId={order.id}
+                initial={order.comments}
+                request={commentsRequest}
+                onChange={(comments) => onCommentsChange(order.id, comments)}
+              />
+
               {/* Change status */}
               <section>
                 <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Сменить статус {saving && '· сохраняю…'}</div>
@@ -670,6 +689,10 @@ function OrdersFeed() {
   useEffect(() => { syncPush() }, [])
 
   const patchStatus = useCallback((id: string, s: string) => setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status: s } : o))), [])
+  const patchComments = useCallback((id: string, comments: OrderComment[]) => {
+    const preview = commentsPreview(comments)
+    setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, ...preview } : o)))
+  }, [])
 
   const quickConfirm = useCallback(async (id: string) => {
     try {
@@ -884,7 +907,7 @@ function OrdersFeed() {
         )}
       </div>
 
-      {selectedId && <OrderDetailSheet orderId={selectedId} onClose={() => setSelectedId(null)} onStatusChange={patchStatus} onDeleted={removeOrder} />}
+      {selectedId && <OrderDetailSheet orderId={selectedId} onClose={() => setSelectedId(null)} onStatusChange={patchStatus} onDeleted={removeOrder} onCommentsChange={patchComments} />}
     </div>
   )
 }
