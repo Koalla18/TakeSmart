@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { API_BASE_URL } from '../../lib/config'
 import { toast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirm'
-import { resolveApp } from '../../lib/appCatalog'
+import { resolveApp, classifyApp } from '../../lib/appCatalog'
 import { DEFAULT_INSTALLS_CONFIG, withPoolMeta, type CatalogApp, type InstallAccount, type InstallOrder, type InstallsConfig, type OrderStats } from '../../lib/installs'
 import { AdminIcon } from './AdminIcons'
 import { BTN_PRIMARY, BTN_SECONDARY, SegmentedTabs } from './AdminShell'
@@ -681,7 +681,7 @@ type Preselect = { key: string; number: number; apps: { bundle_id: string; name:
 
 function AppPicker({ c, purchases, phoneReady, send, currentEmail, preselect }: { c: HelperConsole; purchases: Purchase[]; phoneReady: boolean; send: (t: CommandType, p?: Record<string, unknown>) => Promise<boolean>; currentEmail: string | null; preselect: Preselect }) {
   const [q, setQ] = useState('')
-  const [filter, setFilter] = useState<'all' | 'bank'>('all')
+  const [filter, setFilter] = useState<'all' | 'bank' | 'messenger' | 'yandex' | 'russian' | 'other'>('all')
   const [hideInstalled, setHideInstalled] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [manual, setManual] = useState('')
@@ -701,15 +701,29 @@ function AppPicker({ c, purchases, phoneReady, send, currentEmail, preselect }: 
     return preselect.apps.filter(a => !have.has(a.bundle_id))
   }, [preselect, purchases])
 
-  const items = useMemo(() => purchases.map(p => ({ p, r: resolveApp(p), have: installed[p.bundle_id] })), [purchases, installed])
+  const items = useMemo(() => purchases.map(p => ({ p, r: resolveApp(p), cls: classifyApp(p), have: installed[p.bundle_id] })), [purchases, installed])
   const foreignBanks = useMemo(() => Object.entries(installed)
     .filter(([bundle, info]) => resolveApp({ name: info.name, bundle_id: bundle }).bank && Boolean(info.owner || info.dsid) && (!currentEmail || info.owner !== currentEmail))
     .map(([, info]) => info), [installed, currentEmail])
+  const counts = useMemo(() => {
+    const c = { all: items.length, bank: 0, messenger: 0, yandex: 0, russian: 0, other: 0 }
+    for (const { cls } of items) {
+      if (cls.group === 'bank') c.bank++
+      if (cls.group === 'messenger') c.messenger++
+      if (cls.group === 'yandex') c.yandex++
+      if (cls.russian) c.russian++; else c.other++
+    }
+    return c
+  }, [items])
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    return items.filter(({ p, r, have }) => {
+    return items.filter(({ p, r, cls, have }) => {
       if (needle && !`${r.name} ${p.name} ${p.bundle_id}`.toLowerCase().includes(needle)) return false
-      if (filter === 'bank' && !r.bank) return false
+      if (filter === 'bank' && cls.group !== 'bank') return false
+      if (filter === 'messenger' && cls.group !== 'messenger') return false
+      if (filter === 'yandex' && cls.group !== 'yandex') return false
+      if (filter === 'russian' && !cls.russian) return false
+      if (filter === 'other' && cls.russian) return false
       if (hideInstalled && have) return false
       return true
     })
@@ -742,10 +756,14 @@ function AppPicker({ c, purchases, phoneReady, send, currentEmail, preselect }: 
       {!phoneReady && selected.size > 0 && <p className="mt-2 text-xs text-yellow-200">Подключите iPhone, чтобы установить выбранное.</p>}
       {missingFromOrder.length > 0 && <p className="mt-2 text-xs text-yellow-200" data-order-missing>В истории покупок этого Apple ID нет приложений из заказа №{preselect?.number}: {missingFromOrder.map(a => a.name).join(', ')}. Войдите в аккаунт салона, с которого оформлен заказ.</p>}
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <input value={q} onChange={e => setQ(e.target.value)} type="search" placeholder="Поиск: Сбер, Т-Банк, ВК…" data-app-search className={`${INPUT} sm:max-w-xs`} />
-        {([['all', 'Все'], ['bank', 'Банки']] as const).map(([k, label]) => (
-          <button key={k} type="button" onClick={() => setFilter(k)} data-filter={k} className={`rounded-full px-3 py-1.5 text-sm transition ${filter === k ? 'bg-white text-slate-950' : 'bg-white/10 text-slate-300 hover:bg-white/20'}`}>{label}</button>
-        ))}
+        <input value={q} onChange={e => setQ(e.target.value)} type="search" placeholder="Поиск: Сбер, Т-Банк, Telegram, Яндекс…" data-app-search className={`${INPUT} sm:max-w-xs`} />
+        {([['all', 'Все'], ['bank', 'Банки'], ['messenger', 'Мессенджеры'], ['yandex', 'Яндекс'], ['russian', 'Русские'], ['other', 'Остальные']] as const).map(([k, label]) => {
+          const n = counts[k]
+          if (k !== 'all' && n === 0) return null
+          return (
+            <button key={k} type="button" onClick={() => setFilter(k)} data-filter={k} className={`rounded-full px-3 py-1.5 text-sm transition ${filter === k ? 'bg-white text-slate-950' : 'bg-white/10 text-slate-300 hover:bg-white/20'}`}>{label}{k !== 'all' ? <span className="ml-1.5 text-slate-500">{n}</span> : null}</button>
+          )
+        })}
         <button type="button" onClick={() => setHideInstalled(v => !v)} className={`rounded-full px-3 py-1.5 text-sm transition ${hideInstalled ? 'bg-white text-slate-950' : 'bg-white/10 text-slate-300 hover:bg-white/20'}`}>Скрыть уже установленные</button>
       </div>
 
@@ -761,15 +779,18 @@ function AppPicker({ c, purchases, phoneReady, send, currentEmail, preselect }: 
           </div>
         ) : (
           <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-3">
-            {visible.map(({ p, r, have }) => {
+            {visible.map(({ p, r, cls, have }) => {
               const on = selected.has(p.bundle_id)
               return (
-                <button key={p.bundle_id} type="button" onClick={() => toggle(p.bundle_id)} aria-pressed={on} data-app-tile={p.bundle_id} data-selected={on ? '1' : '0'}
+                <button key={p.bundle_id} type="button" onClick={() => toggle(p.bundle_id)} aria-pressed={on} data-app-tile={p.bundle_id} data-group={cls.group} data-selected={on ? '1' : '0'}
                   className={`relative flex w-full min-w-0 items-center gap-3 rounded-2xl border p-3 text-left transition ${on ? 'border-yellow-400/70 bg-yellow-400/[0.08]' : 'border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]'}`}>
                   <AppIcon app={r} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium text-white">{r.name}</span>
-                    <span className="block truncate text-xs text-slate-500">{have ? <span className="text-slate-300">уже стоит {have.version}</span> : p.version ? `версия ${p.version}` : p.bundle_id}</span>
+                    <span className="flex items-center gap-1.5 truncate text-xs text-slate-500">
+                      {cls.group !== 'other' && <span className="shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-slate-400">{cls.groupLabel}</span>}
+                      <span className="truncate">{have ? <span className="text-slate-300">уже стоит {have.version}</span> : p.version ? `версия ${p.version}` : p.bundle_id}</span>
+                    </span>
                   </span>
                   <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${on ? 'border-yellow-400 bg-yellow-400 text-slate-950' : 'border-white/20 text-transparent'}`}><AdminIcon name="check" className="h-3.5 w-3.5" /></span>
                 </button>
