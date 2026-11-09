@@ -331,8 +331,8 @@ export function OrdersTab({ orders, stats, onOpen, goNew }: {
 
 // ── Карточка заказа ──────────────────────────────────────────────────────────
 
-export function OrderCard({ api, orderId, onClose, onCable, onChanged }: {
-  api: Api; orderId: string; onClose: () => void; onCable: (order: InstallOrder) => void; onChanged: () => void
+export function OrderCard({ api, orderId, onClose, onChanged }: {
+  api: Api; orderId: string; onClose: () => void; onChanged: () => void
 }) {
   const [order, setOrderState] = useState<InstallOrder | null>(null)
   const [loadedAt, setLoadedAt] = useState(0)
@@ -513,7 +513,6 @@ export function OrderCard({ api, orderId, onClose, onCable, onChanged }: {
           {!order.paid_at && order.status !== 'cancelled' && <button type="button" disabled={busy !== null} onClick={() => act('confirm_payment', {}, 'Оплата отмечена')} className={BTN_SECONDARY} data-act="confirm_payment">Оплата получена</button>}
           {(order.status === 'active' || order.status === 'expired') && <button type="button" disabled={busy !== null} onClick={() => act('extend', { minutes: 30 }, 'Продлено на 30 минут')} className={BTN_SECONDARY} data-act="extend">Продлить на 30 мин</button>}
           {order.status === 'expired' && <button type="button" disabled={busy !== null} onClick={() => act('done', {}, 'Заказ закрыт')} className={BTN_SECONDARY}>Завершить</button>}
-          {open && <button type="button" onClick={() => onCable(order)} className={BTN_SECONDARY} data-act="cable">Поставить по кабелю</button>}
           {(order.status === 'done' || order.status === 'cancelled') && <button type="button" disabled={busy !== null} onClick={() => act('reopen', {}, 'Заказ открыт заново')} className={BTN_SECONDARY} data-act="reopen">Открыть заново</button>}
           <span className="ml-auto flex gap-2">
             {open && <button type="button" onClick={cancel} className={`${BTN_ROW} text-red-300`} data-act="cancel">Отменить</button>}
@@ -727,7 +726,7 @@ function StaffCodeCard({ api, config, onSaved }: { api: Api; config: InstallsCon
 }
 
 // ── Apple ID салона: с них на самом деле скачиваются приложения ──────────────
-function AccountsSection({ api, accounts, catalog, reload, goCable }: { api: Api; accounts: InstallAccount[]; catalog: CatalogApp[]; reload: () => Promise<void>; goCable: () => void }) {
+function AccountsSection({ api, accounts, catalog, reload }: { api: Api; accounts: InstallAccount[]; catalog: CatalogApp[]; reload: () => Promise<void> }) {
   const [accountId, setAccountId] = useState<string | null>(null)
   const account = accounts.find(a => a.id === accountId) || accounts[0] || null
   const [stations, setStations] = useState<StationLite[]>([])
@@ -809,13 +808,13 @@ function AccountsSection({ api, accounts, catalog, reload, goCable }: { api: Api
                       {!stationMatches && <span className="block text-xs">Это не {maskEmail(account.apple_id)}. Войдите на помощнике в этот Apple ID.</span>}
                     </div>
                   ) : (
-                    <div className="text-slate-400">Историю покупок читает помощник на Mac: во вкладке «По кабелю» войдите в этот Apple ID и вернитесь сюда. После проверки приложения из каталога, которые у него есть, отметятся зелёным.</div>
+                    <div className="text-slate-400">Историю покупок читает помощник на Mac. Когда он подключён, нажмите «Прочитать историю покупок» — приложения из каталога, которые у него есть, отметятся зелёным.</div>
                   )}
                   {ownedCount > 0 && <div className="mt-1 text-xs text-emerald-300">Уже известно приложений у этого Apple ID: {ownedCount}</div>}
                 </div>
                 {station
                   ? <button type="button" disabled={busy} onClick={() => runImport(false)} className={BTN_PRIMARY} data-import-btn><AdminIcon name="refresh" className="h-4 w-4" />{busy ? 'Читаем…' : 'Прочитать историю покупок'}</button>
-                  : <button type="button" onClick={goCable} className={BTN_SECONDARY}>Открыть «По кабелю»</button>}
+                  : <span className="text-sm text-slate-500">Помощник на Mac не подключён</span>}
               </div>
             </div>
           )}
@@ -1016,8 +1015,8 @@ function SettingsBlock({ id, title, hint, children }: { id: string; title: strin
 
 const escapeHtml = (v: string) => v.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string))
 
-export function SettingsTab({ api, accounts, catalog, config, reload, goCable }: {
-  api: Api; accounts: InstallAccount[]; catalog: CatalogApp[]; config: InstallsConfig; reload: () => Promise<void>; goCable: () => void
+export function SettingsTab({ api, accounts, catalog, config, reload }: {
+  api: Api; accounts: InstallAccount[]; catalog: CatalogApp[]; config: InstallsConfig; reload: () => Promise<void>
 }) {
   const [draft, setDraft] = useState<InstallsConfig | null>(null)
   const [saving, setSaving] = useState(false)
@@ -1136,7 +1135,7 @@ export function SettingsTab({ api, accounts, catalog, config, reload, goCable }:
         </SettingsBlock>
 
         <SettingsBlock id="set-accounts" title="Apple ID салона">
-          <AccountsSection api={api} accounts={accounts} catalog={catalog} reload={reload} goCable={goCable} />
+          <AccountsSection api={api} accounts={accounts} catalog={catalog} reload={reload} />
         </SettingsBlock>
 
         <SettingsBlock id="set-memo" title="Как это работает">
