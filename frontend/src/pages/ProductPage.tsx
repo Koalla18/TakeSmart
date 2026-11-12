@@ -1875,7 +1875,7 @@ export function ProductPage() {
                 {/* Подарок: консоли из подборки страницы GTA VI */}
                 {apiProduct && giftIds.has(apiProduct.id) && (
                   <Link to="/gta6" className="group mb-6 flex items-center gap-3 rounded-2xl bg-[#11111d] p-3 pr-4 text-white transition-colors hover:bg-[#1c1c2e]" data-product-gift>
-                    <img src="/gta6/cover.webp" alt="" className="h-14 w-auto -rotate-3 rounded-[3px] ring-1 ring-white/70" />
+                    <img src="/gta6-art/cover.webp" alt="" className="h-14 w-auto -rotate-3 rounded-[3px] ring-1 ring-white/70" />
                     <span className="min-w-0 flex-1">
                       <span className="block text-[11px] font-bold uppercase tracking-wider text-[#ffb0c4]">В подарок к этой консоли</span>
                       <span className="block font-bold">{GTA6_GIFT_NAME}</span>

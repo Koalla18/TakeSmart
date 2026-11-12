@@ -495,7 +495,7 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                 >
                   {item.to === '/gta6' ? (
                     <span className="flex items-center gap-3">
-                      <img src="/gta6/cover.webp" alt="" className="h-9 w-auto -rotate-6 rounded-[3px] shadow-sm ring-1 ring-gray-200" />
+                      <img src="/gta6-art/cover.webp" alt="" className="h-9 w-auto -rotate-6 rounded-[3px] shadow-sm ring-1 ring-gray-200" />
                       {item.label}
                     </span>
                   ) : item.label}
@@ -797,7 +797,7 @@ export function Shell({ children }: PropsWithChildren) {
                   data-gta6-nav
                   className={({ isActive }) => `group inline-flex items-center gap-2 whitespace-nowrap py-1 text-sm font-bold transition-colors ${isActive ? 'text-yellow-500' : 'text-gray-900 hover:text-yellow-500'}`}
                 >
-                  <img src="/gta6/cover.webp" alt="" className="h-8 w-auto -rotate-6 rounded-[3px] shadow-sm ring-1 ring-gray-200 transition-transform group-hover:rotate-0 group-hover:scale-110" />
+                  <img src="/gta6-art/cover.webp" alt="" className="h-8 w-auto -rotate-6 rounded-[3px] shadow-sm ring-1 ring-gray-200 transition-transform group-hover:rotate-0 group-hover:scale-110" />
                   GTA VI
                 </NavLink>
               )}

@@ -19,7 +19,7 @@ export const GTA6_DEFAULT_GIFT_TEXT =
   'До выхода игры закрепим её за вашим заказом и передадим в день релиза, после 19 ноября — отдадим сразу вместе с консолью. ' +
   'Формат подарка (диск или цифровой код) менеджер подберёт под вашу модель PS5.'
 
-/** Места под картинки на странице. Пустое место — стандартный официальный арт из public/gta6. */
+/** Места под картинки на странице. Пустое место — стандартный официальный арт из public/gta6-art. */
 export type Gta6Slot =
   | 'hero' | 'promo' | 'story' | 'jason' | 'lucia'
   | 'vice_city' | 'keys' | 'grassrivers' | 'port_gellhorn' | 'ambrosia' | 'kalaga' | 'finale'
@@ -39,9 +39,13 @@ export const GTA6_SLOTS: { id: Gta6Slot; label: string; hint: string }[] = [
   { id: 'finale', label: 'Финальный экран', hint: 'Во всю ширину, от 2000 px' },
 ]
 
-/** Стандартная картинка блока (статика сайта) */
+/**
+ * Стандартная картинка блока (статика сайта). Папка намеренно НЕ называется «gta6»:
+ * адрес страницы — /gta6, и одноимённая папка в статике заставляет nginx при прямом
+ * заходе открывать её вместо сайта (301 на /gta6/ и 403).
+ */
 export function gta6Asset(name: string): string {
-  return `/gta6/${name}.webp`
+  return `/gta6-art/${name}.webp`
 }
 
 export interface Gta6Config {
