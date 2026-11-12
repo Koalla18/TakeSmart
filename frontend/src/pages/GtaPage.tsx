@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ImgHTMLAttributes, type ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { ProductCardSkeleton } from '../components/ProductCard'
 import { useCart } from '../lib/cart'
@@ -22,7 +22,7 @@ import { formatPrice, mapApiProduct, type Product } from '../data/products'
 interface ApiCategory { id: string; name: string; slug: string }
 
 const BG = '#11111d'
-const PINK_BTN = 'inline-flex items-center justify-center rounded-full bg-[#ffb0c4] px-7 py-3.5 text-sm font-bold text-[#11111d] transition-colors hover:bg-white sm:text-base'
+const PINK_BTN = 'inline-flex items-center justify-center rounded-full bg-[#ffb0c4] px-7 py-3.5 text-sm font-bold text-[#11111d] transition-colors duration-300 hover:bg-white sm:text-base'
 const GHOST_BTN = 'inline-flex items-center justify-center rounded-full border border-white/30 px-7 py-3.5 text-sm font-bold text-white transition-colors hover:bg-white hover:text-[#11111d] sm:text-base'
 const EYEBROW = 'text-[11px] font-bold uppercase tracking-[0.22em] text-white/60 sm:text-xs'
 const H2 = 'text-3xl font-black uppercase leading-[1.02] tracking-tight text-white sm:text-5xl lg:text-6xl'
@@ -67,6 +67,25 @@ const FAQ: { q: string; a: string }[] = [
 ]
 
 /**
+ * Картинка, которая мягко проявляется, когда загрузилась, — вместо резкого
+ * «выскакивания» на тёмном фоне. Переход по transform оставлен для наведения.
+ */
+function FadeImg({ style, onLoad, ...props }: ImgHTMLAttributes<HTMLImageElement>) {
+  // Прозрачность меняется прямо на элементе, без состояния: картинка из кэша бывает
+  // готова ещё до того, как сработает onLoad, и её нужно показать сразу.
+  const show = (el: HTMLImageElement) => { el.style.opacity = '1' }
+  return (
+    <img
+      {...props}
+      ref={el => { if (el?.complete) show(el) }}
+      onLoad={e => { show(e.currentTarget); onLoad?.(e) }}
+      onError={e => show(e.currentTarget)}
+      style={{ ...style, opacity: 0, transition: 'opacity 900ms ease, transform 1400ms cubic-bezier(0.16, 1, 0.3, 1)' }}
+    />
+  )
+}
+
+/**
  * Плавное появление блока при прокрутке. Видимость проверяется и наблюдателем, и
  * обычным замером на scroll: если наблюдатель по какой-то причине промолчит,
  * блок всё равно не останется невидимым.
@@ -105,7 +124,7 @@ function Reveal({ children, className = '', delay = 0 }: { children: ReactNode; 
     <div
       ref={ref}
       style={{ transitionDelay: `${delay}ms` }}
-      className={`transition-all duration-[900ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${shown ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0 motion-reduce:translate-y-0 motion-reduce:opacity-100'} ${className}`}
+      className={`transition-all duration-[1300ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${shown ? 'translate-y-0 opacity-100' : 'translate-y-5 opacity-0 motion-reduce:translate-y-0 motion-reduce:opacity-100'} ${className}`}
     >
       {children}
     </div>
@@ -146,7 +165,7 @@ function BuyBar({ gift, minPrice }: { gift: boolean; minPrice: number | null }) 
     ? `До релиза ${left.days > 0 ? `${left.days} дн ` : ''}${left.hours} ч${left.days === 0 ? ` ${left.minutes} мин` : ''}`
     : 'Игра уже вышла'
   return (
-    <div className="sticky top-16 z-30 overflow-hidden bg-[#c48fc4] text-[#11111d] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)] lg:top-20" data-gta6-buybar>
+    <div className="gta-drop sticky top-16 z-30 overflow-hidden bg-[#c48fc4] text-[#11111d] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)] lg:top-20" data-gta6-buybar>
       <img src={gta6Asset('strip')} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full object-cover object-right" />
       <div className="relative mx-auto flex max-w-7xl items-center gap-3 px-4 py-2 sm:gap-4 sm:px-6 sm:py-2.5 lg:px-8">
         {gift && (
@@ -192,9 +211,9 @@ function VideoModal({ video, title, onClose }: { video: Gta6Video; title: string
   }, [onClose])
   return (
     <div role="dialog" aria-modal="true" aria-label={title} data-gta6-player
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-[#0a0a12]/95 p-3 sm:p-8"
+      className="gta-fade fixed inset-0 z-[70] flex items-center justify-center bg-[#0a0a12]/95 p-3 sm:p-8"
       onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="w-full max-w-[min(72rem,calc((100svh-9rem)*16/9))]">
+      <div className="gta-pop w-full max-w-[min(72rem,calc((100svh-9rem)*16/9))]">
         <div className="mb-3 flex items-center justify-between gap-4">
           <div className="text-sm font-bold uppercase tracking-[0.18em] text-white/80">{title}</div>
           <button type="button" onClick={onClose} aria-label="Закрыть" className="flex h-10 w-10 items-center justify-center rounded-full border border-white/25 text-white transition-colors hover:bg-white hover:text-[#11111d]">
@@ -226,11 +245,11 @@ function ConsoleCard({ product, gift }: { product: Product; gift: boolean }) {
   const status = product.preorder ? (product.preorderNote || 'Предзаказ') : available ? 'В наличии' : 'Нет в наличии'
 
   return (
-    <article className="group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-3xl bg-[#1c1c2e] ring-1 ring-white/10 transition-all duration-300 hover:-translate-y-1 hover:ring-[#ffb0c4]/60" data-gta6-product={product.id}>
+    <article className="group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-3xl bg-[#1c1c2e] ring-1 ring-white/10 transition-all duration-500 ease-out hover:-translate-y-1 hover:ring-[#ffb0c4]/60" data-gta6-product={product.id}>
       <Link to={`/product/${product.slug}`} className="relative block" tabIndex={-1} aria-hidden="true">
         <div className="bg-white [clip-path:polygon(0_0,100%_0,100%_88%,0_100%)]">
           {product.image
-            ? <img src={product.image} alt={product.name} loading="lazy" className="aspect-[4/3] w-full object-contain p-6 pb-10 transition-transform duration-500 group-hover:scale-105 sm:p-8 sm:pb-12" />
+            ? <FadeImg src={product.image} alt={product.name} loading="lazy" className="aspect-[4/3] w-full object-contain p-6 pb-10 transition-transform duration-500 group-hover:scale-105 sm:p-8 sm:pb-12" />
             : <div className="aspect-[4/3] w-full" />}
         </div>
         {discount > 0 && <span className="absolute left-4 top-4 rounded-full bg-[#11111d] px-2.5 py-1 text-xs font-bold text-white">−{discount}%</span>}
@@ -318,6 +337,15 @@ export function GtaPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Кнопки «Купить консоль», «Об игре» ведут к блокам на этой же странице — едем плавно
+  useEffect(() => {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+    const root = document.documentElement
+    const prev = root.style.scrollBehavior
+    root.style.scrollBehavior = 'smooth'
+    return () => { root.style.scrollBehavior = prev }
+  }, [])
+
   useEffect(() => {
     const prev = document.title
     document.title = 'GTA VI — всё об игре и PlayStation 5 с игрой в подарок — TakeSmart'
@@ -379,7 +407,7 @@ export function GtaPage() {
         <div className="gta-rise overflow-hidden rounded-2xl sm:mx-auto sm:max-w-[max(36rem,calc((100svh-19rem)*16/9))] sm:rounded-3xl">
           <picture>
             {!custom.hero && <source media="(max-width: 639px)" srcSet={gta6Asset('hero-m')} />}
-            <img src={art('hero')} alt="Grand Theft Auto VI" fetchPriority="high" className="aspect-[9/16] w-full object-cover sm:aspect-video" />
+            <FadeImg src={art('hero')} alt="Grand Theft Auto VI" fetchPriority="high" className="aspect-[9/16] w-full object-cover sm:aspect-video" />
           </picture>
         </div>
         <div className="gta-rise mt-6 grid items-center gap-6 [animation-delay:150ms] sm:mt-8 lg:grid-cols-[1fr_auto_1fr]">
@@ -398,7 +426,7 @@ export function GtaPage() {
       <section className="relative isolate flex min-h-[86svh] flex-col overflow-hidden sm:min-h-[92svh]">
         <picture>
           {!custom.promo && <source media="(max-width: 639px)" srcSet={gta6Asset('promo-m')} />}
-          <img src={art('promo')} alt="" loading="lazy" className="absolute inset-0 -z-10 h-full w-full object-cover object-[62%_50%] sm:object-center" />
+          <FadeImg src={art('promo')} alt="" loading="lazy" className="absolute inset-0 -z-10 h-full w-full object-cover object-[62%_50%] sm:object-center" />
         </picture>
         <div className="absolute inset-x-0 top-0 -z-10 h-1/2 bg-gradient-to-b from-[#11111d] via-[#11111d]/50 to-transparent sm:h-1/4 sm:via-[#11111d]/20" />
         <div className="absolute inset-y-0 left-0 -z-10 hidden w-2/3 bg-gradient-to-r from-[#11111d]/90 via-[#11111d]/45 to-transparent sm:block" />
@@ -432,7 +460,7 @@ export function GtaPage() {
               <Reveal key={item.title} delay={i * 80} className={i === 0 ? 'lg:row-span-2' : ''}>
                 <button type="button" onClick={() => setPlaying({ video: item.video, title: `Grand Theft Auto VI — ${item.title}` })}
                   className="group relative block h-full w-full overflow-hidden rounded-2xl text-left sm:rounded-3xl" data-gta6-trailer>
-                  <img src={gta6Asset(item.poster)} alt="" loading="lazy" className={`w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.04] ${i === 0 ? 'aspect-video h-full' : 'aspect-video lg:aspect-auto lg:h-full'}`} />
+                  <FadeImg src={gta6Asset(item.poster)} alt="" loading="lazy" className={`w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.04] ${i === 0 ? 'aspect-video h-full' : 'aspect-video lg:aspect-auto lg:h-full'}`} />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#11111d]/90 via-[#11111d]/10 to-transparent" />
                   {i === 0 && <div className="absolute inset-0 flex items-center justify-center"><PlayBadge /></div>}
                   <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-5 sm:p-7">
@@ -450,7 +478,7 @@ export function GtaPage() {
       </section>
 
       {/* ── 3. Сюжет ────────────────────────────────────────────────────── */}
-      <section id="story" className="scroll-mt-20 px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
+      <section id="story" className="scroll-mt-32 lg:scroll-mt-36 px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
         <div className="mx-auto grid max-w-7xl items-center gap-8 lg:grid-cols-[5fr_7fr] lg:gap-14">
           <Reveal>
             <h2 className={H2}>Вайс-Сити, США.</h2>
@@ -465,7 +493,7 @@ export function GtaPage() {
             </p>
           </Reveal>
           <Reveal delay={100}>
-            <img src={art('story')} alt="Джейсон и Лусия" loading="lazy" className="aspect-video w-full rounded-2xl object-cover sm:rounded-3xl" />
+            <FadeImg src={art('story')} alt="Джейсон и Лусия" loading="lazy" className="aspect-video w-full rounded-2xl object-cover sm:rounded-3xl" />
           </Reveal>
         </div>
       </section>
@@ -477,7 +505,7 @@ export function GtaPage() {
             <Reveal key={hero.slot} delay={i * 120}>
               <article className="group h-full overflow-hidden rounded-2xl bg-white/[0.05] sm:rounded-3xl">
                 <div className="overflow-hidden">
-                  <img src={art(hero.slot)} alt={hero.name} loading="lazy" className="aspect-video w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.04]" />
+                  <FadeImg src={art(hero.slot)} alt={hero.name} loading="lazy" className="aspect-video w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.04]" />
                 </div>
                 <div className="p-6 sm:p-8">
                   <div className={EYEBROW}>{hero.role}</div>
@@ -500,7 +528,7 @@ export function GtaPage() {
           <Rail label="Персонажи">
             {CAST.map(person => (
               <article key={person.img} className="group relative w-[68vw] flex-shrink-0 snap-start overflow-hidden rounded-2xl sm:w-[300px]" data-gta6-cast>
-                <img src={gta6Asset(person.img)} alt={person.name} loading="lazy" className="aspect-[9/16] w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.04]" />
+                <FadeImg src={gta6Asset(person.img)} alt={person.name} loading="lazy" className="aspect-[9/16] w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.04]" />
                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#11111d] via-[#11111d]/85 to-transparent p-5 pt-20">
                   <h3 className="text-xl font-black uppercase leading-none tracking-tight">{person.name}</h3>
                   <p className="mt-2 text-sm leading-snug text-white/75">{person.text}</p>
@@ -522,7 +550,7 @@ export function GtaPage() {
             {PLACES.map(place => (
               <article key={place.slot} className="group w-[82vw] flex-shrink-0 snap-start sm:w-[520px]" data-gta6-place>
                 <div className="overflow-hidden rounded-2xl">
-                  <img src={art(place.slot)} alt={place.name} loading="lazy" className="aspect-video w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.04]" />
+                  <FadeImg src={art(place.slot)} alt={place.name} loading="lazy" className="aspect-video w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.04]" />
                 </div>
                 <h3 className="mt-4 text-2xl font-black uppercase leading-none tracking-tight">{place.name}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-white/70 sm:text-base">{place.text}</p>
@@ -542,7 +570,7 @@ export function GtaPage() {
           <div className="mt-8 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
             {SHOTS.map((shot, i) => (
               <Reveal key={shot} delay={(i % 3) * 80} className={i === 0 ? 'col-span-2 lg:row-span-2' : ''}>
-                <img src={gta6Asset(shot)} alt="Кадр из Grand Theft Auto VI" loading="lazy" className={`h-full w-full rounded-xl object-cover sm:rounded-2xl ${i === 0 ? 'aspect-video lg:aspect-auto' : 'aspect-video'}`} />
+                <FadeImg src={gta6Asset(shot)} alt="Кадр из Grand Theft Auto VI" loading="lazy" className={`h-full w-full rounded-xl object-cover sm:rounded-2xl ${i === 0 ? 'aspect-video lg:aspect-auto' : 'aspect-video'}`} />
               </Reveal>
             ))}
           </div>
@@ -551,7 +579,7 @@ export function GtaPage() {
       </section>
 
       {/* ── 8. Подарок + подборка PS5 ───────────────────────────────────── */}
-      <section id="ps5" className="scroll-mt-16 px-4 pb-16 sm:px-6 sm:pb-24 lg:px-8">
+      <section id="ps5" className="scroll-mt-36 lg:scroll-mt-40 px-4 pb-16 sm:px-6 sm:pb-24 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <Reveal>
             <div className={EYEBROW}>Консоли</div>
@@ -608,10 +636,10 @@ export function GtaPage() {
           <Reveal><h2 className="text-3xl font-black uppercase tracking-tight sm:text-4xl">Вопросы и ответы</h2></Reveal>
           <div className="mt-6 divide-y divide-white/10 border-y border-white/10">
             {FAQ.filter(item => gift || !item.q.includes('в подарок')).map(item => (
-              <details key={item.q} className="group py-4">
+              <details key={item.q} className="gta-faq group py-4">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-bold sm:text-lg [&::-webkit-details-marker]:hidden">
                   {item.q}
-                  <svg className="h-5 w-5 flex-shrink-0 text-white/60 transition-transform group-open:rotate-45" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" d="M12 5v14M5 12h14" /></svg>
+                  <svg className="h-5 w-5 flex-shrink-0 text-white/60 transition-transform duration-500 ease-out group-open:rotate-45" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" d="M12 5v14M5 12h14" /></svg>
                 </summary>
                 <p className="mt-3 leading-relaxed text-white/70">{item.a}</p>
               </details>
@@ -624,7 +652,7 @@ export function GtaPage() {
       <section className="relative isolate flex min-h-[92svh] flex-col justify-end overflow-hidden">
         <picture>
           {!custom.finale && <source media="(max-width: 639px)" srcSet={gta6Asset('finale-m')} />}
-          <img src={art('finale')} alt="" loading="lazy" className="absolute inset-0 -z-10 h-full w-full object-cover object-top" />
+          <FadeImg src={art('finale')} alt="" loading="lazy" className="absolute inset-0 -z-10 h-full w-full object-cover object-top" />
         </picture>
         <div className="absolute inset-x-0 top-0 -z-10 h-1/4 bg-gradient-to-b from-[#11111d] to-transparent" />
         <div className="absolute inset-x-0 bottom-0 -z-10 h-2/3 bg-gradient-to-t from-[#11111d] via-[#11111d]/70 to-transparent" />
