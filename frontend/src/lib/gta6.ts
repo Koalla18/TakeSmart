@@ -134,3 +134,26 @@ export function parseVideoUrl(raw: string): Gta6Video | null {
   if (/\.(mp4|webm)(\?|$)/i.test(url)) return { kind: 'file', src: url }
   return null
 }
+
+/** Как подарок называется в корзине, заказе и у сотрудников */
+export const GTA6_GIFT_NAME = 'Grand Theft Auto VI'
+
+const NO_GIFTS: ReadonlySet<string> = new Set()
+
+/**
+ * Товары, к которым сейчас положена игра в подарок: подборка страницы /gta6, пока
+ * включены и страница, и подарок. Окончательно подарок записывает в заказ сервер
+ * по тому же правилу — здесь только показ покупателю в корзине и на странице товара.
+ */
+export function useGta6GiftIds(): ReadonlySet<string> {
+  const [ids, setIds] = useState<ReadonlySet<string>>(NO_GIFTS)
+  useEffect(() => {
+    let cancelled = false
+    fetchGta6Page().then(page => {
+      if (cancelled || !page || !page.enabled || !page.gift_enabled) return
+      setIds(new Set(page.products.map(p => p.id)))
+    })
+    return () => { cancelled = true }
+  }, [])
+  return ids
+}

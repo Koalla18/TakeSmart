@@ -7,6 +7,7 @@ import { useCart, MAX_QUANTITY_PER_ITEM, MAX_TOTAL_ITEMS } from '../lib/cart'
 import { formatPrice, mapApiProduct, type ApiProductOut } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
 import { ymEcommercePurchase, ymReachGoal } from '../lib/metrika'
+import { GTA6_GIFT_NAME, useGta6GiftIds } from '../lib/gta6'
 import { PAYMENT_TAX_RATE, PAYMENT_TAX_PCT, taxSurcharge, effectivePercent } from '../lib/paymentTax'
 
 function isImageUrl(url?: string): boolean {
@@ -137,6 +138,9 @@ export function CartPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
   const [orderNumber, setOrderNumber] = useState<string | null>(null)
+  // Подарок, который сервер записал в оформленный заказ (GTA VI к консолям)
+  const [orderGift, setOrderGift] = useState<string | null>(null)
+  const giftIds = useGta6GiftIds()
   const [error, setError] = useState<string | null>(null)
   const [limitWarning, setLimitWarning] = useState<string | null>(null)
   const [consentChecked, setConsentChecked] = useState(false)
@@ -332,6 +336,7 @@ export function CartPage() {
 
     clearCart()
     setOrderNumber(order.order_number ?? null)
+    setOrderGift(order.gift ?? null)
     setIsSuccess(true)
   }
 
@@ -409,6 +414,12 @@ export function CartPage() {
               <div className="mb-4 rounded-xl bg-yellow-50 px-6 py-3 text-center">
                 <span className="text-sm text-gray-500">Номер заказа</span>
                 <div className="text-2xl font-bold text-yellow-600">{orderNumber}</div>
+              </div>
+            )}
+            {orderGift && (
+              <div className="mb-4 rounded-xl bg-[#11111d] px-6 py-3 text-center text-white" data-order-gift>
+                <span className="text-sm text-[#ffb0c4]">Подарок к заказу</span>
+                <div className="text-lg font-bold">{orderGift}</div>
               </div>
             )}
             <p className="mb-8 text-lg text-gray-600">
@@ -495,6 +506,12 @@ export function CartPage() {
                             <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" />
                             Предзаказ · {item.product.preorderNote || 'Скоро в продаже'}
                           </span>
+                        )}
+                        {giftIds.has(item.product.id) && (
+                          <Link to="/gta6" className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-[#11111d] px-2 py-0.5 text-[11px] font-semibold text-white" data-cart-gift>
+                            <span className="h-1.5 w-1.5 rounded-full bg-[#ffb0c4]" />
+                            + {GTA6_GIFT_NAME} в подарок
+                          </Link>
                         )}
                         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
                           {/* Quantity */}

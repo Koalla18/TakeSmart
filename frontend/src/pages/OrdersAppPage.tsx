@@ -36,13 +36,15 @@ const FILTERS: { key: string; label: string; statuses?: StatusKey[] }[] = [
   { key: 'delivered', label: 'Доставлены', statuses: ['delivered'] },
 ]
 
-interface OrderItem { id: string; product_id: string; product_name: string; product_sku: string | null; unit_price: number; total_price: number; quantity: number }
+interface OrderItem { id: string; product_id: string; product_name: string; product_sku: string | null; unit_price: number; total_price: number; quantity: number; gift?: string | null }
 interface AppOrder {
   id: string; order_number: string; customer_name: string; customer_email?: string | null; customer_phone?: string | null
   customer_note?: string | null; admin_note?: string | null
   shipping_address?: string | null; shipping_city?: string | null; shipping_postal_code?: string | null
   status: string; payment_status?: string; total_amount: number; items_count?: number; created_at: string
   is_preorder?: boolean
+  /** Подарок к заказу (например, «Grand Theft Auto VI»); пусто — подарка нет */
+  gift?: string | null
   /** Комментарии сотрудников: сколько и последний — для карточки в ленте */
   comments_count?: number; last_comment?: OrderCommentPreview | null
 }
@@ -321,6 +323,7 @@ function OrderCard({ o, fresh, onOpen, onConfirm }: { o: AppOrder; fresh: boolea
         <span className="flex items-center gap-2 font-mono text-[13px] font-bold tracking-tight text-yellow-400">
           {o.order_number}
           {o.is_preorder && <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 font-sans text-[10px] font-semibold tracking-normal text-sky-300 ring-1 ring-inset ring-sky-400/30"><span className="h-1 w-1 rounded-full bg-sky-400" />Предзаказ</span>}
+          {o.gift && <span className="inline-flex items-center gap-1 rounded-full bg-pink-400/15 px-2 py-0.5 font-sans text-[10px] font-semibold tracking-normal text-pink-200 ring-1 ring-inset ring-pink-300/30">+ {o.gift === 'Grand Theft Auto VI' ? 'GTA VI' : o.gift} в подарок</span>}
         </span>
         <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
           {fresh && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-yellow-400" />}{timeAgo(o.created_at)}
@@ -430,6 +433,7 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange, onDeleted, onComme
           <span className="flex items-center gap-2 font-mono text-sm font-bold text-yellow-400">
             {order?.order_number || '…'}
             {order?.is_preorder && <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-sky-300 ring-1 ring-inset ring-sky-400/30">Предзаказ</span>}
+            {order?.gift && <span className="inline-flex items-center gap-1 rounded-full bg-pink-400/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-pink-200 ring-1 ring-inset ring-pink-300/30">+ {order.gift} в подарок</span>}
           </span>
           <span className="w-9" />
         </div>
@@ -510,6 +514,7 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange, onDeleted, onComme
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="line-clamp-2 text-sm font-medium text-white">{it.product_name}</div>
+                        {it.gift && <div className="mt-0.5 text-xs font-semibold text-pink-200" data-item-gift>+ {it.gift}{it.quantity > 1 ? ` × ${it.quantity}` : ''} в подарок — положить к заказу</div>}
                         <div className="text-xs text-slate-500">{it.quantity} × {fmtRub(it.unit_price)}{it.product_sku ? ` · ${it.product_sku}` : ''}</div>
                       </div>
                       <div className="text-sm font-semibold text-white">{fmtRub(it.total_price)}</div>
