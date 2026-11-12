@@ -337,6 +337,8 @@ export function CartPage() {
     clearCart()
     setOrderNumber(order.order_number ?? null)
     setOrderGift(order.gift ?? null)
+    // Отдельная цель для рекламы GTA VI: заказ консоли с игрой в подарок
+    if (order.gift) ymReachGoal('gta6_order', { revenue: total, order: order.order_number })
     setIsSuccess(true)
   }
 

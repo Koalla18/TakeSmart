@@ -5,6 +5,7 @@ import { AuthProvider } from './lib/auth'
 import { CartProvider } from './lib/cart'
 import { ymHit } from './lib/metrika'
 import { trackVisit } from './lib/visits'
+import { applySeoMeta, fetchSeoMeta } from './lib/seo'
 import { HomePage } from './pages/HomePage'
 
 // HomePage остаётся eager — это лендинг, не хотим второй сетевой round-trip на "/".
@@ -91,6 +92,21 @@ function VisitTracker() {
   return null
 }
 
+/**
+ * Заголовок вкладки, описание и canonical для каждой страницы витрины — с бэкенда,
+ * те же, что роботы получают в HTML. Внутренние инструменты не трогаем.
+ */
+function SeoTracker() {
+  const { pathname, search } = useLocation()
+  useEffect(() => {
+    if (INTERNAL_ROUTE_PREFIXES.some(p => pathname.startsWith(p))) return
+    let cancelled = false
+    fetchSeoMeta(pathname, search).then(meta => { if (meta && !cancelled) applySeoMeta(meta) })
+    return () => { cancelled = true }
+  }, [pathname, search])
+  return null
+}
+
 /** Лёгкий плейсхолдер во время подгрузки чанка ленивой страницы. */
 function RouteFallback() {
   return (
@@ -107,6 +123,7 @@ export default function App() {
         <ScrollToTop />
         <MetrikaRouteTracker />
         <VisitTracker />
+        <SeoTracker />
         <Suspense fallback={<RouteFallback />}>
           <Routes>
             {/* Admin routes (no Shell) */}

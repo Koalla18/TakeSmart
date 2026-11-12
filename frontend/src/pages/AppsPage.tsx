@@ -65,10 +65,8 @@ export function AppsPage() {
   const [askStaff, setAskStaff] = useState(false)
 
   useEffect(() => {
-    const prev = document.title
-    document.title = 'Приложения на iPhone, которых нет в App Store — TakeSmart'
+    // Заголовок вкладки ставит SeoTracker (App.tsx) — тексты с бэкенда, те же, что видят поисковики
     publicInstalls.catalog().then(setCatalog).catch(() => setFailed(true))
-    return () => { document.title = prev }
   }, [])
 
   const apps = useMemo(() => catalog?.apps || [], [catalog])

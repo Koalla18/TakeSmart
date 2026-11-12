@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ImgHTMLAttribut
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { ProductCardSkeleton } from '../components/ProductCard'
 import { useCart } from '../lib/cart'
+import { ymReachGoal } from '../lib/metrika'
 import { Gta6Celebration } from '../components/Gta6Celebration'
 import { API_BASE_URL } from '../lib/config'
 import {
@@ -197,7 +198,7 @@ function BuyBar({ gift, minPrice, released }: { gift: boolean; minPrice: number 
             {release}
           </div>
         </div>
-        <a href="#ps5" className="group flex flex-shrink-0 items-center gap-2 rounded-full bg-[#11111d] px-3.5 py-2 text-xs font-bold sm:pr-3 text-white transition-colors hover:bg-white hover:text-[#11111d] sm:py-2.5 sm:pl-5 sm:text-sm">
+        <a href="#ps5" onClick={() => ymReachGoal('gta6_buybar')} className="group flex flex-shrink-0 items-center gap-2 rounded-full bg-[#11111d] px-3.5 py-2 text-xs font-bold sm:pr-3 text-white transition-colors hover:bg-white hover:text-[#11111d] sm:py-2.5 sm:pl-5 sm:text-sm">
           <span>Купить<span className="hidden sm:inline"> консоль</span></span>
           {minPrice != null && <span className="text-[#ffb0c4] group-hover:text-[#11111d]/60">от {minPrice.toLocaleString('ru-RU')} ₽</span>}
           <svg className="hidden h-4 w-4 transition-transform group-hover:translate-x-0.5 sm:block" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m-6-6 6 6-6 6" /></svg>
@@ -304,13 +305,13 @@ function ConsoleCard({ product, gift }: { product: Product; gift: boolean }) {
             {inCart ? (
               <Link to="/cart" className="inline-flex items-center justify-center rounded-full bg-white px-5 py-3 text-sm font-bold text-[#11111d] transition-colors hover:bg-[#ffb0c4]">В корзине — оформить</Link>
             ) : (
-              <button type="button" disabled={!available} onClick={() => { if (addItem(product, 1)) navigate('/cart') }}
+              <button type="button" disabled={!available} onClick={() => { ymReachGoal('gta6_buy', { id: product.id, name: product.name, price: product.price }); if (addItem(product, 1)) navigate('/cart') }}
                 className="inline-flex items-center justify-center rounded-full bg-[#ffb0c4] px-5 py-3 text-sm font-bold text-[#11111d] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40" data-gta6-buy>
                 {product.preorder ? 'Оформить предзаказ' : 'Купить'}
               </button>
             )}
             {!inCart && available && (
-              <button type="button" onClick={() => addItem(product, 1)} className="inline-flex items-center justify-center rounded-full border border-white/25 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-white hover:text-[#11111d]">
+              <button type="button" onClick={() => { ymReachGoal('gta6_add_to_cart', { id: product.id, name: product.name, price: product.price }); addItem(product, 1) }} className="inline-flex items-center justify-center rounded-full border border-white/25 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-white hover:text-[#11111d]">
                 В корзину
               </button>
             )}
@@ -386,11 +387,6 @@ export function GtaPage() {
     return () => { root.style.scrollBehavior = prev }
   }, [])
 
-  useEffect(() => {
-    const prev = document.title
-    document.title = 'GTA VI — всё об игре и PlayStation 5 с игрой в подарок — TakeSmart'
-    return () => { document.title = prev || 'TakeSmart' }
-  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -498,7 +494,7 @@ export function GtaPage() {
           <div className="mt-8 grid gap-4 lg:grid-cols-[2fr_1fr] lg:gap-5">
             {videos.map((item, i) => (
               <Reveal key={item.title} delay={i * 80} className={i === 0 ? 'lg:row-span-2' : ''}>
-                <button type="button" onClick={() => setPlaying({ video: item.video, title: `Grand Theft Auto VI — ${item.title}` })}
+                <button type="button" onClick={() => { ymReachGoal('gta6_trailer', { title: item.title }); setPlaying({ video: item.video, title: `Grand Theft Auto VI — ${item.title}` }) }}
                   className="group relative block h-full w-full overflow-hidden rounded-2xl text-left sm:rounded-3xl" data-gta6-trailer>
                   <FadeImg src={gta6Asset(item.poster)} alt="" loading="lazy" className={`w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.04] ${i === 0 ? 'aspect-video h-full' : 'aspect-video lg:aspect-auto lg:h-full'}`} />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#11111d]/90 via-[#11111d]/10 to-transparent" />

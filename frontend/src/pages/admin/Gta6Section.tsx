@@ -11,7 +11,7 @@ import { rankSearch } from '../../lib/searchRank'
 import { AdminIcon } from './AdminIcons'
 import { BTN_PRIMARY, BTN_SECONDARY } from './AdminShell'
 import { pluralRu } from './format'
-import { call, type Api, type AuthFetch } from './installsApi'
+import { call, copyText, type Api, type AuthFetch } from './installsApi'
 import { BTN_ROW, CARD, INPUT, LABEL, Toggle } from './installsUi'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -156,6 +156,8 @@ export function Gta6Section<P extends Gta6Product>({ products, authFetch, imageU
     setImages(prev => { const next = { ...prev }; delete next[slot]; return next })
   }
 
+  const siteOrigin = (() => { try { return window.location.origin } catch { return 'https://takesmart.ru' } })()
+
   if (!config) {
     return <div className={`${CARD} flex items-center gap-3 text-slate-300`}><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-yellow-400" />Загружаем раздел…</div>
   }
@@ -214,6 +216,25 @@ export function Gta6Section<P extends Gta6Product>({ products, authFetch, imageU
             </button>
             {giftDirty && <span className="text-xs text-slate-500">Есть несохранённые изменения</span>}
           </div>
+        </div>
+      </div>
+
+      {/* Фид для рекламы */}
+      <div className={CARD} data-testid="gta6-feed">
+        <div className={LABEL}>Фид для рекламы</div>
+        <p className="mt-1 max-w-3xl text-sm text-slate-400">
+          Только консоли из подборки этой страницы, в том же порядке. Пока подарок включён, у каждого товара
+          в описании и пометке к продаже указано «GTA VI в подарок». Ссылку добавьте в Яндекс Директ
+          (Библиотека → Фиды) или VK Рекламу — состав обновляется сам.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <code className="min-w-0 flex-1 break-all rounded-xl bg-black/40 px-3 py-2.5 font-mono text-[13px] text-yellow-100">{`${siteOrigin}/api/v1/feed/gta6.yml`}</code>
+          <button type="button" className={BTN_SECONDARY} onClick={() => copyText(`${siteOrigin}/api/v1/feed/gta6.yml`, 'Ссылка на фид скопирована')}>
+            <AdminIcon name="link" className="h-4 w-4" />Скопировать
+          </button>
+          <a href="/api/v1/feed/gta6.yml" target="_blank" rel="noreferrer" className={BTN_SECONDARY}>
+            <AdminIcon name="external" className="h-4 w-4" />Открыть
+          </a>
         </div>
       </div>
 

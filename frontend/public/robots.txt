@@ -1,0 +1,15 @@
+# TakeSmart — https://takesmart.ru
+User-agent: *
+Disallow: /admin
+Disallow: /login
+Disallow: /cart
+Disallow: /i/
+Disallow: /app$
+Disallow: /app?
+# Внутренняя страница nginx для роботов
+Disallow: /__seo
+
+# Яндекс: не плодить дубли страниц из-за меток рекламы
+Clean-param: utm_source&utm_medium&utm_campaign&utm_content&utm_term&yclid&gclid&fbclid&ysclid&from&_openstat
+
+Sitemap: https://takesmart.ru/sitemap.xml

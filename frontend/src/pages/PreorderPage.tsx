@@ -125,11 +125,6 @@ export function PreorderPage() {
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<SortMode>('soonest')
 
-  useEffect(() => {
-    const prev = document.title
-    document.title = 'Предзаказ новинок — TakeSmart'
-    return () => { document.title = prev || 'TakeSmart' }
-  }, [])
 
   useEffect(() => {
     let cancelled = false
