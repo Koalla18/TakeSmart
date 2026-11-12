@@ -976,12 +976,13 @@ export function Shell({ children }: PropsWithChildren) {
                 <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-gray-500">Популярные продукты</h3>
                 <ul className="space-y-2.5">
                   {[
-                    { label: 'iPhone 17 Pro Max', to: '/catalog?category=smartphones&q=iPhone+17+Pro+Max' },
-                    { label: 'iPhone 17 Pro', to: '/catalog?category=smartphones&q=iPhone+17+Pro' },
-                    { label: 'iPhone 17', to: '/catalog?category=smartphones&q=iPhone+17' },
-                    { label: 'MacBook Pro 14 M5', to: '/catalog?category=laptops&q=MacBook+Pro+14+M5' },
-                    { label: 'MacBook Air 13 M4', to: '/catalog?category=laptops&q=MacBook+Air+13+M4' },
-                    { label: 'iPad 11', to: '/catalog?category=tablets&q=iPad+11' },
+                    { label: 'iPhone 18 Pro Max', to: '/catalog?category=smartphones&q=iPhone+18+Pro+Max' },
+                    { label: 'iPhone 18 Pro', to: '/catalog?category=smartphones&q=iPhone+18+Pro' },
+                    { label: 'iPhone Duo', to: '/catalog?category=smartphones&q=iPhone+Duo' },
+                    { label: 'iPhone Air', to: '/catalog?category=smartphones&q=iPhone+Air' },
+                    { label: 'iPad Pro 13 M5', to: '/catalog?category=tablets&q=iPad+Pro+13+M5' },
+                    { label: 'MacBook Air 13 M5', to: '/catalog?category=laptops&q=MacBook+Air+13+M5' },
+                    { label: 'MacBook Pro 14 M5 Pro', to: '/catalog?category=laptops&q=MacBook+Pro+14+M5+Pro' },
                     { label: 'Samsung S26 Ultra', to: '/catalog?category=smartphones&q=Samsung+S26+Ultra' },
                   ].map(item => (
                     <li key={item.label}>
