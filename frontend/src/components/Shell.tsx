@@ -490,7 +490,7 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                   className={({ isActive }) =>
                     `flex items-center justify-between rounded-xl px-4 py-3 text-base font-medium transition-colors ${
                       item.to === '/gta6'
-                        ? 'gta-nav font-black uppercase tracking-wide [&>svg]:text-[#11111d]'
+                        ? 'bg-[#11111d] font-bold text-white [&>svg]:text-[#ffb0c4]'
                         : isActive ? 'bg-yellow-50 text-yellow-600' : 'text-gray-700 hover:bg-gray-50'
                     }`
                   }
@@ -776,7 +776,7 @@ export function Shell({ children }: PropsWithChildren) {
         }`}
       >
         <Container>
-          <div className="flex h-16 items-center justify-between lg:h-20">
+          <div className="flex h-16 items-center justify-between gap-4 lg:h-20 xl:gap-6">
             {/* Logo */}
             <Link to="/" className="flex-shrink-0">
               <Logo />
@@ -784,16 +784,18 @@ export function Shell({ children }: PropsWithChildren) {
             
             {/* Desktop nav */}
             <nav className="hidden items-center gap-4 lg:flex xl:gap-6">
-              <NavItem to="/" label="Главная" />
+              {/* На ноутбуках 1024–1279 px меню тесно: «Главная» (туда ведёт логотип) и «Заявка»
+                  (её дублирует кнопка корзины справа) остаются только на широких экранах */}
+              <NavItem to="/" label="Главная" className="hidden xl:block" />
               <CatalogMegaMenu />
               {gta6Menu && (
                 <NavLink
                   to="/gta6"
                   data-gta6-nav
-                  className="gta-nav inline-flex items-center gap-1.5 whitespace-nowrap rounded-full py-1.5 pl-3.5 pr-9 text-[13px] font-black uppercase tracking-wide"
+                  className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-[#11111d] px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-[#2a2a40]"
                 >
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#ffb0c4]" />
                   GTA VI
-                  <span className="rounded-full bg-[#11111d] px-1.5 py-0.5 text-[9px] font-bold tracking-wider text-[#ffb0c4]">в подарок</span>
                 </NavLink>
               )}
               {preorderAvailable && (
@@ -809,22 +811,22 @@ export function Shell({ children }: PropsWithChildren) {
               <NavItem to="/trade-in" label="Trade-in" />
               {/* На ноутбуках 1024–1279 px лишний пункт сжимает поиск до иконки — там ссылка есть в подвале */}
               {appsMenu && <NavItem to="/apps" label="Приложения" className="hidden xl:block" />}
-              <NavItem to="/cart" label="Заявка" />
+              <NavItem to="/cart" label="Заявка" className="hidden xl:block" />
             </nav>
 
             {/* Desktop search */}
-            <div className="hidden w-52 lg:block xl:w-80">
+            <div className="hidden min-w-0 flex-shrink lg:block lg:w-52 xl:w-80">
               <GlobalSearch />
             </div>
             
             {/* Actions */}
-            <div className="flex items-center gap-3">
+            <div className="flex flex-shrink-0 items-center gap-3">
               {/* Mobile search button */}
               <MobileSearchButton />
               
               <Link
                 to="/cart"
-                className="hidden relative rounded-xl bg-yellow-400 px-6 py-2.5 text-sm font-semibold text-gray-900 transition-all hover:bg-yellow-500 hover:shadow-lg hover:shadow-yellow-400/25 sm:inline-flex"
+                className="hidden relative whitespace-nowrap rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-semibold text-gray-900 transition-all hover:bg-yellow-500 hover:shadow-lg hover:shadow-yellow-400/25 sm:inline-flex"
               >
                 {cartCount > 0 ? `Корзина (${cartCount})` : 'Заказать'}
                 {cartCount > 0 && (

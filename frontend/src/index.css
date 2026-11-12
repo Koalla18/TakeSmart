@@ -139,19 +139,6 @@ body,
 /* ── Раздел GTA VI (/gta6) ────────────────────────────────────────────────── */
 .gta-rise { animation: gta-rise 0.9s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
 @keyframes gta-rise { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: none; } }
-/* Пункт меню «GTA VI»: небо с закатом и пальмой из официального арта */
-.gta-nav {
-  background: #c48fc4 url('/gta6/strip.webp') 75% 50% / auto 100% no-repeat;
-  color: #11111d;
-  box-shadow: 0 6px 18px -8px rgba(196, 96, 160, 0.9), inset 0 0 0 1px rgba(255, 255, 255, 0.35);
-  transition: transform 0.25s ease, box-shadow 0.25s ease, background-position 0.6s ease;
-}
-.gta-nav:hover {
-  transform: translateY(-1px);
-  background-position: 79% 50%;
-  box-shadow: 0 10px 24px -8px rgba(196, 96, 160, 1), inset 0 0 0 1px rgba(255, 255, 255, 0.6);
-}
 @media (prefers-reduced-motion: reduce) {
   .gta-rise { animation: none; }
-  .gta-nav, .gta-nav:hover { transition: none; transform: none; }
 }

@@ -214,6 +214,8 @@ function VideoModal({ video, title, onClose }: { video: Gta6Video; title: string
 /**
  * Карточка консоли в оформлении раздела: тёмная, фото на светлой панели со скошенным
  * краем (как панели на обложке игры), поверх — коробка GTA VI в подарок.
+ * Вся карточка — ссылка на страницу товара (ссылка заголовка растянута на неё),
+ * кнопки покупки лежат поверх и работают сами по себе.
  */
 function ConsoleCard({ product, gift }: { product: Product; gift: boolean }) {
   const navigate = useNavigate()
@@ -224,8 +226,8 @@ function ConsoleCard({ product, gift }: { product: Product; gift: boolean }) {
   const status = product.preorder ? (product.preorderNote || 'Предзаказ') : available ? 'В наличии' : 'Нет в наличии'
 
   return (
-    <article className="group flex h-full flex-col overflow-hidden rounded-3xl bg-[#1c1c2e] ring-1 ring-white/10 transition-all duration-300 hover:-translate-y-1 hover:ring-[#ffb0c4]/60" data-gta6-product={product.id}>
-      <Link to={`/product/${product.slug}`} className="relative block">
+    <article className="group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-3xl bg-[#1c1c2e] ring-1 ring-white/10 transition-all duration-300 hover:-translate-y-1 hover:ring-[#ffb0c4]/60" data-gta6-product={product.id}>
+      <Link to={`/product/${product.slug}`} className="relative block" tabIndex={-1} aria-hidden="true">
         <div className="bg-white [clip-path:polygon(0_0,100%_0,100%_88%,0_100%)]">
           {product.image
             ? <img src={product.image} alt={product.name} loading="lazy" className="aspect-[4/3] w-full object-contain p-6 pb-10 transition-transform duration-500 group-hover:scale-105 sm:p-8 sm:pb-12" />
@@ -245,10 +247,16 @@ function ConsoleCard({ product, gift }: { product: Product; gift: boolean }) {
             GTA VI в подарок
           </div>
         )}
-        <Link to={`/product/${product.slug}`} className="text-base font-bold leading-snug text-white transition-colors hover:text-[#ffb0c4] sm:text-lg">
+        <Link to={`/product/${product.slug}`} className="text-base font-bold leading-snug text-white transition-colors after:absolute after:inset-0 after:content-[''] group-hover:text-[#ffb0c4] sm:text-lg">
           {product.name}
         </Link>
-        <div className={`mt-2 text-xs font-semibold uppercase tracking-wider ${available ? 'text-white/55' : 'text-white/35'}`}>{status}</div>
+        <div className="mt-2 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wider">
+          <span className={available ? 'text-white/55' : 'text-white/35'}>{status}</span>
+          <span className="inline-flex items-center gap-1 text-[#ffb0c4]">
+            Подробнее
+            <svg className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m-6-6 6 6-6 6" /></svg>
+          </span>
+        </div>
 
         <div className="mt-auto pt-5">
           <div className="flex flex-wrap items-baseline gap-x-3">
@@ -257,7 +265,7 @@ function ConsoleCard({ product, gift }: { product: Product; gift: boolean }) {
           </div>
           {gift && <div className="mt-1 text-sm text-white/60">+ Grand Theft Auto VI — <span className="font-bold text-[#ffb0c4]">0 ₽</span></div>}
 
-          <div className="mt-4 grid gap-2">
+          <div className="relative z-10 mt-4 grid gap-2">
             {inCart ? (
               <Link to="/cart" className="inline-flex items-center justify-center rounded-full bg-white px-5 py-3 text-sm font-bold text-[#11111d] transition-colors hover:bg-[#ffb0c4]">В корзине — оформить</Link>
             ) : (
