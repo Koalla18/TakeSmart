@@ -25,6 +25,12 @@ class PublicSettingsOut(BaseModel):
     apps_menu_enabled: bool = Field(
         False, description="Показывать пункт «Приложения» (страница /apps) в меню сайта — включается в разделе «Приложения на iPhone»"
     )
+    gta6_menu_enabled: bool = Field(
+        False, description="Показывать выделенный пункт «GTA VI» (страница /gta6) в меню сайта — включается в разделе «GTA VI»"
+    )
+    gta6_home_enabled: bool = Field(
+        False, description="Показывать блок-анонс GTA VI на главной — включается в разделе «GTA VI»"
+    )
 
 
 class SettingUpdateIn(BaseModel):

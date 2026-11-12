@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.app.api.admin.endpoints import get_current_admin
+from src.app.api.routers.gta6 import parse_config as parse_gta6_config
 from src.app.core.logger import get_logger
 from src.app.database.unit_of_work import UnitOfWork
 from src.app.schemas.site_setting import PublicSettingsOut, SettingUpdateIn
@@ -25,6 +26,11 @@ def _public(values: dict) -> PublicSettingsOut:
     installs = values.get("installs_config")
     if isinstance(installs, dict) and installs.get("menu_link") is True:
         known["apps_menu_enabled"] = True
+    # Страница GTA VI: пункт меню и блок на главной показываются, только пока страница открыта
+    gta6 = parse_gta6_config(values.get("gta6_config"))
+    if gta6.enabled:
+        known["gta6_menu_enabled"] = gta6.menu_link
+        known["gta6_home_enabled"] = gta6.home_banner
     return PublicSettingsOut(**known)
 
 
