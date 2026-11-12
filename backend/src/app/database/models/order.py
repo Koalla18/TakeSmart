@@ -75,6 +75,13 @@ class Order(Base):
         comment="Заказ содержит товары по предзаказу",
     )
 
+    # Подарок к заказу (сейчас — GTA VI к консолям со страницы /gta6): название
+    # подарка, если он положен хотя бы к одной позиции. Сотрудник видит это в
+    # списке заказов, не открывая карточку.
+    gift: Mapped[str | None] = mapped_column(
+        String(120), nullable=True, comment="В заказе есть позиции с подарком — что именно дарим",
+    )
+
     # Заметки
     customer_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     admin_note: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -163,6 +170,12 @@ class OrderItem(Base):
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     total_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+
+    # Подарок к позиции на момент заказа — снимок, как название и цена: акцию
+    # потом могут выключить, а этот заказ должен остаться с подарком.
+    gift: Mapped[str | None] = mapped_column(
+        String(120), nullable=True, comment="Подарок к этой позиции на момент заказа",
+    )
 
     # Связи
     order: Mapped[Order] = relationship("Order", back_populates="items")

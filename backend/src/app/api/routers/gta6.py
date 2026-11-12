@@ -27,6 +27,10 @@ CONFIG_KEY = "gta6_config"
 IMAGES_OWNER = uuid.UUID("6a7a6000-0000-4000-8000-000000000006")
 
 
+# Как подарок записывается в заказ и показывается сотрудникам
+GIFT_NAME = "Grand Theft Auto VI"
+
+
 def parse_config(raw: Any) -> Gta6Config:
     if not isinstance(raw, dict):
         return Gta6Config()
@@ -39,6 +43,14 @@ def parse_config(raw: Any) -> Gta6Config:
 
 async def _config(uow: UnitOfWork) -> Gta6Config:
     return parse_config(await uow.site_settings.get(CONFIG_KEY))
+
+
+async def gift_product_ids(uow: UnitOfWork) -> set[uuid.UUID]:
+    """Товары, к которым сейчас положена игра в подарок: подборка страницы, пока
+    и страница, и сам подарок включены. Решает сервер, а не корзина покупателя —
+    поэтому подарок есть в заказе, откуда бы ни пришли: с /gta6, из каталога, из поиска."""
+    cfg = await _config(uow)
+    return set(cfg.product_ids) if cfg.enabled and cfg.gift_enabled else set()
 
 
 async def _save(uow: UnitOfWork, cfg: Gta6Config) -> None:

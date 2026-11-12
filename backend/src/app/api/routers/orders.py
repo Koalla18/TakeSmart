@@ -8,6 +8,7 @@ from uuid import UUID
 
 from fastapi import Depends
 from src.app.api.admin.endpoints import get_current_admin
+from src.app.api.routers.gta6 import GIFT_NAME, gift_product_ids
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 from fastapi.responses import Response
 
@@ -174,6 +175,9 @@ async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> 
 
         total_amount = subtotal  # shipping_cost и discount в будущем
         has_preorder = any(line["product"].is_preorder for line in order_lines)
+        # Подарок (GTA VI к консолям со страницы /gta6): к каким позициям он положен
+        gift_ids = await gift_product_ids(uow)
+        has_gift = any(line["product"].id in gift_ids for line in order_lines)
 
         # ── 2. Создаём заказ ──────────────────────────────────────────
         order = await uow.orders.create(
@@ -190,6 +194,7 @@ async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> 
             shipping_cost=Decimal("0.00"),
             total_amount=total_amount,
             is_preorder=has_preorder,
+            gift=GIFT_NAME if has_gift else None,
         )
 
         # ── 3. Создаём позиции и списываем остатки ────────────────────
@@ -203,6 +208,7 @@ async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> 
                 quantity=line["quantity"],
                 unit_price=line["unit_price"],
                 total_price=line["total_price"],
+                gift=GIFT_NAME if product.id in gift_ids else None,
             )
             if not product.is_preorder:
                 await uow.products.decrement_stock(product.id, line["quantity"])
@@ -219,6 +225,7 @@ async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> 
         total=str(order.total_amount),
         items=len(order.items),
         preorder=order.is_preorder,
+        gift=order.gift,
     )
 
     # Telegram отключён по просьбе владельца — уведомления о новых заказах идут

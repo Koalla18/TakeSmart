@@ -149,6 +149,9 @@ async def send_order_push(order: "Order") -> None:
     try:
         title = "У вас новый предзаказ!" if getattr(order, "is_preorder", False) else "У вас новый заказ!"
         body = f"{order.order_number} · {order.customer_name or 'клиент'} · {_price(order.total_amount)}"
+        gift = getattr(order, "gift", None)
+        if gift:
+            body += f" · + {gift} в подарок"
         await send_push_to_all(title, body, url="/app", tag=f"order-{order.order_number}")
     except Exception as exc:  # noqa: BLE001
         logger.error("push_order_error", error=str(exc))

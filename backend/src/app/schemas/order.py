@@ -27,6 +27,7 @@ class OrderItemOut(BaseModel):
     quantity: int
     unit_price: Decimal
     total_price: Decimal
+    gift: Optional[str] = Field(None, description="Подарок к позиции (например, «Grand Theft Auto VI»)")
 
     model_config = {"from_attributes": True}
 
@@ -159,6 +160,7 @@ class OrderOut(BaseModel):
     status: str
     payment_status: str
     is_preorder: bool = False
+    gift: Optional[str] = Field(None, description="Подарок, положенный к заказу; null — подарка нет")
     customer_note: Optional[str]
     admin_note: Optional[str]
     comments_count: int = 0
