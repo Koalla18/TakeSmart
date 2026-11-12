@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ImgHTMLAttributes, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ImgHTMLAttributes, type ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { ProductCardSkeleton } from '../components/ProductCard'
 import { useCart } from '../lib/cart'
+import { Gta6Celebration } from '../components/Gta6Celebration'
 import { API_BASE_URL } from '../lib/config'
 import {
-  GTA6_DEFAULT_GIFT_TEXT, GTA6_DEFAULT_GIFT_TITLE, GTA6_RELEASE_LABEL,
-  GTA6_TRAILERS, fetchGta6Page, gta6Asset, parseVideoUrl, timeToRelease, youtubeEmbed,
+  GTA6_DEFAULT_GIFT_TEXT, GTA6_DEFAULT_GIFT_TEXT_RELEASED, GTA6_DEFAULT_GIFT_TITLE, GTA6_RELEASE, GTA6_RELEASE_LABEL, GTA6_RELEASE_SIMULATED,
+  GTA6_TRAILERS, fetchGta6Page, gta6Asset, isGta6Released, parseVideoUrl, timeToRelease, youtubeEmbed,
   type Gta6Page, type Gta6Slot, type Gta6Video,
 } from '../lib/gta6'
 import { formatPrice, mapApiProduct, type Product } from '../data/products'
@@ -58,9 +59,11 @@ const PLACES: { slot: Gta6Slot; name: string; text: string }[] = [
 
 const SHOTS = ['shot-1', 'shot-2', 'shot-3', 'shot-4', 'shot-5', 'shot-6']
 
-const FAQ: { q: string; a: string }[] = [
-  { q: 'Когда выходит GTA VI?', a: `${GTA6_RELEASE_LABEL} года. Предзагрузка игры на консолях уже открыта.` },
-  { q: 'На чём можно будет играть?', a: 'На старте игра выходит на PlayStation 5 и Xbox Series X|S. Версия для ПК на момент релиза не анонсирована.' },
+const faq = (released: boolean): { q: string; a: string }[] => [
+  released
+    ? { q: 'GTA VI уже вышла?', a: `Да, игра вышла ${GTA6_RELEASE_LABEL} года и уже доступна на консолях.` }
+    : { q: 'Когда выходит GTA VI?', a: `${GTA6_RELEASE_LABEL} года. Предзагрузка игры на консолях уже открыта.` },
+  { q: 'На чём можно играть?', a: 'Игра вышла на PlayStation 5 и Xbox Series X|S. Версия для ПК на момент релиза не анонсирована.' },
   { q: 'Какая PlayStation 5 подойдёт?', a: 'Любая: PS5 Slim с дисководом или без, а также PS5 Pro. На Pro картинка чётче и плавнее, но игра идёт на всех моделях.' },
   { q: 'Как получить игру в подарок?', a: 'Выберите консоль из подборки на этой странице и оформите заявку. Менеджер подтвердит заказ и расскажет, когда и в каком виде вы получите игру.' },
   { q: 'Можно ли оформить в рассрочку или сдать старую технику?', a: 'Да. Рассрочка и Trade-in работают так же, как для остальных товаров магазина — детали уточнит менеджер.' },
@@ -137,13 +140,26 @@ function Countdown() {
     const id = window.setInterval(() => setLeft(timeToRelease()), 1000)
     return () => window.clearInterval(id)
   }, [])
-  if (!left) return <div className="text-sm font-bold uppercase tracking-[0.18em] text-white" data-gta6-released>Уже в продаже</div>
+  if (!left) {
+    // Таймер дошёл до нуля: вместо цифр — «уже вышла» с мерцающими искрами
+    return (
+      <div className="gta-rise relative inline-flex items-center gap-2.5 rounded-full bg-white px-5 py-2.5 text-sm font-black uppercase tracking-[0.14em] text-[#11111d]" data-gta6-released>
+        <span className="gta-twinkle text-base leading-none text-[#ff5f96]" aria-hidden="true">✦</span>
+        Уже вышла
+        <span className="gta-twinkle text-base leading-none text-[#ff5f96] [animation-delay:0.7s]" aria-hidden="true">✦</span>
+        <span className="gta-twinkle absolute -right-1 -top-2 text-xs text-[#ffd27a] [animation-delay:0.35s]" aria-hidden="true">✦</span>
+        <span className="gta-twinkle absolute -bottom-2 left-3 text-[10px] text-[#c9a7f5] [animation-delay:1.1s]" aria-hidden="true">✦</span>
+      </div>
+    )
+  }
   const cells: [number, string][] = [[left.days, 'дн'], [left.hours, 'ч'], [left.minutes, 'мин'], [left.seconds, 'сек']]
+  // В последнюю минуту цифры розовеют — финал близко
+  const final = left.days === 0 && left.hours === 0 && left.minutes === 0
   return (
     <div className="flex items-baseline gap-3 sm:gap-4" role="timer" aria-label={`До выхода: ${left.days} дн. ${left.hours} ч.`} data-gta6-countdown>
       {cells.map(([value, label]) => (
         <div key={label} className="flex items-baseline gap-1">
-          <span className="text-2xl font-black tabular-nums text-white sm:text-3xl">{String(value).padStart(2, '0')}</span>
+          <span className={`text-2xl font-black tabular-nums transition-colors duration-700 sm:text-3xl ${final ? 'text-[#ffb0c4]' : 'text-white'}`}>{String(value).padStart(2, '0')}</span>
           <span className="text-[11px] font-semibold uppercase tracking-wider text-white/50">{label}</span>
         </div>
       ))}
@@ -155,13 +171,13 @@ function Countdown() {
  * Полоса покупки: прилипает под шапкой сайта и остаётся на экране, пока листаешь.
  * Фон — небо с пальмами и закатом из официального арта (public/gta6-art/strip.webp).
  */
-function BuyBar({ gift, minPrice }: { gift: boolean; minPrice: number | null }) {
+function BuyBar({ gift, minPrice, released }: { gift: boolean; minPrice: number | null; released: boolean }) {
   const [left, setLeft] = useState(() => timeToRelease())
   useEffect(() => {
     const id = window.setInterval(() => setLeft(timeToRelease()), 30_000)
     return () => window.clearInterval(id)
   }, [])
-  const release = left
+  const release = left && !released
     ? `До релиза ${left.days > 0 ? `${left.days} дн ` : ''}${left.hours} ч${left.days === 0 ? ` ${left.minutes} мин` : ''}`
     : 'Игра уже вышла'
   return (
@@ -330,12 +346,36 @@ function Rail({ children, label }: { children: ReactNode; label: string }) {
   )
 }
 
+const RELEASE_SEEN_KEY = 'gta6_release_seen'
+function releaseSeen(): boolean {
+  if (GTA6_RELEASE_SIMULATED) return false
+  try { return localStorage.getItem(RELEASE_SEEN_KEY) === '1' } catch { return true }
+}
+function markReleaseSeen(): void {
+  // Проверочный просмотр финала не должен «съесть» настоящий праздник в день релиза
+  if (GTA6_RELEASE_SIMULATED) return
+  try { localStorage.setItem(RELEASE_SEEN_KEY, '1') } catch { /* приватный режим — покажем ещё раз, не страшно */ }
+}
+
 export function GtaPage() {
   const [params] = useSearchParams()
   const preview = params.get('preview') === '1'
   const [page, setPage] = useState<Gta6Page | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  // Выход игры: страница сама переключается в «уже вышла», а в момент нуля на таймере
+  // (или при первом заходе после релиза) показывает праздничный финал с блёстками.
+  const [released, setReleased] = useState(() => isGta6Released())
+  const [celebrate, setCelebrate] = useState(() => isGta6Released() && !releaseSeen())
+  const endCelebration = useCallback(() => setCelebrate(false), [])
+  useEffect(() => {
+    if (released) { markReleaseSeen(); return }
+    // setTimeout не умеет ждать дольше ~24 суток — для дальней даты просто не ставим
+    const wait = GTA6_RELEASE.getTime() - Date.now()
+    if (wait > 2_000_000_000) return
+    const id = window.setTimeout(() => { setReleased(true); setCelebrate(true) }, Math.max(0, wait))
+    return () => window.clearTimeout(id)
+  }, [released])
 
   // Кнопки «Купить консоль», «Об игре» ведут к блокам на этой же странице — едем плавно
   useEffect(() => {
@@ -378,7 +418,7 @@ export function GtaPage() {
   const art = (slot: Gta6Slot) => custom[slot] || gta6Asset(slot)
   const gift = page?.gift_enabled ?? true
   const giftTitle = page?.gift_title || GTA6_DEFAULT_GIFT_TITLE
-  const giftText = page?.gift_text || GTA6_DEFAULT_GIFT_TEXT
+  const giftText = page?.gift_text || (released ? GTA6_DEFAULT_GIFT_TEXT_RELEASED : GTA6_DEFAULT_GIFT_TEXT)
 
   // Ролики: свой главный из админки (если ссылку распознали) + официальные трейлеры
   const [playing, setPlaying] = useState<{ video: Gta6Video; title: string } | null>(null)
@@ -399,11 +439,11 @@ export function GtaPage() {
         </div>
       )}
 
-      <BuyBar gift={gift} minPrice={minPrice} />
+      <BuyBar gift={gift} minPrice={minPrice} released={released} />
 
       {/* ── 1. Обложка ──────────────────────────────────────────────────── */}
       <section className="mx-auto max-w-7xl px-4 pb-10 pt-6 sm:px-6 sm:pb-14 sm:pt-10 lg:px-8">
-        <h1 className="sr-only">Grand Theft Auto VI — выходит {GTA6_RELEASE_LABEL} года</h1>
+        <h1 className="sr-only">Grand Theft Auto VI — {released ? 'вышла' : 'выходит'} {GTA6_RELEASE_LABEL} года</h1>
         <div className="gta-rise overflow-hidden rounded-2xl sm:mx-auto sm:max-w-[max(36rem,calc((100svh-19rem)*16/9))] sm:rounded-3xl">
           <picture>
             {!custom.hero && <source media="(max-width: 639px)" srcSet={gta6Asset('hero-m')} />}
@@ -412,7 +452,7 @@ export function GtaPage() {
         </div>
         <div className="gta-rise mt-6 grid items-center gap-6 [animation-delay:150ms] sm:mt-8 lg:grid-cols-[1fr_auto_1fr]">
           <div>
-            <div className="text-xs font-bold uppercase tracking-[0.18em] text-white/60">Выходит</div>
+            <div className="text-xs font-bold uppercase tracking-[0.18em] text-white/60">{released ? 'В продаже с' : 'Выходит'}</div>
             <div className="mt-1 text-xl font-black uppercase tracking-tight sm:text-2xl">{GTA6_RELEASE_LABEL} года</div>
           </div>
           <a href="#ps5" className={PINK_BTN}>
@@ -434,12 +474,12 @@ export function GtaPage() {
         {/* Телефон: заголовок в небе над героями, кнопка внизу. Десктоп: текст слева, на фоне города */}
         <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 pt-14 text-center sm:justify-center sm:px-6 sm:pt-0 sm:text-left lg:px-8">
           <Reveal>
-            <div className="text-xs font-bold uppercase tracking-[0.22em] text-white/80">{gift ? 'Только в TakeSmart' : 'Играйте в день релиза'}</div>
+            <div className="text-xs font-bold uppercase tracking-[0.22em] text-white/80">{gift ? 'Только в TakeSmart' : released ? 'Играйте уже сегодня' : 'Играйте в день релиза'}</div>
             <h2 className="mt-3 text-4xl font-black uppercase leading-[1] tracking-tight sm:text-6xl lg:text-7xl" data-gta6-promo-title>
               {gift ? <>GTA VI<br />в подарок<br className="hidden sm:block" /> к PlayStation 5</> : <>GTA VI на<br />PlayStation 5</>}
             </h2>
             <p className="mt-5 hidden max-w-md text-lg text-white/85 sm:block">
-              {gift ? 'Покупаете консоль в TakeSmart — игру получаете от нас. Встречайте релиз в первый день.' : 'Консоли в наличии и под заказ. Встречайте релиз в первый день.'}
+              {gift ? `Покупаете консоль в TakeSmart — игру получаете от нас. ${released ? 'Игра уже вышла, отдаём сразу.' : 'Встречайте релиз в первый день.'}` : `Консоли в наличии и под заказ. ${released ? 'Игра уже вышла.' : 'Встречайте релиз в первый день.'}`}
             </p>
           </Reveal>
           <div className="mt-auto flex justify-center pb-12 sm:mt-8 sm:justify-start sm:pb-0">
@@ -635,7 +675,7 @@ export function GtaPage() {
         <div className="mx-auto max-w-3xl">
           <Reveal><h2 className="text-3xl font-black uppercase tracking-tight sm:text-4xl">Вопросы и ответы</h2></Reveal>
           <div className="mt-6 divide-y divide-white/10 border-y border-white/10">
-            {FAQ.filter(item => gift || !item.q.includes('в подарок')).map(item => (
+            {faq(released).filter(item => gift || !item.q.includes('в подарок')).map(item => (
               <details key={item.q} className="gta-faq group py-4">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-bold sm:text-lg [&::-webkit-details-marker]:hidden">
                   {item.q}
@@ -671,6 +711,7 @@ export function GtaPage() {
         </div>
       </section>
 
+      {celebrate && <Gta6Celebration gift={gift} onDone={endCelebration} />}
       {playing && <VideoModal video={playing.video} title={playing.title} onClose={() => setPlaying(null)} />}
     </div>
   )

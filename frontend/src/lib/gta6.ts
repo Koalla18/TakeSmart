@@ -9,9 +9,34 @@ import type { ApiProductOut } from '../data/products'
 // (раздел «GTA VI»), на витрину приходят одним запросом /api/gta6.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Выход игры — полночь 19 ноября 2026 по Москве */
-export const GTA6_RELEASE = new Date('2026-11-19T00:00:00+03:00')
+/**
+ * Выход игры — полночь 19 ноября 2026 по Москве.
+ * Для проверки финала таймера: на черновике страницы можно «приблизить» релиз —
+ * /gta6?preview=1&release_in=15 считает, что игра выйдет через 15 секунд после
+ * открытия. Без preview=1 параметр не действует.
+ */
+function resolveRelease(): { date: Date; simulated: boolean } {
+  const real = new Date('2026-11-19T00:00:00+03:00')
+  try {
+    const params = new URLSearchParams(window.location.search)
+    const seconds = Number(params.get('release_in'))
+    if (params.get('preview') === '1' && params.has('release_in') && Number.isFinite(seconds)) {
+      return { date: new Date(Date.now() + Math.max(-86_400, Math.min(seconds, 86_400)) * 1000), simulated: true }
+    }
+  } catch { /* нет window — остаётся настоящая дата */ }
+  return { date: real, simulated: false }
+}
+const release = resolveRelease()
+export const GTA6_RELEASE = release.date
+/** Дата «приближена» для проверки — такой просмотр не должен считаться настоящим */
+export const GTA6_RELEASE_SIMULATED = release.simulated
 export const GTA6_RELEASE_LABEL = '19 ноября 2026'
+
+/** Те же условия после выхода игры: «до релиза» уже неактуально */
+export const GTA6_DEFAULT_GIFT_TEXT_RELEASED =
+  'К любой консоли из подборки ниже прилагается Grand Theft Auto VI в подарок. ' +
+  'Игра уже вышла — отдаём её сразу вместе с консолью. ' +
+  'Формат подарка (диск или цифровой код) менеджер подберёт под вашу модель PS5.'
 
 export const GTA6_DEFAULT_GIFT_TITLE = 'Покупаете PlayStation 5 — GTA VI дарим'
 export const GTA6_DEFAULT_GIFT_TEXT =
@@ -102,6 +127,10 @@ export function useGta6Flags(): { menu: boolean; home: boolean } {
     return () => { cancelled = true }
   }, [])
   return flags
+}
+
+export function isGta6Released(now: number = Date.now()): boolean {
+  return now >= GTA6_RELEASE.getTime()
 }
 
 /** Сколько осталось до выхода; null — игра уже вышла */

@@ -149,6 +149,19 @@ body,
 @keyframes gta-pop { from { opacity: 0; transform: scale(0.96) translateY(12px); } to { opacity: 1; transform: none; } }
 /* Ответ в «Вопросах и ответах» раскрывается без рывка */
 .gta-faq[open] > p { animation: gta-rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+/* Финал таймера: мерцающие искры у «Уже вышла» и надпись поверх страницы */
+.gta-twinkle { display: inline-block; animation: gta-twinkle 1.8s ease-in-out infinite; }
+@keyframes gta-twinkle { 0%, 100% { opacity: 0.25; transform: scale(0.7) rotate(0deg); } 50% { opacity: 1; transform: scale(1.15) rotate(45deg); } }
+.gta-release-card { animation: gta-release-card 5.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes gta-release-card {
+  0% { opacity: 0; transform: scale(0.92); }
+  10%, 80% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: scale(1.03); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gta-twinkle { animation: none; }
+  .gta-release-card { animation: gta-fade 0.3s ease both; }
+}
 @media (prefers-reduced-motion: reduce) {
   .gta-rise, .gta-drop, .gta-fade, .gta-pop, .gta-faq[open] > p { animation: none; }
 }
