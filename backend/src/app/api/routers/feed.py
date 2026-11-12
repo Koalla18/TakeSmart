@@ -28,6 +28,7 @@ from src.app.core.logger import get_logger
 from src.app.core.static_service import static_service
 from src.app.database.unit_of_work import UnitOfWork
 from src.app.schemas.site_setting import PublicSettingsOut
+from src.app.api.routers.gta6 import GIFT_NAME, parse_config as parse_gta6_config
 
 logger = get_logger(__name__)
 
@@ -150,7 +151,9 @@ def _normalize_image(data: bytes) -> bytes:
         return out.getvalue()
 
 
-def _build_yml(products) -> str:
+def _build_yml(products, gift_ids: set | None = None) -> str:
+    """YML каталог. gift_ids — товары, к которым положен подарок (GTA VI): у них
+    подарок попадает в описание, sales_notes и параметр «Подарок»."""
     base = settings.PUBLIC_SITE_URL.rstrip("/")
 
     # Сквозная нумерация категорий: UUID → целочисленный id для YML.
@@ -211,13 +214,26 @@ def _build_yml(products) -> str:
         if p.model:
             out.append(f"        <model>{escape(p.model)}</model>")
 
-        description = p.short_description or p.description
+        has_gift = bool(gift_ids) and p.id in gift_ids
+        description = p.short_description or p.description or ""
+        if has_gift:
+            description = f"В подарок — {GIFT_NAME}. " + description
         if description:
-            out.append(f"        <description>{escape(description[:_MAX_DESCRIPTION])}</description>")
-        if is_preorder:
+            out.append(f"        <description>{escape(description[:_MAX_DESCRIPTION].strip())}</description>")
+        if has_gift:
+            # Лимит Яндекса — 50 символов
+            note = "GTA VI в подарок"
+            if is_preorder:
+                note = f"Предзаказ. {note}"
+            elif p.warranty_months:
+                note = f"{note}. Гарантия {p.warranty_months} мес."
+            out.append(f"        <sales_notes>{escape(note[:50])}</sales_notes>")
+        elif is_preorder:
             out.append(f"        <sales_notes>{escape(_preorder_sales_note(p))}</sales_notes>")
         elif p.warranty_months:
             out.append(f"        <sales_notes>Гарантия {p.warranty_months} мес.</sales_notes>")
+        if has_gift:
+            out.append(f'        <param name="Подарок">{escape(GIFT_NAME)}</param>')
 
         out.append("      </offer>")
 
@@ -308,6 +324,27 @@ async def yandex_preorder_feed(
         media_type="application/xml; charset=utf-8",
         headers={"Cache-Control": "public, max-age=3600"},
     )
+
+
+@router.get(
+    "/gta6.yml",
+    summary="Фид YML «GTA VI»: консоли со страницы /gta6 с игрой в подарок",
+    description=(
+        "Ровно те товары, что добавлены на страницу GTA VI в админке, в том же порядке. "
+        "Пока подарок включён, у каждого оффера в описании, sales_notes и параметре «Подарок» "
+        "указана Grand Theft Auto VI. Состав меняется сам, как только меняется подборка."
+    ),
+)
+async def gta6_feed() -> Response:
+    async with UnitOfWork() as uow:
+        cfg = parse_gta6_config(await uow.site_settings.get("gta6_config"))
+        products = await uow.products.list_for_feed()
+    by_id = {p.id: p for p in products}
+    picked = [by_id[pid] for pid in cfg.product_ids if pid in by_id]
+    gift_ids = {p.id for p in picked} if cfg.enabled and cfg.gift_enabled else set()
+    xml = _build_yml(picked, gift_ids=gift_ids)
+    return Response(content=xml, media_type="application/xml; charset=utf-8",
+                    headers={"Cache-Control": "public, max-age=1800"})
 
 
 def _parse_model_query(raw: str | None) -> list[re.Pattern[str]]:
