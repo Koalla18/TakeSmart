@@ -26,6 +26,7 @@ const UsedPage = lazy(() => import('./pages/UsedPage').then(m => ({ default: m.U
 const UsedProductPage = lazy(() => import('./pages/UsedProductPage').then(m => ({ default: m.UsedProductPage })))
 const OrdersAppPage = lazy(() => import('./pages/OrdersAppPage').then(m => ({ default: m.OrdersAppPage })))
 const InstallOrderPage = lazy(() => import('./pages/InstallOrderPage').then(m => ({ default: m.InstallOrderPage })))
+const GtaPage = lazy(() => import('./pages/GtaPage').then(m => ({ default: m.GtaPage })))
 const AppsPage = lazy(() => import('./pages/AppsPage').then(m => ({ default: m.AppsPage })))
 
 function ScrollToTop() {
@@ -122,6 +123,7 @@ export default function App() {
             <Route path="/cart" element={<Shell><CartPage /></Shell>} />
             <Route path="/delivery" element={<Shell><DeliveryPage /></Shell>} />
             <Route path="/trade-in" element={<Shell><TradeInPage /></Shell>} />
+            <Route path="/gta6" element={<Shell><GtaPage /></Shell>} />
             <Route path="/apps" element={<Shell><AppsPage /></Shell>} />
             <Route path="/used" element={<Shell><UsedPage /></Shell>} />
             <Route path="/used/:slug" element={<Shell><UsedProductPage /></Shell>} />

@@ -14,6 +14,7 @@ import { CommandPalette, type PaletteItem } from './admin/CommandPalette'
 import { OverviewTab } from './admin/OverviewTab'
 import { PreorderSection } from './admin/PreorderSection'
 import { InstallsSection } from './admin/InstallsSection'
+import { Gta6Section } from './admin/Gta6Section'
 import { PriceCommandBar } from '../components/PriceCommand'
 import { OrderComments, LastCommentLine, commentsPreview, type OrderComment, type OrderCommentPreview } from '../components/OrderComments'
 import { rankSearch } from '../lib/searchRank'
@@ -369,6 +370,10 @@ export function AdminPage() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [priceCommandOpen, setPriceCommandOpen] = useState(false)
   const [preorderAddOpen, setPreorderAddOpen] = useState(false)
+  // Товар создаётся из раздела «GTA VI» — после сохранения сразу встаёт в подборку страницы
+  const [gta6CreateMode, setGta6CreateMode] = useState(false)
+  const [gta6ReloadKey, setGta6ReloadKey] = useState(0)
+  const openGta6NewProduct = () => { setEditingProduct(null); setIsUsedProductMode(false); setGta6CreateMode(true); setIsProductModalOpen(true) }
   // Вид каркаса: «док» внизу или боковое меню — запоминается в браузере
   const [layout, setLayout] = useState<AdminLayoutMode>(readLayoutMode)
   const toggleLayout = () => setLayout(mode => { const next: AdminLayoutMode = mode === 'dock' ? 'sidebar' : 'dock'; storeLayoutMode(next); return next })
@@ -599,6 +604,13 @@ export function AdminPage() {
     }
     const saved: Product = await res.json()
     loadProducts()
+    if (!id && gta6CreateMode) {
+      try {
+        const added = await authFetch(`${API_BASE_URL}/api/gta6/products/${saved.id}`, { method: 'POST' })
+        if (added.ok) { toast('Товар создан и добавлен на страницу GTA VI', 'success'); setGta6ReloadKey(k => k + 1) }
+        else toast('Товар создан, но на страницу GTA VI не добавился — добавьте его в подборку вручную', 'error')
+      } catch { toast('Товар создан, но на страницу GTA VI не добавился — добавьте его в подборку вручную', 'error') }
+    }
     return saved
   }
 
@@ -945,6 +957,8 @@ export function AdminPage() {
         )
       case 'preorder':
         return <button type="button" onClick={() => setPreorderAddOpen(true)} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Добавить товары</button>
+      case 'gta6':
+        return <button type="button" onClick={openGta6NewProduct} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Создать товар для страницы</button>
       case 'used':
         return <button type="button" onClick={() => { setEditingProduct(null); setIsUsedProductMode(true); setIsProductModalOpen(true) }} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Добавить Б/У товар</button>
       case 'categories':
@@ -1273,6 +1287,18 @@ export function AdminPage() {
         )}
 
         {activeTab === 'installs' && <InstallsSection authFetch={authFetch} />}
+
+        {activeTab === 'gta6' && (
+          <Gta6Section
+            products={products}
+            authFetch={authFetch}
+            imageUrl={getImageUrl}
+            compressImage={compressImageForUpload}
+            reloadKey={gta6ReloadKey}
+            onCreate={openGta6NewProduct}
+            onEdit={(p) => { setEditingProduct(p); setIsUsedProductMode(false); setIsProductModalOpen(true) }}
+          />
+        )}
 
         {/* ============ USED PRODUCTS TAB ============ */}
         {activeTab === 'used' && (
@@ -1611,7 +1637,7 @@ export function AdminPage() {
           brands={brands}
           onSave={saveProduct}
           onRefresh={loadProducts}
-          onClose={() => { setIsProductModalOpen(false); setEditingProduct(null); setIsUsedProductMode(false) }}
+          onClose={() => { setIsProductModalOpen(false); setEditingProduct(null); setIsUsedProductMode(false); setGta6CreateMode(false) }}
           isUsedMode={isUsedProductMode}
           authFetch={authFetch}
         />

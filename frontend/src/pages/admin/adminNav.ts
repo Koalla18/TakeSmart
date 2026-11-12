@@ -12,10 +12,10 @@ import type { AdminIconName } from './AdminIcons'
 export type AdminSection =
   | 'overview' | 'orders' | 'analytics'
   | 'products' | 'preorder' | 'categories' | 'fields' | 'quickfilters' | 'brands'
-  | 'banners' | 'tradein' | 'slides' | 'used' | 'installs'
+  | 'banners' | 'tradein' | 'slides' | 'used' | 'installs' | 'gta6'
 
 export const ADMIN_SECTIONS: readonly AdminSection[] = [
-  'overview', 'orders', 'analytics', 'products', 'preorder', 'categories', 'fields', 'quickfilters', 'brands', 'banners', 'tradein', 'slides', 'used', 'installs',
+  'overview', 'orders', 'analytics', 'products', 'preorder', 'categories', 'fields', 'quickfilters', 'brands', 'banners', 'tradein', 'slides', 'used', 'installs', 'gta6',
 ]
 
 export function isAdminSection(value: string | null | undefined): value is AdminSection {
@@ -60,6 +60,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     items: [
       { id: 'banners', label: 'Баннеры', icon: 'image', hint: 'Слайдер на главной' },
       { id: 'tradein', label: 'Trade-in', icon: 'refresh', hint: 'Цены калькулятора оценки' },
+      { id: 'gta6', label: 'GTA VI', icon: 'star', hint: 'Страница об игре: подборка PlayStation 5, подарок, показ на сайте' },
     ],
   },
 ]
@@ -86,6 +87,7 @@ export const ADMIN_SECTION_META: Record<AdminSection, AdminSectionMeta> = {
   brands: { title: 'Бренды', eyebrow: 'Каталог', description: 'Справочник брендов для товаров и быстрых кнопок каталога. Логотипы показываются в меню сайта', navId: 'brands' },
   banners: { title: 'Баннеры', eyebrow: 'Витрина', description: 'Большой слайдер вверху главной. Порядок — стрелками, показ — переключателем «Активен»', navId: 'banners' },
   tradein: { title: 'Trade-in', eyebrow: 'Витрина', description: 'Диапазоны оценки устройств в калькуляторе на странице Trade-in', navId: 'tradein' },
+  gta6: { title: 'GTA VI', eyebrow: 'Витрина', description: 'Страница /gta6: рассказ об игре и подборка PlayStation 5 с игрой в подарок. Добавьте сюда карточки консолей, задайте условия подарка и включите страницу — в меню сайта появится выделенный пункт.', navId: 'gta6' },
   slides: { title: 'Слайды «Товары недели»', eyebrow: 'Витрина', description: 'Блок «Товары недели» на главной странице', navId: 'banners' },
   used: { title: 'Б/У товары', eyebrow: 'Каталог', description: 'Товары с пробегом — отдельный раздел витрины', navId: 'products' },
 }

@@ -19,6 +19,7 @@ import {
 } from '../lib/catalogMenu'
 import { API_BASE_URL } from '../lib/config'
 import { useAppsMenuEnabled, usePreorderAvailable } from '../lib/preorder'
+import { useGta6Flags } from '../lib/gta6'
 
 // Подсказка о медленной загрузке: замеряем реальную задержку до нашего сервера
 // и, если медленно (часто из-за VPN с дальним выходом), мягко предлагаем выключить VPN.
@@ -393,6 +394,7 @@ const legalDocumentPaths = ['/offer', '/privacy-policy', '/personal-data', '/coo
 function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const preorderAvailable = usePreorderAvailable()
   const appsMenu = useAppsMenuEnabled()
+  const gta6Menu = useGta6Flags().menu
   const [categories, setCategories] = useState<MenuCategory[]>([])
   const [groupsByCat, setGroupsByCat] = useState<Record<string, MenuBrandGroup[]>>({})
   const [drillCat, setDrillCat] = useState<MenuCategory | null>(null)
@@ -474,6 +476,7 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
               {[
                 { to: '/', label: 'Главная' },
                 { to: '/catalog', label: 'Каталог' },
+                ...(gta6Menu ? [{ to: '/gta6', label: 'GTA VI — игра в подарок к PS5' }] : []),
                 ...(preorderAvailable ? [{ to: '/preorder', label: 'Предзаказ новинок' }] : []),
                 { to: '/delivery', label: 'Доставка и оплата' },
                 { to: '/trade-in', label: 'Trade-in' },
@@ -486,7 +489,9 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                   onClick={close}
                   className={({ isActive }) =>
                     `flex items-center justify-between rounded-xl px-4 py-3 text-base font-medium transition-colors ${
-                      isActive ? 'bg-yellow-50 text-yellow-600' : 'text-gray-700 hover:bg-gray-50'
+                      item.to === '/gta6'
+                        ? 'gta-nav font-black uppercase tracking-wide [&>svg]:text-[#11111d]'
+                        : isActive ? 'bg-yellow-50 text-yellow-600' : 'text-gray-700 hover:bg-gray-50'
                     }`
                   }
                 >
@@ -714,6 +719,7 @@ function CookieConsent() {
 export function Shell({ children }: PropsWithChildren) {
   const preorderAvailable = usePreorderAvailable()
   const appsMenu = useAppsMenuEnabled()
+  const gta6Menu = useGta6Flags().menu
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const { getItemCount } = useCart()
@@ -780,6 +786,16 @@ export function Shell({ children }: PropsWithChildren) {
             <nav className="hidden items-center gap-4 lg:flex xl:gap-6">
               <NavItem to="/" label="Главная" />
               <CatalogMegaMenu />
+              {gta6Menu && (
+                <NavLink
+                  to="/gta6"
+                  data-gta6-nav
+                  className="gta-nav inline-flex items-center gap-1.5 whitespace-nowrap rounded-full py-1.5 pl-3.5 pr-9 text-[13px] font-black uppercase tracking-wide"
+                >
+                  GTA VI
+                  <span className="rounded-full bg-[#11111d] px-1.5 py-0.5 text-[9px] font-bold tracking-wider text-[#ffb0c4]">в подарок</span>
+                </NavLink>
+              )}
               {preorderAvailable && (
                 <NavLink
                   to="/preorder"
@@ -932,6 +948,7 @@ export function Shell({ children }: PropsWithChildren) {
                 <h3 className="mb-4 text-sm font-semibold uppercase tracking-widest text-gray-500">Каталог</h3>
                 <ul className="space-y-2.5">
                   {[
+                    ...(gta6Menu ? [{ label: 'GTA VI и PlayStation 5', to: '/gta6' }] : []),
                     ...(preorderAvailable ? [{ label: 'Предзаказ новинок', to: '/preorder' }] : []),
                     { label: 'Apple iPhone', to: '/catalog?category=smartphones' },
                     { label: 'Apple MacBook', to: '/catalog?category=laptops' },

@@ -15,6 +15,10 @@ export interface PreorderSettings {
   preorder_in_catalog: boolean
   /** Пункт «Приложения» (/apps) в меню сайта — включается в разделе «Приложения на iPhone» → «Настройки» */
   apps_menu_enabled?: boolean
+  /** Выделенный пункт «GTA VI» (/gta6) в меню — включается в разделе «GTA VI» админки */
+  gta6_menu_enabled?: boolean
+  /** Блок-анонс GTA VI на главной */
+  gta6_home_enabled?: boolean
 }
 
 const DEFAULT_SETTINGS: PreorderSettings = { preorder_section_enabled: true, preorder_in_catalog: false }

@@ -10,6 +10,8 @@ import {
 } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
 import { usePreorderState } from '../lib/preorder'
+import { useGta6Flags } from '../lib/gta6'
+import { Gta6HomeBanner } from '../components/Gta6HomeBanner'
 import {
   ShieldIcon,
   TruckIcon,
@@ -586,10 +588,14 @@ const BRANDS = [
 ]
 
 export function HomePage() {
+  const gta6 = useGta6Flags()
   return (
     <div className="overflow-hidden">
       {/* 1. Слайдер баннеров (вместо видео) */}
       <HeroBannerSlider />
+
+      {/* 1б. Анонс раздела GTA VI — включается в админке → «GTA VI» */}
+      {gta6.home && <Gta6HomeBanner />}
 
       {/* 1a. Предзаказ новинок — только когда в админке отмечены товары */}
       <PreorderShowcase />
