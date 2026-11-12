@@ -489,13 +489,16 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
                   onClick={close}
                   className={({ isActive }) =>
                     `flex items-center justify-between rounded-xl px-4 py-3 text-base font-medium transition-colors ${
-                      item.to === '/gta6'
-                        ? 'bg-[#11111d] font-bold text-white [&>svg]:text-[#ffb0c4]'
-                        : isActive ? 'bg-yellow-50 text-yellow-600' : 'text-gray-700 hover:bg-gray-50'
+                      isActive ? 'bg-yellow-50 text-yellow-600' : item.to === '/gta6' ? 'font-bold text-gray-900 hover:bg-gray-50' : 'text-gray-700 hover:bg-gray-50'
                     }`
                   }
                 >
-                  {item.label}
+                  {item.to === '/gta6' ? (
+                    <span className="flex items-center gap-3">
+                      <img src="/gta6/cover.webp" alt="" className="h-9 w-auto -rotate-6 rounded-[3px] shadow-sm ring-1 ring-gray-200" />
+                      {item.label}
+                    </span>
+                  ) : item.label}
                   <ChevronRightIcon className="h-4 w-4 text-gray-400" />
                 </NavLink>
               ))}
@@ -792,9 +795,9 @@ export function Shell({ children }: PropsWithChildren) {
                 <NavLink
                   to="/gta6"
                   data-gta6-nav
-                  className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-[#11111d] px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-[#2a2a40]"
+                  className={({ isActive }) => `group inline-flex items-center gap-2 whitespace-nowrap py-1 text-sm font-bold transition-colors ${isActive ? 'text-yellow-500' : 'text-gray-900 hover:text-yellow-500'}`}
                 >
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#ffb0c4]" />
+                  <img src="/gta6/cover.webp" alt="" className="h-8 w-auto -rotate-6 rounded-[3px] shadow-sm ring-1 ring-gray-200 transition-transform group-hover:rotate-0 group-hover:scale-110" />
                   GTA VI
                 </NavLink>
               )}
