@@ -51,7 +51,8 @@ class AppleState(BaseModel):
     name: str | None = Field(None, max_length=120)
 
 
-PURCHASE_KEYS = ("bundle_id", "name", "id", "version", "icon", "genre")
+# removed — приложения нет в российском App Store (помощник ≥ 0.3.8): в PWA такие идут первыми
+PURCHASE_KEYS = ("bundle_id", "name", "id", "version", "icon", "genre", "removed")
 
 
 class HeartbeatIn(BaseModel):
@@ -79,6 +80,7 @@ class HeartbeatIn(BaseModel):
             for k in ("bundle_id", "name", "version", "icon", "genre"):
                 if isinstance(row.get(k), str):
                     row[k] = row[k][:400]
+            row["removed"] = row["removed"] if isinstance(row.get("removed"), bool) else None
             clean.append(row)
         return clean
 
