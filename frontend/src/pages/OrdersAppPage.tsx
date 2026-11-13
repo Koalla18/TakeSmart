@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useCallback, useMemo, type FormEvent } fro
 import { useAuth, getAuthHeaders } from '../lib/auth'
 import { API_BASE_URL } from '../lib/config'
 import { PricesPanel } from './PricesPanel'
+import { IphoneTab } from './IphoneTab'
+import { useStations } from '../lib/installStations'
 import { OrderComments, LastCommentLine, commentsPreview, type OrderComment, type OrderCommentPreview, type OrderCommentsRequest } from '../components/OrderComments'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -917,22 +919,24 @@ function OrdersFeed() {
   )
 }
 
-// ── Нижний таб-бар PWA: «Заказы» + «Цены» ───────────────────────────────────────
-type AppTab = 'orders' | 'prices'
+// ── Нижний таб-бар PWA: «Заказы» + «Цены» + «iPhone» ────────────────────────────
+type AppTab = 'orders' | 'prices' | 'iphone'
 const TAB_KEY = 'takesmart_app_tab'
+const TABS: readonly AppTab[] = ['orders', 'prices', 'iphone']
 
-function AppTabBar({ tab, onTab, pricesBadge }: { tab: AppTab; onTab: (t: AppTab) => void; pricesBadge: number }) {
+function AppTabBar({ tab, onTab, pricesBadge, phoneConnected }: { tab: AppTab; onTab: (t: AppTab) => void; pricesBadge: number; phoneConnected: boolean }) {
   const tabs: { key: AppTab; icon: string; label: string }[] = [
     { key: 'orders', icon: '📦', label: 'Заказы' },
     { key: 'prices', icon: '🏷', label: 'Цены' },
+    { key: 'iphone', icon: '📱', label: 'iPhone' },
   ]
   return (
     <nav aria-label="Разделы приложения" className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-slate-950/90 backdrop-blur-xl" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      <div className="mx-auto grid max-w-xl grid-cols-2">
+      <div className="mx-auto grid max-w-xl grid-cols-3">
         {tabs.map((t) => {
           const active = tab === t.key
           return (
-            <button key={t.key} onClick={() => onTab(t.key)} aria-current={active ? 'page' : undefined}
+            <button key={t.key} onClick={() => onTab(t.key)} aria-current={active ? 'page' : undefined} data-tab={t.key}
               className={`relative flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/70 ${active ? 'text-yellow-400' : 'text-slate-500 hover:text-slate-300'}`}>
               <span className="relative text-xl leading-none">
                 {t.icon}
@@ -941,6 +945,7 @@ function AppTabBar({ tab, onTab, pricesBadge }: { tab: AppTab; onTab: (t: AppTab
                     {pricesBadge > 99 ? '99+' : pricesBadge}
                   </span>
                 )}
+                {t.key === 'iphone' && phoneConnected && <span aria-label="iPhone подключён" className="absolute -right-1.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-slate-950" />}
               </span>
               {t.label}
             </button>
@@ -954,7 +959,12 @@ function AppTabBar({ tab, onTab, pricesBadge }: { tab: AppTab; onTab: (t: AppTab
 export function OrdersAppPage() {
   const { isAuthenticated } = useAuth()
   usePwaSetup()
-  const [tab, setTab] = useState<AppTab>(() => { try { return localStorage.getItem(TAB_KEY) === 'prices' ? 'prices' : 'orders' } catch { return 'orders' } })
+  if (!isAuthenticated) return <LoginScreen />
+  return <AppShell />
+}
+
+function AppShell() {
+  const [tab, setTab] = useState<AppTab>(() => { try { const t = localStorage.getItem(TAB_KEY) as AppTab | null; return t && TABS.includes(t) ? t : 'orders' } catch { return 'orders' } })
   useEffect(() => { try { localStorage.setItem(TAB_KEY, tab) } catch { /* */ } }, [tab])
   // Панель цен маунтим при первом заходе и дальше не размонтируем: корзина правок и
   // загруженный каталог живут при переключении вкладок. Лента заказов смонтирована
@@ -963,8 +973,15 @@ export function OrdersAppPage() {
   const [pricesMounted, setPricesMounted] = useState(tab === 'prices')
   useEffect(() => { if (tab === 'prices') setPricesMounted(true) }, [tab])
   const [pricesDirty, setPricesDirty] = useState(0)
+  // Помощники на Mac опрашиваются всегда: подключили к Mac новый iPhone — сами
+  // открываем вкладку «iPhone» с его приложениями. Тот же телефон второй раз не дёргает.
+  const { stations, connectedUdid } = useStations()
+  const [seenUdid, setSeenUdid] = useState<string | null>(null)
+  if (connectedUdid !== seenUdid) {
+    setSeenUdid(connectedUdid)
+    if (connectedUdid) setTab('iphone')
+  }
 
-  if (!isAuthenticated) return <LoginScreen />
   return (
     <div className="min-h-[100dvh] bg-slate-950">
       <div className={tab === 'orders' ? 'pb-[calc(64px+env(safe-area-inset-bottom))]' : 'hidden'}><OrdersFeed /></div>
@@ -973,7 +990,8 @@ export function OrdersAppPage() {
           <PricesPanel onDirtyChange={setPricesDirty} />
         </div>
       )}
-      <AppTabBar tab={tab} onTab={setTab} pricesBadge={pricesDirty} />
+      {tab === 'iphone' && <div className="pb-[calc(64px+env(safe-area-inset-bottom))]"><IphoneTab stations={stations} /></div>}
+      <AppTabBar tab={tab} onTab={setTab} pricesBadge={pricesDirty} phoneConnected={Boolean(connectedUdid)} />
     </div>
   )
 }

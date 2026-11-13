@@ -151,7 +151,9 @@ export function resolveApp(p: PurchaseLike): ResolvedApp {
   const bank = Boolean(entry?.bank) || p.genre === 'Finance' || /\bбанк\b|\bbank\b/i.test(p.name)
   let h = 0
   for (const ch of p.bundle_id || name) h = (h * 31 + ch.charCodeAt(0)) >>> 0
-  return { name, icon: p.icon || catalogIcon, bank, letter: (name.trim()[0] || '?').toUpperCase(), hue: h % 360 }
+  // Буква плитки — первая буква или цифра: у «Пятерочка» — карта скидок» это П, а не кавычка
+  const letter = (name.match(/[\p{L}\p{N}]/u)?.[0] || '?').toUpperCase()
+  return { name, icon: p.icon || catalogIcon, bank, letter, hue: h % 360 }
 }
 
 export interface AppClassification {

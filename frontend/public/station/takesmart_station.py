@@ -39,7 +39,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.3.7"
+VERSION = "0.3.8"
 CONFIG_DIR = Path.home() / "Library" / "Application Support" / "TakeSmart Station"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LOG_PATH = CONFIG_DIR / "station.log"
@@ -315,12 +315,19 @@ class DeviceTools:
 # ─────────────────────────────────────────────────────────────────────────────
 
 SIM_PURCHASES = [
-    {"bundle_id": "ru.sberbankmobile", "name": "СберБанк Онлайн", "id": 492224193, "version": "16.3.0"},
-    {"bundle_id": "com.idamob.tinkoff.ios", "name": "Т-Банк", "id": 596862101, "version": "7.2"},
-    {"bundle_id": "ru.alfabank.mobile.ios", "name": "Альфа-Банк", "id": 968942583, "version": "15.1"},
-    {"bundle_id": "com.vk.vkclient", "name": "ВКонтакте", "id": 564177498, "version": "8.6"},
-    {"bundle_id": "ph.telegra.Telegraph", "name": "Telegram", "id": 686449807, "version": "11.2"},
-    {"bundle_id": "ru.ozon.app.ios", "name": "Ozon", "id": 1039891718, "version": "17.0"},
+    # removed — нет в российском App Store (в эмуляции заранее, без запросов к Apple)
+    {"bundle_id": "ru.sberbankmobile", "name": "СберБанк Онлайн", "id": 492224193, "version": "16.3.0", "removed": True},
+    {"bundle_id": "com.idamob.tinkoff.ios", "name": "Т-Банк", "id": 596862101, "version": "7.2", "removed": True},
+    {"bundle_id": "ru.alfabank.mobile.ios", "name": "Альфа-Банк", "id": 968942583, "version": "15.1", "removed": True},
+    {"bundle_id": "ru.vtb24.mobilebanking.ios", "name": "ВТБ Онлайн", "id": 1364026756, "version": "21.4", "removed": True},
+    {"bundle_id": "ru.x5.pyaterochka", "name": "«Пятерочка» — карта скидок", "id": 6444311279, "version": "3.1", "removed": True},
+    {"bundle_id": "com.betboom.app", "name": "BetBoom: ставки на спорт", "id": 1504441446, "version": "2.9", "removed": True},
+    {"bundle_id": "com.uniqlo.ru", "name": "UNIQLO", "id": 1475195340, "version": "5.0", "removed": True},
+    {"bundle_id": "com.vk.vkclient", "name": "ВКонтакте", "id": 564177498, "version": "8.6", "removed": False},
+    {"bundle_id": "ph.telegra.Telegraph", "name": "Telegram", "id": 686449807, "version": "11.2", "removed": False},
+    {"bundle_id": "ru.ozon.app.ios", "name": "Ozon", "id": 1039891718, "version": "17.0", "removed": False},
+    {"bundle_id": "ru.gosuslugi.mobile", "name": "Госуслуги", "id": 1355207466, "version": "4.20", "removed": False},
+    {"bundle_id": "com.google.ios.youtube", "name": "YouTube", "id": 544007664, "version": "21.45", "removed": False},
 ]
 
 
@@ -334,31 +341,59 @@ class StoreTools:
         self._logged_purchases_shape = False
         self._lookup_cache: dict[str, dict] = {}
 
-    def enrich(self, apps: list[dict]) -> None:
-        """Иконка и жанр из iTunes Lookup — только для приложений, которые ещё есть в витрине. Батчи параллельно."""
-        ids = [str(a["id"]) for a in apps if a.get("id") and str(a["id"]) not in self._lookup_cache]
-        chunks = [ids[i:i + 100] for i in range(0, len(ids), 100)]
+    # Где ещё искать иконку приложения, которого нет в российском App Store
+    OTHER_STORES = ("us", "kz", "by", "am", "ge", "uz", "ae", "tr")
 
-        def lookup(chunk: list[str]) -> dict[str, dict]:
+    def enrich(self, apps: list[dict]) -> None:
+        """Иконка, жанр и пометка «удалено из российского App Store» по iTunes Lookup. Батчи параллельно.
+
+        removed=True — в российской витрине приложения нет (банки и прочие удалённые): в PWA они идут
+        первыми. Иконку для них ищем в витринах других стран; не нашлась — PWA возьмёт свой логотип."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        def lookup(chunk: list[str], country: str) -> dict[str, dict] | None:
+            """None — Apple не ответила (сеть): такие ID не помечаем удалёнными и спросим в следующий раз."""
             _, out, _ = run(["curl", "-sS", "--max-time", "15", "--compressed",
-                             f"https://itunes.apple.com/lookup?id={','.join(chunk)}&country=ru&entity=software"], timeout=20)
+                             f"https://itunes.apple.com/lookup?id={','.join(chunk)}&country={country}&entity=software"], timeout=20)
             try:
                 results = json.loads(out).get("results") or []
             except (json.JSONDecodeError, AttributeError):
-                results = []
+                return None
             return {str(r.get("trackId")): r for r in results if r.get("trackId")}
 
-        if chunks:
-            from concurrent.futures import ThreadPoolExecutor
+        def batches(ids: list[str], country: str) -> list[tuple[list[str], dict[str, dict] | None]]:
+            chunks = [ids[i:i + 100] for i in range(0, len(ids), 100)]
+            if not chunks:
+                return []
             with ThreadPoolExecutor(max_workers=4) as ex:
-                for chunk, found in zip(chunks, ex.map(lookup, chunks)):
-                    for tid in chunk:
-                        r = found.get(tid) or {}
-                        self._lookup_cache[tid] = {"icon": r.get("artworkUrl100"), "genre": r.get("primaryGenreName"),
-                                                   "store_name": r.get("trackName")}
+                return list(zip(chunks, ex.map(lambda ch: lookup(ch, country), chunks)))
+
+        ids = [str(a["id"]) for a in apps if a.get("id") and str(a["id"]) not in self._lookup_cache]
+        absent: list[str] = []
+        for chunk, found in batches(ids, "ru"):
+            if found is None:
+                continue
+            for tid in chunk:
+                r = found.get(tid)
+                if r:
+                    self._lookup_cache[tid] = {"icon": r.get("artworkUrl100"), "genre": r.get("primaryGenreName"),
+                                               "store_name": r.get("trackName"), "removed": False}
+                else:
+                    self._lookup_cache[tid] = {"icon": None, "genre": None, "store_name": None, "removed": True}
+                    absent.append(tid)
+        for country in self.OTHER_STORES:
+            if not absent:
+                break
+            for chunk, found in batches(absent, country):
+                for tid, r in (found or {}).items():
+                    if tid in chunk:
+                        self._lookup_cache[tid].update(icon=r.get("artworkUrl100"), genre=r.get("primaryGenreName"),
+                                                       store_name=r.get("trackName"))
+            absent = [t for t in absent if not self._lookup_cache[t].get("icon")]
         for a in apps:
             meta = self._lookup_cache.get(str(a.get("id") or ""), {})
             a["icon"], a["genre"], a["store_name"] = meta.get("icon"), meta.get("genre"), meta.get("store_name")
+            a["removed"] = meta.get("removed")
 
     @property
     def missing(self) -> list[str]:
@@ -420,7 +455,7 @@ class StoreTools:
         ipatool отдаёт не больше 100 записей за вызов, а каждый вызов заново читает всю историю у Apple —
         поэтому страницы после первой читаем параллельно."""
         if self.simulate:
-            return [{**p, "icon": None, "genre": "Finance" if "bank" in p["bundle_id"] or "sber" in p["bundle_id"] else None,
+            return [{**p, "icon": None, "genre": "Finance" if any(k in p["bundle_id"] for k in ("bank", "sber", "tinkoff", "vtb")) else None,
                      "store_name": None, "purchase_date": None} for p in SIM_PURCHASES]
         page_size = 100  # ipatool: «max results must not exceed 100»
 
