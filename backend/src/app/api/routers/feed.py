@@ -79,6 +79,51 @@ def _preorder_sales_note(p) -> str:
     return candidate if len(candidate) <= 50 else base
 
 
+# ─── Тексты под модерацию рекламы ────────────────────────────────────────────
+# Директ не пропускает у неофициальных продавцов слова об официальности,
+# авторизованности и сертификации («Продвижение сервисного центра не
+# соответствует требованиям»). В описаниях товаров они встречаются
+# («с официальной гарантией обновлений») — в фиде и SEO-текстах убираем само слово.
+_CLAIM_WORDS = re.compile(r"\b(?:официальн|авторизованн|сертифицированн)\w*\s*", re.IGNORECASE)
+
+
+def ad_safe(text: str | None) -> str:
+    if not text:
+        return ""
+    return " ".join(_CLAIM_WORDS.sub("", text).split())
+
+
+def clean_name(name: str | None) -> str:
+    """Название без двойных пробелов: «PlayStation 5 Slim  Disk» → «PlayStation 5 Slim Disk»."""
+    return " ".join((name or "").split())
+
+
+def model_from_name(name: str | None, brand: str | None) -> str | None:
+    """Модель из названия, если в карточке она не заполнена: всё после бренда до
+    первой запятой или скобки. «Игровая приставка Sony PlayStation 5 Slim Digital
+    825ГБ, Белый (White)» → «PlayStation 5 Slim Digital 825ГБ». Без явной модели
+    Директ подставлял в карточку объявления чужую («Модель: Apple iPad»)."""
+    name = clean_name(name)
+    if not name or not brand:
+        return None
+    idx = name.lower().find(brand.strip().lower())
+    if idx < 0:
+        return None
+    rest = name[idx + len(brand.strip()):]
+    model = re.split(r"[,(]", rest, maxsplit=1)[0].strip(" -–—")
+    return model or None
+
+
+def offer_model(p) -> str | None:
+    """Модель для фида и разметки: из карточки, если она совпадает с названием,
+    иначе — из названия."""
+    own = clean_name(getattr(p, "model", None))
+    name = clean_name(p.name).lower()
+    if own and all(t in name for t in re.split(r"\W+", own.lower()) if t):
+        return own
+    return model_from_name(p.name, p.brand) or (own or None)
+
+
 def _fmt_price(value: Decimal) -> str:
     """Целое без копеек (89890), дробное — с двумя знаками (89890.50)."""
     if value == value.to_integral_value():
@@ -208,14 +253,15 @@ def _build_yml(products, gift_ids: set | None = None) -> str:
         if picture:
             out.append(f"        <picture>{escape(picture)}</picture>")
 
-        out.append(f"        <name>{escape(p.name)}</name>")
+        out.append(f"        <name>{escape(clean_name(p.name))}</name>")
         if p.brand:
             out.append(f"        <vendor>{escape(p.brand)}</vendor>")
-        if p.model:
-            out.append(f"        <model>{escape(p.model)}</model>")
+        model = offer_model(p)
+        if model:
+            out.append(f"        <model>{escape(model)}</model>")
 
         has_gift = bool(gift_ids) and p.id in gift_ids
-        description = p.short_description or p.description or ""
+        description = ad_safe(p.short_description or p.description)
         if has_gift:
             description = f"В подарок — {GIFT_NAME}. " + description
         if description:

@@ -32,7 +32,7 @@ from urllib.parse import quote, urlencode
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from src.app.api.routers.feed import _picture_url
+from src.app.api.routers.feed import _picture_url, ad_safe, clean_name, offer_model
 from src.app.api.routers.gta6 import GIFT_NAME, parse_config as parse_gta6_config
 from src.app.core.config import settings
 from src.app.core.logger import get_logger
@@ -193,7 +193,7 @@ def _products_list_html(products, gift_ids: set | None = None, limit: int = 300)
     for p in products[:limit]:
         price = _price(_effective_price(p))
         gift = f" + {GIFT_NAME} в подарок" if gift_ids and p.id in gift_ids else ""
-        rows.append(f'<li><a href="{escape(_product_url(p))}">{escape(p.name)}</a> — {escape(price)}{escape(gift)}</li>')
+        rows.append(f'<li><a href="{escape(_product_url(p))}">{escape(clean_name(p.name))}</a> — {escape(price)}{escape(gift)}</li>')
     return "<ul>" + "".join(rows) + "</ul>" if rows else ""
 
 
@@ -233,6 +233,7 @@ async def _build(path: str, query: dict[str, str]) -> PageMeta:
                 return PageMeta(title=f"Товар не найден — {SITE_NAME}", robots="noindex, follow", body=nav, status=404)
             url = _product_url(p)
             price = _effective_price(p)
+            name = clean_name(p.name)
             gift = p.id in gift_ids
             cat = p.category
             crumbs = [("Главная", "/"), ("Каталог", "/catalog")]
@@ -240,15 +241,15 @@ async def _build(path: str, query: dict[str, str]) -> PageMeta:
                 crumbs.append((cat.name, f"/catalog?category={quote(cat.slug)}"))
             elif p.condition == "used":
                 crumbs.append(("Б/у техника", "/used"))
-            crumbs.append((p.name, url))
+            crumbs.append((name, url))
 
             used = " б/у" if p.condition == "used" else ""
-            title = f"{p.name}{used} — купить в {CITY}"
+            title = f"{name}{used} — купить в {CITY}"
             if price:
                 title += f" за {_price(price)}"
             title += f" | {SITE_NAME}"
-            base_desc = p.short_description or p.description or ""
-            lead = f"{p.name}{used}"
+            base_desc = ad_safe(p.short_description or p.description)
+            lead = f"{name}{used}"
             if price:
                 lead += f" по цене {_price(price)}"
             if gift:
@@ -277,7 +278,7 @@ async def _build(path: str, query: dict[str, str]) -> PageMeta:
             product_ld: dict[str, Any] = {
                 "@context": "https://schema.org",
                 "@type": "Product",
-                "name": p.name,
+                "name": name,
                 "description": _clip(base_desc or description, 1000),
                 "image": images,
                 "url": _abs(url),
@@ -285,6 +286,9 @@ async def _build(path: str, query: dict[str, str]) -> PageMeta:
             }
             if p.sku:
                 product_ld["sku"] = p.sku
+            model = offer_model(p)
+            if model:
+                product_ld["model"] = model
             if p.brand:
                 product_ld["brand"] = {"@type": "Brand", "name": p.brand}
             if cat:
@@ -300,8 +304,8 @@ async def _build(path: str, query: dict[str, str]) -> PageMeta:
             status_text = "Предзаказ" if getattr(p, "is_preorder", False) else ("В наличии" if (p.stock_quantity or 0) > 0 else "Нет в наличии")
             body = (
                 _breadcrumbs_html(crumbs)
-                + f"<article><h1>{escape(p.name)}</h1>"
-                + (f'<img src="{escape(images[0])}" alt="{escape(p.name)}" width="450" height="450">' if images else "")
+                + f"<article><h1>{escape(name)}</h1>"
+                + (f'<img src="{escape(images[0])}" alt="{escape(name)}" width="450" height="450">' if images else "")
                 + f"<p><strong>{escape(_price(price))}</strong> · {escape(status_text)}</p>"
                 + (f"<p>В подарок к покупке — {escape(GIFT_NAME)}. <a href=\"/gta6\">Подробнее об акции</a></p>" if gift else "")
                 + (f"<p>{escape(base_desc)}</p>" if base_desc else "")
@@ -327,14 +331,14 @@ async def _build(path: str, query: dict[str, str]) -> PageMeta:
                 title = f"{cat.name} — купить в {CITY}{from_price}, цены и наличие | {SITE_NAME}"
                 description = _clip(
                     f"{cat.name} в {SITE_NAME}: {len(items)} {_plural(len(items), 'модель', 'модели', 'моделей')}{from_price}. "
-                    "Оригинал с гарантией, доставка по Москве за 30 минут и по России, самовывоз у м. Багратионовская, "
+                    "Гарантия магазина, доставка по Москве за 30 минут и по России, самовывоз у м. Багратионовская, "
                     "Trade-in и рассрочка.", 300)
                 url = f"/catalog?category={quote(cat.slug)}"
                 crumbs = [("Главная", "/"), ("Каталог", "/catalog"), (cat.name, url)]
                 item_list = {
                     "@context": "https://schema.org", "@type": "ItemList", "name": cat.name,
                     "itemListElement": [
-                        {"@type": "ListItem", "position": i + 1, "url": _abs(_product_url(p)), "name": p.name}
+                        {"@type": "ListItem", "position": i + 1, "url": _abs(_product_url(p)), "name": clean_name(p.name)}
                         for i, p in enumerate(items[:100])
                     ],
                 }
@@ -372,7 +376,7 @@ async def _build(path: str, query: dict[str, str]) -> PageMeta:
             item_list = {
                 "@context": "https://schema.org", "@type": "ItemList", "name": "PlayStation 5 с GTA VI в подарок",
                 "itemListElement": [
-                    {"@type": "ListItem", "position": i + 1, "url": _abs(_product_url(p)), "name": p.name}
+                    {"@type": "ListItem", "position": i + 1, "url": _abs(_product_url(p)), "name": clean_name(p.name)}
                     for i, p in enumerate(items)
                 ],
             }
