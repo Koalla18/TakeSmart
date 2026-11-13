@@ -39,7 +39,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.3.8"
+VERSION = "0.3.9"
 CONFIG_DIR = Path.home() / "Library" / "Application Support" / "TakeSmart Station"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LOG_PATH = CONFIG_DIR / "station.log"
@@ -91,9 +91,27 @@ def find_tool(name: str) -> str | None:
     return None
 
 
+def ipatool_env() -> dict[str, str]:
+    """Своя домашняя папка для ipatool: <CONFIG_DIR>/ipatool-home.
+
+    ~/.ipatool бывает занят IPA_Downloader: его ipatool пишет cookies в другом формате,
+    и ipatool из brew на таком файле падает ещё до запроса к Apple («cannot load cookies:
+    invalid character '#'»). Связку ключей macOS ищет в $HOME/Library — туда ссылка на
+    настоящую ~/Library, иначе вход повисает на сохранении учётки."""
+    home = CONFIG_DIR / "ipatool-home"
+    home.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lib = home / "Library"
+    if not lib.exists():
+        if lib.is_symlink():
+            lib.unlink()
+        lib.symlink_to(Path.home() / "Library")
+    return {**os.environ, "HOME": str(home)}
+
+
 def run(cmd: list[str], timeout: int = 60) -> tuple[int, str, str]:
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        env = ipatool_env() if cmd and Path(cmd[0]).name == "ipatool" else None
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
         return proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired:
         return 124, "", "timeout"
@@ -431,6 +449,10 @@ class StoreTools:
         error = error_text(data, out, err)
         log(f"ipatool login ({'с кодом' if code else 'без кода'}): {error[:220]}")
         low = error.lower()
+        if "panic" in low or "cannot load" in low or "keyring" in low or "keychain" in low:
+            return {"status": "error", "message": f"Сбой ipatool на Mac, до Apple запрос не дошёл: {error.splitlines()[0][:160]}"}
+        if any(k in low for k in ("could not resolve", "no such host", "socket is not connected", "timeout", "timed out", "connection refused", "network")):
+            return {"status": "error", "message": "Mac не достучался до Apple — проверьте интернет и VPN на Mac и повторите"}
         if any(k in low for k in ("2fa", "auth code", "two-factor", "verification code", "authcode")):
             return {"status": "need_code", "message": "Введите код, который Apple прислала на устройства покупателя"}
         if any(k in low for k in ("password", "credentials", "invalid", "incorrect", "unexpected status")):
@@ -444,7 +466,7 @@ class StoreTools:
             self._sim_logged_in, self._sim_email = False, None
             return
         run(self._base("auth", "revoke"), timeout=30)
-        for f in (Path.home() / ".ipatool").glob("cookies*"):
+        for f in (CONFIG_DIR / "ipatool-home" / ".ipatool").glob("cookies*"):
             try:
                 f.unlink()
             except OSError:
