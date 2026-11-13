@@ -97,7 +97,7 @@ const HERO_BANNERS: Banner[] = [
     title: 'Умная техника',
     highlight: 'будущего',
     description:
-      'Смартфоны, ноутбуки и аксессуары от ведущих брендов с официальной гарантией.',
+      'Смартфоны, ноутбуки и аксессуары от ведущих брендов с гарантией магазина.',
     image: '/iphone-17-pro.png',
     cta: { label: 'Смотреть каталог', to: '/catalog' },
     secondary: { label: 'Написать менеджеру', href: 'https://t.me/takesmart_manager' },
@@ -566,7 +566,7 @@ export function WeeklySlides() {
 }
 
 const benefits = [
-  { icon: <ShieldIcon className="h-8 w-8" />, title: 'Гарантия до 3 лет', description: 'Официальная гарантия на всю технику' },
+  { icon: <ShieldIcon className="h-8 w-8" />, title: 'Гарантия до 3 лет', description: 'Гарантия магазина на всю технику' },
   { icon: <TruckIcon className="h-8 w-8" />, title: 'Доставка от 30 минут', description: 'Быстрая доставка по Москве' },
   { icon: <CardIcon className="h-8 w-8" />, title: 'Одобрение кредита от 5 мин', description: 'Без первого взноса' },
   { icon: <PhoneIcon className="h-8 w-8" />, title: 'Поддержка 24/7', description: 'Ответим на любой вопрос' },
@@ -609,7 +609,7 @@ export function HomePage() {
           <AnimatedSection>
             <div className="overflow-hidden rounded-3xl bg-white p-8 shadow-xl shadow-black/5 ring-1 ring-gray-100 sm:p-10">
               <div className="mb-8 text-center">
-                <h2 className="text-lg font-semibold text-gray-900">Официальный партнёр ведущих брендов</h2>
+                <h2 className="text-lg font-semibold text-gray-900">Бренды в нашем магазине</h2>
               </div>
               <div className="relative overflow-hidden">
                 <div className="flex animate-marquee gap-12 whitespace-nowrap py-4 sm:gap-16">

@@ -1980,7 +1980,7 @@ export function ProductPage() {
                     </div>
                     <div>
                       <div className="font-semibold text-gray-900">Гарантия 1 год</div>
-                      <div className="text-sm text-gray-500">Официальная</div>
+                      <div className="text-sm text-gray-500">От магазина</div>
                     </div>
                   </div>
                 </div>

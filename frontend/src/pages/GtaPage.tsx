@@ -610,7 +610,7 @@ export function GtaPage() {
               </Reveal>
             ))}
           </div>
-          <p className="mt-4 text-xs text-white/40">Иллюстрации и снимки экрана: официальные материалы Rockstar Games.</p>
+          <p className="mt-4 text-xs text-white/40">Иллюстрации и снимки экрана: материалы Rockstar Games.</p>
         </div>
       </section>
 
@@ -701,7 +701,7 @@ export function GtaPage() {
           </div>
           <p className="mt-12 max-w-3xl text-[11px] leading-relaxed text-white/45">
             Grand Theft Auto, GTA и Rockstar Games — товарные знаки Take-Two Interactive Software. PlayStation и PS5 — товарные знаки
-            Sony Interactive Entertainment. Изображения — официальные материалы Rockstar Games. TakeSmart — независимый магазин техники
+            Sony Interactive Entertainment. Изображения — материалы Rockstar Games. TakeSmart — независимый магазин техники
             и не связан с правообладателями.
           </p>
         </div>
