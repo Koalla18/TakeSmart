@@ -1099,9 +1099,17 @@ export function ProductPage() {
                   // color). Иначе часы с пустыми «Тип/Размер ремешка» падали в легаси-
                   // парсер имён, который вытаскивал «)» как размер ремешка.
                   const wizardMarker = allCards.some(card => hasAttrValue(card.attributes?.color))
+                  // Третий способ: карточки заполнены строго по схеме категории (чужих
+                  // ключей нет, у каждой есть хотя бы одна ось), но часть осей у группы
+                  // не используется — например, у Oakley HSTN один размер, и «Размер»
+                  // пуст у всех. Без этого такая группа уходила в легаси-разбор имён и
+                  // оставалась без переключателя. Пустая ось ниже просто не рисуется.
+                  const schemaKeys = new Set(variantFields.map(field => field.key))
+                  const schemaNative = allCards.every(card => Object.keys(card.attributes || {}).every(key => schemaKeys.has(key)))
+                    && allCards.every(card => nonColorVariantFields.some(field => hasAttrValue(card.attributes?.[field.key])))
                   const schemaDataPresent = nonColorVariantFields.length === 0
                     ? variantFields.length > 0
-                    : (wizardMarker || nonColorVariantFields.every(field => allCards.some(card => hasAttrValue(card.attributes?.[field.key]))))
+                    : (wizardMarker || schemaNative || nonColorVariantFields.every(field => allCards.some(card => hasAttrValue(card.attributes?.[field.key]))))
                   if (variantFields.length > 0 && schemaDataPresent) {
                     // Значение оси: сначала из attributes, а если их нет (карточка
                     // создана до мастера — характеристики только в названии), разбираем
