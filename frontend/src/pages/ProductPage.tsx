@@ -263,6 +263,49 @@ function getColorSwatch(colorName: string): string | null {
   return null
 }
 
+/* ───────────────────── Запасной переключатель «Модель» ───────────────────── */
+// В одной группе иногда лежат разные модели одного цвета без заполненных осей
+// (Apple Pencil 2 / USB-C / Pro, AirPods 4 / Pro 3, линейка GoPro). Ни одна ось
+// их не различает — тогда переключаем прямо по моделям.
+
+/** Короткое имя модели: без общего типа товара в начале, цвета и артикула в конце */
+function shortModelName(name: string, allNames: string[], color?: string | null): string {
+  let s = name
+  const firstWords = allNames.map(n => n.trim().split(/\s+/)[0])
+  if (firstWords.every(w => w === firstWords[0]) && /^[А-ЯЁа-яё-]+$/.test(firstWords[0])) {
+    s = s.trim().slice(firstWords[0].length)
+  }
+  if (color) s = s.replace(color, '')
+  s = s.replace(/\s*\(?\b[A-Z0-9]{5}\b\)?\s*$/, '')
+  return s.replace(/\s{2,}/g, ' ').replace(/[\s,]+$/, '').trim() || name
+}
+
+function ModelSwitch({ cards, currentId, onPick }: {
+  cards: { id: string; name: string; slug: string; color?: string | null }[]
+  currentId: string
+  onPick: (slug: string) => void
+}) {
+  const names = cards.map(card => card.name)
+  const current = cards.find(card => card.id === currentId)
+  return (
+    <div>
+      <p className="mb-2 text-sm text-gray-500">Модель: <span className="font-semibold text-gray-900">{current ? shortModelName(current.name, names, current.color) : '—'}</span></p>
+      <div className="flex flex-wrap gap-2">
+        {cards.map(card => {
+          const isCurrent = card.id === currentId
+          const label = shortModelName(card.name, names, card.color)
+          return (
+            <button key={card.id} type="button" title={card.name} onClick={() => !isCurrent && onPick(card.slug)}
+              className={`max-w-full truncate rounded-xl border px-4 py-2 text-sm font-medium transition-all ${isCurrent ? 'border-gray-900 bg-gray-900 text-white shadow-sm' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'}`}>
+              {label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 /* ───────────────────── Image Lightbox ───────────────────── */
 function ImageLightbox({
   images,
@@ -1138,6 +1181,11 @@ export function ProductPage() {
                       })) || allCards.find(card => card.id !== apiProduct.id && getValue(card, fieldKey) === value)
                       if (match) navigate(`/product/${match.slug}`)
                     }
+                    // Ни одна ось не различает карточки — переключаем по моделям
+                    const anyAxis = variantFields.some(field => new Set(allCards.map(card => getValue(card, field.key)).filter(Boolean)).size >= 2)
+                    if (!anyAxis) {
+                      return <div className="mb-6"><ModelSwitch cards={allCards} currentId={apiProduct.id} onPick={slug => navigate(`/product/${slug}`)} /></div>
+                    }
                     return (
                       <div className="mb-6 space-y-4">
                         {variantFields.map(field => {
@@ -1234,10 +1282,13 @@ export function ProductPage() {
                         value: typeof value === 'boolean' ? (value ? 'Да' : 'Нет') : String(value),
                       })
                     })
-                    if (simpleColors.length === 0 && attrRows.length === 0) return null
+                    // Цвет у всех одинаковый — карточки отличаются моделью, переключаем по ней
+                    const byModel = simpleColors.length < 2 && allCards.length >= 2
+                    if (!byModel && simpleColors.length === 0 && attrRows.length === 0) return null
                     return (
                       <div className="mb-6 space-y-4">
-                        {simpleColors.length > 0 && (
+                        {byModel && <ModelSwitch cards={allCards} currentId={apiProduct.id} onPick={slug => navigate(`/product/${slug}`)} />}
+                        {!byModel && simpleColors.length > 0 && (
                           <div>
                             <p className="mb-2 text-sm text-gray-500">
                               Цвет: <span className="font-semibold text-gray-900">{simpleCurrentColor || '—'}</span>
@@ -1482,6 +1533,13 @@ export function ProductPage() {
                         !!candidate && typeof candidate !== 'boolean' && candidate.id !== apiProduct.id,
                     )
                     if (match) navigate(`/product/${match.slug}`)
+                  }
+
+                  // Ни цвет, ни разобранные из названия оси не различают карточки
+                  // (Apple Pencil 2 / USB-C / Pro) — переключаем по моделям
+                  const anyLegacyAxis = [uniqueColors, uniqueStorages, uniqueConn, uniqueRam].some(list => list.filter(Boolean).length >= 2)
+                  if (!anyLegacyAxis) {
+                    return <div className="mb-6"><ModelSwitch cards={allCards} currentId={apiProduct.id} onPick={slug => navigate(`/product/${slug}`)} /></div>
                   }
 
                   return (
