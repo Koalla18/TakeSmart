@@ -1144,15 +1144,23 @@ export function ProductPage() {
                           const values = [...new Set(allCards.map(card => getValue(card, field.key)).filter(Boolean))]
                           const current = currentValues[field.key]
                           if (values.length === 0) return null
-                          // Цвет — фото-плитками (как в легаси-селекторе), остальные оси — кнопками
-                          if (field.key === 'color') {
+                          // Внешний вид (цвет, оправа, корпус…) — фото-плитками, как в легаси-
+                          // селекторе (Ray-Ban), остальные оси — кнопками. Ключ поля может быть
+                          // любым (у очков «frame», у браслетов «ts»), поэтому смотрим и на подпись.
+                          const isVisualAxis = field.key === 'color' || /цвет|оправ|корпус|расцвет/i.test(field.label || '')
+                          if (isVisualAxis) {
                             return (
                               <div key={field.key}>
                                 <p className="mb-2 text-sm text-gray-500">{field.label}: <span className="font-semibold text-gray-900">{current || '—'}</span></p>
                                 <div className="flex flex-wrap items-center gap-2.5">
                                   {values.map(value => {
                                     const isCurrent = value === current
-                                    const cardForColor = allCards.find(card => getValue(card, 'color') === value)
+                                    // Фото — с карточки, совпадающей и по остальным выбранным осям
+                                    // (оправа Black при текущих линзах), иначе с любой с этим значением.
+                                    const withValue = allCards.filter(card => getValue(card, field.key) === value)
+                                    const cardForColor = withValue.find(card => variantFields.every(other => other.key === field.key || !currentValues[other.key] || getValue(card, other.key) === currentValues[other.key]))
+                                      || withValue.find(card => card.main_image_url)
+                                      || withValue[0]
                                     const thumb = cardForColor?.main_image_url
                                     const swatch = getColorSwatch(value)
                                     return (
