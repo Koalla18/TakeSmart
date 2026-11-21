@@ -742,8 +742,12 @@ export function HomePage() {
               </div>
 
               <div className="min-h-[400px] lg:col-span-3">
+                {/* Бесплатный виджет Яндекс Карт показывает рекламу Директа (бывают и конкуренты).
+                    Убирается только платным тарифом «Базовый (без рекламы)» на JavaScript API:
+                    ключ с этим тарифом передаётся параметром jsApiKey (именно так, не apikey).
+                    Ключ — в frontend/.env.production (VITE_YANDEX_MAPS_KEY); без него карта как раньше. */}
                 <iframe
-                  src="https://yandex.ru/map-widget/v1/?ll=37.499283%2C55.743401&z=17&l=map&pt=37.499283%2C55.743401%2Corg"
+                  src={`https://yandex.ru/map-widget/v1/?ll=37.499283%2C55.743401&z=17&l=map&pt=37.499283%2C55.743401%2Corg${import.meta.env.VITE_YANDEX_MAPS_KEY ? `&jsApiKey=${encodeURIComponent(import.meta.env.VITE_YANDEX_MAPS_KEY)}` : ''}`}
                   width="100%"
                   height="100%"
                   frameBorder="0"
