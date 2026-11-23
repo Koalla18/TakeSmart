@@ -103,6 +103,36 @@ function getCategoryProductFields(category?: Pick<Category, 'slug' | 'product_fi
   return Array.isArray(category?.product_fields) ? category.product_fields : []
 }
 
+/**
+ * Название товара группы, как его собирает мастер: «База значение1, значение2, …» и код
+ * модели «(MJ2K4)» в конце. Если товар создали без какой-то оси (например, без процессора),
+ * а потом вписали её в карточку, название само не меняется — витрина, поиск и заказы
+ * показывают его без процессора. Возвращает предложение собрать название заново или null.
+ */
+function proposeVariantName(name: string, values: string[]): { missing: string[]; proposed: string } | null {
+  const vals = values.map(v => v.trim()).filter(Boolean)
+  if (vals.length === 0) return null
+  const trimmed = name.trim()
+  const codeMatch = trimmed.match(/\s*\([A-Z][A-Z0-9/-]{2,}\)$/)
+  const code = codeMatch ? codeMatch[0].trim() : ''
+  const body = codeMatch ? trimmed.slice(0, codeMatch.index).trim() : trimmed
+  // Значение уже есть, если в названии есть оно целиком или его часть в скобках / через «/»
+  // («Gray (Орехово-Серый)» при цвете «Hazel Gray (Орехово-Серый)» — не задваиваем)
+  const present = (value: string) => {
+    if (body.includes(value)) return true
+    const parts = [...value.matchAll(/\(([^)]+)\)/g)].map(m => m[1].trim())
+    if (value.includes('/')) parts.push(...value.split('/').map(part => part.trim()))
+    return parts.some(part => part.length >= 3 && body.includes(part))
+  }
+  const missing = vals.filter(value => !present(value))
+  if (missing.length === 0) return null
+  const positions = vals.map(value => body.indexOf(value)).filter(index => index > 0)
+  const base = (positions.length ? body.slice(0, Math.min(...positions)) : body).replace(/[\s,]+$/, '').trim()
+  if (!base) return null
+  const proposed = `${base} ${vals.join(', ')}${code ? ` ${code}` : ''}`.replace(/\s{2,}/g, ' ').trim()
+  return proposed === trimmed ? null : { missing, proposed }
+}
+
 function getCategoryQuickFilters(category?: Pick<Category, 'slug' | 'quick_filters'> | null): QuickFilter[] {
   return Array.isArray(category?.quick_filters) ? category.quick_filters : []
 }
@@ -616,7 +646,9 @@ export function AdminPage() {
       throw new Error(detail)
     }
     const saved: Product = await res.json()
-    loadProducts()
+    // Каталог здесь не перезагружаем: форма товара после сохранения сама зовёт
+    // onRefresh (= loadProducts). Раньше на каждое сохранение весь каталог
+    // (~1000 товаров, мегабайты) скачивался дважды параллельно.
     if (!id && gta6CreateMode) {
       try {
         const added = await authFetch(`${API_BASE_URL}/api/gta6/products/${saved.id}`, { method: 'POST' })
@@ -2864,6 +2896,25 @@ function ProductModal({
               onChange={e => setName(e.target.value)}
               className="w-full rounded-xl bg-white/10 px-4 py-3 text-white focus:bg-white/20 focus:outline-none"
             />
+            {(() => {
+              // Только товары мастера групп (маркер — цвет в attributes): у легаси названия
+              // собраны по-своему, подсказка там была бы шумом
+              if (attributes.color === undefined || attributes.color === null || attributes.color === '') return null
+              const variantFields = getCategoryProductFields(categories.find(category => category.id === categoryId)).filter(field => field.is_variant)
+              const values = variantFields.map(field => {
+                const value = field.key === 'color' ? (color.trim() || attributes.color) : attributes[field.key]
+                return value === undefined || value === null || typeof value === 'boolean' ? '' : String(value)
+              })
+              const fix = proposeVariantName(name, values)
+              if (!fix) return null
+              return (
+                <div className="mt-2 rounded-xl border border-yellow-400/30 bg-yellow-400/10 px-3 py-2.5 text-xs text-yellow-100" data-name-fix>
+                  <div>В названии нет: <b>{fix.missing.join(', ')}</b> — покупатель его не увидит в каталоге, поиске и заказе.</div>
+                  <div className="mt-1 text-slate-300">Будет: <span className="text-white">{fix.proposed}</span></div>
+                  <button type="button" onClick={() => setName(fix.proposed)} className="mt-2 rounded-lg bg-yellow-400 px-3 py-1.5 text-xs font-semibold text-gray-900 hover:bg-yellow-300">Собрать название</button>
+                </div>
+              )
+            })()}
           </div>
 
           {/* Brand + Model + Category */}
