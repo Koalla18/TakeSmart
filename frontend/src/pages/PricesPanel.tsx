@@ -29,6 +29,7 @@ interface PriceProduct {
   group_id: string | null
   attributes?: Record<string, string | number | boolean | null> | null
   is_active: boolean
+  stock_quantity?: number
   is_preorder?: boolean
   // Появляется после миграции бэка; до неё поле отсутствует → считаем «не подтверждалась»
   price_updated_at?: string | null
@@ -868,6 +869,50 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
     } catch { return 'fail' }
   }, [logout])
 
+  // ── Остаток: «−/+» и ввод числа прямо в строке. Сохраняется сам, без кнопки «Сохранить»:
+  // через 0,7 с после последнего нажатия уходит один PATCH {stock_quantity} — серия «+++»
+  // не превращается в пачку запросов. Цену и прочие поля не трогаем.
+  const stockTimers = useRef<Map<string, number>>(new Map())
+  const stockSaved = useRef<Map<string, number>>(new Map()) // последнее сохранённое — для отката
+  const [stockSaving, setStockSaving] = useState<Set<string>>(() => new Set())
+  const [stockEdit, setStockEdit] = useState<{ id: string; value: string } | null>(null)
+
+  const setStock = useCallback((p: PriceProduct, next: number) => {
+    const value = Math.max(0, Math.min(99999, Math.round(next)))
+    if (!stockSaved.current.has(p.id)) stockSaved.current.set(p.id, p.stock_quantity ?? 0)
+    setProducts((prev) => prev.map((x) => (x.id === p.id ? { ...x, stock_quantity: value } : x)))
+    const timers = stockTimers.current
+    window.clearTimeout(timers.get(p.id))
+    timers.set(p.id, window.setTimeout(async () => {
+      timers.delete(p.id)
+      const before = stockSaved.current.get(p.id) ?? 0
+      setStockSaving((prev) => new Set(prev).add(p.id))
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/products/${p.id}`, {
+          method: 'PATCH',
+          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stock_quantity: value }),
+        })
+        if (res.status === 401) { toast('Сессия истекла — войдите заново.', 'error'); logout(); return }
+        if (!res.ok) throw new Error(String(res.status))
+        stockSaved.current.set(p.id, value)
+      } catch {
+        // Откат, только если за это время не нажали ещё раз (тогда уйдёт свежий запрос)
+        if (!timers.has(p.id)) setProducts((prev) => prev.map((x) => (x.id === p.id ? { ...x, stock_quantity: before } : x)))
+        toast('Не удалось сохранить количество — проверьте сеть', 'error')
+      } finally {
+        setStockSaving((prev) => { const n = new Set(prev); n.delete(p.id); return n })
+      }
+    }, 700))
+  }, [logout])
+
+  const commitStockEdit = useCallback((p: PriceProduct) => {
+    if (!stockEdit || stockEdit.id !== p.id) return
+    const n = parseInt(stockEdit.value.replace(/\D/g, ''), 10)
+    setStockEdit(null)
+    if (Number.isFinite(n) && n !== (p.stock_quantity ?? 0)) setStock(p, n)
+  }, [stockEdit, setStock])
+
   // ── Код модели: sku + тот же код в конце названия (правило мастера групп). Slug при этом
   // бэк не трогает — ссылка на карточку остаётся прежней. sku уникален: дубль → 409 → честный тост.
   const [codeEdit, setCodeEdit] = useState<{ id: string; value: string } | null>(null)
@@ -1291,6 +1336,38 @@ export function PricesPanel({ onDirtyChange }: { onDirtyChange?: (n: number) => 
                             {st?.priceChanged && (
                               <span className="text-[11px] text-slate-500"><span className="line-through">{fmtRub(Number(p.price))}</span> → <span className="text-yellow-300">{fmtRub(st.nextPrice)}</span></span>
                             )}
+                            {/* Остаток: −/+ и ввод числа; сохраняется сам */}
+                            {(() => {
+                              const qty = p.stock_quantity ?? 0
+                              const editingQty = stockEdit?.id === p.id
+                              const saving = stockSaving.has(p.id)
+                              return (
+                                <div className="ml-auto flex items-center gap-1" data-stock={p.id}>
+                                  <span className="mr-0.5 text-[11px] text-slate-500">Остаток</span>
+                                  <button type="button" onClick={() => setStock(p, qty - 1)} disabled={qty <= 0}
+                                    aria-label={`Уменьшить остаток: ${rowName}`}
+                                    className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/[0.07] text-lg font-semibold text-slate-200 transition active:scale-90 hover:bg-white/15 disabled:opacity-30">−</button>
+                                  {editingQty ? (
+                                    <input autoFocus value={stockEdit.value} inputMode="numeric" enterKeyHint="done"
+                                      onChange={(e) => setStockEdit({ id: p.id, value: e.target.value.replace(/\D/g, '').slice(0, 5) })}
+                                      onFocus={(e) => e.currentTarget.select()}
+                                      onBlur={() => commitStockEdit(p)}
+                                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitStockEdit(p) } if (e.key === 'Escape') setStockEdit(null) }}
+                                      aria-label={`Остаток: ${rowName}`}
+                                      className="h-9 w-14 rounded-lg border border-yellow-400/60 bg-yellow-400/10 text-center text-base font-bold text-white outline-none" />
+                                  ) : (
+                                    <button type="button" onClick={() => setStockEdit({ id: p.id, value: String(qty) })}
+                                      aria-label={`Остаток ${qty} — нажмите, чтобы ввести число: ${rowName}`}
+                                      className={`h-9 min-w-[44px] rounded-lg px-2 text-center text-base font-bold tabular-nums transition ${saving ? 'animate-pulse' : ''} ${qty === 0 ? 'bg-rose-500/15 text-rose-300' : 'bg-white/5 text-white'}`}>
+                                      {qty}
+                                    </button>
+                                  )}
+                                  <button type="button" onClick={() => setStock(p, qty + 1)}
+                                    aria-label={`Увеличить остаток: ${rowName}`}
+                                    className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/[0.07] text-lg font-semibold text-slate-200 transition active:scale-90 hover:bg-white/15">+</button>
+                                </div>
+                              )
+                            })()}
                           </div>
                           {st?.error && <div className="mt-1 text-right text-[11px] text-rose-400">{st.error}</div>}
                         </div>

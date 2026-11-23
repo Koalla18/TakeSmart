@@ -341,16 +341,22 @@ function ImageLightbox({
     setIndex((p) => (p === images.length - 1 ? 0 : p + 1))
   }, [images.length])
 
-  // Keyboard handling
+  // Keyboard handling. Подписка ставится один раз, свежие обработчики берутся из ref.
+  // Раньше она пересоздавалась на каждой перерисовке (onClose — новая функция у родителя),
+  // и при настоящем нажатии стрелки браузер успевал снять старую подписку до того, как
+  // дойти до неё: просмотр на весь экран не листался.
+  const keysRef = useRef({ onClose, goPrev, goNext, multi })
+  keysRef.current = { onClose, goPrev, goNext, multi }
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-      if (e.key === 'ArrowLeft' && multi) goPrev()
-      if (e.key === 'ArrowRight' && multi) goNext()
+      const k = keysRef.current
+      if (e.key === 'Escape') k.onClose()
+      if (e.key === 'ArrowLeft' && k.multi) { e.preventDefault(); k.goPrev() }
+      if (e.key === 'ArrowRight' && k.multi) { e.preventDefault(); k.goNext() }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [onClose, goPrev, goNext, multi])
+  }, [])
 
   // Lock body scroll
   useEffect(() => {
@@ -628,8 +634,16 @@ export function ProductPage() {
   const wheelDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Keyboard arrow navigation
+  // Пока открыт просмотр на весь экран, стрелками листает он, а не галерея страницы:
+  // иначе фото под ним уезжали, а сам просмотр из-за перерисовки терял нажатие.
+  const lightboxOpenRef = useRef(false)
+  lightboxOpenRef.current = lightboxOpen
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      if (lightboxOpenRef.current) return
+      // Стрелки в поле ввода (количество, поиск) двигают курсор, а не фото
+      const t = e.target as HTMLElement | null
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return
       const imgs = imagesRef.current
       if (imgs.length <= 1) return
       if (e.key === 'ArrowLeft') setActiveImageIndex(i => (i - 1 + imgs.length) % imgs.length)
