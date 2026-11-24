@@ -38,6 +38,7 @@ interface Chat {
   item_id: number | null
   order_number: string | null
   human_question: string | null
+  opted_out: boolean
   client_name: string | null
   item_title: string | null
   item_price: string | null
@@ -67,6 +68,19 @@ interface ChatDetail extends Chat { messages: Message[]; linked_product: Catalog
 interface Example { id: string; question: string; bot_answer: string | null; answer: string; item_title: string | null; chat_id: string | null; is_active: boolean; created_at: string }
 interface Unanswered { chat_id: string; client_name: string | null; item_title: string | null; question: string; reason: string | null; at: string | null }
 interface Health { last_webhook_at: string | null; last_poll_at: string | null; last_poll_error: string | null; caught_by_poll: number; llm_fail_streak: number; last_llm_error: string | null; queue_replies: number; queue_sends: number }
+interface AudienceChat { id: string; client_name: string | null; item_title: string | null; last_message_text: string | null; last_message_at: string | null; order_number: string | null; is_simulated: boolean; last_broadcast_at: string | null }
+interface Broadcast { id: string; title: string; text: string; status: 'draft' | 'sending' | 'paused' | 'done' | 'cancelled'; total: number; sent: number; failed: number; skipped: number; replied: number; created_by: string | null; created_at: string; started_at: string | null; finished_at: string | null }
+interface BroadcastDetail extends Broadcast { recipients: { chat_id: string; client_name: string | null; item_title: string | null; status: string; error: string | null; sent_at: string | null; replied: boolean }[] }
+interface AnalyticsTop { label: string; count: number }
+interface BotAnalytics {
+  days: number; dialogs_new: number; dialogs_active: number; client_messages: number
+  bot_replies: number; bot_by_rule: number; bot_by_llm: number; staff_replies: number
+  auto_handled: number; handoffs: number; response_median_s: number | null; response_p90_s: number | null
+  orders: number; orders_sum: number; reminders: number; reminders_replied: number; reminders_orders: number
+  examples_learned: number; llm_calls: number; llm_errors: number; llm_tokens_in: number; llm_tokens_out: number; llm_cost: number | null
+  series: { day: string; dialogs: number; bot_replies: number; staff_replies: number; orders: number }[]
+  top_rules: AnalyticsTop[]; top_handoff_reasons: AnalyticsTop[]
+}
 interface Status { enabled: boolean; llm_ready: boolean; avito_connected: boolean; health: Health }
 interface ChatsResponse { chats: Chat[]; total: number; needs_human: number; drafts: number }
 
@@ -83,6 +97,16 @@ interface Config {
   use_catalog: boolean
   orders_enabled: boolean
   pickup_address: string
+  reminders_enabled: boolean
+  reminder_after_minutes: number
+  reminder_window_hours: number
+  reminder_from: string
+  reminder_to: string
+  reminder_use_llm: boolean
+  reminder_template: string
+  llm_price_in: number
+  llm_price_out: number
+  broadcast_interval_seconds: number
   llm_provider: 'none' | 'yandex' | 'deepseek' | 'openai_compatible'
   llm_base_url: string
   llm_model: string
@@ -107,8 +131,8 @@ interface Decision {
   examples_used: number
 }
 
-type View = 'dialogs' | 'rules' | 'learning' | 'test' | 'settings'
-const VIEWS: readonly View[] = ['dialogs', 'rules', 'learning', 'test', 'settings']
+type View = 'dialogs' | 'broadcasts' | 'analytics' | 'rules' | 'learning' | 'test' | 'settings'
+const VIEWS: readonly View[] = ['dialogs', 'broadcasts', 'analytics', 'rules', 'learning', 'test', 'settings']
 type ChatFilter = 'all' | 'human' | 'draft' | 'test'
 const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
@@ -179,6 +203,8 @@ export function AvitoBotSection({ authFetch }: { authFetch: AuthFetch }) {
         <SegmentedTabs<View>
           items={[
             { id: 'dialogs', label: 'Диалоги', count: attention || undefined },
+            { id: 'broadcasts', label: 'Рассылки' },
+            { id: 'analytics', label: 'Аналитика' },
             { id: 'rules', label: 'Автоответы', count: rules?.length || undefined },
             { id: 'learning', label: 'Обучение' },
             { id: 'test', label: 'Тест' },
@@ -192,6 +218,8 @@ export function AvitoBotSection({ authFetch }: { authFetch: AuthFetch }) {
 
       {view === 'dialogs' && <DialogsTab api={api} config={config} openChatId={chatParam} onOpen={id => patchParams({ view: 'dialogs', chat: id })} onCounts={setCounts} />}
       {view === 'rules' && <RulesTab api={api} rules={rules} reload={loadRules} />}
+      {view === 'broadcasts' && <BroadcastsTab api={api} config={config} onOpenChat={id => patchParams({ view: 'dialogs', chat: id })} />}
+      {view === 'analytics' && <BotAnalyticsTab api={api} />}
       {view === 'learning' && <LearningTab api={api} reloadRules={loadRules} onOpenChat={id => patchParams({ view: 'dialogs', chat: id })} />}
       {view === 'test' && <TestTab api={api} rules={rules} />}
       {view === 'settings' && (config ? <SettingsTab api={api} config={config} setConfig={setConfig} /> : <Loading />)}
@@ -403,6 +431,10 @@ function ChatPanel({ api, chatId, config, onClose, onChanged }: { api: Api; chat
                 : <span className="underline decoration-dotted">Привязать объявление к товару каталога — для точной цены и наличия</span>}
             </button>
           ) : null}
+          <button type="button" onClick={() => act(`/chats/${chatId}/opt-out`, { value: !chat.opted_out }, chat.opted_out ? 'Рассылки снова разрешены' : 'Рассылки этому покупателю отключены')}
+            className={`mt-1.5 mr-2 inline-flex rounded-lg px-2 py-0.5 text-xs transition ${chat.opted_out ? 'bg-rose-400/15 text-rose-300 hover:bg-rose-400/25' : 'bg-white/[0.06] text-slate-400 hover:bg-white/[0.1]'}`}>
+            {chat.opted_out ? 'Не присылать рассылки ✓' : 'Рассылки: можно'}
+          </button>
           {chat.order_number && (
             <a href={`/admin?tab=orders&q=${encodeURIComponent(chat.order_number)}`} className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg bg-emerald-400/15 px-2 py-0.5 text-xs text-emerald-300 hover:bg-emerald-400/25">
               Бронь оформлена · заказ {chat.order_number}
@@ -450,7 +482,7 @@ function ChatPanel({ api, chatId, config, onClose, onChanged }: { api: Api; chat
   )
 }
 
-const SOURCE_LABEL: Record<string, string> = { rule: 'автоответ', llm: 'модель', staff: 'сотрудник', avito: 'из приложения Авито' }
+const SOURCE_LABEL: Record<string, string> = { rule: 'автоответ', llm: 'модель', staff: 'сотрудник', avito: 'из приложения Авито', reminder: 'напоминание', broadcast: 'рассылка' }
 
 function Bubble({ m, name, api, onDone }: { m: Message; name: string; api: Api; onDone: () => void }) {
   const [editing, setEditing] = useState(false)
@@ -547,6 +579,345 @@ function LinkProductModal({ api, itemId, itemTitle, current, onClose, onDone }: 
       </div>
       {current && <button type="button" onClick={unlink} className={`${BTN_ROW} mt-4`}>Снять привязку</button>}
     </Modal>
+  )
+}
+
+// ── Рассылки ─────────────────────────────────────────────────────────────────
+
+const BC_STATUS: Record<Broadcast['status'], { label: string; cls: string }> = {
+  draft: { label: 'Черновик', cls: 'bg-white/10 text-slate-300' },
+  sending: { label: 'Идёт', cls: 'bg-emerald-400/15 text-emerald-300' },
+  paused: { label: 'На паузе', cls: 'bg-amber-400/15 text-amber-300' },
+  done: { label: 'Завершена', cls: 'bg-sky-400/15 text-sky-300' },
+  cancelled: { label: 'Отменена', cls: 'bg-white/10 text-slate-500' },
+}
+
+function BroadcastsTab({ api, config, onOpenChat }: { api: Api; config: Config | null; onOpenChat: (id: string) => void }) {
+  const [list, setList] = useState<Broadcast[] | null>(null)
+  const [composing, setComposing] = useState(false)
+  const [open, setOpen] = useState<string | null>(null)
+  const load = useCallback(async () => {
+    try { const r = await api('/broadcasts'); if (r.ok) setList(await r.json()) } catch { /* сеть */ }
+  }, [api])
+  const sending = (list || []).some(b => b.status === 'sending')
+  useEffect(() => {
+    const first = window.setTimeout(load, 0)
+    const id = window.setInterval(() => { if (!document.hidden) load() }, sending ? 3000 : 15000)
+    return () => { window.clearTimeout(first); window.clearInterval(id) }
+  }, [load, sending])
+
+  const action = async (b: Broadcast, act: 'start' | 'pause' | 'cancel') => {
+    if (act === 'cancel' && !(await confirmDialog({ title: 'Отменить рассылку?', message: 'Тем, кому ещё не отправлено, сообщение не уйдёт.', confirmLabel: 'Отменить рассылку', danger: true }))) return
+    if (await call(api, `/broadcasts/${b.id}/${act}`, { method: 'POST' }) !== null) load()
+  }
+  const remove = async (b: Broadcast) => {
+    if (!(await confirmDialog({ title: 'Удалить рассылку?', message: 'Отправленные сообщения останутся в диалогах.', confirmLabel: 'Удалить', danger: true }))) return
+    if (await call(api, `/broadcasts/${b.id}`, { method: 'DELETE' }) !== null) load()
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className={`${CARD} text-sm text-slate-400`}>
+        Рассылка уходит только тем, кто уже писал вам на Авито — API не позволяет писать первым. Кто попросил не писать («не пишите», «стоп», «спам»),
+        исключается автоматически. Сообщения идут по одному с паузой {config?.broadcast_interval_seconds ?? 6} с. Ответы покупателей подхватывает бот, как обычно.
+      </div>
+      {!composing && (
+        <button type="button" onClick={() => setComposing(true)} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Новая рассылка</button>
+      )}
+      {composing && <BroadcastComposer api={api} config={config} onClose={() => setComposing(false)} onCreated={() => { setComposing(false); load() }} />}
+
+      {list === null ? <Loading /> : list.length === 0 ? (
+        !composing && <div className={`${CARD} text-sm text-slate-400`}>Рассылок пока не было.</div>
+      ) : (
+        <div className="space-y-3">
+          {list.map(b => {
+            const done = b.sent + b.failed + b.skipped
+            const st = BC_STATUS[b.status]
+            return (
+              <div key={b.id} className={CARD}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-white">{b.title}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${st.cls}`}>{st.label}</span>
+                    </div>
+                    <div className="mt-1 line-clamp-2 text-sm text-slate-400">{b.text}</div>
+                    <div className="mt-1 text-xs text-slate-500">{[b.created_by, timeShort(b.created_at)].filter(Boolean).join(' · ')}</div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(b.status === 'draft' || b.status === 'paused') && <button type="button" onClick={() => action(b, 'start')} className={BTN_ROW}>{b.status === 'draft' ? 'Запустить' : 'Продолжить'}</button>}
+                    {b.status === 'sending' && <button type="button" onClick={() => action(b, 'pause')} className={BTN_ROW}>Пауза</button>}
+                    {(b.status === 'sending' || b.status === 'paused' || b.status === 'draft') && <button type="button" onClick={() => action(b, 'cancel')} className={BTN_ROW}>Отменить</button>}
+                    {(b.status === 'done' || b.status === 'cancelled' || b.status === 'draft') && <button type="button" onClick={() => remove(b)} className={`${BTN_ROW} text-rose-300`} aria-label="Удалить"><AdminIcon name="trash" className="h-4 w-4" /></button>}
+                    <button type="button" onClick={() => setOpen(open === b.id ? null : b.id)} className={BTN_ROW}>{open === b.id ? 'Скрыть' : 'Получатели'}</button>
+                  </div>
+                </div>
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+                  <div className="h-full rounded-full bg-yellow-400 transition-all" style={{ width: `${b.total ? (done / b.total) * 100 : 0}%` }} />
+                </div>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
+                  <span>отправлено {b.sent} из {b.total}</span>
+                  {b.failed > 0 && <span className="text-rose-300">не ушло {b.failed}</span>}
+                  {b.skipped > 0 && <span>пропущено {b.skipped}</span>}
+                  <span className="text-emerald-300">ответили {b.replied}{b.sent ? ` (${Math.round((b.replied / b.sent) * 100)}%)` : ''}</span>
+                </div>
+                {open === b.id && <BroadcastRecipients api={api} id={b.id} onOpenChat={onOpenChat} />}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const RCP_STATUS: Record<string, string> = { pending: 'в очереди', sent: 'отправлено', failed: 'не ушло', skipped: 'пропущено' }
+
+function BroadcastRecipients({ api, id, onOpenChat }: { api: Api; id: string; onOpenChat: (id: string) => void }) {
+  const [d, setD] = useState<BroadcastDetail | null>(null)
+  useEffect(() => { call<BroadcastDetail>(api, `/broadcasts/${id}`).then(setD) }, [api, id])
+  if (!d) return <div className="mt-3 text-sm text-slate-500">Загружаем…</div>
+  return (
+    <div className="mt-3 max-h-72 divide-y divide-white/[0.05] overflow-y-auto rounded-xl border border-white/[0.06]">
+      {d.recipients.map(r => (
+        <button key={r.chat_id} type="button" onClick={() => onOpenChat(r.chat_id)} className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-white/[0.04]">
+          <span className="min-w-0 truncate text-slate-200">{r.client_name || 'Покупатель'} <span className="text-slate-500">· {r.item_title}</span></span>
+          <span className={`shrink-0 text-xs ${r.status === 'failed' ? 'text-rose-300' : r.replied ? 'text-emerald-300' : 'text-slate-500'}`} title={r.error || ''}>
+            {r.replied ? 'ответил' : RCP_STATUS[r.status] || r.status}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function BroadcastComposer({ api, config, onClose, onCreated }: { api: Api; config: Config | null; onClose: () => void; onCreated: () => void }) {
+  const [days, setDays] = useState(30)
+  const [q, setQ] = useState('')
+  const [hasOrder, setHasOrder] = useState<'any' | 'yes' | 'no'>('any')
+  const [skipRecent, setSkipRecent] = useState(7)
+  const [includeTest, setIncludeTest] = useState(false)
+  const [aud, setAud] = useState<{ chats: AudienceChat[]; total: number; opted_out: number } | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [title, setTitle] = useState('')
+  const [text, setText] = useState('Здравствуйте, {name}! ')
+  const [preview, setPreview] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    const t = window.setTimeout(async () => {
+      const params = new URLSearchParams({ days: String(days), has_order: hasOrder, skip_recent_days: String(skipRecent), include_test: String(includeTest) })
+      if (q.trim()) params.set('q', q.trim())
+      const r = await call<{ chats: AudienceChat[]; total: number; opted_out: number }>(api, `/audience?${params}`)
+      if (r) { setAud(r); setSelected(new Set(r.chats.map(c => c.id))) }
+    }, 300)
+    return () => window.clearTimeout(t)
+  }, [api, days, q, hasOrder, skipRecent, includeTest])
+
+  const firstSelected = aud?.chats.find(c => selected.has(c.id))?.id
+  useEffect(() => {
+    if (!text.trim()) return
+    const t = window.setTimeout(async () => {
+      const r = await call<{ text: string }>(api, '/broadcasts-preview', { method: 'POST', body: { text, chat_id: firstSelected ?? null } })
+      if (r) setPreview(r.text)
+    }, 300)
+    return () => window.clearTimeout(t)
+  }, [api, text, firstSelected])
+
+  const toggle = (id: string) => setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const create = async (start: boolean) => {
+    if (!selected.size) return toast('Выберите получателей', 'error')
+    if (!text.trim() || text.trim() === 'Здравствуйте, {name}!') return toast('Напишите текст рассылки', 'error')
+    if (start) {
+      const minutes = Math.ceil((selected.size * (config?.broadcast_interval_seconds ?? 6)) / 60)
+      if (!(await confirmDialog({ title: `Отправить ${selected.size} покупателям?`, message: `Сообщения уйдут по одному, это займёт около ${minutes} мин. Рассылку можно поставить на паузу.`, confirmLabel: 'Отправить' }))) return
+    }
+    setBusy(true)
+    const r = await call(api, '/broadcasts', { method: 'POST', body: { title, text, chat_ids: [...selected], start } })
+    setBusy(false)
+    if (r !== null) { toast(start ? 'Рассылка запущена' : 'Черновик сохранён', 'success'); onCreated() }
+  }
+
+  const sel = 'rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white focus:outline-none'
+  return (
+    <div className={`${CARD} space-y-4`}>
+      <div className="flex items-center justify-between"><h3 className="font-semibold text-white">Новая рассылка</h3>
+        <button type="button" onClick={onClose} aria-label="Закрыть" className="rounded-lg p-1 text-slate-400 hover:bg-white/10"><AdminIcon name="x" className="h-5 w-5" /></button></div>
+
+      <div>
+        <span className={LABEL}>Кому</span>
+        <div className="mt-1.5 flex flex-wrap gap-2">
+          <select className={sel} value={days} onChange={e => setDays(Number(e.target.value))}>
+            {[7, 30, 90, 365].map(d => <option key={d} value={d}>писали за {d} дн.</option>)}
+          </select>
+          <select className={sel} value={hasOrder} onChange={e => setHasOrder(e.target.value as 'any' | 'yes' | 'no')}>
+            <option value="any">с бронью и без</option><option value="no">без брони</option><option value="yes">только с бронью</option>
+          </select>
+          <select className={sel} value={skipRecent} onChange={e => setSkipRecent(Number(e.target.value))}>
+            <option value={0}>получавшим рассылку — тоже</option><option value={3}>кроме получавших за 3 дн.</option>
+            <option value={7}>кроме получавших за 7 дн.</option><option value={30}>кроме получавших за 30 дн.</option>
+          </select>
+          <input className={`${INPUT} !w-56`} value={q} onChange={e => setQ(e.target.value)} placeholder="Имя или объявление: iphone" />
+          <label className="flex items-center gap-2 text-sm text-slate-400"><input type="checkbox" checked={includeTest} onChange={e => setIncludeTest(e.target.checked)} />тренировочные</label>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-white/[0.06]">
+        <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-3 py-2 text-sm">
+          <span className="text-slate-300">Выбрано {selected.size} из {aud?.total ?? '…'}{aud?.opted_out ? <span className="text-slate-500"> · ещё {aud.opted_out} просили не писать — исключены</span> : null}</span>
+          <span className="flex gap-2">
+            <button type="button" onClick={() => setSelected(new Set(aud?.chats.map(c => c.id)))} className="text-xs text-slate-400 hover:text-white">все</button>
+            <button type="button" onClick={() => setSelected(new Set())} className="text-xs text-slate-400 hover:text-white">никого</button>
+          </span>
+        </div>
+        <div className="max-h-72 divide-y divide-white/[0.04] overflow-y-auto">
+          {aud === null ? <div className="p-3 text-sm text-slate-500">Загружаем…</div>
+            : aud.chats.length === 0 ? <div className="p-3 text-sm text-slate-500">Под условия никто не подходит</div>
+              : aud.chats.map(c => (
+                <label key={c.id} className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-white/[0.03]">
+                  <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} className="accent-yellow-400" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-white">{c.client_name || 'Покупатель'}{c.is_simulated && <span className="ml-1 text-violet-300">тест</span>}{c.order_number && <span className="ml-1.5 text-xs text-emerald-300">бронь {c.order_number}</span>}</span>
+                    <span className="block truncate text-xs text-slate-500">{c.item_title}{c.last_message_text ? ` · ${c.last_message_text}` : ''}</span>
+                  </span>
+                  <span className="shrink-0 text-[11px] text-slate-500">{timeShort(c.last_message_at)}</span>
+                </label>
+              ))}
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="space-y-3">
+          <label className="block"><span className={LABEL}>Название (видно только вам)</span><input className={`${INPUT} mt-1.5`} value={title} onChange={e => setTitle(e.target.value)} placeholder="Скидка на iPhone 17 Pro" /></label>
+          <label className="block"><span className={LABEL}>Текст</span><textarea className={`${INPUT} mt-1.5 h-32`} value={text} onChange={e => setText(e.target.value)} /></label>
+          <div className="text-xs text-slate-500"><code className="text-slate-300">{'{name}'}</code> — имя покупателя, <code className="text-slate-300">{'{item}'}</code> — объявление, по которому он писал. Пишите по-человечески и по делу — без капса и восклицательных гирлянд.</div>
+        </div>
+        <div>
+          <span className={LABEL}>Так увидит {aud?.chats.find(c => c.id === firstSelected)?.client_name || 'покупатель'}</span>
+          <div className="mt-1.5 rounded-2xl bg-white/[0.06] p-3 text-sm whitespace-pre-wrap text-slate-100">{preview || '—'}</div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" onClick={() => create(false)} disabled={busy} className={BTN_SECONDARY}>Сохранить черновик</button>
+        <button type="button" onClick={() => create(true)} disabled={busy} className={BTN_PRIMARY}>Отправить {selected.size || ''}</button>
+      </div>
+    </div>
+  )
+}
+
+// ── Аналитика ────────────────────────────────────────────────────────────────
+
+const PERIODS = [7, 30, 90] as const
+
+function fmtDuration(s: number | null): string {
+  if (s === null) return '—'
+  if (s < 60) return `${Math.round(s)} с`
+  if (s < 3600) return `${Math.round(s / 60)} мин`
+  return `${(s / 3600).toFixed(1).replace('.', ',')} ч`
+}
+const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : '—')
+const num = (n: number) => n.toLocaleString('ru-RU')
+
+function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="rounded-2xl bg-white/5 p-4 ring-1 ring-white/10">
+      <div className="text-xs font-medium text-slate-400">{label}</div>
+      <div className="mt-1.5 truncate text-2xl font-bold text-white" title={value}>{value}</div>
+      {hint && <div className="mt-1 text-[11px] text-slate-500">{hint}</div>}
+    </div>
+  )
+}
+
+function TopList({ title, items, empty }: { title: string; items: AnalyticsTop[]; empty: string }) {
+  const max = Math.max(1, ...items.map(i => i.count))
+  return (
+    <div className="rounded-2xl bg-white/5 p-5 ring-1 ring-white/10">
+      <h3 className="mb-4 text-sm font-semibold text-white">{title}</h3>
+      {items.length === 0 ? <div className="py-4 text-center text-sm text-slate-500">{empty}</div> : (
+        <div className="space-y-3">
+          {items.map(i => (
+            <div key={i.label}>
+              <div className="flex justify-between gap-3 text-sm"><span className="min-w-0 truncate text-slate-200" title={i.label}>{i.label}</span><span className="font-semibold text-white">{i.count}</span></div>
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.08]"><div className="h-full rounded-full bg-yellow-400" style={{ width: `${Math.max(3, (i.count / max) * 100)}%` }} /></div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BotAnalyticsTab({ api }: { api: Api }) {
+  const [days, setDays] = useState<number>(7)
+  const [a, setA] = useState<BotAnalytics | null>(null)
+  useEffect(() => {
+    let alive = true
+    call<BotAnalytics>(api, `/analytics?days=${days}`).then(r => { if (alive && r) setA(r) })
+    return () => { alive = false }
+  }, [api, days])
+
+  const maxDay = a ? Math.max(1, ...a.series.map(d => d.bot_replies + d.staff_replies)) : 1
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {PERIODS.map(p => (
+          <button key={p} type="button" onClick={() => setDays(p)}
+            className={`rounded-lg px-3 py-1.5 text-sm transition ${days === p ? 'bg-white/[0.12] text-white' : 'text-slate-400 hover:bg-white/[0.06]'}`}>{p} дней</button>
+        ))}
+        <span className="text-xs text-slate-500">Тренировочные диалоги не считаются</span>
+      </div>
+      {!a ? <Loading /> : (
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Stat label="Диалогов" value={num(a.dialogs_active)} hint={`новых ${num(a.dialogs_new)} · сообщений покупателей ${num(a.client_messages)}`} />
+            <Stat label="Без участия человека" value={pct(a.auto_handled, a.dialogs_active)} hint={`${num(a.auto_handled)} из ${num(a.dialogs_active)} · звал человека ${num(a.handoffs)} раз`} />
+            <Stat label="Время первого ответа" value={fmtDuration(a.response_median_s)} hint={`медиана · у 90% быстрее ${fmtDuration(a.response_p90_s)}`} />
+            <Stat label="Брони из чата" value={num(a.orders)} hint={`${Math.round(a.orders_sum).toLocaleString('ru-RU')} ₽ · конверсия ${pct(a.orders, a.dialogs_active)}`} />
+            <Stat label="Ответил бот" value={num(a.bot_replies)} hint={`автоответом ${num(a.bot_by_rule)} · моделью ${num(a.bot_by_llm)} · сотрудники ${num(a.staff_replies)}`} />
+            <Stat label="Напоминаний" value={num(a.reminders)} hint={`ответили ${num(a.reminders_replied)} (${pct(a.reminders_replied, a.reminders)}) · брони ${num(a.reminders_orders)}`} />
+            <Stat label="Модель" value={a.llm_cost !== null ? `${a.llm_cost.toLocaleString('ru-RU')} ₽` : `${num(a.llm_calls)} вызовов`}
+              hint={`${num(a.llm_calls)} вызовов · ошибок ${num(a.llm_errors)} · токенов ${num(a.llm_tokens_in + a.llm_tokens_out)}`} />
+            <Stat label="Выучено правок" value={num(a.examples_learned)} hint="ответы сотрудников, на которые бот теперь опирается" />
+          </div>
+
+          <div className="rounded-2xl bg-white/5 p-5 ring-1 ring-white/10">
+            <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-sm font-semibold text-white">Ответы по дням</h3>
+              <div className="flex gap-3 text-[11px] text-slate-400">
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-yellow-400" />бот</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-slate-400" />сотрудники</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-400" />брони</span>
+              </div>
+            </div>
+            <div className="flex h-44 items-end gap-1">
+              {a.series.map(d => {
+                const total = d.bot_replies + d.staff_replies
+                const label = new Date(d.day).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+                return (
+                  <div key={d.day} className="group relative flex h-full min-w-0 flex-1 flex-col justify-end" title={`${label}: бот ${d.bot_replies}, сотрудники ${d.staff_replies}, новых диалогов ${d.dialogs}, броней ${d.orders}`}>
+                    {d.orders > 0 && <div className="mx-auto mb-1 h-1.5 w-1.5 rounded-full bg-emerald-400" />}
+                    <div className="flex flex-col overflow-hidden rounded-t" style={{ height: `${(total / maxDay) * 100}%`, minHeight: total ? 3 : 0 }}>
+                      <div className="bg-slate-400/70" style={{ flex: d.staff_replies }} />
+                      <div className="bg-yellow-400" style={{ flex: d.bot_replies }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="mt-2 flex justify-between text-[11px] text-slate-500">
+              <span>{new Date(a.series[0]?.day).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</span>
+              <span>{new Date(a.series[a.series.length - 1]?.day).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</span>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <TopList title="Частые автоответы" items={a.top_rules} empty="Автоответы ещё не срабатывали" />
+            <TopList title="Почему звал человека" items={a.top_handoff_reasons} empty="Бот справлялся сам" />
+          </div>
+        </>
+      )}
+    </div>
   )
 }
 
@@ -905,6 +1276,11 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
       handoff_topics: form.handoff_topics, handoff_message: form.handoff_message, reply_delay_min: form.reply_delay_min,
       reply_delay_max: form.reply_delay_max, use_catalog: form.use_catalog, llm_provider: form.llm_provider,
       orders_enabled: form.orders_enabled, pickup_address: form.pickup_address,
+      reminders_enabled: form.reminders_enabled, reminder_after_minutes: form.reminder_after_minutes,
+      reminder_window_hours: form.reminder_window_hours, reminder_from: form.reminder_from, reminder_to: form.reminder_to,
+      reminder_use_llm: form.reminder_use_llm, reminder_template: form.reminder_template,
+      llm_price_in: form.llm_price_in, llm_price_out: form.llm_price_out,
+      broadcast_interval_seconds: form.broadcast_interval_seconds,
       llm_base_url: form.llm_base_url, llm_model: form.llm_model, llm_folder_id: form.llm_folder_id, llm_temperature: form.llm_temperature,
       avito_client_id: form.avito_client_id, llm_api_key: llmKey, avito_client_secret: avitoSecret,
     }
@@ -967,6 +1343,42 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
           </div>
         </section>
 
+        <section className={CARD}>
+          <h3 className="mb-1 font-semibold text-white">Напоминания</h3>
+          <p className="mb-4 text-xs text-slate-500">Если покупатель замолчал после нашего ответа, бот один раз мягко напомнит о себе. Не напоминает тем, кто отказался, оформил бронь или кого ведёт сотрудник. В режиме черновиков напоминание тоже ждёт вашего «Отправить».</p>
+          <div className="space-y-4">
+            <Toggle checked={form.reminders_enabled} onChange={v => set('reminders_enabled', v)} label="Напоминать замолчавшим" />
+            {form.reminders_enabled && (
+              <>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <label className="block"><span className={LABEL}>Через, ч</span>
+                    <input type="number" min={0.1} max={24} step={0.5} className={`${INPUT} mt-1.5`} value={Math.round(form.reminder_after_minutes / 6) / 10}
+                      onChange={e => set('reminder_after_minutes', Math.max(1, Math.round((Number(e.target.value) || 0) * 60)))} /></label>
+                  <label className="block"><span className={LABEL}>Не позже, ч</span>
+                    <input type="number" min={1} max={72} className={`${INPUT} mt-1.5`} value={form.reminder_window_hours}
+                      onChange={e => set('reminder_window_hours', Math.max(1, Math.min(72, Number(e.target.value) || 1)))} /></label>
+                  <label className="block"><span className={LABEL}>Писать с</span><input type="time" className={`${INPUT} mt-1.5`} value={form.reminder_from} onChange={e => set('reminder_from', e.target.value)} /></label>
+                  <label className="block"><span className={LABEL}>До</span><input type="time" className={`${INPUT} mt-1.5`} value={form.reminder_to} onChange={e => set('reminder_to', e.target.value)} /></label>
+                </div>
+                <div className="text-xs text-slate-500">Напоминание уходит через {Math.round(form.reminder_after_minutes / 6) / 10} ч тишины, только по диалогам моложе {form.reminder_window_hours} ч и только с {form.reminder_from} до {form.reminder_to} по Москве.</div>
+                <Toggle checked={form.reminder_use_llm} onChange={v => set('reminder_use_llm', v)} label="Текст пишет модель по ходу разговора"
+                  hint="Модель сама решит, уместно ли напоминать. Без модели — шаблон ниже" />
+                <label className="block"><span className={LABEL}>Шаблон</span>
+                  <textarea className={`${INPUT} mt-1.5 h-20`} value={form.reminder_template} onChange={e => set('reminder_template', e.target.value)} /></label>
+                <div className="text-xs text-slate-500"><code className="text-slate-300">{'{item}'}</code> — название объявления, <code className="text-slate-300">{'{name}'}</code> — имя покупателя.</div>
+              </>
+            )}
+          </div>
+        </section>
+
+        <section className={CARD}>
+          <h3 className="mb-1 font-semibold text-white">Рассылки</h3>
+          <p className="mb-3 text-xs text-slate-500">Сообщения уходят по одному. Медленнее — безопаснее для аккаунта: массовые одинаковые сообщения Авито может счесть спамом.</p>
+          <label className="block max-w-[200px]"><span className={LABEL}>Пауза между сообщениями, с</span>
+            <input type="number" min={2} max={120} className={`${INPUT} mt-1.5`} value={form.broadcast_interval_seconds}
+              onChange={e => set('broadcast_interval_seconds', Math.max(2, Math.min(120, Number(e.target.value) || 2)))} /></label>
+        </section>
+
         <HealthCard api={api} />
 
         <section className={CARD}>
@@ -1010,6 +1422,11 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
               {form.llm_provider === 'openai_compatible' && (
                 <label className="block"><span className={LABEL}>Адрес API</span><input className={`${INPUT} mt-1.5`} value={form.llm_base_url} onChange={e => set('llm_base_url', e.target.value)} placeholder="https://openrouter.ai/api/v1" /></label>
               )}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block"><span className={LABEL}>₽ за 1 млн входных токенов</span><input type="number" min={0} step="any" className={`${INPUT} mt-1.5`} value={form.llm_price_in} onChange={e => set('llm_price_in', Math.max(0, Number(e.target.value) || 0))} /></label>
+                <label className="block"><span className={LABEL}>₽ за 1 млн выходных</span><input type="number" min={0} step="any" className={`${INPUT} mt-1.5`} value={form.llm_price_out} onChange={e => set('llm_price_out', Math.max(0, Number(e.target.value) || 0))} /></label>
+              </div>
+              <div className="text-xs text-slate-500">Цены из тарифа провайдера — для расходов в «Аналитике». Можно не заполнять.</div>
               <button type="button" onClick={checkLlm} disabled={busy !== null} className={BTN_SECONDARY}>{busy === 'llm' ? 'Спрашиваем…' : 'Проверить модель'}</button>
               {check && (
                 <div className={`rounded-xl p-3 text-sm ${check.action === 'reply' && check.source === 'llm' ? 'bg-emerald-400/10 text-emerald-200' : check.action === 'reply' ? 'bg-white/[0.05] text-slate-300' : 'bg-rose-400/10 text-rose-200'}`}>
