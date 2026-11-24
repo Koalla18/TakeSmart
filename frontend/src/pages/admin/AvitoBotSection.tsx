@@ -107,7 +107,7 @@ interface Config {
   llm_price_in: number
   llm_price_out: number
   broadcast_interval_seconds: number
-  llm_provider: 'none' | 'yandex' | 'deepseek' | 'openai_compatible'
+  llm_provider: 'none' | 'yandex' | 'deepseek' | 'qwen' | 'timeweb' | 'openai_compatible'
   llm_base_url: string
   llm_model: string
   llm_folder_id: string
@@ -1257,6 +1257,8 @@ function HealthCard({ api }: { api: Api }) {
 const PROVIDERS: { id: Config['llm_provider']; label: string; hint: string }[] = [
   { id: 'none', label: 'Без модели', hint: 'Только автоответы; на остальное бот зовёт человека' },
   { id: 'yandex', label: 'YandexGPT', hint: 'Данные остаются в России, оплата в рублях. Нужны API-ключ и ID каталога Yandex Cloud' },
+  { id: 'timeweb', label: 'Timeweb', hint: 'ИИ-агент Timeweb Cloud: модель (в том числе Qwen) выбирается в панели агента, оплата в рублях. Нужны Access ID агента и токен авторизации' },
+  { id: 'qwen', label: 'Qwen', hint: 'Напрямую у Alibaba Cloud (Model Studio), регион Сингапур. Серверы за рубежом. Qwen с оплатой в рублях — через Timeweb или YandexGPT (модель qwen3.6-35b-a3b)' },
   { id: 'deepseek', label: 'DeepSeek', hint: 'Дёшево и хорошо по-русски. Серверы в Китае — учитывайте 152-ФЗ' },
   { id: 'openai_compatible', label: 'Другая', hint: 'Любой OpenAI-совместимый адрес: OpenRouter, свой сервер с Qwen и т.п.' },
 ]
@@ -1399,7 +1401,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
         <section className={CARD}>
           <h3 className="mb-1 font-semibold text-white">Модель</h3>
           <p className="mb-4 text-xs text-slate-500">{provider?.hint}</p>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {PROVIDERS.map(p => (
               <button key={p.id} type="button" onClick={() => set('llm_provider', p.id)}
                 className={`rounded-xl border px-3 py-2 text-sm transition ${form.llm_provider === p.id ? 'border-yellow-400/60 bg-yellow-400/[0.08] text-white' : 'border-white/10 text-slate-400 hover:bg-white/[0.04]'}`}>{p.label}</button>
@@ -1407,18 +1409,34 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
           </div>
           {form.llm_provider !== 'none' && (
             <div className="mt-4 space-y-3">
-              <label className="block"><span className={LABEL}>API-ключ</span>
+              {form.llm_provider === 'timeweb' && (
+                <>
+                  <label className="block"><span className={LABEL}>Access ID агента</span><input className={`${INPUT} mt-1.5`} value={form.llm_folder_id} onChange={e => set('llm_folder_id', e.target.value)} placeholder="620888ae-d3cb-…" autoComplete="off" /></label>
+                  <div className="text-xs text-slate-500">Панель Timeweb → ИИ-агенты → ваш агент → «Доступ по API». Токен — там же: «Изменить» → «Добавить новый ключ» (показывается один раз). Модель выбирается в настройках агента. Системный промпт и базу знаний в панели агента лучше оставить пустыми — инструкции бот передаёт сам.</div>
+                </>
+              )}
+              <label className="block"><span className={LABEL}>{form.llm_provider === 'timeweb' ? 'Токен авторизации' : 'API-ключ'}</span>
                 <input type="password" autoComplete="off" className={`${INPUT} mt-1.5`} value={llmKey} onChange={e => setLlmKey(e.target.value)}
                   placeholder={config.llm_api_key_set ? 'Задан — оставьте пустым, чтобы не менять' : 'Вставьте ключ'} /></label>
               {form.llm_provider === 'yandex' && (
                 <label className="block"><span className={LABEL}>ID каталога Yandex Cloud</span><input className={`${INPUT} mt-1.5`} value={form.llm_folder_id} onChange={e => set('llm_folder_id', e.target.value)} placeholder="b1g…" /></label>
               )}
+              {form.llm_provider === 'qwen' && (
+                <label className="block"><span className={LABEL}>Workspace ID (необязательно)</span><input className={`${INPUT} mt-1.5`} value={form.llm_folder_id} onChange={e => set('llm_folder_id', e.target.value)} placeholder="из консоли Model Studio; пусто — общий адрес" /></label>
+              )}
               <div className="grid gap-3 sm:grid-cols-2">
+                {form.llm_provider !== 'timeweb' && (
                 <label className="block"><span className={LABEL}>Модель</span><input className={`${INPUT} mt-1.5`} value={form.llm_model} onChange={e => set('llm_model', e.target.value)}
-                  placeholder={form.llm_provider === 'yandex' ? 'yandexgpt/latest' : form.llm_provider === 'deepseek' ? 'deepseek-chat' : 'название модели'} /></label>
+                  placeholder={form.llm_provider === 'yandex' ? 'yandexgpt/latest или qwen3.6-35b-a3b' : form.llm_provider === 'deepseek' ? 'deepseek-chat' : form.llm_provider === 'qwen' ? 'qwen3.7-plus' : 'название модели'} /></label>
+                )}
                 <label className="block"><span className={LABEL}>Креативность {form.llm_temperature.toFixed(1)}</span>
                   <input type="range" min={0} max={1} step={0.1} className="mt-4 w-full accent-yellow-400" value={form.llm_temperature} onChange={e => set('llm_temperature', Number(e.target.value))} /></label>
               </div>
+              {(form.llm_provider === 'timeweb' || form.llm_provider === 'qwen') && (
+                <label className="block"><span className={LABEL}>{form.llm_provider === 'timeweb' ? 'OpenAI URL (необязательно — если Access ID не подошёл)' : 'Адрес API (для другого региона)'}</span>
+                  <input className={`${INPUT} mt-1.5`} value={form.llm_base_url} onChange={e => set('llm_base_url', e.target.value)}
+                    placeholder={form.llm_provider === 'timeweb' ? 'https://agent.timeweb.cloud/api/v1/cloud-ai/agents/…/v1' : 'https://<workspace>.us-east-1.maas.aliyuncs.com/compatible-mode/v1'} /></label>
+              )}
               {form.llm_provider === 'openai_compatible' && (
                 <label className="block"><span className={LABEL}>Адрес API</span><input className={`${INPUT} mt-1.5`} value={form.llm_base_url} onChange={e => set('llm_base_url', e.target.value)} placeholder="https://openrouter.ai/api/v1" /></label>
               )}
