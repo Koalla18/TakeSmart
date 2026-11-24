@@ -89,6 +89,7 @@ interface Config {
   mode: 'draft' | 'auto'
   persona_name: string
   greeting: string
+  first_message: string
   staff_takes_over: boolean
   human_mode: boolean
   allow_emoji: boolean
@@ -134,6 +135,7 @@ interface Decision {
   catalog: string[]
   order: OrderPayload | null
   examples_used: number
+  first_message: string | null
 }
 
 type View = 'dialogs' | 'broadcasts' | 'analytics' | 'rules' | 'learning' | 'test' | 'settings'
@@ -1175,7 +1177,7 @@ function ImportModal({ api, onClose, onDone }: { api: Api; onClose: () => void; 
 
 // ── Тест ─────────────────────────────────────────────────────────────────────
 
-interface TestTurn { author: 'client' | 'bot'; text: string; decision?: Decision }
+interface TestTurn { author: 'client' | 'bot'; text: string; decision?: Decision; whole?: boolean }
 
 function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
   const [item, setItem] = useState('iPhone 17 Pro 256 ГБ')
@@ -1194,7 +1196,9 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
     setBusy(false)
     if (!d) return
     setText('')
-    setTurns(prev => [...prev, { author: 'client', text: t }, ...(d.text ? [{ author: 'bot' as const, text: d.text, decision: d }] : [{ author: 'bot' as const, text: '', decision: d }])])
+    setTurns(prev => [...prev, { author: 'client', text: t },
+      ...(d.first_message ? [{ author: 'bot' as const, text: d.first_message, whole: true }] : []),
+      ...(d.text ? [{ author: 'bot' as const, text: d.text, decision: d, whole: d.source !== 'llm' }] : [{ author: 'bot' as const, text: '', decision: d }])])
   }
 
   return (
@@ -1206,7 +1210,7 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
             <div key={i} className="max-w-[80%]"><div className="inline-block rounded-2xl bg-white/[0.06] px-3.5 py-2 text-sm text-slate-100">{t.text}</div></div>
           ) : (
             <div key={i} className="ml-auto max-w-[85%] text-right">
-              {t.text && t.text.split(/\n\s*\n/).filter(p => p.trim()).map((part, j) => (
+              {t.text && (t.whole ? [t.text] : t.text.split(/\n\s*\n/)).filter(p => p.trim()).map((part, j) => (
                 <div key={j} className="mb-1 flex justify-end"><div className="inline-block whitespace-pre-wrap rounded-2xl bg-yellow-400/[0.14] px-3.5 py-2 text-left text-sm text-yellow-50">{part.trim()}</div></div>
               ))}
               {t.decision && <DecisionNote d={t.decision} ruleName={ruleName(t.decision.rule_id)} />}
@@ -1300,7 +1304,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
 
   const save = async (patch?: Partial<Config>, quiet?: boolean): Promise<Config | null> => {
     const body: Record<string, unknown> = patch ?? {
-      enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, staff_takes_over: form.staff_takes_over, human_mode: form.human_mode, allow_emoji: form.allow_emoji, style: form.style, knowledge: form.knowledge,
+      enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, first_message: form.first_message, staff_takes_over: form.staff_takes_over, human_mode: form.human_mode, allow_emoji: form.allow_emoji, style: form.style, knowledge: form.knowledge,
       handoff_topics: form.handoff_topics, handoff_message: form.handoff_message, reply_delay_min: form.reply_delay_min,
       reply_delay_max: form.reply_delay_max, use_catalog: form.use_catalog, llm_provider: form.llm_provider,
       orders_enabled: form.orders_enabled, pickup_address: form.pickup_address, system_patterns: form.system_patterns,
@@ -1361,7 +1365,10 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
               <label className="block"><span className={LABEL}>Пауза от, с</span><input type="number" min={0} className={`${INPUT} mt-1.5`} value={form.reply_delay_min} onChange={e => set('reply_delay_min', Number(e.target.value) || 0)} /></label>
               <label className="block"><span className={LABEL}>до, с</span><input type="number" min={0} className={`${INPUT} mt-1.5`} value={form.reply_delay_max} onChange={e => set('reply_delay_max', Number(e.target.value) || 0)} /></label>
             </div>
-            <label className="block"><span className={LABEL}>Приветствие в первом ответе</span>
+            <label className="block"><span className={LABEL}>Первое сообщение в диалоге</span>
+              <textarea className={`${INPUT} mt-1.5 h-36`} value={form.first_message} onChange={e => set('first_message', e.target.value)} /></label>
+            <div className="text-xs text-slate-500"><code className="text-slate-300">{'{name}'}</code> — имя менеджера, <code className="text-slate-300">{'{price}'}</code> — розничная цена товара из объявления (из привязанной карточки или по названию объявления). Уходит первым сообщением в каждом новом диалоге, одним сообщением. Если надёжной цены нет, строка с ценой не отправляется. Пусто — бот здоровается по полю ниже.</div>
+            <label className="block"><span className={LABEL}>Приветствие, если первое сообщение пустое</span>
               <input className={`${INPUT} mt-1.5`} value={form.greeting} onChange={e => set('greeting', e.target.value)} placeholder="Здравствуйте! Меня зовут {name}, я менеджер магазина TakeSmart." /></label>
             <div className="text-xs text-slate-500"><code className="text-slate-300">{'{name}'}</code> — имя менеджера. Бот здоровается так в первом ответе каждого диалога — и моделью, и перед автоответом. Пусто — модель здоровается своими словами, автоответы уходят без приветствия.</div>
             <div className="text-xs text-slate-500">Пауза — для ответов модели, чтобы они не прилетали мгновенно. У автоответов своя задержка. Если покупатель прямо спросит «вы бот?», бот не станет отрицать — это защищает аккаунт от жалоб.</div>
