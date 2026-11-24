@@ -89,6 +89,7 @@ interface Config {
   mode: 'draft' | 'auto'
   persona_name: string
   greeting: string
+  staff_takes_over: boolean
   human_mode: boolean
   allow_emoji: boolean
   style: string
@@ -158,6 +159,13 @@ function ago(iso: string | null): string {
   if (s < 3600) return `${Math.round(s / 60)} мин назад`
   if (s < 86400) return `${Math.round(s / 3600)} ч назад`
   return new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
+/** Ник покупателя из Авито; пока Авито его не отдал — понятная подпись с хвостом номера чата */
+function clientLabel(c: { client_name: string | null; is_simulated?: boolean; avito_chat_id?: string }): string {
+  if (c.client_name) return c.client_name
+  if (c.is_simulated) return 'Тестовый покупатель'
+  return c.avito_chat_id ? `Покупатель с Авито · …${c.avito_chat_id.slice(-4)}` : 'Покупатель с Авито'
 }
 
 function orderText(o: OrderPayload): string {
@@ -310,7 +318,7 @@ function DialogsTab({ api, config, openChatId, onOpen, onCounts }: {
               <button key={c.id} type="button" onClick={() => onOpen(c.id)}
                 className={`block w-full border-b border-white/[0.04] px-4 py-3 text-left transition hover:bg-white/[0.04] ${openChatId === c.id ? 'bg-white/[0.07]' : ''}`}>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-sm font-medium text-white">{c.client_name || 'Покупатель'}</span>
+                  <span className="truncate text-sm font-medium text-white">{clientLabel(c)}</span>
                   {c.needs_human ? <span className="shrink-0 rounded-md bg-amber-400/15 px-1.5 py-0.5 text-[11px] text-amber-300">человек</span>
                     : c.has_draft ? <span className="shrink-0 rounded-md bg-sky-400/15 px-1.5 py-0.5 text-[11px] text-sky-300">черновик</span>
                       : <span className="shrink-0 text-[11px] text-slate-500">{timeShort(c.last_message_at)}</span>}
@@ -423,10 +431,10 @@ function ChatPanel({ api, chatId, config, onClose, onChanged }: { api: Api; chat
         <div className="min-w-0">
           <button type="button" onClick={onClose} className="mb-1 text-xs text-slate-500 hover:text-slate-300 lg:hidden">← Все диалоги</button>
           <div className="truncate font-semibold text-white">
-            {chat.item_url ? <a href={chat.item_url} target="_blank" rel="noreferrer" className="hover:underline">{chat.item_title}</a> : chat.item_title || 'Без объявления'}
+            {chat.item_url ? <a href={chat.item_url} target="_blank" rel="noreferrer" className="hover:underline">{chat.item_title}</a> : chat.item_title || 'Объявление ещё не определено'}
           </div>
           <div className="text-xs text-slate-400">
-            {chat.client_name || 'Покупатель'}{chat.item_price ? ` · в объявлении ${chat.item_price}` : ''}{chat.is_simulated ? ' · тренировочный' : ''}
+            {clientLabel(chat)}{chat.item_price ? ` · в объявлении ${chat.item_price}` : ''}{chat.is_simulated ? ' · тренировочный' : ''}
           </div>
           {chat.item_id ? (
             <button type="button" onClick={() => setLinkOpen(true)} className="mt-1 text-xs text-slate-500 hover:text-slate-300">
@@ -697,7 +705,7 @@ function BroadcastRecipients({ api, id, onOpenChat }: { api: Api; id: string; on
     <div className="mt-3 max-h-72 divide-y divide-white/[0.05] overflow-y-auto rounded-xl border border-white/[0.06]">
       {d.recipients.map(r => (
         <button key={r.chat_id} type="button" onClick={() => onOpenChat(r.chat_id)} className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-white/[0.04]">
-          <span className="min-w-0 truncate text-slate-200">{r.client_name || 'Покупатель'} <span className="text-slate-500">· {r.item_title}</span></span>
+          <span className="min-w-0 truncate text-slate-200">{r.client_name || 'Покупатель с Авито'} <span className="text-slate-500">· {r.item_title}</span></span>
           <span className={`shrink-0 text-xs ${r.status === 'failed' ? 'text-rose-300' : r.replied ? 'text-emerald-300' : 'text-slate-500'}`} title={r.error || ''}>
             {r.replied ? 'ответил' : RCP_STATUS[r.status] || r.status}
           </span>
@@ -793,7 +801,7 @@ function BroadcastComposer({ api, config, onClose, onCreated }: { api: Api; conf
                 <label key={c.id} className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-white/[0.03]">
                   <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} className="accent-yellow-400" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-white">{c.client_name || 'Покупатель'}{c.is_simulated && <span className="ml-1 text-violet-300">тест</span>}{c.order_number && <span className="ml-1.5 text-xs text-emerald-300">бронь {c.order_number}</span>}</span>
+                    <span className="block truncate text-sm text-white">{clientLabel(c)}{c.is_simulated && <span className="ml-1 text-violet-300">тест</span>}{c.order_number && <span className="ml-1.5 text-xs text-emerald-300">бронь {c.order_number}</span>}</span>
                     <span className="block truncate text-xs text-slate-500">{c.item_title}{c.last_message_text ? ` · ${c.last_message_text}` : ''}</span>
                   </span>
                   <span className="shrink-0 text-[11px] text-slate-500">{timeShort(c.last_message_at)}</span>
@@ -1292,7 +1300,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
 
   const save = async (patch?: Partial<Config>, quiet?: boolean): Promise<Config | null> => {
     const body: Record<string, unknown> = patch ?? {
-      enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, human_mode: form.human_mode, allow_emoji: form.allow_emoji, style: form.style, knowledge: form.knowledge,
+      enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, staff_takes_over: form.staff_takes_over, human_mode: form.human_mode, allow_emoji: form.allow_emoji, style: form.style, knowledge: form.knowledge,
       handoff_topics: form.handoff_topics, handoff_message: form.handoff_message, reply_delay_min: form.reply_delay_min,
       reply_delay_max: form.reply_delay_max, use_catalog: form.use_catalog, llm_provider: form.llm_provider,
       orders_enabled: form.orders_enabled, pickup_address: form.pickup_address, system_patterns: form.system_patterns,
@@ -1357,6 +1365,8 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
               <input className={`${INPUT} mt-1.5`} value={form.greeting} onChange={e => set('greeting', e.target.value)} placeholder="Здравствуйте! Меня зовут {name}, я менеджер магазина TakeSmart." /></label>
             <div className="text-xs text-slate-500"><code className="text-slate-300">{'{name}'}</code> — имя менеджера. Бот здоровается так в первом ответе каждого диалога — и моделью, и перед автоответом. Пусто — модель здоровается своими словами, автоответы уходят без приветствия.</div>
             <div className="text-xs text-slate-500">Пауза — для ответов модели, чтобы они не прилетали мгновенно. У автоответов своя задержка. Если покупатель прямо спросит «вы бот?», бот не станет отрицать — это защищает аккаунт от жалоб.</div>
+            <Toggle checked={form.staff_takes_over} onChange={v => set('staff_takes_over', v)} label="Ответ из приложения Авито забирает диалог у бота"
+              hint="Если вы ответили покупателю прямо в Авито, бот в этом диалоге замолкает. Выключите, если в Авито ещё работает его встроенный автоответчик — иначе бот замолчит во всех диалогах. Правильнее выключить сам автоответчик Авито: теперь его работу делает бот" />
             <Toggle checked={form.human_mode} onChange={v => set('human_mode', v)} label="Писать как человек"
               hint="Отмечает сообщение прочитанным, «печатает» столько, сколько занял бы текст, и пишет короткими сообщениями: приветствие отдельно, длинный ответ — двумя" />
             <Toggle checked={form.allow_emoji} onChange={v => set('allow_emoji', v)} label="Иногда эмодзи"
@@ -1364,6 +1374,10 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
             <Toggle checked={form.use_catalog} onChange={v => set('use_catalog', v)} label="Смотреть цены и наличие в каталоге сайта" hint="Модель видит подходящие товары с живыми ценами и остатками" />
             <Toggle checked={form.orders_enabled} onChange={v => set('orders_enabled', v)} label="Оформлять заявки из чата"
               hint="Когда покупатель согласился, бот спрашивает ФИО и телефон (почту — по желанию) и создаёт заявку в «Заказах» с пометкой «Заявка с Авито»; приходит пуш «Новая заявка с Авито!». Остаток списывается. В режиме черновиков — только после вашего «Отправить»" />
+            <button type="button" onClick={async () => {
+              const r = await call<{ order_number: string }>(api, '/test-order', { method: 'POST' })
+              if (r) toast(`Тестовая заявка ${r.order_number} создана — откройте «Заказы» или PWA. Остаток не списан, заказ можно удалить`, 'success', 8000)
+            }} className={BTN_SECONDARY}>Создать тестовую заявку с Авито</button>
             {form.orders_enabled && (
               <label className="block"><span className={LABEL}>Адрес самовывоза</span><input className={`${INPUT} mt-1.5`} value={form.pickup_address} onChange={e => set('pickup_address', e.target.value)} /></label>
             )}
