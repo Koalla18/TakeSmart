@@ -135,7 +135,7 @@ class AvitoBotConfigIn(BaseModel):
     llm_base_url: str | None = Field(None, max_length=300)
     llm_model: str | None = Field(None, max_length=200)
     llm_folder_id: str | None = Field(None, max_length=100)
-    llm_api_key: str | None = Field(None, max_length=500)
+    llm_api_key: str | None = Field(None, max_length=2000)
     llm_temperature: float | None = Field(None, ge=0, le=1.5)
     avito_client_id: str | None = Field(None, max_length=200)
     avito_client_secret: str | None = Field(None, max_length=300)
