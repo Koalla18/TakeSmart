@@ -35,13 +35,14 @@ from src.app.core.avito_bot_engine import (
     MSK, ChatContext, PiiMasker, PromptConfig, build_messages, build_reminder_messages, build_system_prompt,
     catalog_tokens, human_delay, in_window, match_rule, parse_llm_answer, pick_examples, render_reminder,
     render_template, rule_covers, starts_with_refusal, wants_opt_out, is_first_reply, with_greeting,
-    split_reply, typing_delay,
+    split_reply, typing_delay, classify_avito_message, normalize_phone, valid_email, valid_full_name,
+    order_note_for_prompt, wants_cancel,
 )
 from src.app.core.config import settings
 from src.app.core.logger import get_logger
 from src.app.core.push_service import send_order_push, send_push_to_all
 from src.app.database.models.avito_bot import AvitoBotEvent, AvitoBotExample, AvitoBroadcast, AvitoBroadcastRecipient, AvitoBotRule, AvitoChat, AvitoItemLink, AvitoMessage
-from src.app.database.models.order import Order, OrderItem
+from src.app.database.models.order import Order, OrderComment, OrderItem
 from src.app.database.models.product import Product
 from src.app.database.models.site_setting import SiteSetting
 from src.app.database.repositories.site_setting_repository import SiteSettingRepository
@@ -282,10 +283,25 @@ class Decision:
     catalog: list[str] = field(default_factory=list)
     order: dict[str, Any] | None = None
     examples_used: int = 0
+    cancel_order: bool = False
 
 
-def _order_payload(cfg: AvitoBotConfig, raw: dict[str, Any], products: list[Product], masker: PiiMasker) -> tuple[dict | None, str | None]:
-    """Проверяет бронь от модели. Возвращает (payload, причина отказа)."""
+def _order_payload(cfg: AvitoBotConfig, raw: dict[str, Any], products: list[Product],
+                   masker: PiiMasker) -> tuple[dict | None, str | None, list[str]]:
+    """Проверяет бронь от модели. Возвращает (payload, причина отказа, каких контактов не хватает)."""
+    name = " ".join(masker.unmask(str(raw.get("name") or "")).split())[:120]
+    phone = normalize_phone(masker.unmask(str(raw.get("phone") or "")))
+    email = masker.unmask(str(raw.get("email") or "")).strip()[:255]
+    missing = [label for label, ok in (("ФИО", valid_full_name(name)), ("номер телефона", phone is not None)) if not ok]
+    if missing:
+        return None, None, missing
+    payload, problem = _order_item(cfg, raw, products, masker)
+    if payload is not None:
+        payload.update(name=name, phone=phone, email=email if valid_email(email) else "")
+    return payload, problem, []
+
+
+def _order_item(cfg: AvitoBotConfig, raw: dict[str, Any], products: list[Product], masker: PiiMasker) -> tuple[dict | None, str | None]:
     try:
         idx = int(raw.get("item")) - 1
     except (TypeError, ValueError):
@@ -305,14 +321,14 @@ def _order_payload(cfg: AvitoBotConfig, raw: dict[str, Any], products: list[Prod
         "price": float(p.discount_price or p.price),
         "method": method,
         "address": address or cfg.pickup_address,
-        "name": masker.unmask(str(raw.get("name") or "").strip())[:120],
-        "phone": masker.unmask(str(raw.get("phone") or "").strip())[:30],
         "comment": masker.unmask(str(raw.get("comment") or "").strip())[:300],
     }, None
 
 
 async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, pending_text: str,
-                 rule_hits: dict[str, Any], now: datetime | None = None, item_id: int | None = None) -> Decision:
+                 rule_hits: dict[str, Any], now: datetime | None = None, item_id: int | None = None,
+                 order_info: tuple[str, str] | None = None) -> Decision:
+    """order_info — (номер, статус) заявки этого диалога: модель знает о ней и может её отменить."""
     now = now or _now()
     rules = await active_rules(session)
     llm = llm_settings(cfg)
@@ -351,6 +367,7 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         rules, masked_ctx, lines, now, hint=match.rule.answer if match else None,
         examples=[(masker.mask(q), a) for q, a in examples],
         orders_enabled=cfg.orders_enabled, pickup_address=cfg.pickup_address,
+        order_note=order_note_for_prompt(*order_info) if order_info else None,
     )
     try:
         raw = await llm_call(cfg, build_messages(system, masked_ctx, HISTORY_LIMIT))
@@ -363,16 +380,26 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     delay = (typing_delay(first_part, cfg.reply_delay_min, cfg.reply_delay_max) if cfg.human_mode
              else human_delay(cfg.reply_delay_min, cfg.reply_delay_max))
     rule = match.rule if match else None
-    order, order_problem = (None, None)
+    order, order_problem, missing = (None, None, [])
     if verdict.order and cfg.orders_enabled:
-        order, order_problem = _order_payload(cfg, verdict.order, products, masker)
+        order, order_problem, missing = _order_payload(cfg, verdict.order, products, masker)
+    if missing:
+        # Модель поспешила с заявкой: без ФИО и телефона не оформляем и не говорим «забронировала»
+        has_email = bool(str(verdict.order.get("email") or "").strip())
+        ask = ("Отлично, оформлю заявку! Напишите, пожалуйста, " + " и ".join(missing)
+               + ("" if has_email else ". Почту — по желанию") + ".")
+        return Decision("reply", ask, "llm", rule, delay_seconds=delay, catalog=lines, examples_used=len(examples))
     if verdict.handoff or order_problem:
-        return Decision("handoff", reply or cfg.handoff_message or None, "llm", rule,
-                        reason=order_problem or verdict.reason or "Модель просит сотрудника", delay_seconds=delay,
-                        catalog=lines, examples_used=len(examples))
-    if not reply:
-        return Decision("silent", reason="Модель решила, что отвечать не нужно", catalog=lines, examples_used=len(examples))
-    return Decision("reply", reply, "llm", rule, delay_seconds=delay, catalog=lines, order=order, examples_used=len(examples))
+        decision = Decision("handoff", reply or cfg.handoff_message or None, "llm", rule,
+                            reason=order_problem or verdict.reason or "Модель просит сотрудника", delay_seconds=delay,
+                            catalog=lines, examples_used=len(examples))
+    elif not reply:
+        decision = Decision("silent", reason="Модель решила, что отвечать не нужно", catalog=lines, examples_used=len(examples))
+    else:
+        decision = Decision("reply", reply, "llm", rule, delay_seconds=delay, catalog=lines, order=order,
+                            examples_used=len(examples))
+    decision.cancel_order = bool(verdict.cancel_order and order_info and order_info[1] in CANCELABLE)
+    return decision
 
 
 @dataclass
@@ -395,6 +422,7 @@ async def chat_state(session: AsyncSession, chat: AvitoChat) -> ChatState:
     pending: list[str] = []
     last_client: UUID | None = None
     draft: str | None = None
+    msgs = [m for m in msgs if m.author != "system"]  # системные сообщения Авито не часть разговора
     for m in msgs:
         if m.status == "draft":
             draft = m.text
@@ -433,10 +461,13 @@ async def process_chat(chat_id: UUID) -> None:
         if cfg.human_mode and not chat.is_simulated and cfg.avito_connected_at:
             # Как человек: сначала «прочитано», потом печатает ответ
             await avito_client.mark_read(avito_creds(cfg), chat.avito_chat_id)
-        decision = await decide(session, cfg, state.ctx, state.pending, dict(chat.rule_hits or {}), item_id=chat.item_id)
+        order_info = await _order_info(session, chat)
+        decision = await decide(session, cfg, state.ctx, state.pending, dict(chat.rule_hits or {}), item_id=chat.item_id,
+                                order_info=order_info)
         await session.commit()
 
     push: tuple[str, str] | None = None
+    extra_pushes: list[tuple[str, str]] = []
     async with AsyncSessionFactory() as session:
         chat = await session.get(AvitoChat, chat_id, with_for_update=True)
         if chat is None or chat.mode != "bot" or chat.needs_human:
@@ -445,6 +476,11 @@ async def process_chat(chat_id: UUID) -> None:
         if (await chat_state(session, chat)).last_client_id != state.last_client_id:
             return
         await _cancel_pending_bot(session, chat.id)
+
+        if decision.cancel_order:
+            cancel_push = await cancel_chat_order(session, chat, state.pending)
+            if cancel_push:
+                extra_pushes.append(cancel_push)
 
         if decision.action == "handoff":
             chat.needs_human = True
@@ -477,6 +513,8 @@ async def process_chat(chat_id: UUID) -> None:
                                               "scheduled", send_at, base_time))
         await session.commit()
 
+    for title, body in extra_pushes:
+        await send_push_to_all(title, body, url="/app", tag=f"avito-order-{chat_id}")
     if push:
         await send_push_to_all(push[0], push[1], url=f"/admin?tab=avito&chat={chat_id}", tag=f"avito-{chat_id}")
 
@@ -504,6 +542,51 @@ def _part_message(chat_id: UUID, text_: str, index: int, total: int, source: str
                         created_at=(base_time or _now()) + timedelta(milliseconds=index))
 
 
+# ── Отмена заявки ────────────────────────────────────────────────────────────
+
+CANCELABLE = ("pending", "confirmed", "processing")
+STATUS_RU = {"shipped": "отправлен", "delivered": "доставлен", "refunded": "оформлен возврат", "cancelled": "отменён"}
+
+
+async def _order_info(session: AsyncSession, chat: AvitoChat) -> tuple[str, str] | None:
+    if chat.order_id is None:
+        return None
+    order = await session.get(Order, chat.order_id)
+    return (order.order_number, order.status) if order else None
+
+
+async def cancel_chat_order(session: AsyncSession, chat: AvitoChat, customer_text: str) -> tuple[str, str] | None:
+    """Покупатель отменил заявку в чате: заказ → «Отменён», остаток, который бот списал при брони,
+    возвращается, в заказе — комментарий. Возвращает текст пуша менеджеру (None — отменять нечего).
+    Отправленный или доставленный заказ не трогаем — зовём человека."""
+    if chat.order_id is None:
+        return None
+    order = await session.get(Order, chat.order_id, with_for_update=True)
+    if order is None or order.status == "cancelled":
+        return None
+    quote = " ".join(customer_text.split())[:200]
+    who = order.customer_name or chat.client_name or "Покупатель"
+    if order.status not in CANCELABLE:
+        chat.needs_human = True
+        state_ru = STATUS_RU.get(order.status, order.status)
+        chat.human_reason = f"Просит отменить заказ {order.order_number}, а он уже {state_ru}"[:200]
+        log_event(session, chat.id, "cancel_blocked", order.order_number)
+        return ("Авито: просят отменить заказ", f"{order.order_number} · {who} · заказ уже {state_ru} — нужен менеджер")
+    order.status = "cancelled"
+    if not order.is_preorder:
+        items = (await session.execute(select(OrderItem).where(OrderItem.order_id == order.id))).scalars().all()
+        for item in items:
+            if item.product_id is not None:
+                await session.execute(update(Product).where(Product.id == item.product_id)
+                                      .values(stock_quantity=Product.stock_quantity + item.quantity))
+    session.add(OrderComment(order_id=order.id, author_name="Авито-бот",
+                             body=f"Покупатель отменил заявку в чате Авито: «{quote}»"))
+    if not chat.is_simulated:
+        log_event(session, chat.id, "order_cancel", f"{order.order_number} · {quote[:100]}")
+    logger.info("avito_order_cancelled", order=order.order_number, chat=str(chat.id))
+    return ("Заявка с Авито отменена", f"{order.order_number} · {who} · «{quote[:80]}»")
+
+
 # ── Отправка ─────────────────────────────────────────────────────────────────
 
 def order_number() -> str:
@@ -528,13 +611,16 @@ async def create_chat_order(session: AsyncSession, chat: AvitoChat, payload: dic
     price = product.discount_price or product.price
     gift = product.id in await gift_product_ids(_GiftUow(session))  # type: ignore[arg-type]
     pickup = payload.get("method") != "delivery"
-    note = [f"Из чата Авито: {chat.item_title or 'объявление'}.",
+    note = [f"Заявка из Авито по объявлению «{chat.item_title or 'объявление'}»"
+            + (f", покупатель в Авито: {chat.client_name}" if chat.client_name else "") + ".",
             "Самовывоз." if pickup else "Доставка.",
-            payload.get("comment") or ""]
+            payload.get("comment") or "",
+            f"Переписка: {settings.PUBLIC_SITE_URL.rstrip('/')}/admin?tab=avito&chat={chat.id}"]
     order = Order(
         order_number=order_number(),
+        source="avito",
         customer_name=payload.get("name") or chat.client_name or "Покупатель с Авито",
-        customer_email="",
+        customer_email=payload.get("email") or "",
         customer_phone=payload.get("phone") or None,
         shipping_address=("Самовывоз: " if pickup else "") + (payload.get("address") or ""),
         shipping_city="Москва",
@@ -656,21 +742,8 @@ def _touch(chat: AvitoChat, text_: str) -> None:
 
 # ── Входящие ─────────────────────────────────────────────────────────────────
 
-_NON_TEXT = {"image": "[фото]", "voice": "[голосовое сообщение]", "item": "[объявление]", "location": "[геолокация]",
-             "file": "[файл]", "video": "[видео]"}
-
-
-def message_text(value: dict[str, Any]) -> str | None:
-    msg_type = value.get("type") or "text"
-    if msg_type in ("system", "deleted"):
-        return None
-    content = value.get("content") or {}
-    text_ = (content.get("text") or "").strip()
-    if msg_type == "link":
-        return text_ or ((content.get("link") or {}).get("url")) or "[ссылка]"
-    if msg_type != "text" or not text_:
-        return _NON_TEXT.get(msg_type, f"[{msg_type}]")
-    return text_
+def _system_patterns(cfg: AvitoBotConfig) -> list[str]:
+    return [p.strip() for p in cfg.system_patterns.splitlines() if p.strip()]
 
 
 async def handle_webhook(payload: dict[str, Any]) -> None:
@@ -678,15 +751,21 @@ async def handle_webhook(payload: dict[str, Any]) -> None:
     value = body.get("value") or {}
     if body.get("type") not in (None, "message") or not value.get("chat_id"):
         return
-    text_ = message_text(value)
-    if text_ is None:
+    async with AsyncSessionFactory() as session:
+        cfg = await load_config(session)
+        await session.commit()
+    kind = classify_avito_message(value, cfg.avito_user_id, _system_patterns(cfg))
+    if kind is None:
         return
     await update_health(last_webhook_at=_now().isoformat())
-    await handle_incoming(str(value["chat_id"]), str(value.get("id") or "") or None, value.get("author_id"), text_)
+    await handle_incoming(str(value["chat_id"]), str(value.get("id") or "") or None, value.get("author_id"), kind[1],
+                          system=kind[0] == "system")
 
 
-async def handle_incoming(avito_chat_id: str, avito_message_id: str | None, author_id: int | None, text_: str) -> bool:
-    """Сохраняет сообщение. True — оно новое (не дубль)."""
+async def handle_incoming(avito_chat_id: str, avito_message_id: str | None, author_id: int | None, text_: str,
+                          system: bool = False) -> bool:
+    """Сохраняет сообщение. True — оно новое (не дубль). system — служебное сообщение Авито:
+    сохраняем для сотрудников, но бот на него не отвечает и не учитывает в разговоре."""
     async with AsyncSessionFactory() as session:
         cfg = await load_config(session)
         if avito_message_id:
@@ -706,6 +785,12 @@ async def handle_incoming(avito_chat_id: str, avito_message_id: str | None, auth
                 logger.warning("avito_chat_meta_failed", chat=avito_chat_id, error=str(exc))
             session.add(chat)
             await session.flush()
+
+        if system:
+            session.add(AvitoMessage(chat_id=chat.id, avito_message_id=avito_message_id, author="system",
+                                     text=text_, source="avito", sent_at=_now()))
+            await session.commit()
+            return False
 
         own = cfg.avito_user_id is not None and author_id == cfg.avito_user_id
         if own:
@@ -739,10 +824,14 @@ async def handle_incoming(avito_chat_id: str, avito_message_id: str | None, auth
         if not chat.opted_out and wants_opt_out(text_):
             chat.opted_out = True
             log_event(session, chat.id, "opt_out", text_[:200])
+        # Явная отмена заявки — сразу, даже если бот выключен или диалог ведёт сотрудник
+        cancel_push = await cancel_chat_order(session, chat, text_) if chat.order_id and wants_cancel(text_) else None
         if chat.mode == "bot" and not chat.needs_human and cfg.enabled:
             chat.reply_due_at = _now() + timedelta(seconds=DEBOUNCE_SECONDS)
         await session.commit()
-        return True
+    if cancel_push:
+        await send_push_to_all(cancel_push[0], cancel_push[1], url="/app", tag=f"avito-order-{avito_chat_id}")
+    return True
 
 
 async def poll_unread() -> int:
@@ -762,10 +851,11 @@ async def poll_unread() -> int:
                 continue
             for m in sorted(await avito_client.list_messages(creds, chat_id), key=lambda x: x.get("created") or 0):
                 created = datetime.fromtimestamp(int(m.get("created") or 0), tz=timezone.utc)
-                text_ = message_text(m)
-                if created < since or text_ is None:
+                kind = classify_avito_message(m, cfg.avito_user_id, _system_patterns(cfg))
+                if created < since or kind is None:
                     continue
-                if await handle_incoming(chat_id, str(m.get("id") or "") or None, m.get("author_id"), text_):
+                if await handle_incoming(chat_id, str(m.get("id") or "") or None, m.get("author_id"), kind[1],
+                                         system=kind[0] == "system"):
                     caught += 1
     except avito_client.AvitoError as exc:
         await update_health(last_poll_at=_now().isoformat(), last_poll_error=str(exc)[:200])
@@ -813,7 +903,7 @@ async def claim_reminder_chats(cfg: AvitoBotConfig, limit: int = 10) -> list[UUI
             "   AND c.last_message_at <= now() - make_interval(mins => :after)"
             "   AND c.last_message_at >= now() - make_interval(hours => :window)"
             "   AND (SELECT m.author || ':' || coalesce(m.source, '') FROM avito_messages m"
-            "        WHERE m.chat_id = c.id AND m.status = 'sent' ORDER BY m.created_at DESC LIMIT 1)"
+            "        WHERE m.chat_id = c.id AND m.status = 'sent' AND m.author <> 'system' ORDER BY m.created_at DESC LIMIT 1)"
             "       IN ('bot:rule', 'bot:llm', 'staff:staff', 'staff:avito')"  # после рассылки не напоминаем
             "   AND EXISTS (SELECT 1 FROM avito_messages m WHERE m.chat_id = c.id AND m.author = 'client')"
             "   AND NOT EXISTS (SELECT 1 FROM avito_messages m WHERE m.chat_id = c.id AND m.status IN ('draft', 'scheduled'))"

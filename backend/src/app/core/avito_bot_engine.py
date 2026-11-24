@@ -182,7 +182,7 @@ def typing_delay(text: str, min_s: int, max_s: int, rng: random.Random | None = 
 def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatContext,
                         catalog_lines: Sequence[str], now: datetime, hint: str | None = None,
                         examples: Sequence[tuple[str, str]] = (), orders_enabled: bool = False,
-                        pickup_address: str = "") -> str:
+                        pickup_address: str = "", order_note: str | None = None) -> str:
     now = now.astimezone(MSK)
     parts = [
         f"Ты — {cfg.persona_name}, менеджер магазина техники TakeSmart (Москва), отвечаешь покупателям "
@@ -259,17 +259,21 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
     if hint:
         parts += ["", f"Подсказка: по смыслу подходит готовый ответ магазина — «{hint.strip()}». "
                       "Используй его факты, но ответь уместно контексту диалога."]
+    if order_note:
+        parts += ["", order_note]
     if orders_enabled and catalog_lines:
         parts += [
             "",
-            "Бронь: ты можешь оформить заказ сам. Делай это ТОЛЬКО когда покупатель явно согласился "
+            "Бронь (заявка): ты можешь оформить её сам. Делай это ТОЛЬКО когда покупатель явно согласился "
             "купить или забронировать конкретный товар из списка выше и понятно, как он получит товар: "
             f"самовывоз ({pickup_address or 'в магазине'}) или доставка (тогда нужен адрес). "
-            "Телефон не обязателен — связь через чат Авито. Если чего-то не хватает — сначала спроси. "
-            'Тогда добавь в JSON поле "order": {"item": номер товара в квадратных скобках, '
-            '"method": "pickup" или "delivery", "address": "адрес или пусто", "name": "имя или пусто", '
-            '"phone": "телефон как в переписке или пусто", "comment": "пожелания или пусто"}, '
-            "а в reply подтверди бронь своими словами.",
+            "Для заявки ОБЯЗАТЕЛЬНЫ ФИО (фамилия и имя, лучше полностью) и номер телефона; почта — по желанию, "
+            "спроси о ней один раз и не настаивай. Пока ФИО и телефона нет — вежливо попроси их одним сообщением "
+            "и НЕ пиши, что бронь оформлена. "
+            'Когда всё есть — добавь в JSON поле "order": {"item": номер товара в квадратных скобках, '
+            '"method": "pickup" или "delivery", "address": "адрес или пусто", "name": "ФИО как написал покупатель", '
+            '"phone": "телефон как в переписке", "email": "почта или пусто", "comment": "пожелания или пусто"}, '
+            "а в reply подтверди заявку своими словами: менеджер свяжется для подтверждения.",
         ]
     parts += [
         "",
@@ -299,6 +303,7 @@ class LlmVerdict:
     handoff: bool
     reason: str
     order: dict[str, Any] | None = None
+    cancel_order: bool = False
 
 
 _JSON_OBJ = re.compile(r"\{.*\}", re.DOTALL)
@@ -317,6 +322,7 @@ def parse_llm_answer(raw: str) -> LlmVerdict:
                 handoff=bool(data.get("handoff")),
                 reason=str(data.get("reason") or "").strip()[:200],
                 order=order if isinstance(order, dict) and order.get("item") else None,
+                cancel_order=data.get("cancel_order") is True,
             )
         except (ValueError, TypeError):
             pass
@@ -472,3 +478,87 @@ def wants_opt_out(text: str) -> bool:
 
 def render_template(template: str, item_title: str | None, client_name: str | None) -> str:
     return render_reminder(template, item_title, client_name)
+
+
+# ── Системные сообщения Авито ────────────────────────────────────────────────
+
+SYSTEM_TYPES = {"system", "call", "appCall", "app_call"}
+
+
+def classify_avito_message(value: dict[str, Any], own_user_id: int | None, patterns: Sequence[str]) -> tuple[str, str] | None:
+    """Сообщение из вебхука или опроса → ("message" | "system", текст) или None (не хранить).
+    Системным считаем служебный тип, сообщение без автора, сценарий Авито (flow) или текст
+    с фразой из списка в настройках — бот на них не отвечает и не учитывает в разговоре."""
+    msg_type = value.get("type") or "text"
+    if msg_type == "deleted":
+        return None
+    content = value.get("content") or {}
+    text_ = (content.get("text") or "").strip()
+    if msg_type == "link":
+        text_ = text_ or ((content.get("link") or {}).get("url")) or "[ссылка]"
+    elif msg_type != "text" or not text_:
+        text_ = text_ or _NON_TEXT.get(msg_type, f"[{msg_type}]")
+    author = value.get("author_id")
+    if msg_type in SYSTEM_TYPES or content.get("flow_id") or content.get("flowId"):
+        return "system", text_
+    if (author in (None, 0, "0")) and author != own_user_id:
+        return "system", text_
+    low = normalize(text_)
+    for p in patterns:
+        p = normalize(p)
+        if p and p in low:
+            return "system", text_
+    return "message", text_
+
+
+_NON_TEXT = {"image": "[фото]", "voice": "[голосовое сообщение]", "item": "[объявление]", "location": "[геолокация]",
+             "file": "[файл]", "video": "[видео]", "call": "[звонок]", "appCall": "[звонок]"}
+
+
+# ── Контакты для брони ───────────────────────────────────────────────────────
+
+_EMAIL = re.compile(r"^[\w.+-]+@[\w-]+\.[\w.-]+$")
+
+
+def valid_full_name(name: str) -> bool:
+    """ФИО: хотя бы имя и фамилия, только буквы и дефисы."""
+    words = [w for w in re.split(r"\s+", (name or "").strip()) if w]
+    return len(words) >= 2 and all(re.fullmatch(r"[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё'-]*\.?", w) for w in words)
+
+
+def normalize_phone(phone: str) -> str | None:
+    """+7XXXXXXXXXX из «8 (999) 802-10-22», «+7 999…», «999 802 10 22»; None — не телефон."""
+    digits = re.sub(r"\D", "", phone or "")
+    if len(digits) == 10:
+        digits = "7" + digits
+    if len(digits) == 11 and digits[0] in "78":
+        return "+7" + digits[1:]
+    return None
+
+
+def valid_email(email: str) -> bool:
+    return bool(_EMAIL.match((email or "").strip()))
+
+
+# ── Отмена заявки ────────────────────────────────────────────────────────────
+
+_CANCEL = re.compile(
+    r"(отменя(ю|ем)|отмените|отменить\s+(бронь|заказ|заявку|брон)|отмена\s+(брони|заказа|заявки)|"
+    r"передумал\w*|уже\s+не\s+(надо|нужно|актуально)|(не|больше\s+не)\s+(буду|будем)\s+(брать|покупать|забирать)|"
+    r"снимите\s+(бронь|резерв)|не\s+приеду)")
+_NOT_CANCEL = re.compile(r"\bне\s+(надо|нужно|стоит)\s+отмен|\bне\s+отмен")
+
+
+def wants_cancel(text: str) -> bool:
+    """Покупатель явно отменяет бронь. «Не надо отменять» отменой не считается."""
+    low = normalize(text)
+    return bool(_CANCEL.search(low)) and not _NOT_CANCEL.search(low)
+
+
+def order_note_for_prompt(number: str, status: str) -> str:
+    if status == "cancelled":
+        return (f"Заявка покупателя №{number} отменена по его просьбе. Вежливо подтверди отмену и скажи, "
+                "что будешь рад помочь, если передумает. Не уговаривай.")
+    return (f"У покупателя оформлена заявка №{number}. Если он явно и однозначно отменяет её (передумал, "
+            'не нужно, не приедет) — добавь в JSON "cancel_order": true и вежливо подтверди отмену. '
+            "Если только сомневается или спрашивает, можно ли отменить — не отменяй, уточни.")

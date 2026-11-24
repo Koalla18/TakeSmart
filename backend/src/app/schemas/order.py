@@ -161,6 +161,7 @@ class OrderOut(BaseModel):
     payment_status: str
     is_preorder: bool = False
     gift: Optional[str] = Field(None, description="Подарок, положенный к заказу; null — подарка нет")
+    source: Optional[str] = Field(None, description="Источник заказа: null — сайт, avito — заявка из чата Авито")
     customer_note: Optional[str]
     admin_note: Optional[str]
     comments_count: int = 0

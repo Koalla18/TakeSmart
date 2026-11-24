@@ -16,6 +16,11 @@ DEFAULT_STYLE = (
     "Заканчивай понятным следующим шагом: забронировать, приехать, оформить доставку — "
     "но только если это уместно."
 )
+DEFAULT_SYSTEM_PATTERNS = "\n".join([
+    "[Системное сообщение]", "Сообщение от Авито", "Авито Доставк", "Авито Доставкой",
+    "посмотрел ваш номер", "посмотрел номер телефона", "Безопасная сделка", "оплатил заказ",
+    "оформил заказ с доставкой", "Пропущенный звонок", "не переходите по ссылкам", "заблокировал",
+])
 DEFAULT_GREETING = "Здравствуйте! Меня зовут {name}, я менеджер магазина TakeSmart."
 DEFAULT_REMINDER = "Здравствуйте! Остался ли вопрос по {item}? Могу забронировать для вас или подсказать по доставке."
 DEFAULT_HANDOFF = "торг и скидки сверх условий, возврат, брак, претензия, жалоба, ремонт, юридические вопросы"
@@ -43,6 +48,9 @@ class AvitoBotConfig(BaseModel):
     use_catalog: bool = True
     orders_enabled: bool = False
     pickup_address: str = Field("ТЦ «Багратионовский», ул. Барклая 10, 1 этаж, павильон А60", max_length=300)
+
+    system_patterns: str = Field(DEFAULT_SYSTEM_PATTERNS, max_length=3000,
+                                 description="Фразы системных сообщений Авито, по одной в строке — на них бот не отвечает")
 
     reminders_enabled: bool = False
     reminder_after_minutes: int = Field(180, ge=1, le=1440)
@@ -90,6 +98,7 @@ class AvitoBotConfigOut(BaseModel):
     use_catalog: bool
     orders_enabled: bool
     pickup_address: str
+    system_patterns: str
     reminders_enabled: bool
     reminder_after_minutes: int
     reminder_window_hours: int
@@ -130,6 +139,7 @@ class AvitoBotConfigIn(BaseModel):
     use_catalog: bool | None = None
     orders_enabled: bool | None = None
     pickup_address: str | None = Field(None, max_length=300)
+    system_patterns: str | None = Field(None, max_length=3000)
     reminders_enabled: bool | None = None
     reminder_after_minutes: int | None = Field(None, ge=1, le=1440)
     reminder_window_hours: int | None = Field(None, ge=1, le=72)
@@ -282,6 +292,7 @@ class LinkedProductOut(BaseModel):
 class ChatDetailOut(ChatOut):
     messages: list[MessageOut]
     linked_product: LinkedProductOut | None = None
+    order_status: str | None = None
 
 
 class ChatsOut(BaseModel):

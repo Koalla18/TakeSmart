@@ -245,6 +245,48 @@ def test_prompt_human_mode():
     assert "Одно сообщение" in off and "двумя короткими" not in off and "Эмодзи — изредка" in off
 
 
+def test_avito_system_messages():
+    from src.app.core.avito_bot_engine import classify_avito_message
+    from src.app.schemas.avito_bot import DEFAULT_SYSTEM_PATTERNS
+    pats = DEFAULT_SYSTEM_PATTERNS.splitlines()
+    msg = lambda **kw: {"type": "text", "author_id": 222, "content": {"text": "Цена актуальна?"}, **kw}
+    assert classify_avito_message(msg(), 111, pats) == ("message", "Цена актуальна?")
+    assert classify_avito_message(msg(type="system", content={"text": "Покупатель оформил заказ"}), 111, pats)[0] == "system"
+    assert classify_avito_message(msg(author_id=0), 111, pats)[0] == "system"
+    assert classify_avito_message(msg(author_id=None), 111, pats)[0] == "system"
+    assert classify_avito_message(msg(content={"text": "x", "flow_id": "delivery"}), 111, pats)[0] == "system"
+    assert classify_avito_message(msg(content={"text": "[Системное сообщение] Покупатель посмотрел ваш номер"}), 111, pats)[0] == "system"
+    assert classify_avito_message(msg(content={"text": "Можно с Авито Доставкой?"}), 111, pats)[0] == "system"
+    assert classify_avito_message(msg(type="deleted"), 111, pats) is None
+    assert classify_avito_message(msg(type="image", content={}), 111, pats) == ("message", "[фото]")
+    assert classify_avito_message(msg(content={"text": "Можно с Авито Доставкой?"}), 111, [])[0] == "message"   # без фраз — обычное
+
+
+def test_booking_contacts():
+    from src.app.core.avito_bot_engine import normalize_phone, valid_email, valid_full_name
+    assert valid_full_name("Иванов Иван Петрович") and valid_full_name("Анна Смирнова") and valid_full_name("Ivanov Ivan")
+    assert not valid_full_name("Алексей") and not valid_full_name("") and not valid_full_name("Иван 123")
+    assert normalize_phone("8 (999) 802-10-22") == "+79998021022" == normalize_phone("+7 999 802 10 22") == normalize_phone("9998021022")
+    assert normalize_phone("12345") is None and normalize_phone("[телефон 1]") is None
+    assert valid_email("ivan@mail.ru") and not valid_email("ivan@") and not valid_email("")
+    ctx = ChatContext("iPhone", None, None, [("client", "Беру")])
+    p = build_system_prompt(PromptConfig("Дарья", "", "", ""), [], ctx, ["• iPhone — 1 ₽, в наличии 1 шт."], NOW, orders_enabled=True)
+    assert "ОБЯЗАТЕЛЬНЫ ФИО" in p and '"email"' in p and "почта — по желанию" in p
+
+
+def test_cancel_detection():
+    from src.app.core.avito_bot_engine import order_note_for_prompt, wants_cancel
+    for t in ["Отменяю бронь", "отмените заказ пожалуйста", "Я передумал", "уже не актуально", "не приеду, извините",
+              "снимите бронь", "Не буду брать"]:
+        assert wants_cancel(t), t
+    for t in ["Не надо отменять, приеду", "а можно потом отменить, если что?", "Беру", "не отменяйте"]:
+        assert not wants_cancel(t), t
+    assert parse_llm_answer('{"reply": "Отменила", "cancel_order": true}').cancel_order
+    assert not parse_llm_answer('{"reply": "Ок", "cancel_order": "yes"}').cancel_order
+    assert "cancel_order" in order_note_for_prompt("TM-1", "pending")
+    assert "отменена" in order_note_for_prompt("TM-1", "cancelled")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

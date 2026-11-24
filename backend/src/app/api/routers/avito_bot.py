@@ -282,6 +282,8 @@ async def get_chat(chat_id: UUID) -> ChatDetailOut:
         detail = ChatDetailOut(**ChatOut.model_validate(chat).model_dump(), messages=[MessageOut.model_validate(m) for m in msgs],
                                linked_product=_product_out(linked) if linked else None)
         detail.has_draft = any(m.status == "draft" for m in msgs)
+        info = await bot._order_info(session, chat)
+        detail.order_status = info[1] if info else None
         return detail
 
 

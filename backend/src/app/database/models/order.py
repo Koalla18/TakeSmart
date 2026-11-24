@@ -82,6 +82,9 @@ class Order(Base):
         String(120), nullable=True, comment="В заказе есть позиции с подарком — что именно дарим",
     )
 
+    # Откуда заказ: None — сайт, "avito" — заявка, оформленная ботом в чате Авито
+    source: Mapped[str | None] = mapped_column(String(16), nullable=True, comment="Источник: null — сайт, avito — чат Авито")
+
     # Заметки
     customer_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     admin_note: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -147,7 +147,10 @@ async def count_subscriptions() -> int:
 async def send_order_push(order: "Order") -> None:
     """Пуш о новом заказе. Свой tag по номеру заказа — чтобы было видно каждый заказ."""
     try:
-        title = "У вас новый предзаказ!" if getattr(order, "is_preorder", False) else "У вас новый заказ!"
+        if getattr(order, "source", None) == "avito":
+            title = "Новая заявка с Авито!"
+        else:
+            title = "У вас новый предзаказ!" if getattr(order, "is_preorder", False) else "У вас новый заказ!"
         body = f"{order.order_number} · {order.customer_name or 'клиент'} · {_price(order.total_amount)}"
         gift = getattr(order, "gift", None)
         if gift:
