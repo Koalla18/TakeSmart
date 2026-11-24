@@ -16,6 +16,7 @@ from src.app.api.routers.installs import router as installs_router
 from src.app.api.routers.install_orders import router as install_orders_router
 from src.app.api.routers.gta6 import router as gta6_router
 from src.app.api.routers.seo import router as seo_router
+from src.app.api.routers.avito_bot import router as avito_bot_router
 from src.app.api.admin.endpoints import router as admin_router
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "install_orders_router",
     "gta6_router",
     "seo_router",
+    "avito_bot_router",
     "health_router",
     "product_images_router",
     "categories_router",

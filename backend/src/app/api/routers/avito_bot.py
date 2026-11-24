@@ -1,0 +1,361 @@
+"""
+Авито-бот: /avito-bot/*
+
+  /avito-bot/settings, /status, /connect   — настройки, ключи, подключение Авито (webhook)
+  /avito-bot/rules, /rules/import          — автоответы
+  /avito-bot/chats, /chats/{id}/…          — диалоги, черновики, «взять диалог»
+  /avito-bot/messages/{id}/approve|discard — черновики
+  /avito-bot/test, /simulate               — тестовый чат без Авито
+  /avito-bot/webhook/{secret}              — сюда Авито шлёт новые сообщения (публично, по секрету в адресе)
+"""
+from __future__ import annotations
+
+import hmac
+import re
+from datetime import datetime, timezone
+from typing import Any
+from uuid import UUID
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi.responses import Response
+from sqlalchemy import delete, select
+
+from src.app.api.admin.endpoints import get_current_admin
+from src.app.core import avito_bot_service as bot
+from src.app.core import avito_client
+from src.app.core.avito_bot_engine import ChatContext
+from src.app.core.logger import get_logger
+from src.app.database.models.avito_bot import AvitoBotRule, AvitoChat, AvitoMessage
+from src.app.database.session import AsyncSessionFactory
+from src.app.schemas.avito_bot import (
+    SECRET_FIELDS, ApproveIn, AvitoBotConfigIn, AvitoBotConfigOut, ChatDetailOut, ChatOut, ChatsOut, ConnectOut,
+    DecisionOut, MessageOut, RuleIn, RuleOut, RulePatch, RulesImportIn, RulesImportOut, SendIn, SimulateIn,
+    StatusOut, TestIn,
+)
+
+logger = get_logger(__name__)
+router = APIRouter(prefix="/avito-bot", tags=["Авито-бот"])
+ADMIN = [Depends(get_current_admin)]
+
+
+def _config_out(cfg) -> AvitoBotConfigOut:
+    data = cfg.model_dump()
+    for f in SECRET_FIELDS:
+        data.pop(f, None)
+    return AvitoBotConfigOut(
+        **{k: v for k, v in data.items() if k in AvitoBotConfigOut.model_fields},
+        llm_api_key_set=bool(cfg.llm_api_key),
+        avito_client_secret_set=bool(cfg.avito_client_secret),
+        webhook_url=bot.webhook_url(cfg) if cfg.avito_connected_at else None,
+    )
+
+
+# ── Настройки ────────────────────────────────────────────────────────────────
+
+@router.get("/settings", response_model=AvitoBotConfigOut, dependencies=ADMIN)
+async def get_settings() -> AvitoBotConfigOut:
+    async with AsyncSessionFactory() as session:
+        cfg = await bot.load_config(session)
+        await session.commit()
+    return _config_out(cfg)
+
+
+@router.put("/settings", response_model=AvitoBotConfigOut, dependencies=ADMIN)
+async def put_settings(body: AvitoBotConfigIn) -> AvitoBotConfigOut:
+    async with AsyncSessionFactory() as session:
+        cfg = await bot.load_config(session)
+        data = body.model_dump(exclude_unset=True)
+        for key, value in data.items():
+            if key in SECRET_FIELDS:
+                if value == "":
+                    continue          # пустое поле — «не менять»
+                value = value or ""   # null — стереть
+            setattr(cfg, key, value)
+        if cfg.reply_delay_min > cfg.reply_delay_max:
+            cfg.reply_delay_max = cfg.reply_delay_min
+        if "avito_client_id" in data or data.get("avito_client_secret"):
+            cfg.avito_user_id = None
+            cfg.avito_connected_at = None
+        await bot.save_config(session, cfg)
+        await session.commit()
+    logger.info("avito_bot_settings_saved", fields=sorted(k for k in data if k not in SECRET_FIELDS))
+    return _config_out(cfg)
+
+
+@router.get("/status", response_model=StatusOut, dependencies=ADMIN)
+async def get_status() -> StatusOut:
+    async with AsyncSessionFactory() as session:
+        cfg = await bot.load_config(session)
+        await session.commit()
+    return StatusOut(
+        enabled=cfg.enabled, mode=cfg.mode, llm_ready=bot.llm_settings(cfg).ready,
+        avito_ready=bot.avito_creds(cfg).ready, avito_connected=bool(cfg.avito_connected_at),
+        webhook_url=bot.webhook_url(cfg) if cfg.avito_connected_at else None,
+    )
+
+
+@router.post("/connect", response_model=ConnectOut, dependencies=ADMIN,
+             summary="Проверить ключи Авито и подписаться на новые сообщения")
+async def connect() -> ConnectOut:
+    async with AsyncSessionFactory() as session:
+        cfg = await bot.load_config(session)
+        creds = bot.avito_creds(cfg)
+        url = bot.webhook_url(cfg)
+        try:
+            me = await avito_client.get_self(creds)
+            cfg.avito_user_id = int(me["id"])
+            creds.user_id = cfg.avito_user_id
+            await avito_client.subscribe_webhook(creds, url)
+        except (avito_client.AvitoError, KeyError, ValueError, TypeError) as exc:
+            await session.commit()
+            return ConnectOut(ok=False, user_id=cfg.avito_user_id, webhook_url=url, detail=str(exc)[:300])
+        cfg.avito_connected_at = datetime.now(timezone.utc)
+        await bot.save_config(session, cfg)
+        await session.commit()
+    logger.info("avito_bot_connected", user_id=cfg.avito_user_id)
+    return ConnectOut(ok=True, user_id=cfg.avito_user_id, webhook_url=url, detail="Авито подключён: новые сообщения будут приходить боту")
+
+
+@router.post("/llm-check", response_model=DecisionOut, dependencies=ADMIN, summary="Проверить, что модель отвечает")
+async def llm_check() -> DecisionOut:
+    return await test_chat(TestIn(text="Здравствуйте! Подскажите, как к вам добраться?"))
+
+
+# ── Правила ──────────────────────────────────────────────────────────────────
+
+@router.get("/rules", response_model=list[RuleOut], dependencies=ADMIN)
+async def list_rules() -> list[RuleOut]:
+    async with AsyncSessionFactory() as session:
+        return [RuleOut.model_validate(r) for r in await bot.active_rules(session)]
+
+
+@router.post("/rules", response_model=RuleOut, status_code=status.HTTP_201_CREATED, dependencies=ADMIN)
+async def create_rule(body: RuleIn) -> RuleOut:
+    async with AsyncSessionFactory() as session:
+        rule = AvitoBotRule(**body.model_dump())
+        session.add(rule)
+        await session.commit()
+        await session.refresh(rule)
+        return RuleOut.model_validate(rule)
+
+
+@router.patch("/rules/{rule_id}", response_model=RuleOut, dependencies=ADMIN)
+async def patch_rule(rule_id: UUID, body: RulePatch) -> RuleOut:
+    async with AsyncSessionFactory() as session:
+        rule = await session.get(AvitoBotRule, rule_id)
+        if rule is None:
+            raise HTTPException(status_code=404, detail="Правило не найдено")
+        current = RuleIn.model_validate(rule, from_attributes=True).model_dump()
+        current.update(body.model_dump(exclude_unset=True))
+        merged = RuleIn(**current)  # та же проверка, что и при создании
+        for k, v in merged.model_dump().items():
+            setattr(rule, k, v)
+        await session.commit()
+        await session.refresh(rule)
+        return RuleOut.model_validate(rule)
+
+
+@router.delete("/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN)
+async def delete_rule(rule_id: UUID) -> Response:
+    async with AsyncSessionFactory() as session:
+        res = await session.execute(delete(AvitoBotRule).where(AvitoBotRule.id == rule_id))
+        if not res.rowcount:
+            raise HTTPException(status_code=404, detail="Правило не найдено")
+        await session.commit()
+    return Response(status_code=204)
+
+
+_KEYS_PREFIX = re.compile(r"^(ключи|ключевые слова|слова|триггеры?)\s*:\s*", re.IGNORECASE)
+
+
+def parse_rules_text(text: str) -> tuple[list[RuleIn], list[str]]:
+    """Импорт автоответов текстом. Поддерживаются:
+      • строка «ключи | ответ» (или через табуляцию / «;» — как из таблицы);
+      • блоки через пустую строку: первая строка — ключи через запятую, дальше — ответ.
+    """
+    rules: list[RuleIn] = []
+    errors: list[str] = []
+    blocks = [b.strip("\n") for b in re.split(r"\n\s*\n", text.replace("\r\n", "\n")) if b.strip()]
+    for n, block in enumerate(blocks, 1):
+        lines = block.split("\n")
+        pairs: list[tuple[str, str]] = []
+        sep = next((s for s in ("\t", " | ", "|", ";") if s in lines[0]), None)
+        if sep and all(sep in ln for ln in lines):
+            for ln in lines:
+                keys, answer = ln.split(sep, 1)
+                pairs.append((keys, answer))
+        elif len(lines) >= 2:
+            pairs.append((lines[0], "\n".join(lines[1:])))
+        else:
+            errors.append(f"Блок {n}: нужен ответ после строки с ключами")
+            continue
+        for keys, answer in pairs:
+            keys = _KEYS_PREFIX.sub("", keys.strip())
+            answer = re.sub(r"^(ответ)\s*:\s*", "", answer.strip(), flags=re.IGNORECASE).strip().strip('"')
+            try:
+                rules.append(RuleIn(keywords=[k for k in re.split(r"[,/]", keys)], answer=answer))
+            except ValueError as exc:
+                errors.append(f"Блок {n}: {str(exc).splitlines()[-1][:120]}")
+    return rules, errors
+
+
+@router.post("/rules/import", response_model=RulesImportOut, dependencies=ADMIN)
+async def import_rules(body: RulesImportIn) -> RulesImportOut:
+    parsed, errors = parse_rules_text(body.text)
+    created = skipped = 0
+    async with AsyncSessionFactory() as session:
+        if body.replace:
+            await session.execute(delete(AvitoBotRule))
+            existing: set[str] = set()
+        else:
+            existing = {",".join(sorted(k.lower() for k in r.keywords)) for r in await bot.active_rules(session)}
+        base_sort = len(existing)
+        for i, rule in enumerate(parsed):
+            key = ",".join(sorted(k.lower() for k in rule.keywords))
+            if key in existing:
+                skipped += 1
+                continue
+            existing.add(key)
+            session.add(AvitoBotRule(**{**rule.model_dump(), "sort": base_sort + i}))
+            created += 1
+        await session.commit()
+    return RulesImportOut(created=created, skipped=skipped, errors=errors[:20])
+
+
+# ── Диалоги ──────────────────────────────────────────────────────────────────
+
+@router.get("/chats", response_model=ChatsOut, dependencies=ADMIN)
+async def list_chats(filter: str = Query("all", pattern="^(all|human|draft|test)$"), limit: int = Query(100, ge=1, le=300)) -> ChatsOut:
+    async with AsyncSessionFactory() as session:
+        drafts = await bot.draft_chat_ids(session)
+        q = select(AvitoChat).order_by(AvitoChat.last_message_at.desc().nullslast()).limit(limit)
+        if filter == "human":
+            q = q.where(AvitoChat.needs_human.is_(True))
+        elif filter == "draft":
+            q = q.where(AvitoChat.id.in_(drafts or {UUID(int=0)}))
+        elif filter == "test":
+            q = q.where(AvitoChat.is_simulated.is_(True))
+        chats = (await session.execute(q)).scalars().all()
+        total, human, n_drafts = await bot.chat_counts(session)
+    out = []
+    for c in chats:
+        item = ChatOut.model_validate(c)
+        item.has_draft = c.id in drafts
+        out.append(item)
+    return ChatsOut(chats=out, total=total, needs_human=human, drafts=n_drafts)
+
+
+@router.get("/chats/{chat_id}", response_model=ChatDetailOut, dependencies=ADMIN)
+async def get_chat(chat_id: UUID) -> ChatDetailOut:
+    async with AsyncSessionFactory() as session:
+        chat = await session.get(AvitoChat, chat_id)
+        if chat is None:
+            raise HTTPException(status_code=404, detail="Диалог не найден")
+        msgs = (await session.execute(
+            select(AvitoMessage).where(AvitoMessage.chat_id == chat_id, AvitoMessage.status != "discarded")
+            .order_by(AvitoMessage.created_at)
+        )).scalars().all()
+        detail = ChatDetailOut(**ChatOut.model_validate(chat).model_dump(), messages=[MessageOut.model_validate(m) for m in msgs])
+        detail.has_draft = any(m.status == "draft" for m in msgs)
+        return detail
+
+
+async def _act(coro) -> None:
+    try:
+        await coro
+    except bot.ActionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/chats/{chat_id}/send", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN,
+             summary="Ответить от себя (бот в этом диалоге замолкает)")
+async def chat_send(chat_id: UUID, body: SendIn) -> Response:
+    await _act(bot.staff_send(chat_id, body.text.strip()))
+    return Response(status_code=204)
+
+
+@router.post("/chats/{chat_id}/take", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN)
+async def chat_take(chat_id: UUID) -> Response:
+    await _act(bot.set_mode(chat_id, "human"))
+    return Response(status_code=204)
+
+
+@router.post("/chats/{chat_id}/release", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN,
+             summary="Вернуть диалог боту")
+async def chat_release(chat_id: UUID) -> Response:
+    await _act(bot.set_mode(chat_id, "bot"))
+    return Response(status_code=204)
+
+
+@router.delete("/chats/{chat_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN,
+               summary="Удалить тренировочный диалог")
+async def chat_delete(chat_id: UUID) -> Response:
+    async with AsyncSessionFactory() as session:
+        chat = await session.get(AvitoChat, chat_id)
+        if chat is None or not chat.is_simulated:
+            raise HTTPException(status_code=409, detail="Удалять можно только тренировочные диалоги")
+        await session.delete(chat)
+        await session.commit()
+    return Response(status_code=204)
+
+
+@router.post("/messages/{message_id}/approve", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN)
+async def message_approve(message_id: UUID, body: ApproveIn) -> Response:
+    await _act(bot.approve_draft(message_id, body.text))
+    return Response(status_code=204)
+
+
+@router.post("/messages/{message_id}/discard", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN)
+async def message_discard(message_id: UUID) -> Response:
+    await _act(bot.discard_draft(message_id))
+    return Response(status_code=204)
+
+
+# ── Тест ─────────────────────────────────────────────────────────────────────
+
+@router.post("/test", response_model=DecisionOut, dependencies=ADMIN, summary="Что бот ответит — без сохранения")
+async def test_chat(body: TestIn) -> DecisionOut:
+    history = [(t.author, t.text) for t in body.history] + [("client", body.text)]
+    # Сколько раз правила уже сработали в этой переписке — по точному совпадению текста ответа
+    async with AsyncSessionFactory() as session:
+        cfg = await bot.load_config(session)
+        rules = await bot.active_rules(session)
+        bot_texts = [t.text.strip() for t in body.history if t.author == "bot"]
+        hits: dict[str, Any] = {str(r.id): bot_texts.count(r.answer.strip()) for r in rules}
+        pending: list[str] = []
+        for author, text in history:
+            pending = pending + [text] if author == "client" else []
+        decision = await bot.decide(session, cfg, ChatContext(body.item_title, body.item_price, None, history),
+                                    "\n".join(pending), hits)
+        await session.commit()
+    return DecisionOut(
+        action=decision.action, text=decision.text, source=decision.source,
+        rule_id=decision.rule.id if decision.rule else None, reason=decision.reason,
+        delay_seconds=decision.delay_seconds, catalog=decision.catalog,
+    )
+
+
+@router.post("/simulate", response_model=ChatOut, dependencies=ADMIN,
+             summary="Написать боту как покупатель (тренировочный диалог, в Авито ничего не уходит)")
+async def simulate(body: SimulateIn) -> ChatOut:
+    chat_id = await bot.simulate(body.text.strip(), body.chat_id, body.client_name, body.item_title, body.item_price)
+    async with AsyncSessionFactory() as session:
+        return ChatOut.model_validate(await session.get(AvitoChat, chat_id))
+
+
+# ── Webhook ──────────────────────────────────────────────────────────────────
+
+@router.post("/webhook/{secret}", include_in_schema=False)
+async def webhook(secret: str, request: Request, background: BackgroundTasks) -> dict:
+    async with AsyncSessionFactory() as session:
+        cfg = await bot.load_config(session)
+        await session.commit()
+    if not cfg.webhook_secret or not hmac.compare_digest(secret, cfg.webhook_secret):
+        raise HTTPException(status_code=404)
+    try:
+        payload = await request.json()
+    except ValueError:
+        return {"ok": True}
+    # Авито ждёт быстрый 200 — разбор и ответ идут фоном
+    background.add_task(bot.handle_webhook, payload)
+    return {"ok": True}

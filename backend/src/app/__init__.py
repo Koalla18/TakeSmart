@@ -29,6 +29,7 @@ from src.app.api.routers import (
     install_orders_router,
     gta6_router,
     seo_router,
+    avito_bot_router,
 )
 from src.app.api.routers.analytics import router as analytics_router
 from src.app.api.admin.endpoints import router as admin_router
@@ -211,6 +212,7 @@ def create_app() -> FastAPI:
     app.include_router(install_orders_router, prefix=prefix)
     app.include_router(gta6_router,           prefix=prefix)
     app.include_router(seo_router,            prefix=prefix)
+    app.include_router(avito_bot_router,      prefix=prefix)
     app.include_router(brands_router,         prefix=prefix)
     app.include_router(trade_in_router,       prefix=prefix)
     app.include_router(analytics_router,      prefix=prefix)
