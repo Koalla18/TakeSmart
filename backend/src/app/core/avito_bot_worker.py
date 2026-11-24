@@ -6,6 +6,8 @@
     MAX_PARALLEL одновременно, чтобы медленная модель не задерживала остальных;
   • отправляет запланированные сообщения, у которых наступил send_at.
 Раз в POLL_EVERY — опрос непрочитанных чатов Авито (догонялка за вебхуком).
+Раз в REMIND_EVERY — напоминания замолчавшим покупателям (если включены).
+Рассылки — по одному сообщению, с паузой broadcast_interval_seconds между ними.
 
 Всё состояние — в базе, задачи берутся через SELECT … FOR UPDATE SKIP LOCKED,
 поэтому несколько процессов или перезапуск ничего не ломают и не дублируют.
@@ -22,6 +24,7 @@ logger = get_logger(__name__)
 
 TICK_SECONDS = 1.0
 POLL_EVERY = 120.0
+REMIND_EVERY = 60.0
 MAX_PARALLEL = 5
 
 
@@ -30,6 +33,8 @@ class _Worker:
         self.running: set[asyncio.Task] = set()
         self.slots = asyncio.Semaphore(MAX_PARALLEL)
         self.last_poll = 0.0
+        self.last_remind = 0.0
+        self.broadcasting = False
 
     def _spawn(self, coro, what: str) -> None:
         async def guarded() -> None:
@@ -49,9 +54,21 @@ class _Worker:
                 self._spawn(bot.process_chat(chat_id), f"chat:{chat_id}")
         for message_id in await bot.claim_due_messages():
             self._spawn(bot.deliver_due_message(message_id), f"send:{message_id}")
+        # Рассылка: по одному сообщению за проход, темп задаёт пауза в настройках
+        if not self.broadcasting:
+            self.broadcasting = True
+            async def step() -> None:
+                try:
+                    await bot.broadcast_step()
+                finally:
+                    self.broadcasting = False
+            self._spawn(step(), "broadcast")
         if time.monotonic() - self.last_poll >= POLL_EVERY:
             self.last_poll = time.monotonic()
             self._spawn(bot.poll_unread(), "poll")
+        if time.monotonic() - self.last_remind >= REMIND_EVERY:
+            self.last_remind = time.monotonic()
+            self._spawn(bot.run_reminders(), "reminders")
 
     async def run(self) -> None:
         logger.info("avito_bot_worker_started")

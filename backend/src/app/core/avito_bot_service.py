@@ -32,13 +32,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core import avito_client, llm_client
 from src.app.core.avito_bot_engine import (
-    ChatContext, PiiMasker, PromptConfig, build_messages, build_system_prompt, catalog_tokens, human_delay,
-    match_rule, parse_llm_answer, pick_examples, rule_covers, starts_with_refusal,
+    MSK, ChatContext, PiiMasker, PromptConfig, build_messages, build_reminder_messages, build_system_prompt,
+    catalog_tokens, human_delay, in_window, match_rule, parse_llm_answer, pick_examples, render_reminder,
+    render_template, rule_covers, starts_with_refusal, wants_opt_out,
 )
 from src.app.core.config import settings
 from src.app.core.logger import get_logger
 from src.app.core.push_service import send_order_push, send_push_to_all
-from src.app.database.models.avito_bot import AvitoBotExample, AvitoBotRule, AvitoChat, AvitoItemLink, AvitoMessage
+from src.app.database.models.avito_bot import AvitoBotEvent, AvitoBotExample, AvitoBroadcast, AvitoBroadcastRecipient, AvitoBotRule, AvitoChat, AvitoItemLink, AvitoMessage
 from src.app.database.models.order import Order, OrderItem
 from src.app.database.models.product import Product
 from src.app.database.models.site_setting import SiteSetting
@@ -163,6 +164,41 @@ async def alert(kind: str, title: str, body: str) -> None:
         await session.commit()
     logger.warning("avito_bot_alert", kind=kind, body=body)
     await send_push_to_all(title, body, url="/admin?tab=avito&view=settings", tag=f"avito-alert-{kind}")
+
+
+async def record_llm_usage(result: llm_client.LlmResult | None) -> None:
+    """Счётчик вызовов модели по московским дням: None — вызов с ошибкой."""
+    day = _now().astimezone(MSK).date()
+    async with AsyncSessionFactory() as session:
+        await session.execute(text(
+            "INSERT INTO avito_bot_llm_usage (day, calls, errors, prompt_tokens, completion_tokens) "
+            "VALUES (:day, 1, :err, :pin, :pout) ON CONFLICT (day) DO UPDATE SET "
+            "calls = avito_bot_llm_usage.calls + 1, errors = avito_bot_llm_usage.errors + :err, "
+            "prompt_tokens = avito_bot_llm_usage.prompt_tokens + :pin, "
+            "completion_tokens = avito_bot_llm_usage.completion_tokens + :pout"
+        ), {"day": day, "err": 0 if result else 1,
+            "pin": result.prompt_tokens if result else 0, "pout": result.completion_tokens if result else 0})
+        await session.commit()
+
+
+async def llm_call(cfg: AvitoBotConfig, messages: list[dict[str, str]]) -> str:
+    """Вызов модели с учётом расхода и тревогой после нескольких ошибок подряд."""
+    try:
+        result = await llm_client.complete(llm_settings(cfg), messages)
+    except llm_client.LlmError as exc:
+        logger.warning("avito_bot_llm_failed", error=str(exc))
+        await record_llm_usage(None)
+        health = await update_health(llm_fail_streak=lambda v: int(v or 0) + 1, last_llm_error=str(exc)[:200])
+        if health["llm_fail_streak"] >= LLM_ALERT_STREAK:
+            await alert("llm", "Авито-бот: модель не отвечает", str(exc)[:150])
+        raise
+    await record_llm_usage(result)
+    await update_health(llm_fail_streak=0)
+    return result.text
+
+
+def log_event(session: AsyncSession, chat_id: UUID | None, kind: str, detail: str | None = None) -> None:
+    session.add(AvitoBotEvent(chat_id=chat_id, kind=kind, detail=(detail or None) and detail[:300]))
 
 
 # ── Каталог ──────────────────────────────────────────────────────────────────
@@ -307,14 +343,9 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         orders_enabled=cfg.orders_enabled, pickup_address=cfg.pickup_address,
     )
     try:
-        raw = await llm_client.complete(llm, build_messages(system, masked_ctx, HISTORY_LIMIT))
+        raw = await llm_call(cfg, build_messages(system, masked_ctx, HISTORY_LIMIT))
     except llm_client.LlmError as exc:
-        logger.warning("avito_bot_llm_failed", error=str(exc))
-        health = await update_health(llm_fail_streak=lambda v: int(v or 0) + 1, last_llm_error=str(exc)[:200])
-        if health["llm_fail_streak"] >= LLM_ALERT_STREAK:
-            await alert("llm", "Авито-бот: модель не отвечает", str(exc)[:150])
         return Decision("handoff", cfg.handoff_message or None, reason=f"Модель не ответила: {exc}"[:200], catalog=lines)
-    await update_health(llm_fail_streak=0)
 
     verdict = parse_llm_answer(raw)
     reply = masker.unmask(verdict.reply)
@@ -404,6 +435,8 @@ async def process_chat(chat_id: UUID) -> None:
             chat.needs_human = True
             chat.human_reason = (decision.reason or "Нужен сотрудник")[:200]
             chat.human_question = state.pending[:500]
+            if not chat.is_simulated:
+                log_event(session, chat.id, "handoff", chat.human_reason)
             push = ("Авито: нужен менеджер", f"{chat.client_name or 'Покупатель'} · {chat.item_title or ''} · {chat.human_reason}")
 
         if decision.text and decision.action in ("reply", "handoff"):
@@ -519,6 +552,8 @@ async def deliver_message(session: AsyncSession, cfg: AvitoBotConfig, chat: Avit
             order = result
             chat.order_id = order.id
             chat.order_number = order.order_number
+            if not chat.is_simulated:
+                log_event(session, chat.id, "order", f"{order.order_number} · {msg.order_payload.get('product_name', '')}")
     return None, order
 
 
@@ -546,6 +581,7 @@ async def deliver_due_message(message_id: UUID) -> None:
                 msg.status = "failed"
                 chat.needs_human = True
                 chat.human_reason = "Не удалось отправить ответ в Авито"
+                log_event(session, chat.id, "send_failed", error)
                 push = ("Авито: ответ не отправился", f"{chat.client_name or 'Покупатель'}: {error[:120]}")
         elif chat.needs_human and chat.human_reason and chat.human_reason.startswith("Бронь"):
             push = ("Авито: бронь не оформилась", f"{chat.client_name or 'Покупатель'} · {chat.human_reason}")
@@ -644,6 +680,9 @@ async def handle_incoming(avito_chat_id: str, avito_message_id: str | None, auth
         await _cancel_pending_bot(session, chat.id)
         session.add(AvitoMessage(chat_id=chat.id, avito_message_id=avito_message_id, author="client", text=text_, sent_at=_now()))
         _touch(chat, text_)
+        if not chat.opted_out and wants_opt_out(text_):
+            chat.opted_out = True
+            log_event(session, chat.id, "opt_out", text_[:200])
         if chat.mode == "bot" and not chat.needs_human and cfg.enabled:
             chat.reply_due_at = _now() + timedelta(seconds=DEBOUNCE_SECONDS)
         await session.commit()
@@ -702,6 +741,220 @@ async def simulate(text_: str, chat_id: UUID | None, client_name: str, item_titl
         cid = chat.id
         await session.commit()
     return cid
+
+
+# ── Напоминания ──────────────────────────────────────────────────────────────
+
+async def claim_reminder_chats(cfg: AvitoBotConfig, limit: int = 10) -> list[UUID]:
+    """Диалоги, где последнее слово за нами, покупатель молчит дольше заданного, но не дольше окна.
+    Отметка reminder_sent_at ставится сразу — второй раз диалог не рассматривается."""
+    async with AsyncSessionFactory() as session:
+        res = await session.execute(text(
+            "UPDATE avito_chats SET reminder_sent_at = now() WHERE id IN ("
+            " SELECT c.id FROM avito_chats c"
+            " WHERE c.reminder_sent_at IS NULL AND c.mode = 'bot' AND NOT c.needs_human AND c.order_id IS NULL"
+            "   AND c.reply_due_at IS NULL AND (c.is_simulated OR :live)"
+            "   AND c.last_message_at <= now() - make_interval(mins => :after)"
+            "   AND c.last_message_at >= now() - make_interval(hours => :window)"
+            "   AND (SELECT m.author || ':' || coalesce(m.source, '') FROM avito_messages m"
+            "        WHERE m.chat_id = c.id AND m.status = 'sent' ORDER BY m.created_at DESC LIMIT 1)"
+            "       IN ('bot:rule', 'bot:llm', 'staff:staff', 'staff:avito')"  # после рассылки не напоминаем
+            "   AND EXISTS (SELECT 1 FROM avito_messages m WHERE m.chat_id = c.id AND m.author = 'client')"
+            "   AND NOT EXISTS (SELECT 1 FROM avito_messages m WHERE m.chat_id = c.id AND m.status IN ('draft', 'scheduled'))"
+            " ORDER BY c.last_message_at LIMIT :limit FOR UPDATE SKIP LOCKED) RETURNING id"
+        ), {"live": cfg.enabled, "after": cfg.reminder_after_minutes, "window": cfg.reminder_window_hours, "limit": limit})
+        ids = [row[0] for row in res.all()]
+        await session.commit()
+    return ids
+
+
+async def run_reminders() -> int:
+    async with AsyncSessionFactory() as session:
+        cfg = await load_config(session)
+        await session.commit()
+    if not cfg.reminders_enabled or not in_window(_now(), cfg.reminder_from, cfg.reminder_to):
+        return 0
+    done = 0
+    for chat_id in await claim_reminder_chats(cfg):
+        try:
+            done += await process_reminder(chat_id, cfg)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("avito_bot_reminder_failed", chat_id=str(chat_id), error=str(exc))
+    return done
+
+
+async def process_reminder(chat_id: UUID, cfg: AvitoBotConfig) -> int:
+    async with AsyncSessionFactory() as session:
+        chat = await session.get(AvitoChat, chat_id)
+        if chat is None:
+            return 0
+        state = await chat_state(session, chat)
+        last_client = next((t for a, t in reversed(state.ctx.history) if a == "client"), "")
+        text_: str | None = None
+        reason: str | None = None
+        if starts_with_refusal(last_client):
+            reason = "покупатель отказался"
+        elif cfg.reminder_use_llm and llm_settings(cfg).ready:
+            products = (await catalog_products(session, chat.item_id, chat.item_title, None))[0] if cfg.use_catalog else []
+            masker = PiiMasker()
+            ctx = ChatContext(chat.item_title, chat.item_price, chat.client_name, [(a, masker.mask(t)) for a, t in state.ctx.history])
+            try:
+                raw = await llm_call(cfg, build_reminder_messages(
+                    PromptConfig(cfg.persona_name, cfg.style, cfg.knowledge, cfg.handoff_topics), ctx,
+                    [product_line(p) for p in products], _now()))
+                verdict = parse_llm_answer(raw)
+                text_ = masker.unmask(verdict.reply) or None
+                reason = None if text_ else (verdict.reason or "модель решила не напоминать")
+            except llm_client.LlmError as exc:
+                reason = f"модель не ответила: {exc}"
+        else:
+            text_ = render_reminder(cfg.reminder_template, chat.item_title, chat.client_name)
+
+        if not text_:
+            if not chat.is_simulated:
+                log_event(session, chat.id, "reminder_skip", reason)
+            await session.commit()
+            return 0
+        msg = AvitoMessage(chat_id=chat.id, author="bot", text=text_, source="reminder")
+        if cfg.mode == "draft" and not chat.is_simulated:
+            msg.status = "draft"
+        else:
+            msg.status = "scheduled"
+            msg.send_at = _now()
+        session.add(msg)
+        if not chat.is_simulated:
+            log_event(session, chat.id, "reminder", text_[:120])
+        await session.commit()
+    return 1
+
+
+# ── Рассылки ─────────────────────────────────────────────────────────────────
+
+# Ошибки «не у покупателя, а у нас»: ключи, подключение, сеть — рассылка встаёт на паузу, получатели ждут
+_PAUSE_PROBLEMS = ("токен", "не подключён", "Нет связи", "401", "403", "429")
+
+
+async def broadcast_step() -> bool:
+    """Одно сообщение одной идущей рассылки, если подошла её очередь. True — что-то сделали."""
+    async with AsyncSessionFactory() as session:
+        cfg = await load_config(session)
+        res = await session.execute(text(
+            "UPDATE avito_broadcasts SET next_send_at = now() + make_interval(secs => :iv) WHERE id = ("
+            " SELECT id FROM avito_broadcasts WHERE status = 'sending' AND (next_send_at IS NULL OR next_send_at <= now())"
+            " ORDER BY started_at LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING id"
+        ), {"iv": cfg.broadcast_interval_seconds})
+        bid = res.scalar()
+        if bid is None:
+            await session.commit()
+            return False
+        b = await session.get(AvitoBroadcast, bid)
+        rec = (await session.execute(
+            select(AvitoBroadcastRecipient)
+            .where(AvitoBroadcastRecipient.broadcast_id == bid, AvitoBroadcastRecipient.status == "pending")
+            .limit(1).with_for_update(skip_locked=True)
+        )).scalar_one_or_none()
+        if rec is None:
+            b.status = "done"
+            b.finished_at = _now()
+            await session.commit()
+            logger.info("avito_broadcast_done", id=str(bid), sent=b.sent, failed=b.failed)
+            return True
+        chat = await session.get(AvitoChat, rec.chat_id)
+        if chat is None or chat.opted_out:
+            rec.status = "skipped"
+            rec.error = "покупатель просил не писать" if chat else "диалог удалён"
+            b.skipped += 1
+            b.next_send_at = _now()  # пропуск не тратит паузу
+            await session.commit()
+            return True
+        msg = AvitoMessage(chat_id=chat.id, author="staff", text=render_template(b.text, chat.item_title, chat.client_name),
+                           source="broadcast")
+        error = await _send(cfg, chat, msg, session)
+        if error:
+            rec.status = "failed"
+            rec.error = error[:300]
+            b.failed += 1
+            stuck = any(p in error for p in _PAUSE_PROBLEMS)
+            if stuck:
+                rec.status = "pending"   # этого получателя попробуем снова после возобновления
+                b.failed -= 1
+            if stuck or (b.failed >= 3 and b.sent == 0):
+                # Авито не пускает или всё подряд падает — нет смысла жечь остальных получателей
+                b.status = "paused"
+                await session.commit()
+                await alert("broadcast", "Рассылка на паузе", f"«{b.title}»: {error[:120]}")
+                return True
+        else:
+            msg.status = "sent"
+            msg.sent_at = _now()
+            session.add(msg)
+            _touch(chat, msg.text)
+            chat.last_broadcast_at = _now()
+            rec.status = "sent"
+            rec.sent_at = _now()
+            b.sent += 1
+        await session.commit()
+    return True
+
+
+async def create_broadcast(title: str, text_: str, chat_ids: list[UUID], created_by: str | None) -> UUID:
+    async with AsyncSessionFactory() as session:
+        chats = (await session.execute(select(AvitoChat.id, AvitoChat.opted_out).where(AvitoChat.id.in_(chat_ids)))).all()
+        ok = [cid for cid, opted in chats if not opted]
+        if not ok:
+            raise ActionError("Некому отправлять: выбранные покупатели просили не писать или диалоги удалены")
+        b = AvitoBroadcast(title=title.strip() or text_.strip()[:60], text=text_.strip(), total=len(ok), created_by=created_by)
+        session.add(b)
+        await session.flush()
+        session.add_all(AvitoBroadcastRecipient(broadcast_id=b.id, chat_id=cid) for cid in ok)
+        await session.commit()
+        return b.id
+
+
+async def set_broadcast_status(broadcast_id: UUID, action: str) -> None:
+    async with AsyncSessionFactory() as session:
+        cfg = await load_config(session)
+        b = await session.get(AvitoBroadcast, broadcast_id, with_for_update=True)
+        if b is None:
+            raise ActionError("Рассылка не найдена")
+        if action == "start":
+            if b.status not in ("draft", "paused"):
+                raise ActionError("Рассылку уже нельзя запустить")
+            live = (await session.execute(
+                select(func.count()).select_from(AvitoBroadcastRecipient)
+                .join(AvitoChat, AvitoChat.id == AvitoBroadcastRecipient.chat_id)
+                .where(AvitoBroadcastRecipient.broadcast_id == b.id, AvitoBroadcastRecipient.status == "pending",
+                       AvitoChat.is_simulated.is_(False))
+            )).scalar_one()
+            if live and not cfg.avito_connected_at:
+                raise ActionError("Сначала подключите Авито в настройках бота")
+            b.status = "sending"
+            b.started_at = b.started_at or _now()
+            b.next_send_at = _now()
+        elif action == "pause":
+            if b.status != "sending":
+                raise ActionError("Рассылка сейчас не идёт")
+            b.status = "paused"
+        elif action == "cancel":
+            if b.status in ("done", "cancelled"):
+                raise ActionError("Рассылка уже завершена")
+            b.status = "cancelled"
+            b.finished_at = _now()
+            await session.execute(
+                update(AvitoBroadcastRecipient)
+                .where(AvitoBroadcastRecipient.broadcast_id == b.id, AvitoBroadcastRecipient.status == "pending")
+                .values(status="skipped", error="рассылка отменена")
+            )
+        await session.commit()
+
+
+async def set_opt_out(chat_id: UUID, value: bool) -> None:
+    async with AsyncSessionFactory() as session:
+        chat = await session.get(AvitoChat, chat_id)
+        if chat is None:
+            raise ActionError("Диалог не найден")
+        chat.opted_out = value
+        await session.commit()
 
 
 # ── Действия сотрудника ──────────────────────────────────────────────────────

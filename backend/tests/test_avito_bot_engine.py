@@ -158,6 +158,33 @@ def test_prompt_with_orders_and_examples():
     assert '"order"' not in no_orders
 
 
+def test_reminder_template_and_window():
+    from src.app.core.avito_bot_engine import in_window, render_reminder
+    t = "Здравствуйте, {name}! Остался ли вопрос по {item}? {unknown}"
+    assert render_reminder(t, "iPhone 17 Pro", "Алексей") == "Здравствуйте, Алексей! Остался ли вопрос по iPhone 17 Pro? {unknown}"
+    assert render_reminder("Здравствуйте, {name}! По {item}?", None, None) == "Здравствуйте! По товару?"
+    assert in_window(NOW, "10:00", "20:00")                    # 13:00
+    assert not in_window(NOW, "14:00", "20:00")
+    assert in_window(datetime(2026, 11, 24, 23, 0, tzinfo=MSK), "22:00", "02:00")
+
+
+def test_reminder_messages_end_with_nudge():
+    from src.app.core.avito_bot_engine import build_reminder_messages
+    ctx = ChatContext("iPhone", None, None, [("client", "Цена?"), ("bot", "147 990 ₽, забронировать?")])
+    msgs = build_reminder_messages(PromptConfig("Дарья", "коротко", "", ""), ctx, [], NOW)
+    assert [m["role"] for m in msgs] == ["system", "user", "assistant", "user"]
+    assert "напоминание" in msgs[0]["content"] and "молчит" in msgs[-1]["content"]
+
+
+def test_opt_out():
+    from src.app.core.avito_bot_engine import wants_opt_out
+    for t in ["Не пишите мне больше", "отпишите меня", "Хватит писать!", "стоп", "Это спам", "уберите меня из рассылки",
+              "не надо мне рассылки"]:
+        assert wants_opt_out(t), t
+    for t in ["Нет, спасибо", "не надо, уже купил", "Стоп, а гарантия какая?", "напишите цену", "Пишите в любое время"]:
+        assert not wants_opt_out(t), t
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

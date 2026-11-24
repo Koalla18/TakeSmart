@@ -12,24 +12,28 @@ from __future__ import annotations
 
 import hmac
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select
 
 from src.app.api.admin.endpoints import get_current_admin
 from src.app.core import avito_bot_service as bot
-from src.app.core import avito_client
-from src.app.core.avito_bot_engine import ChatContext
+from src.app.core import avito_bot_analytics, avito_client
+from src.app.core.avito_bot_engine import ChatContext, render_template
 from src.app.core.logger import get_logger
-from src.app.database.models.avito_bot import AvitoBotExample, AvitoBotRule, AvitoChat, AvitoItemLink, AvitoMessage
+from src.app.database.models.admin import Admin
+from src.app.database.models.avito_bot import (
+    AvitoBotExample, AvitoBotRule, AvitoBroadcast, AvitoBroadcastRecipient, AvitoChat, AvitoItemLink, AvitoMessage,
+)
 from src.app.database.models.product import Product
 from src.app.database.session import AsyncSessionFactory
 from src.app.schemas.avito_bot import (
-    SECRET_FIELDS, ApproveIn, AvitoBotConfigIn, AvitoBotConfigOut, ChatDetailOut, ChatOut, ChatsOut, ConnectOut,
+    SECRET_FIELDS, ApproveIn, AudienceChatOut, AudienceOut, AvitoAnalyticsOut, AvitoBotConfigIn, BroadcastCreate,
+    BroadcastDetailOut, BroadcastOut, BroadcastPreviewIn, BroadcastRecipientOut, OptOutIn, AvitoBotConfigOut, ChatDetailOut, ChatOut, ChatsOut, ConnectOut,
     DecisionOut, ExampleOut, ExamplePatch, HealthOut, LearningOut, LinkedProductOut, LinkIn, MessageOut, RuleIn,
     RuleOut, RulePatch, RulesImportIn, RulesImportOut, SendIn, SimulateIn, StatusOut, TestIn, UnansweredOut,
 )
@@ -324,6 +328,149 @@ async def message_discard(message_id: UUID) -> Response:
 
 
 # ── Тест ─────────────────────────────────────────────────────────────────────
+
+# ── Рассылки ─────────────────────────────────────────────────────────────────
+
+@router.get("/audience", response_model=AudienceOut, dependencies=ADMIN, summary="Кому можно отправить рассылку")
+async def audience(
+    days: int = Query(30, ge=1, le=365, description="Покупатель писал за последние N дней"),
+    q: str | None = Query(None, max_length=100, description="Имя покупателя или объявление"),
+    has_order: str = Query("any", pattern="^(any|yes|no)$"),
+    skip_recent_days: int = Query(7, ge=0, le=90, description="Не слать тем, кто получал рассылку за N дней"),
+    include_test: bool = False,
+    limit: int = Query(1000, ge=1, le=5000),
+) -> AudienceOut:
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    conds = [AvitoChat.last_message_at >= since,
+             AvitoChat.id.in_(select(AvitoMessage.chat_id).where(AvitoMessage.author == "client"))]
+    if not include_test:
+        conds.append(AvitoChat.is_simulated.is_(False))
+    if q and q.strip():
+        like = f"%{q.strip()}%"
+        conds.append(or_(AvitoChat.client_name.ilike(like), AvitoChat.item_title.ilike(like)))
+    if has_order == "yes":
+        conds.append(AvitoChat.order_id.is_not(None))
+    elif has_order == "no":
+        conds.append(AvitoChat.order_id.is_(None))
+    if skip_recent_days:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=skip_recent_days)
+        conds.append(or_(AvitoChat.last_broadcast_at.is_(None), AvitoChat.last_broadcast_at < cutoff))
+    async with AsyncSessionFactory() as session:
+        opted = (await session.execute(select(func.count(AvitoChat.id)).where(*conds, AvitoChat.opted_out.is_(True)))).scalar_one()
+        base = select(AvitoChat).where(*conds, AvitoChat.opted_out.is_(False))
+        total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+        chats = (await session.execute(base.order_by(AvitoChat.last_message_at.desc()).limit(limit))).scalars().all()
+    return AudienceOut(chats=[AudienceChatOut.model_validate(c) for c in chats], total=total, opted_out=opted)
+
+
+async def _replied_chats(session, broadcast_id: UUID) -> set[UUID]:
+    """Получатели, которые написали что-то после рассылки."""
+    res = await session.execute(
+        select(AvitoBroadcastRecipient.chat_id).where(
+            AvitoBroadcastRecipient.broadcast_id == broadcast_id, AvitoBroadcastRecipient.status == "sent",
+            select(AvitoMessage.id).where(
+                AvitoMessage.chat_id == AvitoBroadcastRecipient.chat_id, AvitoMessage.author == "client",
+                AvitoMessage.created_at > AvitoBroadcastRecipient.sent_at,
+            ).exists(),
+        )
+    )
+    return set(res.scalars().all())
+
+
+@router.get("/broadcasts", response_model=list[BroadcastOut], dependencies=ADMIN)
+async def list_broadcasts() -> list[BroadcastOut]:
+    async with AsyncSessionFactory() as session:
+        items = (await session.execute(select(AvitoBroadcast).order_by(AvitoBroadcast.created_at.desc()).limit(100))).scalars().all()
+        out = []
+        for b in items:
+            o = BroadcastOut.model_validate(b)
+            o.replied = len(await _replied_chats(session, b.id)) if b.sent else 0
+            out.append(o)
+    return out
+
+
+@router.get("/broadcasts/{broadcast_id}", response_model=BroadcastDetailOut, dependencies=ADMIN)
+async def get_broadcast(broadcast_id: UUID) -> BroadcastDetailOut:
+    async with AsyncSessionFactory() as session:
+        b = await session.get(AvitoBroadcast, broadcast_id)
+        if b is None:
+            raise HTTPException(status_code=404, detail="Рассылка не найдена")
+        replied = await _replied_chats(session, b.id)
+        rows = (await session.execute(
+            select(AvitoBroadcastRecipient, AvitoChat.client_name, AvitoChat.item_title)
+            .join(AvitoChat, AvitoChat.id == AvitoBroadcastRecipient.chat_id)
+            .where(AvitoBroadcastRecipient.broadcast_id == b.id)
+            .order_by(AvitoBroadcastRecipient.sent_at.desc().nullslast())
+        )).all()
+    detail = BroadcastDetailOut(**BroadcastOut.model_validate(b).model_dump(exclude={"replied"}), replied=len(replied), recipients=[
+        BroadcastRecipientOut(chat_id=r.chat_id, client_name=name, item_title=item, status=r.status, error=r.error,
+                              sent_at=r.sent_at, replied=r.chat_id in replied)
+        for r, name, item in rows
+    ])
+    return detail
+
+
+@router.post("/broadcasts", response_model=BroadcastOut, status_code=status.HTTP_201_CREATED)
+async def create_broadcast(body: BroadcastCreate, admin: Admin = Depends(get_current_admin)) -> BroadcastOut:
+    try:
+        bid = await bot.create_broadcast(body.title, body.text, list(dict.fromkeys(body.chat_ids)), admin.username)
+        if body.start:
+            await bot.set_broadcast_status(bid, "start")
+    except bot.ActionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    async with AsyncSessionFactory() as session:
+        return BroadcastOut.model_validate(await session.get(AvitoBroadcast, bid))
+
+
+@router.post("/broadcasts/{broadcast_id}/{action}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN)
+async def broadcast_action(broadcast_id: UUID, action: str) -> Response:
+    if action not in ("start", "pause", "cancel"):
+        raise HTTPException(status_code=404)
+    await _act(bot.set_broadcast_status(broadcast_id, action))
+    return Response(status_code=204)
+
+
+@router.delete("/broadcasts/{broadcast_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN)
+async def delete_broadcast(broadcast_id: UUID) -> Response:
+    async with AsyncSessionFactory() as session:
+        b = await session.get(AvitoBroadcast, broadcast_id)
+        if b is None:
+            raise HTTPException(status_code=404, detail="Рассылка не найдена")
+        if b.status in ("sending", "paused"):
+            raise HTTPException(status_code=409, detail="Сначала остановите рассылку")
+        await session.delete(b)
+        await session.commit()
+    return Response(status_code=204)
+
+
+@router.post("/broadcasts-preview", dependencies=ADMIN, summary="Как текст рассылки увидит конкретный покупатель")
+async def broadcast_preview(body: BroadcastPreviewIn) -> dict:
+    name = item = None
+    if body.chat_id:
+        async with AsyncSessionFactory() as session:
+            chat = await session.get(AvitoChat, body.chat_id)
+            if chat is not None:
+                name, item = chat.client_name, chat.item_title
+    return {"text": render_template(body.text, item, name)}
+
+
+@router.post("/chats/{chat_id}/opt-out", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN,
+             summary="Не присылать этому покупателю рассылки")
+async def chat_opt_out(chat_id: UUID, body: OptOutIn) -> Response:
+    await _act(bot.set_opt_out(chat_id, body.value))
+    return Response(status_code=204)
+
+
+# ── Аналитика ────────────────────────────────────────────────────────────────
+
+@router.get("/analytics", response_model=AvitoAnalyticsOut, dependencies=ADMIN, summary="Аналитика бота за последние N дней")
+async def analytics(days: int = Query(7, ge=1, le=90)) -> AvitoAnalyticsOut:
+    async with AsyncSessionFactory() as session:
+        cfg = await bot.load_config(session)
+        out = await avito_bot_analytics.build(session, cfg, days)
+        await session.commit()
+    return out
+
 
 # ── Обучение ─────────────────────────────────────────────────────────────────
 

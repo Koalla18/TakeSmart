@@ -331,3 +331,60 @@ def pick_examples(question: str, examples: Sequence[tuple[str, str]], limit: int
             scored.append((score, ex_q, ex_a))
     scored.sort(key=lambda x: -x[0])
     return [(q_, a_) for _, q_, a_ in scored[:limit]]
+
+
+# ── Напоминания ──────────────────────────────────────────────────────────────
+
+def build_reminder_messages(cfg: PromptConfig, ctx: ChatContext, catalog_lines: Sequence[str], now: datetime) -> list[dict[str, str]]:
+    """Модель решает, уместно ли одно напоминание замолчавшему покупателю, и пишет его."""
+    now = now.astimezone(MSK)
+    system = "\n".join([
+        f"Ты — {cfg.persona_name}, менеджер магазина техники TakeSmart, переписка в чате Авито.",
+        "Покупатель не ответил на твоё последнее сообщение. Реши, уместно ли ОДНО короткое ненавязчивое напоминание.",
+        "Не напоминай (reply пустой), если покупатель отказался, уже купил, договорились о встрече, попрощался "
+        "или разговор естественно закончен.",
+        "Если уместно — 1–2 предложения: по-человечески, без давления и без повтора прошлого текста; можно "
+        "предложить забронировать или ответить на вопрос. Без markdown.",
+        "Стиль:", cfg.style.strip(),
+        f"Сейчас {DAY_NAMES[now.weekday()]}, {now:%H:%M} по Москве.",
+        *(["Товары и цены (не выдумывай других):", *catalog_lines] if catalog_lines else []),
+        'Ответь строго JSON: {"reply": "текст напоминания или пустая строка", "reason": "почему"}.',
+    ])
+    messages = [{"role": "system", "content": system}]
+    for author, text in ctx.history[-20:]:
+        messages.append({"role": "user" if author == "client" else "assistant", "content": text})
+    messages.append({"role": "user", "content": "(покупатель молчит; напиши напоминание или верни пустой reply)"})
+    return messages
+
+
+class _SafeDict(dict):
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
+def render_reminder(template: str, item_title: str | None, client_name: str | None) -> str:
+    text = template.format_map(_SafeDict(item=item_title or "товару", name=(client_name or "").strip()))
+    text = re.sub(r"\s*,\s*([!?.])", r"\1", text)  # пустое имя: «Здравствуйте, !» → «Здравствуйте!»
+    return _SPACES.sub(" ", text).strip()
+
+
+def in_window(now: datetime, start: str, end: str) -> bool:
+    now = now.astimezone(MSK)
+    cur, a, b = now.hour * 60 + now.minute, _minutes(start), _minutes(end)
+    return a <= cur <= b if a <= b else (cur >= a or cur <= b)
+
+
+# ── Рассылки ─────────────────────────────────────────────────────────────────
+
+_OPT_OUT = re.compile(
+    r"(не\s+(пишите|присылайте|беспокойте|надо\s+(мне\s+)?(писать|рассыл))|отпиш|уберите\s+меня|хватит\s+(писать|слать)|"
+    r"(стоп|прекратите)\s+(рассылк|спам|писать)|^стоп$|это\s+спам|заблокирую)", re.IGNORECASE)
+
+
+def wants_opt_out(text: str) -> bool:
+    """Покупатель просит больше не писать — в рассылки он больше не попадёт."""
+    return _OPT_OUT.search(normalize(text)) is not None
+
+
+def render_template(template: str, item_title: str | None, client_name: str | None) -> str:
+    return render_reminder(template, item_title, client_name)

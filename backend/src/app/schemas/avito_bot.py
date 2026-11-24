@@ -17,6 +17,7 @@ DEFAULT_STYLE = (
     "Заканчивай понятным следующим шагом: забронировать, приехать, оформить доставку — "
     "но только если это уместно."
 )
+DEFAULT_REMINDER = "Здравствуйте! Остался ли вопрос по {item}? Могу забронировать для вас или подсказать по доставке."
 DEFAULT_HANDOFF = "торг и скидки сверх условий, возврат, брак, претензия, жалоба, ремонт, юридические вопросы"
 
 
@@ -39,6 +40,19 @@ class AvitoBotConfig(BaseModel):
     use_catalog: bool = True
     orders_enabled: bool = False
     pickup_address: str = Field("ТЦ «Багратионовский», ул. Барклая 10, 1 этаж, павильон А60", max_length=300)
+
+    reminders_enabled: bool = False
+    reminder_after_minutes: int = Field(180, ge=1, le=1440)
+    reminder_window_hours: int = Field(24, ge=1, le=72)
+    reminder_from: str = Field("10:00", max_length=5)
+    reminder_to: str = Field("20:00", max_length=5)
+    reminder_use_llm: bool = True
+    reminder_template: str = Field(DEFAULT_REMINDER, max_length=1000)
+
+    broadcast_interval_seconds: int = Field(6, ge=2, le=120, description="Пауза между сообщениями рассылки")
+
+    llm_price_in: float = Field(0, ge=0, le=100000, description="₽ за 1 млн входных токенов — для оценки расходов")
+    llm_price_out: float = Field(0, ge=0, le=100000, description="₽ за 1 млн выходных токенов")
 
     llm_provider: LlmProvider = "none"
     llm_base_url: str = Field("", max_length=300)
@@ -70,6 +84,16 @@ class AvitoBotConfigOut(BaseModel):
     use_catalog: bool
     orders_enabled: bool
     pickup_address: str
+    reminders_enabled: bool
+    reminder_after_minutes: int
+    reminder_window_hours: int
+    reminder_from: str
+    reminder_to: str
+    reminder_use_llm: bool
+    reminder_template: str
+    llm_price_in: float
+    llm_price_out: float
+    broadcast_interval_seconds: int
     llm_provider: str
     llm_base_url: str
     llm_model: str
@@ -97,6 +121,16 @@ class AvitoBotConfigIn(BaseModel):
     use_catalog: bool | None = None
     orders_enabled: bool | None = None
     pickup_address: str | None = Field(None, max_length=300)
+    reminders_enabled: bool | None = None
+    reminder_after_minutes: int | None = Field(None, ge=1, le=1440)
+    reminder_window_hours: int | None = Field(None, ge=1, le=72)
+    reminder_from: str | None = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    reminder_to: str | None = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    reminder_use_llm: bool | None = None
+    reminder_template: str | None = Field(None, min_length=1, max_length=1000)
+    llm_price_in: float | None = Field(None, ge=0, le=100000)
+    llm_price_out: float | None = Field(None, ge=0, le=100000)
+    broadcast_interval_seconds: int | None = Field(None, ge=2, le=120)
     llm_provider: LlmProvider | None = None
     llm_base_url: str | None = Field(None, max_length=300)
     llm_model: str | None = Field(None, max_length=200)
@@ -222,6 +256,8 @@ class ChatOut(BaseModel):
     order_id: uuid.UUID | None = None
     order_number: str | None = None
     human_question: str | None = None
+    opted_out: bool = False
+    last_broadcast_at: datetime | None = None
     has_draft: bool = False
     model_config = {"from_attributes": True}
 
@@ -355,3 +391,114 @@ class ConnectOut(BaseModel):
     user_id: int | None
     webhook_url: str
     detail: str
+
+
+# ── Аналитика ────────────────────────────────────────────────────────────────
+
+class AnalyticsDay(BaseModel):
+    day: str
+    dialogs: int
+    bot_replies: int
+    staff_replies: int
+    orders: int
+
+
+class AnalyticsTop(BaseModel):
+    label: str
+    count: int
+
+
+class AvitoAnalyticsOut(BaseModel):
+    days: int
+    dialogs_new: int
+    dialogs_active: int
+    client_messages: int
+    bot_replies: int
+    bot_by_rule: int
+    bot_by_llm: int
+    staff_replies: int
+    auto_handled: int = Field(description="Активные диалоги, где не понадобился человек")
+    handoffs: int
+    response_median_s: float | None
+    response_p90_s: float | None
+    orders: int
+    orders_sum: float
+    reminders: int
+    reminders_replied: int
+    reminders_orders: int
+    examples_learned: int
+    llm_calls: int
+    llm_errors: int
+    llm_tokens_in: int
+    llm_tokens_out: int
+    llm_cost: float | None
+    series: list[AnalyticsDay]
+    top_rules: list[AnalyticsTop]
+    top_handoff_reasons: list[AnalyticsTop]
+
+
+# ── Рассылки ─────────────────────────────────────────────────────────────────
+
+class AudienceChatOut(BaseModel):
+    id: uuid.UUID
+    client_name: str | None
+    item_title: str | None
+    last_message_text: str | None
+    last_message_at: datetime | None
+    order_number: str | None
+    is_simulated: bool
+    last_broadcast_at: datetime | None
+    model_config = {"from_attributes": True}
+
+
+class AudienceOut(BaseModel):
+    chats: list[AudienceChatOut]
+    total: int
+    opted_out: int = Field(description="Сколько диалогов исключено, потому что покупатель просил не писать")
+
+
+class BroadcastCreate(BaseModel):
+    title: str = Field("", max_length=120)
+    text: str = Field(..., min_length=1, max_length=2000)
+    chat_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=5000)
+    start: bool = False
+
+
+class BroadcastPreviewIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000)
+    chat_id: uuid.UUID | None = None
+
+
+class BroadcastOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    text: str
+    status: str
+    total: int
+    sent: int
+    failed: int
+    skipped: int
+    replied: int = 0
+    created_by: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    model_config = {"from_attributes": True}
+
+
+class BroadcastRecipientOut(BaseModel):
+    chat_id: uuid.UUID
+    client_name: str | None
+    item_title: str | None
+    status: str
+    error: str | None
+    sent_at: datetime | None
+    replied: bool
+
+
+class BroadcastDetailOut(BroadcastOut):
+    recipients: list[BroadcastRecipientOut]
+
+
+class OptOutIn(BaseModel):
+    value: bool

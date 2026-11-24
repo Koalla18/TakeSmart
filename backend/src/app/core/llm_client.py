@@ -59,7 +59,14 @@ class LlmSettings:
         return model
 
 
-async def complete(cfg: LlmSettings, messages: list[dict[str, str]], max_tokens: int = 500) -> str:
+@dataclass
+class LlmResult:
+    text: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+
+async def complete(cfg: LlmSettings, messages: list[dict[str, str]], max_tokens: int = 500) -> LlmResult:
     if not cfg.ready:
         raise LlmError("Модель не настроена")
     headers = {"Authorization": f"Bearer {cfg.api_key}", "Content-Type": "application/json"}
@@ -81,6 +88,10 @@ async def complete(cfg: LlmSettings, messages: list[dict[str, str]], max_tokens:
         logger.warning("llm_http_error", provider=cfg.provider, status=resp.status_code, body=resp.text[:300])
         raise LlmError(f"Модель ответила ошибкой {resp.status_code}: {resp.text[:160]}")
     try:
-        return resp.json()["choices"][0]["message"]["content"] or ""
+        data = resp.json()
+        text = data["choices"][0]["message"]["content"] or ""
     except (ValueError, KeyError, IndexError, TypeError) as exc:
         raise LlmError("Непонятный ответ модели") from exc
+    usage = data.get("usage") or {}
+    return LlmResult(text, int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
+                     int(usage.get("completion_tokens") or usage.get("output_tokens") or 0))

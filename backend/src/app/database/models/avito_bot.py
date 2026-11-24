@@ -15,10 +15,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func, text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
 from sqlalchemy import text as sql_text  # в AvitoMessage колонка text перекрывает функцию
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -77,6 +77,11 @@ class AvitoChat(Base):
                                                        comment="На что бот не смог ответить — для раздела «Обучение»")
     order_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="SET NULL"), nullable=True)
     order_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True,
+                                                              comment="Когда бот напомнил о себе (одно напоминание на диалог)")
+    opted_out: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"),
+                                            comment="Покупатель попросил не писать — в рассылки не попадает")
+    last_broadcast_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -126,3 +131,59 @@ class AvitoItemLink(Base):
     product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
     item_title: Mapped[str | None] = mapped_column(String(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AvitoBotEvent(Base):
+    """Журнал событий бота для аналитики: позвал человека, оформил бронь, напомнил и т.п."""
+    __tablename__ = "avito_bot_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chat_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("avito_chats.id", ondelete="CASCADE"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, index=True,
+                                      comment="handoff | order | reminder | reminder_skip | send_failed | poll_caught")
+    detail: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+
+class AvitoBotLlmUsage(Base):
+    """Расход модели по дням (московским): вызовы, ошибки, токены — для стоимости в аналитике."""
+    __tablename__ = "avito_bot_llm_usage"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    calls: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sql_text("0"))
+    errors: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sql_text("0"))
+    prompt_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=sql_text("0"))
+    completion_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=sql_text("0"))
+
+
+class AvitoBroadcast(Base):
+    """Рассылка по выбранным диалогам Авито. Уходит медленно, по одному сообщению раз в
+    broadcast_interval_seconds — чтобы Авито не счёл это спамом."""
+    __tablename__ = "avito_broadcasts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False, comment="Шаблон: {name}, {item}")
+    status: Mapped[str] = mapped_column(String(10), nullable=False, server_default="draft", index=True,
+                                        comment="draft | sending | paused | done | cancelled")
+    total: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sql_text("0"))
+    sent: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sql_text("0"))
+    failed: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sql_text("0"))
+    skipped: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sql_text("0"))
+    next_send_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AvitoBroadcastRecipient(Base):
+    __tablename__ = "avito_broadcast_recipients"
+    __table_args__ = (UniqueConstraint("broadcast_id", "chat_id", name="uq_avito_broadcast_chat"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    broadcast_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("avito_broadcasts.id", ondelete="CASCADE"), nullable=False, index=True)
+    chat_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("avito_chats.id", ondelete="CASCADE"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(10), nullable=False, server_default="pending", comment="pending | sent | failed | skipped")
+    error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

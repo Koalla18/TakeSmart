@@ -14,7 +14,7 @@ from src.app.database.models.page_visit import PageVisit
 from src.app.database.models.site_setting import SiteSetting
 from src.app.database.models.iphone_install import InstallStation, InstallJob
 from src.app.database.models.install_order import InstallAccount, InstallApp, InstallOrder
-from src.app.database.models.avito_bot import AvitoBotExample, AvitoBotRule, AvitoChat, AvitoItemLink, AvitoMessage
+from src.app.database.models.avito_bot import AvitoBotEvent, AvitoBotExample, AvitoBroadcast, AvitoBroadcastRecipient, AvitoBotLlmUsage, AvitoBotRule, AvitoChat, AvitoItemLink, AvitoMessage
 
 __all__ = [
     "Category", "Product", "ProductSpec",
@@ -23,5 +23,5 @@ __all__ = [
     "Brand", "TradeInOffer", "PageVisit", "SiteSetting",
     "InstallStation", "InstallJob",
     "InstallAccount", "InstallApp", "InstallOrder",
-    "AvitoBotRule", "AvitoChat", "AvitoMessage", "AvitoBotExample", "AvitoItemLink",
+    "AvitoBotRule", "AvitoChat", "AvitoMessage", "AvitoBotExample", "AvitoItemLink", "AvitoBotEvent", "AvitoBotLlmUsage", "AvitoBroadcast", "AvitoBroadcastRecipient",
 ]
