@@ -22,7 +22,7 @@ from sqlalchemy import delete, func, or_, select
 
 from src.app.api.admin.endpoints import get_current_admin
 from src.app.core import avito_bot_service as bot
-from src.app.core import avito_bot_analytics, avito_client
+from src.app.core import avito_bot_analytics, avito_client, llm_client
 from src.app.core.avito_bot_engine import ChatContext, render_template
 from src.app.core.logger import get_logger
 from src.app.database.models.admin import Admin
@@ -127,7 +127,21 @@ async def connect() -> ConnectOut:
 
 @router.post("/llm-check", response_model=DecisionOut, dependencies=ADMIN, summary="Проверить, что модель отвечает")
 async def llm_check() -> DecisionOut:
-    return await test_chat(TestIn(text="Здравствуйте! Подскажите, как к вам добраться?"))
+    """Прямой вопрос модели, мимо автоответов: иначе на проверку мог ответить автоответ."""
+    async with AsyncSessionFactory() as session:
+        cfg = await bot.load_config(session)
+        await session.commit()
+    if not bot.llm_settings(cfg).ready:
+        return DecisionOut(action="handoff", text=None, source=None, rule_id=None, delay_seconds=0,
+                           reason="Модель не настроена: проверьте ключ и обязательные поля")
+    try:
+        text_ = await bot.llm_call(cfg, [
+            {"role": "system", "content": "Ты помощник магазина. Ответь одним коротким предложением по-русски."},
+            {"role": "user", "content": "Поздоровайся с покупателем и спроси, чем помочь."},
+        ])
+    except llm_client.LlmError as exc:
+        return DecisionOut(action="handoff", text=None, source=None, rule_id=None, delay_seconds=0, reason=str(exc)[:300])
+    return DecisionOut(action="reply", text=text_.strip()[:500], source="llm", rule_id=None, reason=None, delay_seconds=0)
 
 
 # ── Правила ──────────────────────────────────────────────────────────────────

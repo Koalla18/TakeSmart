@@ -185,6 +185,25 @@ def test_opt_out():
         assert not wants_opt_out(t), t
 
 
+def test_llm_provider_urls():
+    from src.app.core.llm_client import LlmSettings
+    q = LlmSettings("qwen", "", "", "sk-1", "", 0.4)
+    assert q.ready and q.resolved_model == "qwen3.7-plus"
+    assert q.resolved_base_url == "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    q.folder_id = "ws-123"
+    assert q.resolved_base_url == "https://ws-123.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+    q.base_url = "https://ws-123.us-east-1.maas.aliyuncs.com/compatible-mode/v1/"
+    assert q.resolved_base_url.endswith("us-east-1.maas.aliyuncs.com/compatible-mode/v1")
+    y = LlmSettings("yandex", "", "qwen3.6-35b-a3b", "key", "b1gfolder", 0.4)
+    assert y.ready and y.resolved_model == "gpt://b1gfolder/qwen3.6-35b-a3b"
+    assert not LlmSettings("yandex", "", "", "key", "", 0.4).ready   # без каталога нельзя
+    t = LlmSettings("timeweb", "", "", "token", "620888ae-d3cb", 0.4)
+    assert t.ready and t.resolved_base_url == "https://agent.timeweb.cloud/api/v1/cloud-ai/agents/620888ae-d3cb/v1"
+    assert not LlmSettings("timeweb", "", "", "token", "", 0.4).ready   # нужен Access ID или OpenAI URL
+    pasted = LlmSettings("timeweb", "https://agent.timeweb.cloud/api/v1/cloud-ai/agents/abc/v1/chat/completions", "", "token", "", 0.4)
+    assert pasted.ready and pasted.resolved_base_url == "https://agent.timeweb.cloud/api/v1/cloud-ai/agents/abc/v1"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

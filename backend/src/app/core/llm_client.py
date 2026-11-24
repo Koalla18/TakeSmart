@@ -5,6 +5,13 @@
 значит поменять настройку в админке, без правки кода:
   yandex             — YandexGPT, https://llm.api.cloud.yandex.net/v1, модель gpt://<каталог>/<модель>
   deepseek           — https://api.deepseek.com, модель deepseek-chat
+  qwen               — Alibaba Cloud Model Studio (Qwen), регион Сингапур: с ID рабочего пространства —
+                       https://<workspace>.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1, без него —
+                       прежний общий адрес dashscope-intl. Ключ работает только в регионе, где создан.
+                       Qwen есть и в Yandex AI Studio: провайдер yandex, модель qwen3.6-35b-a3b
+  timeweb            — ИИ-агент Timeweb Cloud: https://agent.timeweb.cloud/api/v1/cloud-ai/agents/<Access ID>/v1,
+                       авторизация токеном агента (Bearer); модель (Qwen и др.) выбирается в панели агента,
+                       поле model в запросе игнорируется
   openai_compatible  — любой другой адрес (OpenRouter, свой сервер с Qwen и т.п.)
 """
 from __future__ import annotations
@@ -22,6 +29,8 @@ TIMEOUT = httpx.Timeout(40.0, connect=10.0)
 DEFAULTS = {
     "yandex": ("https://llm.api.cloud.yandex.net/v1", "yandexgpt/latest"),
     "deepseek": ("https://api.deepseek.com", "deepseek-chat"),
+    "qwen": ("https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen3.7-plus"),
+    "timeweb": ("", "agent"),
     "openai_compatible": ("", ""),
 }
 
@@ -43,12 +52,19 @@ class LlmSettings:
     def ready(self) -> bool:
         if self.provider not in DEFAULTS or not self.api_key:
             return False
-        if self.provider == "yandex" and not self.folder_id:
+        if self.provider in ("yandex", "timeweb") and not self.folder_id and not (self.provider == "timeweb" and self.base_url):
             return False
         return bool(self.resolved_base_url and self.resolved_model)
 
     @property
     def resolved_base_url(self) -> str:
+        if self.base_url:
+            # Вставили «OpenAI URL» целиком, вместе с /chat/completions — отрезаем хвост
+            return self.base_url.strip().rstrip("/").removesuffix("/chat/completions")
+        if self.provider == "timeweb" and self.folder_id:
+            return f"https://agent.timeweb.cloud/api/v1/cloud-ai/agents/{self.folder_id.strip()}/v1"
+        if self.provider == "qwen" and self.folder_id:
+            return f"https://{self.folder_id.strip()}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
         return (self.base_url or DEFAULTS.get(self.provider, ("", ""))[0]).rstrip("/")
 
     @property
@@ -79,9 +95,16 @@ async def complete(cfg: LlmSettings, messages: list[dict[str, str]], max_tokens:
         "temperature": cfg.temperature,
         "max_tokens": max_tokens,
     }
+    url = f"{cfg.resolved_base_url}/chat/completions"
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            resp = await client.post(f"{cfg.resolved_base_url}/chat/completions", headers=headers, json=body)
+            resp = await client.post(url, headers=headers, json=body)
+            # Часть моделей (например, gpt-5 у агентов Timeweb) не принимает temperature и max_tokens —
+            # повторяем запрос без них
+            if resp.status_code == 400 and ("temperature" in resp.text or "max_tokens" in resp.text):
+                body.pop("temperature", None)
+                body["max_completion_tokens"] = body.pop("max_tokens", max_tokens)
+                resp = await client.post(url, headers=headers, json=body)
     except httpx.HTTPError as exc:
         raise LlmError(f"Нет связи с моделью: {exc.__class__.__name__}") from exc
     if resp.status_code >= 400:

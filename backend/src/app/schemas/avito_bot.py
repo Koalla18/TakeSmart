@@ -23,7 +23,7 @@ DEFAULT_HANDOFF = "торг и скидки сверх условий, возв�
 
 # ── Настройки ────────────────────────────────────────────────────────────────
 
-LlmProvider = Literal["none", "yandex", "deepseek", "openai_compatible"]
+LlmProvider = Literal["none", "yandex", "deepseek", "qwen", "timeweb", "openai_compatible"]
 
 
 class AvitoBotConfig(BaseModel):
