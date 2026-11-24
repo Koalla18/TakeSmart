@@ -58,7 +58,7 @@ class AvitoBotConfig(BaseModel):
     llm_base_url: str = Field("", max_length=300)
     llm_model: str = Field("", max_length=200)
     llm_folder_id: str = Field("", max_length=100)
-    llm_api_key: str = Field("", max_length=500)
+    llm_api_key: str = Field("", max_length=2000)
     llm_temperature: float = Field(0.4, ge=0, le=1.5)
 
     avito_client_id: str = Field("", max_length=200)
