@@ -37,6 +37,8 @@ class AvitoBotConfig(BaseModel):
     reply_delay_min: int = Field(5, ge=0, le=300)
     reply_delay_max: int = Field(15, ge=0, le=600)
     use_catalog: bool = True
+    orders_enabled: bool = False
+    pickup_address: str = Field("ТЦ «Багратионовский», ул. Барклая 10, 1 этаж, павильон А60", max_length=300)
 
     llm_provider: LlmProvider = "none"
     llm_base_url: str = Field("", max_length=300)
@@ -66,6 +68,8 @@ class AvitoBotConfigOut(BaseModel):
     reply_delay_min: int
     reply_delay_max: int
     use_catalog: bool
+    orders_enabled: bool
+    pickup_address: str
     llm_provider: str
     llm_base_url: str
     llm_model: str
@@ -91,6 +95,8 @@ class AvitoBotConfigIn(BaseModel):
     reply_delay_min: int | None = Field(None, ge=0, le=300)
     reply_delay_max: int | None = Field(None, ge=0, le=600)
     use_catalog: bool | None = None
+    orders_enabled: bool | None = None
+    pickup_address: str | None = Field(None, max_length=300)
     llm_provider: LlmProvider | None = None
     llm_base_url: str | None = Field(None, max_length=300)
     llm_model: str | None = Field(None, max_length=200)
@@ -190,6 +196,9 @@ class MessageOut(BaseModel):
     source: str | None
     rule_id: uuid.UUID | None
     error: str | None
+    send_at: datetime | None = None
+    attempts: int = 0
+    order_payload: dict | None = None
     created_at: datetime
     sent_at: datetime | None
     model_config = {"from_attributes": True}
@@ -210,12 +219,24 @@ class ChatOut(BaseModel):
     last_message_text: str | None
     last_message_at: datetime | None
     created_at: datetime
+    order_id: uuid.UUID | None = None
+    order_number: str | None = None
+    human_question: str | None = None
     has_draft: bool = False
     model_config = {"from_attributes": True}
 
 
+class LinkedProductOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    price: float
+    stock_quantity: int
+    is_preorder: bool
+
+
 class ChatDetailOut(ChatOut):
     messages: list[MessageOut]
+    linked_product: LinkedProductOut | None = None
 
 
 class ChatsOut(BaseModel):
@@ -263,6 +284,19 @@ class DecisionOut(BaseModel):
     reason: str | None
     delay_seconds: int
     catalog: list[str] = Field(default_factory=list, description="Какие товары каталога модель видела")
+    order: dict | None = Field(None, description="Бронь, которую бот оформил бы")
+    examples_used: int = 0
+
+
+class HealthOut(BaseModel):
+    last_webhook_at: datetime | None = None
+    last_poll_at: datetime | None = None
+    last_poll_error: str | None = None
+    caught_by_poll: int = Field(0, description="Сообщений, которые пришли не вебхуком, а опросом")
+    llm_fail_streak: int = 0
+    last_llm_error: str | None = None
+    queue_replies: int = 0
+    queue_sends: int = 0
 
 
 class StatusOut(BaseModel):
@@ -272,6 +306,48 @@ class StatusOut(BaseModel):
     avito_ready: bool
     avito_connected: bool
     webhook_url: str | None
+    health: HealthOut
+
+
+# ── Обучение и привязка объявлений ───────────────────────────────────────────
+
+class ExampleOut(BaseModel):
+    id: uuid.UUID
+    question: str
+    bot_answer: str | None
+    answer: str
+    item_title: str | None
+    chat_id: uuid.UUID | None
+    is_active: bool
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+
+class ExamplePatch(BaseModel):
+    answer: str | None = Field(None, min_length=1, max_length=4000)
+    is_active: bool | None = None
+
+
+class UnansweredOut(BaseModel):
+    chat_id: uuid.UUID
+    client_name: str | None
+    item_title: str | None
+    question: str
+    reason: str | None
+    at: datetime | None
+
+
+class LearningOut(BaseModel):
+    examples: list[ExampleOut]
+    unanswered: list[UnansweredOut]
+
+
+class ProductHitOut(LinkedProductOut):
+    pass
+
+
+class LinkIn(BaseModel):
+    product_id: uuid.UUID
 
 
 class ConnectOut(BaseModel):

@@ -7,6 +7,8 @@
   GET  /messenger/v2/accounts/{user_id}/chats/{chat_id}         — объявление и собеседник
   POST /messenger/v1/accounts/{user_id}/chats/{chat_id}/messages — отправить текст
   POST /messenger/v1/accounts/{user_id}/chats/{chat_id}/read    — пометить прочитанным
+  GET  /messenger/v2/accounts/{user_id}/chats?unread_only=true  — непрочитанные чаты (догонялка)
+  GET  /messenger/v3/accounts/{user_id}/chats/{chat_id}/messages/ — последние сообщения чата
 
 Токен кэшируется в памяти процесса до истечения.
 """
@@ -18,11 +20,12 @@ from typing import Any
 
 import httpx
 
+from src.app.core.config import settings
 from src.app.core.logger import get_logger
 
 logger = get_logger(__name__)
 
-BASE = "https://api.avito.ru"
+BASE = settings.AVITO_API_BASE.rstrip("/")
 TIMEOUT = httpx.Timeout(20.0, connect=10.0)
 
 _TOKENS: dict[str, tuple[str, float]] = {}  # client_id → (token, истекает в monotonic)
@@ -111,6 +114,19 @@ async def mark_read(creds: AvitoCreds, chat_id: str) -> None:
         await _request(creds, "POST", f"/messenger/v1/accounts/{_need_user(creds)}/chats/{chat_id}/read")
     except AvitoError:
         pass  # не критично
+
+
+async def list_chats(creds: AvitoCreds, unread_only: bool = True, limit: int = 50) -> list[dict[str, Any]]:
+    flag = "true" if unread_only else "false"
+    data = await _request(creds, "GET", f"/messenger/v2/accounts/{_need_user(creds)}/chats?unread_only={flag}&chat_types=u2i&limit={limit}")
+    return list((data or {}).get("chats") or [])
+
+
+async def list_messages(creds: AvitoCreds, chat_id: str, limit: int = 20) -> list[dict[str, Any]]:
+    data = await _request(creds, "GET", f"/messenger/v3/accounts/{_need_user(creds)}/chats/{chat_id}/messages/?limit={limit}")
+    if isinstance(data, list):
+        return data
+    return list((data or {}).get("messages") or [])
 
 
 def chat_meta(chat: dict[str, Any], own_user_id: int | None) -> dict[str, Any]:

@@ -131,7 +131,9 @@ class PromptConfig:
 
 
 def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatContext,
-                        catalog_lines: Sequence[str], now: datetime, hint: str | None = None) -> str:
+                        catalog_lines: Sequence[str], now: datetime, hint: str | None = None,
+                        examples: Sequence[tuple[str, str]] = (), orders_enabled: bool = False,
+                        pickup_address: str = "") -> str:
     now = now.astimezone(MSK)
     parts = [
         f"Ты — {cfg.persona_name}, менеджер магазина техники TakeSmart (Москва), отвечаешь покупателям "
@@ -164,10 +166,27 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
     if cfg.knowledge.strip():
         parts += ["", "Что ещё нужно знать о магазине:", cfg.knowledge.strip()]
     if catalog_lines:
-        parts += ["", "Товары из каталога магазина, подходящие к разговору (живые цены и наличие):", *catalog_lines]
+        parts += ["", "Товары из каталога магазина, подходящие к разговору (живые цены и наличие):"]
+        parts += [f"[{i}] {line.lstrip('• ')}" for i, line in enumerate(catalog_lines, 1)]
+    if examples:
+        parts += ["", "Как сотрудники магазина отвечали в похожих случаях (повторяй их факты и манеру):"]
+        for q, a in examples:
+            parts.append(f"Покупатель: {q.strip()[:300]}\nСотрудник: {a.strip()[:500]}")
     if hint:
         parts += ["", f"Подсказка: по смыслу подходит готовый ответ магазина — «{hint.strip()}». "
                       "Используй его факты, но ответь уместно контексту диалога."]
+    if orders_enabled and catalog_lines:
+        parts += [
+            "",
+            "Бронь: ты можешь оформить заказ сам. Делай это ТОЛЬКО когда покупатель явно согласился "
+            "купить или забронировать конкретный товар из списка выше и понятно, как он получит товар: "
+            f"самовывоз ({pickup_address or 'в магазине'}) или доставка (тогда нужен адрес). "
+            "Телефон не обязателен — связь через чат Авито. Если чего-то не хватает — сначала спроси. "
+            'Тогда добавь в JSON поле "order": {"item": номер товара в квадратных скобках, '
+            '"method": "pickup" или "delivery", "address": "адрес или пусто", "name": "имя или пусто", '
+            '"phone": "телефон как в переписке или пусто", "comment": "пожелания или пусто"}, '
+            "а в reply подтверди бронь своими словами.",
+        ]
     parts += [
         "",
         'Ответь строго JSON-объектом без пояснений: {"reply": "текст сообщения покупателю или пустая строка", '
@@ -195,6 +214,7 @@ class LlmVerdict:
     reply: str
     handoff: bool
     reason: str
+    order: dict[str, Any] | None = None
 
 
 _JSON_OBJ = re.compile(r"\{.*\}", re.DOTALL)
@@ -207,10 +227,12 @@ def parse_llm_answer(raw: str) -> LlmVerdict:
     if m:
         try:
             data = json.loads(m.group(0))
+            order = data.get("order")
             return LlmVerdict(
                 reply=str(data.get("reply") or "").strip(),
                 handoff=bool(data.get("handoff")),
                 reason=str(data.get("reason") or "").strip()[:200],
+                order=order if isinstance(order, dict) and order.get("item") else None,
             )
         except (ValueError, TypeError):
             pass
@@ -248,3 +270,64 @@ def catalog_tokens(item_title: str | None, question: str | None = None) -> list[
         if _LATIN.search(tok) and len(tok) >= 2 or (tok.isdigit() and len(tok) >= 2):
             add(tok)
     return seen[:8]
+
+
+# ── Персональные данные ──────────────────────────────────────────────────────
+# Телефоны, карты и почта уходят модели как метки «[телефон 1]»; метки возвращаются
+# обратно в ответе и в брони. Модель (тем более зарубежная) реальных данных не видит.
+
+_PII = [
+    ("карта", re.compile(r"(?<!\d)(?:\d[ -]?){15,18}\d(?!\d)")),
+    ("телефон", re.compile(r"(?<![\w+])(?:\+7|8)[\s(-]*\d{3}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}(?!\d)")),
+    ("почта", re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")),
+]
+
+
+class PiiMasker:
+    def __init__(self) -> None:
+        self.mapping: dict[str, str] = {}
+        self._reverse: dict[str, str] = {}
+        self._counts: dict[str, int] = {}
+
+    def mask(self, text: str) -> str:
+        for kind, rx in _PII:
+            text = rx.sub(lambda m, k=kind: self._token(k, m.group(0)), text)
+        return text
+
+    def _token(self, kind: str, value: str) -> str:
+        if value in self._reverse:
+            return self._reverse[value]
+        self._counts[kind] = self._counts.get(kind, 0) + 1
+        token = f"[{kind} {self._counts[kind]}]"
+        self.mapping[token] = value
+        self._reverse[value] = token
+        return token
+
+    def unmask(self, text: str) -> str:
+        for token, value in self.mapping.items():
+            text = text.replace(token, value)
+        return text
+
+
+# ── Примеры сотрудников ──────────────────────────────────────────────────────
+
+def _words(text: str) -> set[str]:
+    return {w for w in normalize(text).split() if len(w) >= 3}
+
+
+def pick_examples(question: str, examples: Sequence[tuple[str, str]], limit: int = 4,
+                  min_score: float = 0.2) -> list[tuple[str, str]]:
+    """Похожие по словам вопросы (коэффициент Жаккара) — самые близкие первыми."""
+    q = _words(question)
+    if not q:
+        return []
+    scored = []
+    for ex_q, ex_a in examples:
+        w = _words(ex_q)
+        if not w:
+            continue
+        score = len(q & w) / len(q | w)
+        if score >= min_score:
+            scored.append((score, ex_q, ex_a))
+    scored.sort(key=lambda x: -x[0])
+    return [(q_, a_) for _, q_, a_ in scored[:limit]]

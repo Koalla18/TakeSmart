@@ -25,12 +25,13 @@ from src.app.core import avito_bot_service as bot
 from src.app.core import avito_client
 from src.app.core.avito_bot_engine import ChatContext
 from src.app.core.logger import get_logger
-from src.app.database.models.avito_bot import AvitoBotRule, AvitoChat, AvitoMessage
+from src.app.database.models.avito_bot import AvitoBotExample, AvitoBotRule, AvitoChat, AvitoItemLink, AvitoMessage
+from src.app.database.models.product import Product
 from src.app.database.session import AsyncSessionFactory
 from src.app.schemas.avito_bot import (
     SECRET_FIELDS, ApproveIn, AvitoBotConfigIn, AvitoBotConfigOut, ChatDetailOut, ChatOut, ChatsOut, ConnectOut,
-    DecisionOut, MessageOut, RuleIn, RuleOut, RulePatch, RulesImportIn, RulesImportOut, SendIn, SimulateIn,
-    StatusOut, TestIn,
+    DecisionOut, ExampleOut, ExamplePatch, HealthOut, LearningOut, LinkedProductOut, LinkIn, MessageOut, RuleIn,
+    RuleOut, RulePatch, RulesImportIn, RulesImportOut, SendIn, SimulateIn, StatusOut, TestIn, UnansweredOut,
 )
 
 logger = get_logger(__name__)
@@ -86,11 +87,15 @@ async def put_settings(body: AvitoBotConfigIn) -> AvitoBotConfigOut:
 async def get_status() -> StatusOut:
     async with AsyncSessionFactory() as session:
         cfg = await bot.load_config(session)
+        health = await bot.load_health(session)
+        replies, sends = await bot.queue_sizes(session)
         await session.commit()
+    known = {k: v for k, v in health.items() if k in HealthOut.model_fields}
     return StatusOut(
         enabled=cfg.enabled, mode=cfg.mode, llm_ready=bot.llm_settings(cfg).ready,
         avito_ready=bot.avito_creds(cfg).ready, avito_connected=bool(cfg.avito_connected_at),
         webhook_url=bot.webhook_url(cfg) if cfg.avito_connected_at else None,
+        health=HealthOut(**known, queue_replies=replies, queue_sends=sends),
     )
 
 
@@ -255,9 +260,16 @@ async def get_chat(chat_id: UUID) -> ChatDetailOut:
             select(AvitoMessage).where(AvitoMessage.chat_id == chat_id, AvitoMessage.status != "discarded")
             .order_by(AvitoMessage.created_at)
         )).scalars().all()
-        detail = ChatDetailOut(**ChatOut.model_validate(chat).model_dump(), messages=[MessageOut.model_validate(m) for m in msgs])
+        linked = await bot.linked_product(session, chat.item_id)
+        detail = ChatDetailOut(**ChatOut.model_validate(chat).model_dump(), messages=[MessageOut.model_validate(m) for m in msgs],
+                               linked_product=_product_out(linked) if linked else None)
         detail.has_draft = any(m.status == "draft" for m in msgs)
         return detail
+
+
+def _product_out(p: Product) -> LinkedProductOut:
+    return LinkedProductOut(id=p.id, name=p.name, price=float(p.discount_price or p.price),
+                            stock_quantity=p.stock_quantity, is_preorder=p.is_preorder)
 
 
 async def _act(coro) -> None:
@@ -307,11 +319,99 @@ async def message_approve(message_id: UUID, body: ApproveIn) -> Response:
 
 @router.post("/messages/{message_id}/discard", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN)
 async def message_discard(message_id: UUID) -> Response:
-    await _act(bot.discard_draft(message_id))
+    await _act(bot.discard_message(message_id))
     return Response(status_code=204)
 
 
 # ── Тест ─────────────────────────────────────────────────────────────────────
+
+# ── Обучение ─────────────────────────────────────────────────────────────────
+
+@router.get("/learning", response_model=LearningOut, dependencies=ADMIN,
+            summary="Как сотрудники поправили бота и на что он не смог ответить")
+async def learning() -> LearningOut:
+    async with AsyncSessionFactory() as session:
+        examples = (await session.execute(
+            select(AvitoBotExample).order_by(AvitoBotExample.created_at.desc()).limit(200)
+        )).scalars().all()
+        chats = (await session.execute(
+            select(AvitoChat).where(AvitoChat.human_question.is_not(None), AvitoChat.is_simulated.is_(False))
+            .order_by(AvitoChat.last_message_at.desc().nullslast()).limit(50)
+        )).scalars().all()
+    return LearningOut(
+        examples=[ExampleOut.model_validate(e) for e in examples],
+        unanswered=[UnansweredOut(chat_id=c.id, client_name=c.client_name, item_title=c.item_title,
+                                  question=c.human_question or "", reason=c.human_reason, at=c.last_message_at) for c in chats],
+    )
+
+
+@router.patch("/examples/{example_id}", response_model=ExampleOut, dependencies=ADMIN)
+async def patch_example(example_id: UUID, body: ExamplePatch) -> ExampleOut:
+    async with AsyncSessionFactory() as session:
+        ex = await session.get(AvitoBotExample, example_id)
+        if ex is None:
+            raise HTTPException(status_code=404, detail="Пример не найден")
+        for k, v in body.model_dump(exclude_unset=True).items():
+            setattr(ex, k, v)
+        await session.commit()
+        await session.refresh(ex)
+        return ExampleOut.model_validate(ex)
+
+
+@router.delete("/examples/{example_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN)
+async def delete_example(example_id: UUID) -> Response:
+    async with AsyncSessionFactory() as session:
+        await session.execute(delete(AvitoBotExample).where(AvitoBotExample.id == example_id))
+        await session.commit()
+    return Response(status_code=204)
+
+
+@router.post("/chats/{chat_id}/dismiss-question", status_code=status.HTTP_204_NO_CONTENT, response_class=Response,
+             dependencies=ADMIN, summary="Убрать вопрос из «без ответа»")
+async def dismiss_question(chat_id: UUID) -> Response:
+    async with AsyncSessionFactory() as session:
+        chat = await session.get(AvitoChat, chat_id)
+        if chat is not None:
+            chat.human_question = None
+            await session.commit()
+    return Response(status_code=204)
+
+
+# ── Объявление → товар каталога ──────────────────────────────────────────────
+
+@router.get("/products", response_model=list[LinkedProductOut], dependencies=ADMIN, summary="Поиск товара для привязки")
+async def find_products(q: str = Query(..., min_length=2, max_length=200)) -> list[LinkedProductOut]:
+    async with AsyncSessionFactory() as session:
+        found = await bot.search_products(session, q, None, limit=12)
+        if not found:  # короткий русский запрос — простым вхождением
+            found = (await session.execute(
+                select(Product).where(Product.is_active.is_(True), Product.name.ilike(f"%{q}%")).limit(12)
+            )).scalars().all()
+    return [_product_out(p) for p in found]
+
+
+@router.put("/items/{item_id}/link", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN)
+async def link_item(item_id: int, body: LinkIn) -> Response:
+    async with AsyncSessionFactory() as session:
+        if await session.get(Product, body.product_id) is None:
+            raise HTTPException(status_code=404, detail="Товар не найден")
+        title = (await session.execute(select(AvitoChat.item_title).where(AvitoChat.item_id == item_id).limit(1))).scalar()
+        link = await session.get(AvitoItemLink, item_id)
+        if link is None:
+            session.add(AvitoItemLink(item_id=item_id, product_id=body.product_id, item_title=title))
+        else:
+            link.product_id = body.product_id
+        await session.commit()
+    return Response(status_code=204)
+
+
+@router.delete("/items/{item_id}/link", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN)
+async def unlink_item(item_id: int) -> Response:
+    async with AsyncSessionFactory() as session:
+        await session.execute(delete(AvitoItemLink).where(AvitoItemLink.item_id == item_id))
+        await session.commit()
+    return Response(status_code=204)
+
 
 @router.post("/test", response_model=DecisionOut, dependencies=ADMIN, summary="Что бот ответит — без сохранения")
 async def test_chat(body: TestIn) -> DecisionOut:
@@ -331,7 +431,8 @@ async def test_chat(body: TestIn) -> DecisionOut:
     return DecisionOut(
         action=decision.action, text=decision.text, source=decision.source,
         rule_id=decision.rule.id if decision.rule else None, reason=decision.reason,
-        delay_seconds=decision.delay_seconds, catalog=decision.catalog,
+        delay_seconds=decision.delay_seconds, catalog=decision.catalog, order=decision.order,
+        examples_used=decision.examples_used,
     )
 
 

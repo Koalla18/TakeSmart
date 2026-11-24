@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func, text
+from sqlalchemy import text as sql_text  # в AvitoMessage колонка text перекрывает функцию
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -69,6 +70,13 @@ class AvitoChat(Base):
                                                       comment="id правила → сколько раз сработало в этом диалоге")
     last_message_text: Mapped[str | None] = mapped_column(String(300), nullable=True)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    # Очередь: когда бот должен подумать над ответом. Новое сообщение покупателя сдвигает срок —
+    # так несколько сообщений подряд получают один ответ. Обработчик живёт в avito_bot_worker.
+    reply_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    human_question: Mapped[str | None] = mapped_column(String(500), nullable=True,
+                                                       comment="На что бот не смог ответить — для раздела «Обучение»")
+    order_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="SET NULL"), nullable=True)
+    order_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -82,9 +90,39 @@ class AvitoMessage(Base):
     author: Mapped[str] = mapped_column(String(8), nullable=False, comment="client | bot | staff")
     text: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(10), nullable=False, server_default="sent", index=True,
-                                        comment="sent | draft | discarded | failed")
+                                        comment="sent | scheduled | draft | discarded | failed")
     source: Mapped[str | None] = mapped_column(String(10), nullable=True, comment="rule | llm | staff | avito")
     rule_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("avito_bot_rules.id", ondelete="SET NULL"), nullable=True)
     error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    send_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True,
+                                                     comment="Для scheduled: когда отправить")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sql_text("0"))
+    order_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True,
+                                                                 comment="Бронь, которую бот оформит, когда сообщение уйдёт")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AvitoBotExample(Base):
+    """Как сотрудник ответил вместо бота (правка черновика или свой ответ). Похожие примеры
+    подмешиваются модели — бот учится на правках без переобучения."""
+    __tablename__ = "avito_bot_examples"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    bot_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    item_title: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    chat_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("avito_chats.id", ondelete="SET NULL"), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AvitoItemLink(Base):
+    """Объявление Авито → карточка каталога: точная цена и наличие для ответов."""
+    __tablename__ = "avito_item_links"
+
+    item_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
+    item_title: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

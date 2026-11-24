@@ -120,6 +120,44 @@ def test_rules_import_parser():
     assert len(errors) == 1
 
 
+def test_pii_masking_roundtrip():
+    from src.app.core.avito_bot_engine import PiiMasker
+    m = PiiMasker()
+    text = "Мой номер +7 (999) 802-10-22, карта 2202 2061 2345 6789, почта ivan@mail.ru. Цена 147 990 ₽"
+    masked = m.mask(text)
+    assert "802-10-22" not in masked and "6789" not in masked and "ivan@" not in masked
+    assert "[телефон 1]" in masked and "[карта 1]" in masked and "[почта 1]" in masked
+    assert "147 990" in masked                       # цены не трогаем
+    assert m.mask("звоните 8 999 802 10 22") == "звоните [телефон 2]"
+    assert m.mask("+7 (999) 802-10-22") == "[телефон 1]"   # тот же номер — та же метка
+    assert m.unmask("Записала ваш [телефон 1]") == "Записала ваш +7 (999) 802-10-22"
+
+
+def test_pick_examples():
+    from src.app.core.avito_bot_engine import pick_examples
+    ex = [("Можно ли забрать сегодня вечером?", "Да, до 21:00"), ("Есть ли рассрочка?", "Только кредит"),
+          ("Какая гарантия на айфон?", "12 месяцев")]
+    got = pick_examples("а забрать сегодня можно?", ex)
+    assert got and got[0][1] == "Да, до 21:00"
+    assert pick_examples("привет", ex) == []
+
+
+def test_parse_order():
+    v = parse_llm_answer('{"reply": "Забронировала!", "handoff": false, "order": {"item": 1, "method": "pickup"}}')
+    assert v.order == {"item": 1, "method": "pickup"}
+    assert parse_llm_answer('{"reply": "Ок", "order": {}}').order is None
+
+
+def test_prompt_with_orders_and_examples():
+    ctx = ChatContext("iPhone 17 Pro", None, None, [("client", "Беру, забронируйте")])
+    system = build_system_prompt(PromptConfig("Дарья", "", "", "торг"), [], ctx, ["• iPhone 17 Pro — 1 ₽, в наличии 1 шт."], NOW,
+                                 examples=[("Забрать сегодня?", "Да, до 21:00")], orders_enabled=True, pickup_address="А60")
+    assert "[1] iPhone 17 Pro" in system and '"order"' in system and "А60" in system
+    assert "Сотрудник: Да, до 21:00" in system
+    no_orders = build_system_prompt(PromptConfig("Дарья", "", "", "торг"), [], ctx, ["• x"], NOW)
+    assert '"order"' not in no_orders
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -79,6 +79,12 @@ class Settings(BaseSettings):
     TELEGRAM_RETRIES: int = 1
     TELEGRAM_RETRY_DELAY_SECONDS: float = 1.0
 
+    # Авито-бот: фоновый обработчик очереди ответов и опроса Авито.
+    # Выключать только для отладки — без него бот не отвечает.
+    AVITO_BOT_WORKER: bool = True
+    # Адрес API Авито. Меняется только для локальной проверки с подставным сервером.
+    AVITO_API_BASE: str = "https://api.avito.ru"
+
     # Web Push (VAPID) — для PWA «Заказы»
     VAPID_PUBLIC_KEY: str = ""
     VAPID_PRIVATE_KEY: str = ""

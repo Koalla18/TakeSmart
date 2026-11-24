@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from src.app.core.config import settings
 from src.app.core.logger import setup_logging, get_logger
 from src.app.core.middleware import LoggingMiddleware
+from src.app.core.avito_bot_worker import start as start_avito_bot_worker, stop as stop_avito_bot_worker
 from src.app.redis.client import get_redis_pool, close_redis_pool
 from src.app.api.routers import (
     health_router,
@@ -90,10 +91,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("redis_connect_failed", error=str(e))
 
+    bot_worker = start_avito_bot_worker() if settings.AVITO_BOT_WORKER else None
+
     logger.info("app_ready", title=settings.APP_TITLE, version=settings.APP_VERSION)
     yield
 
     logger.info("app_shutting_down")
+    if bot_worker is not None:
+        await stop_avito_bot_worker(bot_worker)
     try:
         await close_redis_pool()
     except Exception:
