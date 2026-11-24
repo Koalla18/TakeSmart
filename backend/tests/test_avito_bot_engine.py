@@ -221,6 +221,30 @@ def test_greeting_and_tone():
     assert "не здоровайся заново" in p2 and "ПЕРВОЕ" not in p2
 
 
+def test_human_mode_split_and_typing():
+    import random as _r
+    from src.app.core.avito_bot_engine import split_reply, typing_delay, with_greeting
+    assert split_reply("Здравствуйте!\n\nДа, есть в наличии.") == ["Здравствуйте!", "Да, есть в наличии."]
+    assert split_reply("Одно сообщение\nс переносом") == ["Одно сообщение\nс переносом"]
+    assert split_reply("a\n\nb\n\nc\n\nd") == ["a", "b", "c\nd"]          # не больше трёх
+    assert split_reply("  ") == []
+    rng = _r.Random(1)
+    short, long_ = typing_delay("Да, есть!", 3, 30, rng), typing_delay("x" * 180, 3, 30, rng)
+    assert 3 <= short < long_ <= 30                                            # длиннее — дольше печатает
+    assert typing_delay("x" * 5000, 3, 30, rng) == 30 and typing_delay("", 5, 30, rng) == 5
+    hello = "Здравствуйте! Меня зовут {name}."
+    assert split_reply(with_greeting("Адрес: А60.", hello, "Дарья", "\n\n")) == ["Здравствуйте! Меня зовут Дарья.", "Адрес: А60."]
+
+
+def test_prompt_human_mode():
+    ctx = ChatContext("iPhone", None, "Алексей", [("client", "Цена?")])
+    on = build_system_prompt(PromptConfig("Дарья", "", "", "торг", "Здравствуйте!", True, False), [], ctx, [], NOW)
+    assert "двумя короткими сообщениями" in on and "Без эмодзи" in on and "Алексей" in on and "сейчас гляну" in on
+    assert "Одно сообщение" not in on
+    off = build_system_prompt(PromptConfig("Дарья", "", "", "торг", "", False, True), [], ctx, [], NOW)
+    assert "Одно сообщение" in off and "двумя короткими" not in off and "Эмодзи — изредка" in off
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

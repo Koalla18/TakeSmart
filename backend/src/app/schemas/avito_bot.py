@@ -32,6 +32,8 @@ class AvitoBotConfig(BaseModel):
     mode: Literal["draft", "auto"] = "draft"
     persona_name: str = Field("Дарья", max_length=40)
     greeting: str = Field(DEFAULT_GREETING, max_length=300, description="Приветствие в первом ответе диалога; {name} — имя менеджера")
+    human_mode: bool = Field(True, description="Как человек: короткими сообщениями, пауза по длине текста, «прочитано» перед ответом")
+    allow_emoji: bool = False
     style: str = Field(DEFAULT_STYLE, max_length=3000)
     knowledge: str = Field("", max_length=20000, description="Свободный текст: всё, что бот должен знать о магазине")
     handoff_topics: str = Field(DEFAULT_HANDOFF, max_length=1000)
@@ -77,6 +79,8 @@ class AvitoBotConfigOut(BaseModel):
     mode: str
     persona_name: str
     greeting: str
+    human_mode: bool
+    allow_emoji: bool
     style: str
     knowledge: str
     handoff_topics: str
@@ -115,6 +119,8 @@ class AvitoBotConfigIn(BaseModel):
     mode: Literal["draft", "auto"] | None = None
     persona_name: str | None = Field(None, max_length=40)
     greeting: str | None = Field(None, max_length=300)
+    human_mode: bool | None = None
+    allow_emoji: bool | None = None
     style: str | None = Field(None, max_length=3000)
     knowledge: str | None = Field(None, max_length=20000)
     handoff_topics: str | None = Field(None, max_length=1000)

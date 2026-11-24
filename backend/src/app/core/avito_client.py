@@ -50,11 +50,14 @@ async def _token(creds: AvitoCreds, client: httpx.AsyncClient) -> str:
     cached = _TOKENS.get(creds.client_id)
     if cached and cached[1] > time.monotonic() + 60:
         return cached[0]
-    resp = await client.post(f"{BASE}/token", data={
-        "grant_type": "client_credentials",
-        "client_id": creds.client_id,
-        "client_secret": creds.client_secret,
-    })
+    try:
+        resp = await client.post(f"{BASE}/token", data={
+            "grant_type": "client_credentials",
+            "client_id": creds.client_id,
+            "client_secret": creds.client_secret,
+        })
+    except httpx.HTTPError as exc:
+        raise AvitoError(f"Нет связи с Авито: {exc.__class__.__name__}") from exc
     if resp.status_code >= 400:
         raise AvitoError(f"Авито не выдал токен ({resp.status_code}): проверьте client_id и client_secret")
     data = resp.json()

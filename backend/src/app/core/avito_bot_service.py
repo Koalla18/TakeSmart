@@ -35,6 +35,7 @@ from src.app.core.avito_bot_engine import (
     MSK, ChatContext, PiiMasker, PromptConfig, build_messages, build_reminder_messages, build_system_prompt,
     catalog_tokens, human_delay, in_window, match_rule, parse_llm_answer, pick_examples, render_reminder,
     render_template, rule_covers, starts_with_refusal, wants_opt_out, is_first_reply, with_greeting,
+    split_reply, typing_delay,
 )
 from src.app.core.config import settings
 from src.app.core.logger import get_logger
@@ -320,7 +321,10 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     def rule_text(rule: AvitoBotRule) -> str:
         # Первый ответ в диалоге — с приветствием, даже если это готовый автоответ
         text_ = rule.answer.strip()
-        return with_greeting(text_, cfg.greeting, cfg.persona_name) if is_first_reply(ctx) else text_
+        if not is_first_reply(ctx):
+            return text_
+        # В человечном режиме приветствие уходит отдельным коротким сообщением
+        return with_greeting(text_, cfg.greeting, cfg.persona_name, "\n\n" if cfg.human_mode else "\n")
 
     if match and match.rule.verbatim and not (llm.ready and (starts_with_refusal(pending_text) or not rule_covers(pending_text))):
         return Decision("reply", rule_text(match.rule), "rule", match.rule, delay_seconds=match.rule.delay_seconds)
@@ -342,7 +346,8 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     masker = PiiMasker()
     masked_ctx = ChatContext(ctx.item_title, ctx.item_price, ctx.client_name, [(a, masker.mask(t)) for a, t in ctx.history])
     system = build_system_prompt(
-        PromptConfig(cfg.persona_name, cfg.style, cfg.knowledge, cfg.handoff_topics, cfg.greeting),
+        PromptConfig(cfg.persona_name, cfg.style, cfg.knowledge, cfg.handoff_topics, cfg.greeting,
+                     cfg.human_mode, cfg.allow_emoji),
         rules, masked_ctx, lines, now, hint=match.rule.answer if match else None,
         examples=[(masker.mask(q), a) for q, a in examples],
         orders_enabled=cfg.orders_enabled, pickup_address=cfg.pickup_address,
@@ -354,7 +359,9 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
 
     verdict = parse_llm_answer(raw)
     reply = masker.unmask(verdict.reply)
-    delay = human_delay(cfg.reply_delay_min, cfg.reply_delay_max)
+    first_part = (split_reply(reply) or [reply])[0] if cfg.human_mode else reply
+    delay = (typing_delay(first_part, cfg.reply_delay_min, cfg.reply_delay_max) if cfg.human_mode
+             else human_delay(cfg.reply_delay_min, cfg.reply_delay_max))
     rule = match.rule if match else None
     order, order_problem = (None, None)
     if verdict.order and cfg.orders_enabled:
@@ -423,6 +430,9 @@ async def process_chat(chat_id: UUID) -> None:
         if not state.pending.strip():
             await session.commit()
             return
+        if cfg.human_mode and not chat.is_simulated and cfg.avito_connected_at:
+            # Как человек: сначала «прочитано», потом печатает ответ
+            await avito_client.mark_read(avito_creds(cfg), chat.avito_chat_id)
         decision = await decide(session, cfg, state.ctx, state.pending, dict(chat.rule_hits or {}), item_id=chat.item_id)
         await session.commit()
 
@@ -445,23 +455,53 @@ async def process_chat(chat_id: UUID) -> None:
             push = ("Авито: нужен менеджер", f"{chat.client_name or 'Покупатель'} · {chat.item_title or ''} · {chat.human_reason}")
 
         if decision.text and decision.action in ("reply", "handoff"):
-            msg = AvitoMessage(chat_id=chat.id, author="bot", text=decision.text, source=decision.source,
-                               rule_id=decision.rule.id if decision.rule else None, order_payload=decision.order)
             if cfg.mode == "draft" and not chat.is_simulated:
-                msg.status = "draft"
+                # Черновик — одним сообщением; на части он разделится при отправке
+                session.add(AvitoMessage(chat_id=chat.id, author="bot", text=decision.text, source=decision.source,
+                                         rule_id=decision.rule.id if decision.rule else None,
+                                         order_payload=decision.order, status="draft"))
                 if push is None:
                     title = "Авито: бронь ждёт подтверждения" if decision.order else "Авито: ответ ждёт проверки"
                     push = (title, f"{chat.client_name or 'Покупатель'}: {decision.text[:120]}")
             else:
                 debounce = SIM_DEBOUNCE_SECONDS if chat.is_simulated else DEBOUNCE_SECONDS
                 delay = min(decision.delay_seconds, SIMULATED_MAX_DELAY) if chat.is_simulated else decision.delay_seconds
-                msg.status = "scheduled"
-                msg.send_at = _now() + timedelta(seconds=max(0, delay - debounce))
-            session.add(msg)
+                send_at = _now() + timedelta(seconds=max(0, delay - debounce))
+                base_time = _now()
+                parts = _parts(cfg, decision.text)
+                for i, part in enumerate(parts):
+                    if i:
+                        send_at += timedelta(seconds=_next_part_delay(cfg, part, chat.is_simulated))
+                    session.add(_part_message(chat.id, part, i, len(parts), decision.source,
+                                              decision.rule.id if decision.rule else None, decision.order,
+                                              "scheduled", send_at, base_time))
         await session.commit()
 
     if push:
         await send_push_to_all(push[0], push[1], url=f"/admin?tab=avito&chat={chat_id}", tag=f"avito-{chat_id}")
+
+
+def _parts(cfg: AvitoBotConfig, text_: str) -> list[str]:
+    return (split_reply(text_) or [text_]) if cfg.human_mode else [text_]
+
+
+def _next_part_delay(cfg: AvitoBotConfig, part: str, simulated: bool) -> int:
+    """Пауза перед следующим сообщением: человек допечатывает его."""
+    if simulated:
+        return 1
+    return typing_delay(part, 2, max(4, min(cfg.reply_delay_max, 25)))
+
+
+def _part_message(chat_id: UUID, text_: str, index: int, total: int, source: str | None, rule_id: UUID | None,
+                  order: dict | None, status: str, send_at: datetime | None,
+                  base_time: datetime | None = None) -> AvitoMessage:
+    """Правило засчитывается по первой части, бронь оформляется после последней.
+    created_at растёт на миллисекунду с каждой частью — по нему соблюдается порядок отправки."""
+    return AvitoMessage(chat_id=chat_id, author="bot", text=text_, source=source,
+                        rule_id=rule_id if index == 0 else None,
+                        order_payload=order if index == total - 1 else None,
+                        status=status, send_at=send_at,
+                        created_at=(base_time or _now()) + timedelta(milliseconds=index))
 
 
 # ── Отправка ─────────────────────────────────────────────────────────────────
@@ -574,6 +614,17 @@ async def deliver_due_message(message_id: UUID) -> None:
         chat = await session.get(AvitoChat, msg.chat_id)
         if chat is None or chat.mode != "bot":
             msg.status = "discarded"
+            await session.commit()
+            return
+        # Части ответа уходят строго по порядку: если предыдущая ещё не ушла (например, ждёт
+        # повтора после ошибки), эта ждёт её
+        earlier = (await session.execute(
+            select(func.max(AvitoMessage.send_at)).where(
+                AvitoMessage.chat_id == chat.id, AvitoMessage.status == "scheduled",
+                AvitoMessage.created_at < msg.created_at, AvitoMessage.id != msg.id)
+        )).scalar()
+        if earlier is not None:
+            msg.send_at = max(earlier, _now()) + timedelta(seconds=2)
             await session.commit()
             return
         error, order = await deliver_message(session, cfg, chat, msg)
@@ -1022,11 +1073,22 @@ async def approve_draft(message_id: UUID, text_: str | None) -> None:
             msg.text = text_.strip()
             msg.source = "staff"
             await _learn(session, chat, state, msg.text, bot_answer=original)
+        # Как человек: первая часть уходит сейчас, остальные — следом, с паузой «печати»
+        parts = _parts(cfg, msg.text)
+        order_payload = msg.order_payload
+        msg.text = parts[0]
+        if len(parts) > 1:
+            msg.order_payload = None
         error, order = await deliver_message(session, cfg, chat, msg)
         if error:
             await session.rollback()
             raise ActionError(error)
         msg.created_at = _now()
+        send_at = _now()
+        for i, part in enumerate(parts[1:], 1):
+            send_at += timedelta(seconds=_next_part_delay(cfg, part, chat.is_simulated))
+            session.add(_part_message(chat.id, part, i, len(parts), msg.source, None, order_payload, "scheduled",
+                                      send_at, msg.created_at))
         await session.commit()
     if order is not None:
         await send_order_push(order)
