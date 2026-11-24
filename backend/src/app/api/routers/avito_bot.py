@@ -599,6 +599,15 @@ async def test_chat(body: TestIn) -> DecisionOut:
     )
 
 
+@router.post("/test-order", dependencies=ADMIN, summary="Создать тестовую заявку с Авито (видна в «Заказах» и PWA)")
+async def test_order() -> dict:
+    try:
+        order = await bot.create_test_order()
+    except bot.ActionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"order_number": order.order_number}
+
+
 @router.post("/simulate", response_model=ChatOut, dependencies=ADMIN,
              summary="Написать боту как покупатель (тренировочный диалог, в Авито ничего не уходит)")
 async def simulate(body: SimulateIn) -> ChatOut:

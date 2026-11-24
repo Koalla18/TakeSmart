@@ -287,6 +287,16 @@ def test_cancel_detection():
     assert "отменена" in order_note_for_prompt("TM-1", "cancelled")
 
 
+def test_avito_ids_and_chat_meta():
+    from src.app.core.avito_client import chat_meta, same_id
+    assert same_id(111, "111") and same_id("111", 111) and not same_id(None, None) and not same_id(111, 222)
+    chat = {"context": {"value": {"id": "555", "title": "Samsung Galaxy S26", "price_string": "63 990 ₽", "url": "https://avito.ru/x"}},
+            "users": [{"id": "111", "name": "TakeSmart"}, {"id": 222, "name": "Александр"}]}
+    meta = chat_meta(chat, 111)                       # свой ID числом, в ответе строкой
+    assert meta["client_name"] == "Александр" and meta["client_avito_id"] == 222
+    assert meta["item_id"] == 555 and meta["item_title"] == "Samsung Galaxy S26"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

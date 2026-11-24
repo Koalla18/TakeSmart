@@ -37,6 +37,7 @@ class AvitoBotConfig(BaseModel):
     mode: Literal["draft", "auto"] = "draft"
     persona_name: str = Field("Дарья", max_length=40)
     greeting: str = Field(DEFAULT_GREETING, max_length=300, description="Приветствие в первом ответе диалога; {name} — имя менеджера")
+    staff_takes_over: bool = Field(True, description="Ответ с нашего аккаунта из приложения Авито забирает диалог у бота")
     human_mode: bool = Field(True, description="Как человек: короткими сообщениями, пауза по длине текста, «прочитано» перед ответом")
     allow_emoji: bool = False
     style: str = Field(DEFAULT_STYLE, max_length=3000)
@@ -87,6 +88,7 @@ class AvitoBotConfigOut(BaseModel):
     mode: str
     persona_name: str
     greeting: str
+    staff_takes_over: bool
     human_mode: bool
     allow_emoji: bool
     style: str
@@ -128,6 +130,7 @@ class AvitoBotConfigIn(BaseModel):
     mode: Literal["draft", "auto"] | None = None
     persona_name: str | None = Field(None, max_length=40)
     greeting: str | None = Field(None, max_length=300)
+    staff_takes_over: bool | None = None
     human_mode: bool | None = None
     allow_emoji: bool | None = None
     style: str | None = Field(None, max_length=3000)

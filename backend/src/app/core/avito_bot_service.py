@@ -542,6 +542,35 @@ def _part_message(chat_id: UUID, text_: str, index: int, total: int, source: str
                         created_at=(base_time or _now()) + timedelta(milliseconds=index))
 
 
+async def create_test_order() -> Order:
+    """Тестовая заявка с Авито: появится в «Заказах» и PWA с пометкой «Заявка с Авито» и пушем,
+    остаток не списывает. Создаёт тренировочный диалог, из которого «пришла» заявка."""
+    async with AsyncSessionFactory() as session:
+        product = (await session.execute(
+            select(Product).where(Product.is_active.is_(True), Product.stock_quantity > 0)
+            .order_by(Product.is_featured.desc(), Product.updated_at.desc()).limit(1)
+        )).scalar_one_or_none()
+        if product is None:
+            raise ActionError("В каталоге нет активных товаров в наличии")
+        chat = AvitoChat(id=uuid4(), avito_chat_id=f"sim-{uuid4().hex[:12]}", is_simulated=True,
+                         client_name="Тестовый покупатель", item_title=product.name)
+        session.add(chat)
+        await session.flush()
+        result = await create_chat_order(session, chat, {
+            "product_id": str(product.id), "method": "pickup", "address": "",
+            "name": "Тестов Тест Тестович", "phone": "+79990000000", "email": "", "comment": "Проверка пометки в PWA",
+        })
+        if isinstance(result, str):
+            raise ActionError(f"Не получилось: {result}")
+        chat.order_id, chat.order_number = result.id, result.order_number
+        session.add(AvitoMessage(chat_id=chat.id, author="client", text="Беру, забронируйте. Тестов Тест Тестович, +79990000000",
+                                 sent_at=_now()))
+        _touch(chat, "Беру, забронируйте")
+        await session.commit()
+    await send_order_push(result)
+    return result
+
+
 # ── Отмена заявки ────────────────────────────────────────────────────────────
 
 CANCELABLE = ("pending", "confirmed", "processing")
@@ -606,12 +635,13 @@ async def create_chat_order(session: AsyncSession, chat: AvitoChat, payload: dic
     product = await session.get(Product, UUID(payload["product_id"]), with_for_update=True)
     if product is None or not product.is_active:
         return "товар больше не продаётся"
-    if not product.is_preorder and product.stock_quantity < 1:
+    if not product.is_preorder and product.stock_quantity < 1 and not chat.is_simulated:
         return "товар закончился"
     price = product.discount_price or product.price
     gift = product.id in await gift_product_ids(_GiftUow(session))  # type: ignore[arg-type]
     pickup = payload.get("method") != "delivery"
-    note = [f"Заявка из Авито по объявлению «{chat.item_title or 'объявление'}»"
+    note = (["ТЕСТ — тренировочный диалог, остаток не списан, заказ можно удалить."] if chat.is_simulated else []) + [
+            f"Заявка из Авито по объявлению «{chat.item_title or 'объявление'}»"
             + (f", покупатель в Авито: {chat.client_name}" if chat.client_name else "") + ".",
             "Самовывоз." if pickup else "Доставка.",
             payload.get("comment") or "",
@@ -633,7 +663,7 @@ async def create_chat_order(session: AsyncSession, chat: AvitoChat, payload: dic
     await session.flush()
     session.add(OrderItem(order_id=order.id, product_id=product.id, product_name=product.name, product_sku=product.sku,
                           quantity=1, unit_price=price, total_price=price, gift=GIFT_NAME if gift else None))
-    if not product.is_preorder:
+    if not product.is_preorder and not chat.is_simulated:
         product.stock_quantity -= 1
     await session.flush()
     await session.refresh(order, attribute_names=["items", "comments"])
@@ -758,12 +788,32 @@ async def handle_webhook(payload: dict[str, Any]) -> None:
     if kind is None:
         return
     await update_health(last_webhook_at=_now().isoformat())
+    # user_id в сообщении — наш аккаунт, которому принадлежит чат: по нему и узнаём свои сообщения
+    account_id = value.get("user_id")
     await handle_incoming(str(value["chat_id"]), str(value.get("id") or "") or None, value.get("author_id"), kind[1],
-                          system=kind[0] == "system")
+                          system=kind[0] == "system", account_id=account_id,
+                          own=avito_client.same_id(value.get("author_id"), account_id) or None)
+
+
+async def _fill_meta(cfg: AvitoBotConfig, chat: AvitoChat, account_id: Any) -> None:
+    """Ник покупателя и объявление. Пробуем при каждом сообщении, пока не получится."""
+    creds = avito_creds(cfg)
+    try:
+        creds.user_id = int(account_id) if account_id not in (None, "") else creds.user_id
+    except (TypeError, ValueError):
+        pass
+    try:
+        meta = avito_client.chat_meta(await avito_client.get_chat(creds, chat.avito_chat_id), creds.user_id)
+    except avito_client.AvitoError as exc:
+        logger.warning("avito_chat_meta_failed", chat=chat.avito_chat_id, error=str(exc))
+        return
+    for k, v in meta.items():
+        if v is not None:
+            setattr(chat, k, v)
 
 
 async def handle_incoming(avito_chat_id: str, avito_message_id: str | None, author_id: int | None, text_: str,
-                          system: bool = False) -> bool:
+                          system: bool = False, account_id: Any = None, own: bool | None = None) -> bool:
     """Сохраняет сообщение. True — оно новое (не дубль). system — служебное сообщение Авито:
     сохраняем для сотрудников, но бот на него не отвечает и не учитывает в разговоре."""
     async with AsyncSessionFactory() as session:
@@ -777,14 +827,10 @@ async def handle_incoming(avito_chat_id: str, avito_message_id: str | None, auth
         )).scalar_one_or_none()
         if chat is None:
             chat = AvitoChat(id=uuid4(), avito_chat_id=avito_chat_id)
-            try:
-                meta = avito_client.chat_meta(await avito_client.get_chat(avito_creds(cfg), avito_chat_id), cfg.avito_user_id)
-                for k, v in meta.items():
-                    setattr(chat, k, v)
-            except avito_client.AvitoError as exc:
-                logger.warning("avito_chat_meta_failed", chat=avito_chat_id, error=str(exc))
             session.add(chat)
-            await session.flush()
+        if (not chat.client_name or not chat.item_title) and avito_creds(cfg).ready and not chat.is_simulated:
+            await _fill_meta(cfg, chat, account_id or cfg.avito_user_id)
+        await session.flush()
 
         if system:
             session.add(AvitoMessage(chat_id=chat.id, avito_message_id=avito_message_id, author="system",
@@ -792,7 +838,8 @@ async def handle_incoming(avito_chat_id: str, avito_message_id: str | None, auth
             await session.commit()
             return False
 
-        own = cfg.avito_user_id is not None and author_id == cfg.avito_user_id
+        if own is None:
+            own = avito_client.same_id(author_id, account_id) or avito_client.same_id(author_id, cfg.avito_user_id)
         if own:
             # Эхо нашего же ответа (id ещё не успели записать) — просто привязываем id
             echo = (await session.execute(
@@ -811,9 +858,10 @@ async def handle_incoming(avito_chat_id: str, avito_message_id: str | None, auth
             await _cancel_pending_bot(session, chat.id)
             session.add(AvitoMessage(chat_id=chat.id, avito_message_id=avito_message_id, author="staff",
                                      text=text_, source="avito", sent_at=_now()))
-            chat.mode = "human"
-            chat.needs_human = False
-            chat.reply_due_at = None
+            if cfg.staff_takes_over:
+                chat.mode = "human"
+                chat.needs_human = False
+                chat.reply_due_at = None
             _touch(chat, text_)
             await session.commit()
             return True
@@ -854,8 +902,10 @@ async def poll_unread() -> int:
                 kind = classify_avito_message(m, cfg.avito_user_id, _system_patterns(cfg))
                 if created < since or kind is None:
                     continue
+                direction = m.get("direction")
                 if await handle_incoming(chat_id, str(m.get("id") or "") or None, m.get("author_id"), kind[1],
-                                         system=kind[0] == "system"):
+                                         system=kind[0] == "system", account_id=cfg.avito_user_id,
+                                         own=(direction == "out") if direction in ("in", "out") else None):
                     caught += 1
     except avito_client.AvitoError as exc:
         await update_health(last_poll_at=_now().isoformat(), last_poll_error=str(exc)[:200])

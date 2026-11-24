@@ -132,8 +132,13 @@ async def list_messages(creds: AvitoCreds, chat_id: str, limit: int = 20) -> lis
     return list((data or {}).get("messages") or [])
 
 
+def same_id(a: Any, b: Any) -> bool:
+    """ID Авито приходят то числом, то строкой — сравниваем как строки."""
+    return a is not None and b is not None and str(a) == str(b)
+
+
 def chat_meta(chat: dict[str, Any], own_user_id: int | None) -> dict[str, Any]:
-    """Объявление и имя покупателя из ответа get_chat."""
+    """Объявление и ник покупателя из ответа get_chat."""
     meta: dict[str, Any] = {}
     ctx = (chat.get("context") or {}).get("value") or {}
     if ctx:
@@ -142,9 +147,17 @@ def chat_meta(chat: dict[str, Any], own_user_id: int | None) -> dict[str, Any]:
         meta["item_price"] = (ctx.get("price_string") or "")[:60] or None
         meta["item_url"] = (ctx.get("url") or "")[:500] or None
     for user in chat.get("users") or []:
-        if own_user_id and user.get("id") == own_user_id:
+        if same_id(user.get("id"), own_user_id):
             continue
         meta["client_name"] = (user.get("name") or "")[:120] or None
-        meta["client_avito_id"] = user.get("id")
+        try:
+            meta["client_avito_id"] = int(user.get("id"))
+        except (TypeError, ValueError):
+            pass
         break
+    if meta.get("item_id") is not None:
+        try:
+            meta["item_id"] = int(meta["item_id"])
+        except (TypeError, ValueError):
+            meta.pop("item_id")
     return meta
