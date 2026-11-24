@@ -361,6 +361,11 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         # В человечном режиме приветствие уходит отдельным коротким сообщением
         return with_greeting(text_, cfg.greeting, cfg.persona_name, "\n\n" if cfg.human_mode else "\n")
 
+    cancelling = bool(order_info) and wants_cancel(pending_text)
+    if cancelling:
+        match = None  # отмену не перебивает автоответ — отвечает модель (или короткое подтверждение)
+        if not llm.ready:
+            return Decision("reply", "Заявку отменила. Если передумаете — пишите, с радостью помогу.", "rule")
     if match and match.rule.verbatim and not (llm.ready and (starts_with_refusal(pending_text) or not rule_covers(pending_text))):
         return Decision("reply", rule_text(match.rule), "rule", match.rule, delay_seconds=match.rule.delay_seconds)
 
@@ -604,6 +609,10 @@ async def _order_info(session: AsyncSession, chat: AvitoChat) -> tuple[str, str]
     return (order.order_number, order.status) if order else None
 
 
+async def _phrase_cancel(session: AsyncSession, chat: AvitoChat, text_: str) -> tuple[str, str] | None:
+    return await cancel_chat_order(session, chat, text_) if chat.order_id and wants_cancel(text_) else None
+
+
 async def cancel_chat_order(session: AsyncSession, chat: AvitoChat, customer_text: str) -> tuple[str, str] | None:
     """Покупатель отменил заявку в чате: заказ → «Отменён», остаток, который бот списал при брони,
     возвращается, в заказе — комментарий. Возвращает текст пуша менеджеру (None — отменять нечего).
@@ -622,7 +631,7 @@ async def cancel_chat_order(session: AsyncSession, chat: AvitoChat, customer_tex
         log_event(session, chat.id, "cancel_blocked", order.order_number)
         return ("Авито: просят отменить заказ", f"{order.order_number} · {who} · заказ уже {state_ru} — нужен менеджер")
     order.status = "cancelled"
-    if not order.is_preorder:
+    if not order.is_preorder and not chat.is_simulated:  # тестовые заявки остаток не списывали — и не возвращают
         items = (await session.execute(select(OrderItem).where(OrderItem.order_id == order.id))).scalars().all()
         for item in items:
             if item.product_id is not None:
@@ -893,7 +902,7 @@ async def handle_incoming(avito_chat_id: str, avito_message_id: str | None, auth
             chat.opted_out = True
             log_event(session, chat.id, "opt_out", text_[:200])
         # Явная отмена заявки — сразу, даже если бот выключен или диалог ведёт сотрудник
-        cancel_push = await cancel_chat_order(session, chat, text_) if chat.order_id and wants_cancel(text_) else None
+        cancel_push = await _phrase_cancel(session, chat, text_)
         if chat.mode == "bot" and not chat.needs_human and cfg.enabled:
             chat.reply_due_at = _now() + timedelta(seconds=DEBOUNCE_SECONDS)
         await session.commit()
@@ -952,10 +961,13 @@ async def simulate(text_: str, chat_id: UUID | None, client_name: str, item_titl
         await _cancel_pending_bot(session, chat.id)
         session.add(AvitoMessage(chat_id=chat.id, author="client", text=text_, sent_at=_now()))
         _touch(chat, text_)
+        cancel_push = await _phrase_cancel(session, chat, text_)   # как в настоящем чате
         if chat.mode == "bot" and not chat.needs_human:
             chat.reply_due_at = _now() + timedelta(seconds=SIM_DEBOUNCE_SECONDS)
         cid = chat.id
         await session.commit()
+    if cancel_push:
+        await send_push_to_all(cancel_push[0], cancel_push[1], url="/app", tag=f"avito-order-{cid}")
     return cid
 
 

@@ -277,9 +277,11 @@ def test_booking_contacts():
 def test_cancel_detection():
     from src.app.core.avito_bot_engine import order_note_for_prompt, wants_cancel
     for t in ["Отменяю бронь", "отмените заказ пожалуйста", "Я передумал", "уже не актуально", "не приеду, извините",
-              "снимите бронь", "Не буду брать"]:
+              "снимите бронь", "Не буду брать", "Отмени заказ", "Отмена", "хочу отменить", "отказываюсь, спасибо",
+              "заказ уже не нужен", "Я передумала", "отменяю заказ, спасибо", "не нужна бронь"]:
         assert wants_cancel(t), t
-    for t in ["Не надо отменять, приеду", "а можно потом отменить, если что?", "Беру", "не отменяйте"]:
+    for t in ["Не надо отменять, приеду", "а можно потом отменить, если что?", "Беру", "не отменяйте", "спасибо",
+              "отменить доставку можно будет?"]:
         assert not wants_cancel(t), t
     assert parse_llm_answer('{"reply": "Отменила", "cancel_order": true}').cancel_order
     assert not parse_llm_answer('{"reply": "Ок", "cancel_order": "yes"}').cancel_order
