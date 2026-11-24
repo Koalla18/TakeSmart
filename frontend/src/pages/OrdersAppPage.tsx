@@ -47,6 +47,8 @@ interface AppOrder {
   is_preorder?: boolean
   /** Подарок к заказу (например, «Grand Theft Auto VI»); пусто — подарка нет */
   gift?: string | null
+  /** Откуда заказ: пусто — сайт, avito — заявка из чата Авито */
+  source?: string | null
   /** Комментарии сотрудников: сколько и последний — для карточки в ленте */
   comments_count?: number; last_comment?: OrderCommentPreview | null
 }
@@ -324,6 +326,7 @@ function OrderCard({ o, fresh, onOpen, onConfirm }: { o: AppOrder; fresh: boolea
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 font-mono text-[13px] font-bold tracking-tight text-yellow-400">
           {o.order_number}
+          {o.source === 'avito' && <span className="inline-flex items-center gap-1 rounded-full bg-violet-400/15 px-2 py-0.5 font-sans text-[10px] font-semibold tracking-normal text-violet-200 ring-1 ring-inset ring-violet-300/30">Заявка с Авито</span>}
           {o.is_preorder && <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 font-sans text-[10px] font-semibold tracking-normal text-sky-300 ring-1 ring-inset ring-sky-400/30"><span className="h-1 w-1 rounded-full bg-sky-400" />Предзаказ</span>}
           {o.gift && <span className="inline-flex items-center gap-1 rounded-full bg-pink-400/15 px-2 py-0.5 font-sans text-[10px] font-semibold tracking-normal text-pink-200 ring-1 ring-inset ring-pink-300/30">+ {o.gift === 'Grand Theft Auto VI' ? 'GTA VI' : o.gift} в подарок</span>}
         </span>
@@ -434,6 +437,7 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange, onDeleted, onComme
           <button onClick={close} aria-label="Закрыть" className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-lg text-slate-300 transition hover:bg-white/10 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/70">✕</button>
           <span className="flex items-center gap-2 font-mono text-sm font-bold text-yellow-400">
             {order?.order_number || '…'}
+            {order?.source === 'avito' && <span className="inline-flex items-center gap-1 rounded-full bg-violet-400/15 px-2 py-0.5 font-sans text-[10px] font-semibold tracking-normal text-violet-200 ring-1 ring-inset ring-violet-300/30">Заявка с Авито</span>}
             {order?.is_preorder && <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-sky-300 ring-1 ring-inset ring-sky-400/30">Предзаказ</span>}
             {order?.gift && <span className="inline-flex items-center gap-1 rounded-full bg-pink-400/15 px-2 py-0.5 font-sans text-[10px] font-semibold text-pink-200 ring-1 ring-inset ring-pink-300/30">+ {order.gift} в подарок</span>}
           </span>

@@ -50,10 +50,10 @@ interface Chat {
   last_message_at: string | null
   has_draft: boolean
 }
-interface OrderPayload { product_name: string; price: number; method: 'pickup' | 'delivery'; address: string; name: string; phone: string; comment: string }
+interface OrderPayload { product_name: string; price: number; method: 'pickup' | 'delivery'; address: string; name: string; phone: string; email?: string; comment: string }
 interface Message {
   id: string
-  author: 'client' | 'bot' | 'staff'
+  author: 'client' | 'bot' | 'staff' | 'system'
   text: string
   status: 'sent' | 'scheduled' | 'draft' | 'failed' | 'discarded'
   source: string | null
@@ -64,7 +64,7 @@ interface Message {
   created_at: string
 }
 interface CatalogProduct { id: string; name: string; price: number; stock_quantity: number; is_preorder: boolean }
-interface ChatDetail extends Chat { messages: Message[]; linked_product: CatalogProduct | null }
+interface ChatDetail extends Chat { messages: Message[]; linked_product: CatalogProduct | null; order_status: string | null }
 interface Example { id: string; question: string; bot_answer: string | null; answer: string; item_title: string | null; chat_id: string | null; is_active: boolean; created_at: string }
 interface Unanswered { chat_id: string; client_name: string | null; item_title: string | null; question: string; reason: string | null; at: string | null }
 interface Health { last_webhook_at: string | null; last_poll_at: string | null; last_poll_error: string | null; caught_by_poll: number; llm_fail_streak: number; last_llm_error: string | null; queue_replies: number; queue_sends: number }
@@ -100,6 +100,7 @@ interface Config {
   use_catalog: boolean
   orders_enabled: boolean
   pickup_address: string
+  system_patterns: string
   reminders_enabled: boolean
   reminder_after_minutes: number
   reminder_window_hours: number
@@ -161,7 +162,7 @@ function ago(iso: string | null): string {
 
 function orderText(o: OrderPayload): string {
   const how = o.method === 'delivery' ? `доставка: ${o.address}` : 'самовывоз'
-  return [o.product_name, `${Math.round(o.price).toLocaleString('ru-RU')} ₽`, how, o.name, o.phone].filter(Boolean).join(' · ')
+  return [o.product_name, `${Math.round(o.price).toLocaleString('ru-RU')} ₽`, how, o.name, o.phone, o.email].filter(Boolean).join(' · ')
 }
 
 function scheduleText(r: Pick<Rule, 'time_from' | 'time_to' | 'days'>): string {
@@ -439,8 +440,9 @@ function ChatPanel({ api, chatId, config, onClose, onChanged }: { api: Api; chat
             {chat.opted_out ? 'Не присылать рассылки ✓' : 'Рассылки: можно'}
           </button>
           {chat.order_number && (
-            <a href={`/admin?tab=orders&q=${encodeURIComponent(chat.order_number)}`} className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg bg-emerald-400/15 px-2 py-0.5 text-xs text-emerald-300 hover:bg-emerald-400/25">
-              Бронь оформлена · заказ {chat.order_number}
+            <a href={`/admin?tab=orders&q=${encodeURIComponent(chat.order_number)}`}
+              className={`mt-1.5 inline-flex items-center gap-1.5 rounded-lg px-2 py-0.5 text-xs ${chat.order_status === 'cancelled' ? 'bg-rose-400/15 text-rose-300 hover:bg-rose-400/25' : 'bg-emerald-400/15 text-emerald-300 hover:bg-emerald-400/25'}`}>
+              {chat.order_status === 'cancelled' ? `Заявка ${chat.order_number} отменена покупателем` : `Заявка оформлена · заказ ${chat.order_number}`}
             </a>
           )}
         </div>
@@ -488,6 +490,17 @@ function ChatPanel({ api, chatId, config, onClose, onChanged }: { api: Api; chat
 const SOURCE_LABEL: Record<string, string> = { rule: 'автоответ', llm: 'модель', staff: 'сотрудник', avito: 'из приложения Авито', reminder: 'напоминание', broadcast: 'рассылка' }
 
 function Bubble({ m, name, api, onDone }: { m: Message; name: string; api: Api; onDone: () => void }) {
+  if (m.author === 'system') {
+    return (
+      <div className="mx-auto max-w-[90%] rounded-xl bg-white/[0.04] px-3 py-1.5 text-center text-[12px] text-slate-500" title="Системное сообщение Авито — бот на него не отвечает">
+        Авито: {m.text}
+      </div>
+    )
+  }
+  return <ChatBubble m={m} name={name} api={api} onDone={onDone} />
+}
+
+function ChatBubble({ m, name, api, onDone }: { m: Message; name: string; api: Api; onDone: () => void }) {
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(m.text)
   const [busy, setBusy] = useState(false)
@@ -1282,7 +1295,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
       enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, human_mode: form.human_mode, allow_emoji: form.allow_emoji, style: form.style, knowledge: form.knowledge,
       handoff_topics: form.handoff_topics, handoff_message: form.handoff_message, reply_delay_min: form.reply_delay_min,
       reply_delay_max: form.reply_delay_max, use_catalog: form.use_catalog, llm_provider: form.llm_provider,
-      orders_enabled: form.orders_enabled, pickup_address: form.pickup_address,
+      orders_enabled: form.orders_enabled, pickup_address: form.pickup_address, system_patterns: form.system_patterns,
       reminders_enabled: form.reminders_enabled, reminder_after_minutes: form.reminder_after_minutes,
       reminder_window_hours: form.reminder_window_hours, reminder_from: form.reminder_from, reminder_to: form.reminder_to,
       reminder_use_llm: form.reminder_use_llm, reminder_template: form.reminder_template,
@@ -1349,8 +1362,8 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
             <Toggle checked={form.allow_emoji} onChange={v => set('allow_emoji', v)} label="Иногда эмодзи"
               hint="Изредка одно (🙂, 👍), и только если покупатель сам пишет неформально" />
             <Toggle checked={form.use_catalog} onChange={v => set('use_catalog', v)} label="Смотреть цены и наличие в каталоге сайта" hint="Модель видит подходящие товары с живыми ценами и остатками" />
-            <Toggle checked={form.orders_enabled} onChange={v => set('orders_enabled', v)} label="Оформлять бронь из чата"
-              hint="Когда покупатель согласился, бот создаёт заказ в разделе «Заказы» (списывает остаток, приходит обычный пуш о заказе). В режиме черновиков — только после вашего «Отправить»" />
+            <Toggle checked={form.orders_enabled} onChange={v => set('orders_enabled', v)} label="Оформлять заявки из чата"
+              hint="Когда покупатель согласился, бот спрашивает ФИО и телефон (почту — по желанию) и создаёт заявку в «Заказах» с пометкой «Заявка с Авито»; приходит пуш «Новая заявка с Авито!». Остаток списывается. В режиме черновиков — только после вашего «Отправить»" />
             {form.orders_enabled && (
               <label className="block"><span className={LABEL}>Адрес самовывоза</span><input className={`${INPUT} mt-1.5`} value={form.pickup_address} onChange={e => set('pickup_address', e.target.value)} /></label>
             )}
@@ -1406,6 +1419,9 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
           <label className="mt-3 block"><span className={LABEL}>Когда звать человека</span><input className={`${INPUT} mt-1.5`} value={form.handoff_topics} onChange={e => set('handoff_topics', e.target.value)} /></label>
           <label className="mt-3 block"><span className={LABEL}>Что написать, пока зовём человека</span>
             <input className={`${INPUT} mt-1.5`} value={form.handoff_message} onChange={e => set('handoff_message', e.target.value)} placeholder="Сейчас уточню у коллеги и вернусь к вам. Пусто — бот молчит" /></label>
+          <label className="mt-3 block"><span className={LABEL}>Системные сообщения Авито</span>
+            <textarea className={`${INPUT} mt-1.5 h-28 font-mono text-[13px]`} value={form.system_patterns} onChange={e => set('system_patterns', e.target.value)} /></label>
+          <div className="mt-1 text-xs text-slate-500">По одной фразе в строке. Сообщение, в котором есть такая фраза, бот считает служебным сообщением Авито: не отвечает на него и не учитывает в разговоре, в диалоге оно показывается серой плашкой. Служебные типы сообщений Авито бот пропускает и без этого списка. Если бот ответил на системное сообщение — скопируйте сюда его кусок.</div>
         </section>
       </div>
 

@@ -51,6 +51,8 @@ interface Order {
   is_preorder?: boolean
   /** Подарок к заказу (например, «Grand Theft Auto VI»); пусто — подарка нет */
   gift?: string | null
+  /** Откуда заказ: пусто — сайт, avito — заявка из чата Авито */
+  source?: string | null
   total_amount: number
   items_count: number
   /** Комментарии сотрудников: сколько и последний — для списка */
@@ -262,6 +264,15 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
 }
 
 /** Фиолетовый чип «Предзаказ» — один вид в товарах, заказах и модалках */
+/** Метка «заявка из чата Авито» — бот оформил бронь, сотрудник подтверждает */
+function AvitoChip({ className = '' }: { className?: string }) {
+  return (
+    <span title="Заявку оформил бот в чате Авито — свяжитесь с покупателем для подтверждения" className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-violet-400/15 px-2 py-0.5 text-[11px] font-semibold text-violet-200 ring-1 ring-inset ring-violet-300/30 ${className}`}>
+      Заявка с Авито
+    </span>
+  )
+}
+
 /** Метка «в заказе есть подарок» — сотрудник кладёт его вместе с товаром */
 function GiftChip({ gift, className = '' }: { gift: string; className?: string }) {
   return (
@@ -1206,7 +1217,7 @@ export function AdminPage() {
                         >
                           <div className="flex flex-col items-start gap-1">
                             <span className="font-mono text-sm font-bold text-yellow-400">{order.order_number}</span>
-                            {order.is_preorder && <PreorderChip />}{order.gift && <GiftChip gift={order.gift} />}
+                            {order.source === 'avito' && <AvitoChip />}{order.is_preorder && <PreorderChip />}{order.gift && <GiftChip gift={order.gift} />}
                           </div>
 
                           <div className="pr-4 min-w-0">
@@ -1259,7 +1270,7 @@ export function AdminPage() {
                         className="cursor-pointer rounded-2xl border border-white/10 bg-white/5 p-4 transition-colors hover:bg-white/10"
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-2 font-mono text-sm font-bold text-yellow-400">{order.order_number}{order.is_preorder && <PreorderChip />}{order.gift && <GiftChip gift={order.gift} />}</span>
+                          <span className="flex items-center gap-2 font-mono text-sm font-bold text-yellow-400">{order.order_number}{order.source === 'avito' && <AvitoChip />}{order.is_preorder && <PreorderChip />}{order.gift && <GiftChip gift={order.gift} />}</span>
                           <span className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold ${cfg?.bg || 'bg-white/10'} ${cfg?.color || 'text-slate-300'}`}>
                             <span className="h-1.5 w-1.5 rounded-full bg-current" />{cfg?.label || order.status}
                           </span>
@@ -2175,6 +2186,7 @@ function OrderModal({
               <span className="h-1.5 w-1.5 rounded-full bg-current" />{cfg?.label || order.status}
             </span>
             {order.is_preorder && <PreorderChip title="Есть товары по предзаказу — они ещё не поступили" className="text-xs" />}
+            {order.source === 'avito' && <AvitoChip className="text-xs" />}
             {order.gift && <GiftChip gift={order.gift} className="text-xs" />}
           </div>
           <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white text-xl transition">×</button>
