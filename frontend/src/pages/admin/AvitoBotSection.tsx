@@ -88,6 +88,7 @@ interface Config {
   enabled: boolean
   mode: 'draft' | 'auto'
   persona_name: string
+  greeting: string
   style: string
   knowledge: string
   handoff_topics: string
@@ -1274,7 +1275,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
 
   const save = async (patch?: Partial<Config>, quiet?: boolean): Promise<Config | null> => {
     const body: Record<string, unknown> = patch ?? {
-      enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, style: form.style, knowledge: form.knowledge,
+      enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, style: form.style, knowledge: form.knowledge,
       handoff_topics: form.handoff_topics, handoff_message: form.handoff_message, reply_delay_min: form.reply_delay_min,
       reply_delay_max: form.reply_delay_max, use_catalog: form.use_catalog, llm_provider: form.llm_provider,
       orders_enabled: form.orders_enabled, pickup_address: form.pickup_address,
@@ -1335,6 +1336,9 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
               <label className="block"><span className={LABEL}>Пауза от, с</span><input type="number" min={0} className={`${INPUT} mt-1.5`} value={form.reply_delay_min} onChange={e => set('reply_delay_min', Number(e.target.value) || 0)} /></label>
               <label className="block"><span className={LABEL}>до, с</span><input type="number" min={0} className={`${INPUT} mt-1.5`} value={form.reply_delay_max} onChange={e => set('reply_delay_max', Number(e.target.value) || 0)} /></label>
             </div>
+            <label className="block"><span className={LABEL}>Приветствие в первом ответе</span>
+              <input className={`${INPUT} mt-1.5`} value={form.greeting} onChange={e => set('greeting', e.target.value)} placeholder="Здравствуйте! Меня зовут {name}, я менеджер магазина TakeSmart." /></label>
+            <div className="text-xs text-slate-500"><code className="text-slate-300">{'{name}'}</code> — имя менеджера. Бот здоровается так в первом ответе каждого диалога — и моделью, и перед автоответом. Пусто — модель здоровается своими словами, автоответы уходят без приветствия.</div>
             <div className="text-xs text-slate-500">Пауза — для ответов модели, чтобы они не прилетали мгновенно. У автоответов своя задержка. Если покупатель прямо спросит «вы бот?», бот не станет отрицать — это защищает аккаунт от жалоб.</div>
             <Toggle checked={form.use_catalog} onChange={v => set('use_catalog', v)} label="Смотреть цены и наличие в каталоге сайта" hint="Модель видит подходящие товары с живыми ценами и остатками" />
             <Toggle checked={form.orders_enabled} onChange={v => set('orders_enabled', v)} label="Оформлять бронь из чата"
