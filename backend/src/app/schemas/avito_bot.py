@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.app.core.avito_bot_engine import DEFAULT_FIRST_MESSAGE
+
 _TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 DEFAULT_STYLE = (
@@ -37,6 +39,8 @@ class AvitoBotConfig(BaseModel):
     mode: Literal["draft", "auto"] = "draft"
     persona_name: str = Field("Дарья", max_length=40)
     greeting: str = Field(DEFAULT_GREETING, max_length=300, description="Приветствие в первом ответе диалога; {name} — имя менеджера")
+    first_message: str = Field(DEFAULT_FIRST_MESSAGE, max_length=1500,
+                               description="Первое сообщение диалога; {name} — имя менеджера, {price} — розничная цена")
     staff_takes_over: bool = Field(True, description="Ответ с нашего аккаунта из приложения Авито забирает диалог у бота")
     human_mode: bool = Field(True, description="Как человек: короткими сообщениями, пауза по длине текста, «прочитано» перед ответом")
     allow_emoji: bool = False
@@ -88,6 +92,7 @@ class AvitoBotConfigOut(BaseModel):
     mode: str
     persona_name: str
     greeting: str
+    first_message: str
     staff_takes_over: bool
     human_mode: bool
     allow_emoji: bool
@@ -130,6 +135,7 @@ class AvitoBotConfigIn(BaseModel):
     mode: Literal["draft", "auto"] | None = None
     persona_name: str | None = Field(None, max_length=40)
     greeting: str | None = Field(None, max_length=300)
+    first_message: str | None = Field(None, max_length=1500)
     staff_takes_over: bool | None = None
     human_mode: bool | None = None
     allow_emoji: bool | None = None
@@ -344,6 +350,7 @@ class DecisionOut(BaseModel):
     delay_seconds: int
     catalog: list[str] = Field(default_factory=list, description="Какие товары каталога модель видела")
     order: dict | None = Field(None, description="Бронь, которую бот оформил бы")
+    first_message: str | None = Field(None, description="Первое сообщение-шаблон, если это начало диалога")
     examples_used: int = 0
 
 

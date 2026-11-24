@@ -339,6 +339,22 @@ def test_storage_from_name():
     assert family_name(mb) == "Ноутбук Apple MacBook Pro 14 (M5, 10C CPU, 10C GPU, SSD)"
 
 
+def test_first_message_price():
+    from src.app.core.avito_bot_engine import DEFAULT_FIRST_MESSAGE, catalog_vocab, render_first_message, title_match
+    cat = _demo_catalog()
+    v = catalog_vocab(cat)
+    assert title_match(cat, "Apple iPhone 17 256 ГБ белый, новый", v).name == "iPhone 17 256 ГБ, Белый"
+    assert title_match(cat, "iPhone 17 512gb", v).name == "iPhone 17 512 ГБ, Белый"
+    assert title_match(cat, "iPhone 15 128 ГБ", v) is None            # такой модели нет — цену не выдумываем
+    assert title_match(cat, "Чехол прозрачный", v) is None
+    msg = render_first_message(DEFAULT_FIRST_MESSAGE, "Илья", "79 990 ₽")
+    assert msg == ("Здравствуйте! Меня зовут Илья, я ваш менеджер.\n\n"
+                   "Указанная в объявлении цена является максимальной суммой доплаты в рамках программы trade-in.\n\n"
+                   "✨ Розничная стоимость без участия в программе - 79 990 ₽")
+    no_price = render_first_message(DEFAULT_FIRST_MESSAGE, "Илья", None)
+    assert "{price}" not in no_price and "Розничная стоимость" not in no_price and no_price.endswith("trade-in.")
+
+
 def test_overview_line_limit():
     from src.app.core.avito_bot_engine import CatalogItem, build_overview
     many = [CatalogItem(f"Model {i}", "Смартфоны", 1000 + i, stock=1) for i in range(400)]

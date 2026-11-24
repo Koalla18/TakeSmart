@@ -183,7 +183,8 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
                         catalog_lines: Sequence[str], now: datetime, hint: str | None = None,
                         examples: Sequence[tuple[str, str]] = (), orders_enabled: bool = False,
                         pickup_address: str = "", order_note: str | None = None,
-                        catalog_overview: Sequence[str] = ()) -> str:
+                        catalog_overview: Sequence[str] = (), first_sent: bool = False,
+                        first_price_known: bool = True) -> str:
     now = now.astimezone(MSK)
     parts = [
         f"Ты — {cfg.persona_name}, менеджер магазина техники TakeSmart (Москва), отвечаешь покупателям "
@@ -233,7 +234,15 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
     if ctx.client_name:
         parts += [f"Имя покупателя в Авито: {ctx.client_name}."]
     hello = greeting_text(cfg.greeting, cfg.persona_name)
-    if is_first_reply(ctx):
+    if first_sent:
+        parts += ["", "Приветствие и розничную цену ты УЖЕ отправил первым сообщением (оно последнее в истории). "
+                      "Не здоровайся и не повторяй цену. Ответь только на то, о чём ещё спросили; если покупатель "
+                      "спросил только «цена актуальна?» или просто поздоровался — reply пустой."]
+        if not first_price_known:
+            parts += ["Но розничную цену товара из объявления в первом сообщении назвать не удалось. Найди этот товар "
+                      "в каталоге и назови розничную цену одной фразой («Розничная стоимость без участия в программе — …»). "
+                      "Если товара в каталоге нет — handoff=true, reason «нет цены для объявления»."]
+    elif is_first_reply(ctx):
         parts += ["", "Это твоё ПЕРВОЕ сообщение в этом диалоге: обязательно начни с приветствия"
                       + (f" — «{hello}» (можно чуть своими словами)" if hello else " и представься")
                       + ", затем ответь на вопрос"
@@ -245,9 +254,10 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
                       + (f", цена в объявлении: {ctx.item_price}" if ctx.item_price else "")]
     active = [r for r in rules if r.is_active]
     if active:
-        parts += ["", "Ответы магазина на частые вопросы (это факты, опирайся на них):"]
+        parts += ["", "Готовые ответы магазина (скрипты). Если вопрос по теме скрипта — отвечай ЕГО ТЕКСТОМ почти "
+                      "дословно, сохраняя переносы строк и пункты; можно убрать лишнее, но не пересказывать своими словами:"]
         for r in active:
-            parts.append(f"• {', '.join(r.keywords)}: {r.answer.strip()}")
+            parts.append(f"• [{', '.join(r.keywords)}]:\n{r.answer.strip()}")
     if cfg.knowledge.strip():
         parts += ["", "Что ещё нужно знать о магазине:", cfg.knowledge.strip()]
     if catalog_overview:
@@ -279,6 +289,7 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
             "Бронь (заявка): ты можешь оформить её сам. Делай это ТОЛЬКО когда покупатель явно согласился "
             "купить или забронировать конкретный товар из списка выше и понятно, как он получит товар: "
             f"самовывоз ({pickup_address or 'в магазине'}) или доставка (тогда нужен адрес). "
+            "Для самовывоза спроси, ко скольки покупателя ожидать (впиши в comment). "
             "Для заявки ОБЯЗАТЕЛЬНЫ ФИО (фамилия и имя, лучше полностью) и номер телефона; почта — по желанию, "
             "спроси о ней один раз и не настаивай. Пока ФИО и телефона нет — вежливо попроси их одним сообщением "
             "и НЕ пиши, что бронь оформлена. "
@@ -691,16 +702,24 @@ _QUERY_SKIP = {"гб", "тб", "gb", "tb", "есть", "цена", "скольк
                "версия", "та", "же", "тот", "какая", "какой", "подскажите", "пожалуйста", "здравствуйте", "а", "и"}
 
 
+_UNIT = re.compile(r"(\d+)\s*(gb|гб|tb|тб)\b", re.IGNORECASE)
+
+
+def _split_units(text: str) -> str:
+    """«512gb», «1ТБ» → «512 гб», «1 тб»: число объёма — отдельное слово."""
+    return _UNIT.sub(lambda m: f"{m.group(1)} {'тб' if m.group(2).lower() in ('tb', 'тб') else 'гб'}", text or "")
+
+
 def item_words(it: CatalogItem) -> set[str]:
     attrs = " ".join(str(v) for v in (it.attributes or {}).values()) if isinstance(it.attributes, dict) else ""
-    return set(_WORD.findall(normalize(f"{it.name} {attrs}")))
+    return set(_WORD.findall(normalize(_split_units(f"{it.name} {attrs}"))))
 
 
 def query_tokens(text: str, vocab: set[str]) -> list[str]:
     """Слова запроса, которые есть в каталоге: «айфон 17 белый 256 гб» → iphone, 17, белый, 256."""
     aliases = _aliases()
     out: list[str] = []
-    for w in _WORD.findall(normalize(text or "")):
+    for w in _WORD.findall(normalize(_split_units(text or ""))):
         w = aliases.get(w, w)
         if w in _QUERY_SKIP or w in out:
             continue
@@ -755,3 +774,48 @@ def catalog_vocab(items: Sequence[CatalogItem]) -> set[str]:
     for it in items:
         vocab |= {w for w in item_words(it) if not w.isdigit()}
     return vocab
+
+
+# ── Первое сообщение: шаблон магазина с розничной ценой ──────────────────────
+
+DEFAULT_FIRST_MESSAGE = (
+    "Здравствуйте! Меня зовут {name}, я ваш менеджер.\n\n"
+    "Указанная в объявлении цена является максимальной суммой доплаты в рамках программы trade-in.\n\n"
+    "✨ Розничная стоимость без участия в программе - {price}"
+)
+
+
+def title_match(items: Sequence[CatalogItem], title: str | None, vocab: set[str]) -> CatalogItem | None:
+    """Товар каталога для объявления — только если совпадение надёжное: все числа из названия
+    (модель, память) есть в товаре и совпало не меньше 70% значимых слов. Иначе None — лучше
+    не назвать цену, чем назвать чужую. При нескольких равных берём тот, что в наличии и дешевле."""
+    if not title:
+        return None
+    tokens = query_tokens(title, vocab)
+    if not tokens:
+        return None
+    digits = [t for t in tokens if t.isdigit()]
+    best: list[tuple[float, CatalogItem]] = []
+    for it in items:
+        words = item_words(it)
+        if any(d not in words for d in digits):
+            continue
+        hit = sum(1 for t in tokens if _fuzzy_hit(t, words))
+        share = hit / len(tokens)
+        if share >= 0.7:
+            best.append((share, it))
+    if not best:
+        return None
+    top = max(s for s, _ in best)
+    candidates = [it for s, it in best if s == top]
+    candidates.sort(key=lambda it: (not (it.stock > 0 or it.preorder), it.price))
+    return candidates[0]
+
+
+def render_first_message(template: str, persona_name: str, price: str | None) -> str:
+    """Шаблон первого сообщения. Цены нет — строка с {price} убирается целиком, чужую цену не подставляем."""
+    text = template.replace("{name}", persona_name)
+    if price:
+        return text.replace("{price}", price).strip()
+    lines = [ln for ln in text.split("\n") if "{price}" not in ln]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()

@@ -37,6 +37,7 @@ from src.app.core.avito_bot_engine import (
     render_template, rule_covers, starts_with_refusal, wants_opt_out, is_first_reply, with_greeting,
     split_reply, typing_delay, classify_avito_message, normalize_phone, valid_email, valid_full_name,
     order_note_for_prompt, wants_cancel, CatalogItem, build_overview, catalog_vocab, query_segments, search_catalog,
+    render_first_message, title_match,
 )
 from src.app.core.config import settings
 from src.app.core.logger import get_logger
@@ -272,6 +273,27 @@ async def search_products(session: AsyncSession, item_title: str | None, questio
     return [snap["products"][it.key] for it in found if it.key in snap["products"]]
 
 
+async def listing_price(session: AsyncSession, item_id: int | None, item_title: str | None) -> str | None:
+    """Розничная цена товара из объявления: привязанная карточка или надёжное совпадение по названию."""
+    linked = await linked_product(session, item_id)
+    if linked is not None:
+        return _rub(linked.discount_price or linked.price)
+    snap = await catalog_snapshot(session)
+    it = title_match(snap["items"], item_title, snap["vocab"])
+    return _rub(it.price) if it else None
+
+
+async def first_message(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext,
+                        item_id: int | None) -> tuple[str, bool] | None:
+    """Шаблон первого сообщения диалога (приветствие + розничная цена) и нашлась ли цена.
+    None — шаблон выключен или это не начало диалога."""
+    if not cfg.first_message.strip() or not is_first_reply(ctx):
+        return None
+    price = await listing_price(session, item_id, ctx.item_title) if ctx.item_title or item_id else None
+    needs_price = "{price}" in cfg.first_message and bool(ctx.item_title or item_id)
+    return render_first_message(cfg.first_message, cfg.persona_name, price), bool(price) or not needs_price
+
+
 async def catalog_products(session: AsyncSession, item_id: int | None, item_title: str | None,
                            question: str | None, limit: int = 12) -> tuple[list[Product], Product | None]:
     """Товар, привязанный к объявлению (первым), и похожие из каталога."""
@@ -346,7 +368,8 @@ def _order_item(cfg: AvitoBotConfig, raw: dict[str, Any], products: list[Product
 
 async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, pending_text: str,
                  rule_hits: dict[str, Any], now: datetime | None = None, item_id: int | None = None,
-                 order_info: tuple[str, str] | None = None) -> Decision:
+                 order_info: tuple[str, str] | None = None, first_sent: bool = False,
+                 first_price_known: bool = True) -> Decision:
     """order_info — (номер, статус) заявки этого диалога: модель знает о ней и может её отменить."""
     now = now or _now()
     rules = await active_rules(session)
@@ -370,6 +393,10 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         return Decision("reply", rule_text(match.rule), "rule", match.rule, delay_seconds=match.rule.delay_seconds)
 
     if not llm.ready:
+        if first_sent and not first_price_known:
+            return Decision("handoff", reason="Нет розничной цены для объявления — привяжите объявление к товару каталога")
+        if first_sent:
+            return Decision("silent", reason="Шаблон с ценой уже отправлен, модели нет")
         if match:  # правило «своими словами», но модели нет — отдаём текст правила
             return Decision("reply", rule_text(match.rule), "rule", match.rule, delay_seconds=match.rule.delay_seconds)
         return Decision("handoff", cfg.handoff_message or None, reason="Нет подходящего автоответа, а модель не подключена")
@@ -393,6 +420,7 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         orders_enabled=cfg.orders_enabled, pickup_address=cfg.pickup_address,
         order_note=order_note_for_prompt(*order_info) if order_info else None,
         catalog_overview=(await catalog_snapshot(session))["overview"] if cfg.use_catalog else (),
+        first_sent=first_sent, first_price_known=first_price_known,
     )
     try:
         raw = await llm_call(cfg, build_messages(system, masked_ctx, HISTORY_LIMIT))
@@ -487,8 +515,14 @@ async def process_chat(chat_id: UUID) -> None:
             # Как человек: сначала «прочитано», потом печатает ответ
             await avito_client.mark_read(avito_creds(cfg), chat.avito_chat_id)
         order_info = await _order_info(session, chat)
-        decision = await decide(session, cfg, state.ctx, state.pending, dict(chat.rule_hits or {}), item_id=chat.item_id,
-                                order_info=order_info)
+        # Начало диалога: сначала шаблон магазина с розничной ценой, потом — ответ на сам вопрос
+        first = await first_message(session, cfg, state.ctx, chat.item_id)
+        opening, price_known = first if first else (None, True)
+        ctx = state.ctx
+        if opening:
+            ctx = ChatContext(ctx.item_title, ctx.item_price, ctx.client_name, ctx.history + [("bot", opening)])
+        decision = await decide(session, cfg, ctx, state.pending, dict(chat.rule_hits or {}), item_id=chat.item_id,
+                                order_info=order_info, first_sent=bool(opening), first_price_known=price_known)
         await session.commit()
 
     push: tuple[str, str] | None = None
@@ -515,27 +549,39 @@ async def process_chat(chat_id: UUID) -> None:
                 log_event(session, chat.id, "handoff", chat.human_reason)
             push = ("Авито: нужен менеджер", f"{chat.client_name or 'Покупатель'} · {chat.item_title or ''} · {chat.human_reason}")
 
+        planned: list[tuple[str, str | None, Decision | None]] = []   # (текст, источник, решение)
+        if opening:
+            planned.append((opening, "rule", None))
         if decision.text and decision.action in ("reply", "handoff"):
+            planned.append((decision.text, decision.source, decision))
+        send_at = None
+        base_time = _now()
+        debounce = SIM_DEBOUNCE_SECONDS if chat.is_simulated else DEBOUNCE_SECONDS
+        for n, (text_, source, dec) in enumerate(planned):
+            rule_id = dec.rule.id if dec and dec.rule else None
+            order = dec.order if dec else None
+            item_base = base_time + timedelta(milliseconds=100 * n)   # порядок: шаблон раньше ответа
             if cfg.mode == "draft" and not chat.is_simulated:
-                # Черновик — одним сообщением; на части он разделится при отправке
-                session.add(AvitoMessage(chat_id=chat.id, author="bot", text=decision.text, source=decision.source,
-                                         rule_id=decision.rule.id if decision.rule else None,
-                                         order_payload=decision.order, status="draft"))
+                # Черновик — одним сообщением; ответ модели разделится на части при отправке
+                session.add(AvitoMessage(chat_id=chat.id, author="bot", text=text_, source=source, rule_id=rule_id,
+                                         order_payload=order, status="draft", created_at=item_base))
                 if push is None:
-                    title = "Авито: бронь ждёт подтверждения" if decision.order else "Авито: ответ ждёт проверки"
-                    push = (title, f"{chat.client_name or 'Покупатель'}: {decision.text[:120]}")
-            else:
-                debounce = SIM_DEBOUNCE_SECONDS if chat.is_simulated else DEBOUNCE_SECONDS
-                delay = min(decision.delay_seconds, SIMULATED_MAX_DELAY) if chat.is_simulated else decision.delay_seconds
+                    title = "Авито: бронь ждёт подтверждения" if order else "Авито: ответ ждёт проверки"
+                    push = (title, f"{chat.client_name or 'Покупатель'}: {text_[:120]}")
+                continue
+            # Пауза «печати»: первое сообщение — после паузы решения, следующее — после набора своего текста
+            if send_at is None:
+                own_delay = dec.delay_seconds if dec else typing_delay(text_, cfg.reply_delay_min, cfg.reply_delay_max)
+                delay = min(own_delay, SIMULATED_MAX_DELAY) if chat.is_simulated else own_delay
                 send_at = _now() + timedelta(seconds=max(0, delay - debounce))
-                base_time = _now()
-                parts = _parts(cfg, decision.text)
-                for i, part in enumerate(parts):
-                    if i:
-                        send_at += timedelta(seconds=_next_part_delay(cfg, part, chat.is_simulated))
-                    session.add(_part_message(chat.id, part, i, len(parts), decision.source,
-                                              decision.rule.id if decision.rule else None, decision.order,
-                                              "scheduled", send_at, base_time))
+            else:
+                send_at += timedelta(seconds=_next_part_delay(cfg, text_, chat.is_simulated))
+            parts = _parts(cfg, text_, source)
+            for i, part in enumerate(parts):
+                if i:
+                    send_at += timedelta(seconds=_next_part_delay(cfg, part, chat.is_simulated))
+                session.add(_part_message(chat.id, part, i, len(parts), source, rule_id, order,
+                                          "scheduled", send_at, item_base))
         await session.commit()
 
     for title, body in extra_pushes:
@@ -544,8 +590,10 @@ async def process_chat(chat_id: UUID) -> None:
         await send_push_to_all(push[0], push[1], url=f"/admin?tab=avito&chat={chat_id}", tag=f"avito-{chat_id}")
 
 
-def _parts(cfg: AvitoBotConfig, text_: str) -> list[str]:
-    return (split_reply(text_) or [text_]) if cfg.human_mode else [text_]
+def _parts(cfg: AvitoBotConfig, text_: str, source: str | None = "llm") -> list[str]:
+    """На короткие сообщения делим только ответы модели. Шаблон и скрипты магазина уходят
+    целиком — как они написаны, с пустыми строками внутри."""
+    return (split_reply(text_) or [text_]) if cfg.human_mode and source == "llm" else [text_]
 
 
 def _next_part_delay(cfg: AvitoBotConfig, part: str, simulated: bool) -> int:
@@ -1246,7 +1294,7 @@ async def approve_draft(message_id: UUID, text_: str | None) -> None:
             msg.source = "staff"
             await _learn(session, chat, state, msg.text, bot_answer=original)
         # Как человек: первая часть уходит сейчас, остальные — следом, с паузой «печати»
-        parts = _parts(cfg, msg.text)
+        parts = _parts(cfg, msg.text, msg.source)
         order_payload = msg.order_payload
         msg.text = parts[0]
         if len(parts) > 1:
