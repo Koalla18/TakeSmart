@@ -1,0 +1,847 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { API_BASE_URL } from '../../lib/config'
+import { toast } from '../../lib/toast'
+import { confirmDialog } from '../../lib/confirm'
+import { AdminIcon } from './AdminIcons'
+import { BTN_PRIMARY, BTN_SECONDARY, SegmentedTabs } from './AdminShell'
+import { call, copyText, type Api, type AuthFetch } from './installsApi'
+import { BTN_ROW, CARD, INPUT, LABEL, Modal, Toggle } from './installsUi'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// «Авито-бот». Вкладки: «Диалоги» (живые переписки, черновики, «нужен человек»),
+// «Автоответы» (правила «ключевые слова → текст»), «Тест» (что бот ответит —
+// без сохранения), «Настройки» (режим, имя, модель, ключи Авито).
+// Бэкенд: /api/avito-bot/* (backend/src/app/api/routers/avito_bot.py).
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface Rule {
+  id: string
+  keywords: string[]
+  answer: string
+  verbatim: boolean
+  time_from: string
+  time_to: string
+  days: number[]
+  delay_seconds: number
+  max_per_chat: number
+  is_active: boolean
+  sort: number
+  hits: number
+}
+type RuleDraft = Omit<Rule, 'id' | 'hits'>
+
+interface Chat {
+  id: string
+  avito_chat_id: string
+  is_simulated: boolean
+  client_name: string | null
+  item_title: string | null
+  item_price: string | null
+  item_url: string | null
+  mode: 'bot' | 'human'
+  needs_human: boolean
+  human_reason: string | null
+  last_message_text: string | null
+  last_message_at: string | null
+  has_draft: boolean
+}
+interface Message {
+  id: string
+  author: 'client' | 'bot' | 'staff'
+  text: string
+  status: 'sent' | 'draft' | 'failed' | 'discarded'
+  source: string | null
+  error: string | null
+  created_at: string
+}
+interface ChatDetail extends Chat { messages: Message[] }
+interface ChatsResponse { chats: Chat[]; total: number; needs_human: number; drafts: number }
+
+interface Config {
+  enabled: boolean
+  mode: 'draft' | 'auto'
+  persona_name: string
+  style: string
+  knowledge: string
+  handoff_topics: string
+  handoff_message: string
+  reply_delay_min: number
+  reply_delay_max: number
+  use_catalog: boolean
+  llm_provider: 'none' | 'yandex' | 'deepseek' | 'openai_compatible'
+  llm_base_url: string
+  llm_model: string
+  llm_folder_id: string
+  llm_temperature: number
+  llm_api_key_set: boolean
+  avito_client_id: string
+  avito_client_secret_set: boolean
+  avito_user_id: number | null
+  avito_connected_at: string | null
+  webhook_url: string | null
+}
+interface Decision {
+  action: 'reply' | 'handoff' | 'silent'
+  text: string | null
+  source: string | null
+  rule_id: string | null
+  reason: string | null
+  delay_seconds: number
+  catalog: string[]
+}
+
+type View = 'dialogs' | 'rules' | 'test' | 'settings'
+const VIEWS: readonly View[] = ['dialogs', 'rules', 'test', 'settings']
+type ChatFilter = 'all' | 'human' | 'draft' | 'test'
+const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
+const NEW_RULE: RuleDraft = { keywords: [], answer: '', verbatim: true, time_from: '00:00', time_to: '23:59', days: ALL_DAYS, delay_seconds: 2, max_per_chat: 1, is_active: true, sort: 0 }
+
+function timeShort(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const today = new Date()
+  return d.toDateString() === today.toDateString()
+    ? d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+}
+
+function scheduleText(r: Pick<Rule, 'time_from' | 'time_to' | 'days'>): string {
+  const time = r.time_from === '00:00' && r.time_to === '23:59' ? 'круглосуточно' : `${r.time_from}–${r.time_to}`
+  const days = r.days.length === 7 ? '' : ` · ${r.days.map(d => DAYS[d]).join(' ')}`
+  return time + days
+}
+
+// ── Раздел ───────────────────────────────────────────────────────────────────
+
+export function AvitoBotSection({ authFetch }: { authFetch: AuthFetch }) {
+  const api = useCallback<Api>((path, init) => authFetch(`${API_BASE_URL}/api/avito-bot${path}`, init), [authFetch])
+  const [params, setParams] = useSearchParams()
+  const [config, setConfig] = useState<Config | null>(null)
+  const [rules, setRules] = useState<Rule[] | null>(null)
+  const [counts, setCounts] = useState<{ needs_human: number; drafts: number } | null>(null)
+
+  const loadConfig = useCallback(async () => { const c = await call<Config>(api, '/settings'); if (c) setConfig(c) }, [api])
+  const loadRules = useCallback(async () => { const r = await call<Rule[]>(api, '/rules'); if (r) setRules(r) }, [api])
+  useEffect(() => {
+    const t = window.setTimeout(() => { loadConfig(); loadRules() }, 0)
+    return () => window.clearTimeout(t)
+  }, [loadConfig, loadRules])
+
+  const chatParam = params.get('chat')
+  const viewParam = params.get('view') as View | null
+  const view: View = chatParam ? 'dialogs' : viewParam && VIEWS.includes(viewParam) ? viewParam : 'dialogs'
+  const patchParams = useCallback((patch: Record<string, string | null>) => {
+    setParams(prev => {
+      const next = new URLSearchParams(prev)
+      for (const [k, v] of Object.entries(patch)) { if (v === null) next.delete(k); else next.set(k, v) }
+      return next
+    }, { replace: true })
+  }, [setParams])
+
+  const attention = (counts?.needs_human || 0) + (counts?.drafts || 0)
+  const notReady = config && (!config.enabled || config.llm_provider === 'none' || !config.avito_connected_at)
+
+  return (
+    <div data-avito-root data-view={view}>
+      <div className="flex flex-wrap items-center gap-3">
+        <SegmentedTabs<View>
+          items={[
+            { id: 'dialogs', label: 'Диалоги', count: attention || undefined },
+            { id: 'rules', label: 'Автоответы', count: rules?.length || undefined },
+            { id: 'test', label: 'Тест' },
+            { id: 'settings', label: notReady ? 'Настройки •' : 'Настройки' },
+          ]}
+          value={view}
+          onChange={v => patchParams({ view: v, chat: null })}
+        />
+        {config && <StatusPill config={config} />}
+      </div>
+
+      {view === 'dialogs' && <DialogsTab api={api} config={config} openChatId={chatParam} onOpen={id => patchParams({ view: 'dialogs', chat: id })} onCounts={setCounts} />}
+      {view === 'rules' && <RulesTab api={api} rules={rules} reload={loadRules} />}
+      {view === 'test' && <TestTab api={api} rules={rules} />}
+      {view === 'settings' && (config ? <SettingsTab api={api} config={config} setConfig={setConfig} /> : <Loading />)}
+    </div>
+  )
+}
+
+function Loading() {
+  return <div className={`${CARD} flex items-center gap-3 text-slate-300`}><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-yellow-400" />Загружаем…</div>
+}
+
+function StatusPill({ config }: { config: Config }) {
+  const [dot, text] = !config.enabled
+    ? ['bg-slate-500', 'Бот выключен']
+    : !config.avito_connected_at
+      ? ['bg-amber-400', 'Включён · Авито не подключён']
+      : config.mode === 'draft'
+        ? ['bg-emerald-400', 'Работает · черновики']
+        : ['bg-emerald-400', 'Работает · отвечает сам']
+  return (
+    <span className="mb-5 inline-flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-sm text-slate-300">
+      <span className={`h-2 w-2 rounded-full ${dot}`} />{text}
+    </span>
+  )
+}
+
+// ── Диалоги ──────────────────────────────────────────────────────────────────
+
+const CHATS_POLL_MS = 4000
+
+function DialogsTab({ api, config, openChatId, onOpen, onCounts }: {
+  api: Api
+  config: Config | null
+  openChatId: string | null
+  onOpen: (id: string | null) => void
+  onCounts: (c: { needs_human: number; drafts: number }) => void
+}) {
+  const [filter, setFilter] = useState<ChatFilter>('all')
+  const [data, setData] = useState<ChatsResponse | null>(null)
+  const [simOpen, setSimOpen] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      const res = await api(`/chats?filter=${filter}`)
+      if (!res.ok) return
+      const d: ChatsResponse = await res.json()
+      setData(d)
+      onCounts({ needs_human: d.needs_human, drafts: d.drafts })
+    } catch { /* сеть */ }
+  }, [api, filter, onCounts])
+  useEffect(() => {
+    const first = window.setTimeout(load, 0)
+    const id = window.setInterval(() => { if (!document.hidden) load() }, CHATS_POLL_MS)
+    return () => { window.clearTimeout(first); window.clearInterval(id) }
+  }, [load])
+
+  const filters: { id: ChatFilter; label: string; count?: number; tone?: string }[] = [
+    { id: 'all', label: 'Все', count: data?.total },
+    { id: 'human', label: 'Нужен человек', count: data?.needs_human, tone: 'text-amber-300' },
+    { id: 'draft', label: 'Черновики', count: data?.drafts, tone: 'text-sky-300' },
+    { id: 'test', label: 'Тренировочные' },
+  ]
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+      <div className={`${CARD} !p-0 overflow-hidden ${openChatId ? 'hidden lg:block' : ''}`}>
+        <div className="flex flex-wrap gap-1.5 border-b border-white/[0.06] p-3">
+          {filters.map(f => (
+            <button key={f.id} type="button" onClick={() => setFilter(f.id)}
+              className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${filter === f.id ? 'bg-white/[0.12] text-white' : 'text-slate-400 hover:bg-white/[0.06]'}`}>
+              {f.label}{f.count ? <span className={`ml-1.5 tabular-nums ${f.tone || 'text-slate-500'}`}>{f.count}</span> : null}
+            </button>
+          ))}
+        </div>
+        <div className="max-h-[64vh] overflow-y-auto">
+          {data === null ? <div className="p-4 text-sm text-slate-500">Загружаем…</div>
+            : data.chats.length === 0 ? (
+              <div className="p-5 text-sm text-slate-400">
+                {filter === 'all'
+                  ? <>Диалогов пока нет. Они появятся, когда Авито будет подключён в настройках. А пока напишите боту сами — как покупатель.</>
+                  : 'Здесь пусто.'}
+              </div>
+            ) : data.chats.map(c => (
+              <button key={c.id} type="button" onClick={() => onOpen(c.id)}
+                className={`block w-full border-b border-white/[0.04] px-4 py-3 text-left transition hover:bg-white/[0.04] ${openChatId === c.id ? 'bg-white/[0.07]' : ''}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-sm font-medium text-white">{c.client_name || 'Покупатель'}</span>
+                  {c.needs_human ? <span className="shrink-0 rounded-md bg-amber-400/15 px-1.5 py-0.5 text-[11px] text-amber-300">человек</span>
+                    : c.has_draft ? <span className="shrink-0 rounded-md bg-sky-400/15 px-1.5 py-0.5 text-[11px] text-sky-300">черновик</span>
+                      : <span className="shrink-0 text-[11px] text-slate-500">{timeShort(c.last_message_at)}</span>}
+                </div>
+                <div className="mt-0.5 truncate text-xs text-slate-500">
+                  {c.is_simulated && <span className="mr-1 text-violet-300">тест ·</span>}
+                  {c.item_title ? `${c.item_title} · ` : ''}{c.last_message_text}
+                </div>
+              </button>
+            ))}
+        </div>
+        <div className="border-t border-white/[0.06] p-3">
+          <button type="button" onClick={() => setSimOpen(true)} className={`${BTN_ROW} w-full`}>Написать боту как покупатель</button>
+        </div>
+      </div>
+
+      {openChatId
+        ? <ChatPanel key={openChatId} api={api} chatId={openChatId} config={config} onClose={() => onOpen(null)} onChanged={load} />
+        : <div className={`${CARD} hidden items-center justify-center text-sm text-slate-500 lg:flex`}>Выберите диалог слева</div>}
+
+      {simOpen && (
+        <SimulateModal api={api} onClose={() => setSimOpen(false)} onCreated={id => { setSimOpen(false); setFilter('all'); load(); onOpen(id) }} />
+      )}
+    </div>
+  )
+}
+
+function SimulateModal({ api, onClose, onCreated }: { api: Api; onClose: () => void; onCreated: (id: string) => void }) {
+  const [item, setItem] = useState('iPhone 17 Pro 256 ГБ')
+  const [price, setPrice] = useState('')
+  const [text, setText] = useState('Здравствуйте! Цена актуальная?')
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    if (!text.trim()) return toast('Напишите сообщение', 'error')
+    setBusy(true)
+    const chat = await call<Chat>(api, '/simulate', { method: 'POST', body: { text, item_title: item || null, item_price: price || null } })
+    setBusy(false)
+    if (chat) onCreated(chat.id)
+  }
+  return (
+    <Modal title="Тренировочный диалог" onClose={onClose}>
+      <p className="mb-4 text-sm text-slate-400">Бот ответит как в настоящем чате Авито, но в Авито ничего не уйдёт. Удобно проверять автоответы и тон.</p>
+      <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
+        <label className="block"><span className={LABEL}>Объявление</span><input className={`${INPUT} mt-1.5`} value={item} onChange={e => setItem(e.target.value)} placeholder="iPhone 17 Pro 256 ГБ" /></label>
+        <label className="block"><span className={LABEL}>Цена</span><input className={`${INPUT} mt-1.5`} value={price} onChange={e => setPrice(e.target.value)} placeholder="135 990 ₽" /></label>
+      </div>
+      <label className="mt-3 block"><span className={LABEL}>Сообщение покупателя</span><textarea className={`${INPUT} mt-1.5 h-24`} value={text} onChange={e => setText(e.target.value)} /></label>
+      <div className="mt-4 flex justify-end gap-2">
+        <button type="button" onClick={onClose} className={BTN_SECONDARY}>Отмена</button>
+        <button type="button" onClick={submit} disabled={busy} className={BTN_PRIMARY}>Написать</button>
+      </div>
+    </Modal>
+  )
+}
+
+const CHAT_POLL_MS = 3000
+
+function ChatPanel({ api, chatId, config, onClose, onChanged }: { api: Api; chatId: string; config: Config | null; onClose: () => void; onChanged: () => void }) {
+  const [chat, setChat] = useState<ChatDetail | null>(null)
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const bottom = useRef<HTMLDivElement>(null)
+  const lastCount = useRef(0)
+
+  const load = useCallback(async () => {
+    try {
+      const res = await api(`/chats/${chatId}`)
+      if (res.status === 404) { toast('Диалог не найден', 'error'); onClose(); return }
+      if (res.ok) setChat(await res.json())
+    } catch { /* сеть */ }
+  }, [api, chatId, onClose])
+  useEffect(() => {
+    const first = window.setTimeout(load, 0)
+    const id = window.setInterval(() => { if (!document.hidden) load() }, CHAT_POLL_MS)
+    return () => { window.clearTimeout(first); window.clearInterval(id) }
+  }, [load])
+  useEffect(() => {
+    const n = chat?.messages.length || 0
+    if (n !== lastCount.current) { lastCount.current = n; bottom.current?.scrollIntoView({ block: 'nearest' }) }
+  }, [chat])
+
+  const act = async (path: string, body?: unknown, ok?: string) => {
+    setBusy(true)
+    const res = await call(api, path, { method: 'POST', body: body ?? {} })
+    setBusy(false)
+    if (res !== null) { if (ok) toast(ok, 'success'); load(); onChanged() }
+    return res !== null
+  }
+  const send = async () => {
+    const t = text.trim()
+    if (!t) return
+    const ok = chat?.is_simulated
+      ? await act('/simulate', { chat_id: chatId, text: t })
+      : await act(`/chats/${chatId}/send`, { text: t })
+    if (ok) setText('')
+  }
+  const remove = async () => {
+    if (!(await confirmDialog({ title: 'Удалить тренировочный диалог?', message: 'Переписка удалится вместе с черновиками.', confirmLabel: 'Удалить', danger: true }))) return
+    const res = await call(api, `/chats/${chatId}`, { method: 'DELETE' })
+    if (res !== null) { onChanged(); onClose() }
+  }
+
+  if (!chat) return <div className={CARD}><Loading /></div>
+  const name = config?.persona_name || 'Бот'
+
+  return (
+    <div className={`${CARD} flex min-h-[60vh] flex-col !p-0`}>
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/[0.06] px-5 py-3">
+        <div className="min-w-0">
+          <button type="button" onClick={onClose} className="mb-1 text-xs text-slate-500 hover:text-slate-300 lg:hidden">← Все диалоги</button>
+          <div className="truncate font-semibold text-white">
+            {chat.item_url ? <a href={chat.item_url} target="_blank" rel="noreferrer" className="hover:underline">{chat.item_title}</a> : chat.item_title || 'Без объявления'}
+          </div>
+          <div className="text-xs text-slate-400">
+            {chat.client_name || 'Покупатель'}{chat.item_price ? ` · в объявлении ${chat.item_price}` : ''}{chat.is_simulated ? ' · тренировочный' : ''}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {chat.mode === 'bot'
+            ? <button type="button" disabled={busy} onClick={() => act(`/chats/${chatId}/take`, undefined, 'Диалог ваш — бот молчит')} className={BTN_ROW}>Взять диалог</button>
+            : <button type="button" disabled={busy} onClick={() => act(`/chats/${chatId}/release`, undefined, 'Бот снова отвечает')} className={BTN_ROW}>Вернуть боту</button>}
+          {chat.needs_human && chat.mode === 'bot' && (
+            <button type="button" disabled={busy} onClick={() => act(`/chats/${chatId}/release`, undefined, 'Готово')} className={BTN_ROW}>Решено, бот продолжает</button>
+          )}
+          {chat.is_simulated && <button type="button" onClick={remove} className={BTN_ROW} aria-label="Удалить диалог"><AdminIcon name="trash" className="h-4 w-4" /></button>}
+        </div>
+      </div>
+
+      {chat.needs_human && (
+        <div className="border-b border-amber-400/20 bg-amber-400/[0.08] px-5 py-2 text-sm text-amber-200">
+          Нужен человек: {chat.human_reason || 'бот не уверен'}. Бот в этом диалоге молчит, пока вы не ответите или не отметите «решено».
+        </div>
+      )}
+      {chat.mode === 'human' && !chat.needs_human && (
+        <div className="border-b border-white/[0.06] bg-white/[0.03] px-5 py-2 text-sm text-slate-400">Диалог ведёт сотрудник — бот не отвечает.</div>
+      )}
+
+      <div className="flex-1 space-y-2.5 overflow-y-auto px-5 py-4" style={{ maxHeight: '56vh' }}>
+        {chat.messages.map(m => <Bubble key={m.id} m={m} name={name} api={api} onDone={() => { load(); onChanged() }} />)}
+        <div ref={bottom} />
+      </div>
+
+      <div className="flex gap-2 border-t border-white/[0.06] p-3">
+        <textarea value={text} onChange={e => setText(e.target.value)} rows={1}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+          placeholder={chat.is_simulated ? 'Написать как покупатель' : 'Ответить от себя — бот в этом диалоге замолчит'}
+          className={`${INPUT} min-h-[44px] resize-none`} />
+        <button type="button" onClick={send} disabled={busy || !text.trim()} className={BTN_PRIMARY} aria-label="Отправить"><AdminIcon name="send" className="h-4 w-4" /></button>
+      </div>
+    </div>
+  )
+}
+
+const SOURCE_LABEL: Record<string, string> = { rule: 'автоответ', llm: 'модель', staff: 'сотрудник', avito: 'из приложения Авито' }
+
+function Bubble({ m, name, api, onDone }: { m: Message; name: string; api: Api; onDone: () => void }) {
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState(m.text)
+  const [busy, setBusy] = useState(false)
+  const mine = m.author !== 'client'
+  const who = m.author === 'client' ? null : m.author === 'bot' ? name : 'Сотрудник'
+  const meta = [who, m.source ? SOURCE_LABEL[m.source] : null, timeShort(m.created_at)].filter(Boolean).join(' · ')
+
+  const run = async (path: string, body: unknown) => {
+    setBusy(true)
+    const res = await call(api, path, { method: 'POST', body })
+    setBusy(false)
+    if (res !== null) { setEditing(false); onDone() }
+  }
+
+  if (m.status === 'draft') {
+    return (
+      <div className="ml-auto max-w-[85%] rounded-2xl border border-dashed border-sky-400/40 bg-sky-400/[0.06] p-3">
+        <div className="mb-1 text-[11px] text-sky-300">Черновик · {meta}</div>
+        {editing
+          ? <textarea className={`${INPUT} h-24`} value={text} onChange={e => setText(e.target.value)} />
+          : <div className="whitespace-pre-wrap text-sm text-slate-100">{m.text}</div>}
+        {m.error && <div className="mt-1 text-xs text-rose-300">{m.error}</div>}
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          <button type="button" disabled={busy} onClick={() => run(`/messages/${m.id}/approve`, editing ? { text } : {})} className={`${BTN_PRIMARY} !px-3 !py-1.5`}>Отправить</button>
+          {!editing && <button type="button" onClick={() => setEditing(true)} className={BTN_ROW}>Изменить</button>}
+          <button type="button" disabled={busy} onClick={() => run(`/messages/${m.id}/discard`, {})} className={BTN_ROW}>Не отвечать</button>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className={`max-w-[80%] ${mine ? 'ml-auto text-right' : ''}`}>
+      <div className={`inline-block whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-left text-sm ${mine ? (m.author === 'bot' ? 'bg-yellow-400/[0.14] text-yellow-50' : 'bg-white/[0.12] text-white') : 'bg-white/[0.06] text-slate-100'}`}>
+        {m.text}
+      </div>
+      {(meta || m.status === 'failed') && (
+        <div className={`mt-0.5 text-[11px] ${m.status === 'failed' ? 'text-rose-300' : 'text-slate-500'}`}>
+          {m.status === 'failed' ? `Не отправлено: ${m.error || 'ошибка'}` : meta}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Автоответы ───────────────────────────────────────────────────────────────
+
+function RulesTab({ api, rules, reload }: { api: Api; rules: Rule[] | null; reload: () => void }) {
+  const [editing, setEditing] = useState<{ id: string | null; draft: RuleDraft } | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const [query, setQuery] = useState('')
+
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!rules) return []
+    return q ? rules.filter(r => r.keywords.some(k => k.toLowerCase().includes(q)) || r.answer.toLowerCase().includes(q)) : rules
+  }, [rules, query])
+
+  const toggle = async (r: Rule) => {
+    const res = await call(api, `/rules/${r.id}`, { method: 'PATCH', body: { is_active: !r.is_active } })
+    if (res !== null) reload()
+  }
+  const remove = async (r: Rule) => {
+    if (!(await confirmDialog({ title: 'Удалить автоответ?', message: `«${r.keywords.join(', ')}» больше не будет срабатывать.`, confirmLabel: 'Удалить', danger: true }))) return
+    const res = await call(api, `/rules/${r.id}`, { method: 'DELETE' })
+    if (res !== null) { toast('Удалено', 'success'); reload() }
+  }
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <input className={`${INPUT} max-w-xs`} value={query} onChange={e => setQuery(e.target.value)} placeholder="Найти по слову или ответу" />
+        <div className="ml-auto flex gap-2">
+          <button type="button" onClick={() => setImportOpen(true)} className={BTN_SECONDARY}>Импорт текстом</button>
+          <button type="button" onClick={() => setEditing({ id: null, draft: { ...NEW_RULE, sort: rules?.length || 0 } })} className={BTN_PRIMARY}><AdminIcon name="plus" className="h-4 w-4" />Добавить</button>
+        </div>
+      </div>
+
+      <div className={`${CARD} mb-4 text-sm text-slate-400`}>
+        Короткий вопрос со словом из правила получает ваш текст дословно. Если вопрос сложнее (несколько вопросов сразу, отказ «нет, спасибо»)
+        и модель подключена, она отвечает своими словами, опираясь на этот текст. Все автоответы — ещё и база знаний бота.
+        Слово со звёздочкой ловит любые окончания: <code className="text-slate-200">рассроч*</code>.
+      </div>
+
+      {rules === null ? <Loading /> : shown.length === 0 ? (
+        <div className={`${CARD} text-sm text-slate-400`}>{rules.length ? 'Ничего не нашлось.' : 'Автоответов пока нет. Добавьте первый или вставьте все сразу через «Импорт текстом».'}</div>
+      ) : (
+        <div className="space-y-3">
+          {shown.map(r => (
+            <div key={r.id} className={`${CARD} flex gap-4 ${r.is_active ? '' : 'opacity-50'}`}>
+              <div className="min-w-0 flex-1">
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {r.keywords.map(k => <span key={k} className="rounded-lg bg-white/[0.08] px-2.5 py-1 text-sm text-slate-100">{k}</span>)}
+                </div>
+                <div className="line-clamp-2 whitespace-pre-wrap text-sm text-slate-300">{r.answer}</div>
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+                  <span>{scheduleText(r)}</span>
+                  <span>задержка {r.delay_seconds} с</span>
+                  <span>{r.max_per_chat ? `${r.max_per_chat}× за диалог` : 'без лимита'}</span>
+                  <span>{r.verbatim ? 'дословно' : 'своими словами'}</span>
+                  <span>сработало {r.hits}</span>
+                </div>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-start">
+                <Toggle checked={r.is_active} onChange={() => toggle(r)} label="" />
+                <button type="button" onClick={() => setEditing({ id: r.id, draft: stripRule(r) })} className={BTN_ROW} aria-label="Изменить"><AdminIcon name="edit" className="h-4 w-4" /></button>
+                <button type="button" onClick={() => setEditing({ id: null, draft: { ...stripRule(r), sort: rules.length } })} className={BTN_ROW} aria-label="Копировать"><AdminIcon name="copy" className="h-4 w-4" /></button>
+                <button type="button" onClick={() => remove(r)} className={`${BTN_ROW} text-rose-300`} aria-label="Удалить"><AdminIcon name="trash" className="h-4 w-4" /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editing && <RuleModal api={api} id={editing.id} initial={editing.draft} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload() }} />}
+      {importOpen && <ImportModal api={api} onClose={() => setImportOpen(false)} onDone={() => { setImportOpen(false); reload() }} />}
+    </div>
+  )
+}
+
+function stripRule(r: Rule): RuleDraft {
+  return { keywords: r.keywords, answer: r.answer, verbatim: r.verbatim, time_from: r.time_from, time_to: r.time_to, days: r.days, delay_seconds: r.delay_seconds, max_per_chat: r.max_per_chat, is_active: r.is_active, sort: r.sort }
+}
+
+function RuleModal({ api, id, initial, onClose, onSaved }: { api: Api; id: string | null; initial: RuleDraft; onClose: () => void; onSaved: () => void }) {
+  const [d, setD] = useState<RuleDraft>(initial)
+  const [keys, setKeys] = useState(initial.keywords.join(', '))
+  const [busy, setBusy] = useState(false)
+  const set = <K extends keyof RuleDraft>(k: K, v: RuleDraft[K]) => setD(prev => ({ ...prev, [k]: v }))
+  const save = async () => {
+    const keywords = keys.split(',').map(k => k.trim()).filter(Boolean)
+    if (!keywords.length) return toast('Добавьте хотя бы одно ключевое слово', 'error')
+    if (!d.answer.trim()) return toast('Напишите ответ', 'error')
+    if (!d.days.length) return toast('Выберите хотя бы один день', 'error')
+    setBusy(true)
+    const body = { ...d, keywords, answer: d.answer.trim() }
+    const res = id ? await call(api, `/rules/${id}`, { method: 'PATCH', body }) : await call(api, '/rules', { method: 'POST', body })
+    setBusy(false)
+    if (res !== null) { toast('Сохранено', 'success'); onSaved() }
+  }
+  return (
+    <Modal title={id ? 'Автоответ' : 'Новый автоответ'} onClose={onClose}>
+      <label className="block"><span className={LABEL}>Ключевые слова через запятую</span>
+        <input className={`${INPUT} mt-1.5`} value={keys} onChange={e => setKeys(e.target.value)} placeholder="адрес, как вас найти, где вы находитесь" autoFocus /></label>
+      <label className="mt-3 block"><span className={LABEL}>Ответ</span>
+        <textarea className={`${INPUT} mt-1.5 h-32`} value={d.answer} onChange={e => set('answer', e.target.value)} placeholder="ТЦ Багратионовский, ул. Барклая 10, павильон А60" /></label>
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <label className="block"><span className={LABEL}>С</span><input type="time" className={`${INPUT} mt-1.5`} value={d.time_from} onChange={e => set('time_from', e.target.value)} /></label>
+        <label className="block"><span className={LABEL}>До</span><input type="time" className={`${INPUT} mt-1.5`} value={d.time_to} onChange={e => set('time_to', e.target.value)} /></label>
+        <label className="block"><span className={LABEL}>Задержка, с</span><input type="number" min={0} max={600} className={`${INPUT} mt-1.5`} value={d.delay_seconds} onChange={e => set('delay_seconds', Math.max(0, Number(e.target.value) || 0))} /></label>
+        <label className="block"><span className={LABEL}>Раз за диалог</span><input type="number" min={0} max={100} className={`${INPUT} mt-1.5`} value={d.max_per_chat} onChange={e => set('max_per_chat', Math.max(0, Number(e.target.value) || 0))} /></label>
+      </div>
+      <div className="mt-1 text-xs text-slate-500">Время московское. «Раз за диалог» 0 — без ограничения.</div>
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {DAYS.map((day, i) => {
+          const on = d.days.includes(i)
+          return <button key={day} type="button" onClick={() => set('days', on ? d.days.filter(x => x !== i) : [...d.days, i].sort())}
+            className={`rounded-lg px-3 py-1.5 text-sm transition ${on ? 'bg-yellow-400/20 text-yellow-200' : 'bg-white/[0.05] text-slate-500'}`}>{day}</button>
+        })}
+      </div>
+      <div className="mt-4 space-y-3">
+        <Toggle checked={d.verbatim} onChange={v => set('verbatim', v)} label="Отправлять текст дословно"
+          hint="Выключите, чтобы модель каждый раз отвечала своими словами по этому тексту (нужна подключённая модель)" />
+        <Toggle checked={d.is_active} onChange={v => set('is_active', v)} label="Включён" />
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <button type="button" onClick={onClose} className={BTN_SECONDARY}>Отмена</button>
+        <button type="button" onClick={save} disabled={busy} className={BTN_PRIMARY}>Сохранить</button>
+      </div>
+    </Modal>
+  )
+}
+
+const IMPORT_EXAMPLE = `адрес, как вас найти, где вы находитесь
+ТЦ Багратионовский, ул. Барклая 10, 1 этаж, павильон А60. Работаем с 10:30 до 21:00.
+
+гарантия, гарантии
+Гарантия: 12 месяцев от производителя, 14 дней от нашего магазина.
+
+оплата | Наличный расчёт без %, картой +16%, переводом по номеру телефона.`
+
+function ImportModal({ api, onClose, onDone }: { api: Api; onClose: () => void; onDone: () => void }) {
+  const [text, setText] = useState('')
+  const [replace, setReplace] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    if (!text.trim()) return toast('Вставьте автоответы', 'error')
+    if (replace && !(await confirmDialog({ title: 'Заменить все автоответы?', message: 'Текущие правила удалятся.', confirmLabel: 'Заменить', danger: true }))) return
+    setBusy(true)
+    const res = await call<{ created: number; skipped: number; errors: string[] }>(api, '/rules/import', { method: 'POST', body: { text, replace } })
+    setBusy(false)
+    if (!res) return
+    toast(`Добавлено ${res.created}${res.skipped ? `, уже было ${res.skipped}` : ''}${res.errors.length ? `, ошибок ${res.errors.length}` : ''}`, res.errors.length ? 'info' : 'success', 6000)
+    if (res.errors.length) console.warn('Импорт автоответов:', res.errors)
+    onDone()
+  }
+  return (
+    <Modal title="Импорт автоответов" onClose={onClose} wide>
+      <p className="mb-3 text-sm text-slate-400">
+        Вставьте автоответы из старого сервиса или таблицы. Блоки разделяйте пустой строкой: первая строка — ключевые слова через запятую,
+        дальше — ответ. Можно и в одну строку: <code className="text-slate-200">слова | ответ</code> или две колонки из таблицы.
+      </p>
+      <textarea className={`${INPUT} h-72 font-mono text-[13px]`} value={text} onChange={e => setText(e.target.value)} placeholder={IMPORT_EXAMPLE} />
+      <div className="mt-3"><Toggle checked={replace} onChange={setReplace} label="Заменить текущие автоответы" hint="Иначе новые добавятся к существующим, совпадающие по словам пропустятся" /></div>
+      <div className="mt-5 flex justify-end gap-2">
+        <button type="button" onClick={onClose} className={BTN_SECONDARY}>Отмена</button>
+        <button type="button" onClick={submit} disabled={busy} className={BTN_PRIMARY}>Импортировать</button>
+      </div>
+    </Modal>
+  )
+}
+
+// ── Тест ─────────────────────────────────────────────────────────────────────
+
+interface TestTurn { author: 'client' | 'bot'; text: string; decision?: Decision }
+
+function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
+  const [item, setItem] = useState('iPhone 17 Pro 256 ГБ')
+  const [price, setPrice] = useState('')
+  const [turns, setTurns] = useState<TestTurn[]>([])
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const ruleName = (id: string | null) => rules?.find(r => r.id === id)?.keywords[0]
+
+  const send = async () => {
+    const t = text.trim()
+    if (!t) return
+    setBusy(true)
+    const history = turns.map(({ author, text }) => ({ author, text }))
+    const d = await call<Decision>(api, '/test', { method: 'POST', body: { text: t, history, item_title: item || null, item_price: price || null } })
+    setBusy(false)
+    if (!d) return
+    setText('')
+    setTurns(prev => [...prev, { author: 'client', text: t }, ...(d.text ? [{ author: 'bot' as const, text: d.text, decision: d }] : [{ author: 'bot' as const, text: '', decision: d }])])
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <div className={`${CARD} flex min-h-[55vh] flex-col !p-0`}>
+        <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
+          {turns.length === 0 && <div className="text-sm text-slate-500">Напишите как покупатель — увидите, что ответит бот и почему. Ничего не сохраняется и в Авито не уходит.</div>}
+          {turns.map((t, i) => t.author === 'client' ? (
+            <div key={i} className="max-w-[80%]"><div className="inline-block rounded-2xl bg-white/[0.06] px-3.5 py-2 text-sm text-slate-100">{t.text}</div></div>
+          ) : (
+            <div key={i} className="ml-auto max-w-[85%] text-right">
+              {t.text && <div className="inline-block whitespace-pre-wrap rounded-2xl bg-yellow-400/[0.14] px-3.5 py-2 text-left text-sm text-yellow-50">{t.text}</div>}
+              {t.decision && <DecisionNote d={t.decision} ruleName={ruleName(t.decision.rule_id)} />}
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 border-t border-white/[0.06] p-3">
+          <input className={INPUT} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') send() }} placeholder="Сообщение покупателя" />
+          <button type="button" onClick={send} disabled={busy || !text.trim()} className={BTN_PRIMARY} aria-label="Отправить"><AdminIcon name="send" className="h-4 w-4" /></button>
+        </div>
+      </div>
+      <div className={`${CARD} space-y-3 self-start`}>
+        <label className="block"><span className={LABEL}>Объявление</span><input className={`${INPUT} mt-1.5`} value={item} onChange={e => setItem(e.target.value)} /></label>
+        <label className="block"><span className={LABEL}>Цена в объявлении</span><input className={`${INPUT} mt-1.5`} value={price} onChange={e => setPrice(e.target.value)} placeholder="135 990 ₽" /></label>
+        <button type="button" onClick={() => setTurns([])} className={`${BTN_ROW} w-full`}>Начать заново</button>
+      </div>
+    </div>
+  )
+}
+
+function DecisionNote({ d, ruleName }: { d: Decision; ruleName?: string }) {
+  const [open, setOpen] = useState(false)
+  const label = d.action === 'handoff' ? `Позвал человека: ${d.reason || ''}`
+    : d.action === 'silent' ? `Промолчал: ${d.reason || ''}`
+      : d.source === 'rule' ? `Автоответ «${ruleName || '…'}», через ${d.delay_seconds} с`
+        : `Модель${ruleName ? ` с подсказкой «${ruleName}»` : ''}, через ${d.delay_seconds} с`
+  return (
+    <div className="mt-1 text-[11px] text-slate-500">
+      <span className={d.action === 'handoff' ? 'text-amber-300' : ''}>{label}</span>
+      {d.catalog.length > 0 && <button type="button" onClick={() => setOpen(o => !o)} className="ml-2 underline decoration-dotted">каталог ({d.catalog.length})</button>}
+      {open && <div className="mt-1 space-y-0.5 text-left">{d.catalog.map(c => <div key={c}>{c}</div>)}</div>}
+    </div>
+  )
+}
+
+// ── Настройки ────────────────────────────────────────────────────────────────
+
+const PROVIDERS: { id: Config['llm_provider']; label: string; hint: string }[] = [
+  { id: 'none', label: 'Без модели', hint: 'Только автоответы; на остальное бот зовёт человека' },
+  { id: 'yandex', label: 'YandexGPT', hint: 'Данные остаются в России, оплата в рублях. Нужны API-ключ и ID каталога Yandex Cloud' },
+  { id: 'deepseek', label: 'DeepSeek', hint: 'Дёшево и хорошо по-русски. Серверы в Китае — учитывайте 152-ФЗ' },
+  { id: 'openai_compatible', label: 'Другая', hint: 'Любой OpenAI-совместимый адрес: OpenRouter, свой сервер с Qwen и т.п.' },
+]
+
+function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; setConfig: (c: Config) => void }) {
+  const [form, setForm] = useState<Config>(config)
+  const [llmKey, setLlmKey] = useState('')
+  const [avitoSecret, setAvitoSecret] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
+  const [check, setCheck] = useState<Decision | null>(null)
+  const set = <K extends keyof Config>(k: K, v: Config[K]) => setForm(prev => ({ ...prev, [k]: v }))
+  const dirty = JSON.stringify(form) !== JSON.stringify(config) || llmKey !== '' || avitoSecret !== ''
+
+  const save = async (patch?: Partial<Config>, quiet?: boolean): Promise<Config | null> => {
+    const body: Record<string, unknown> = patch ?? {
+      enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, style: form.style, knowledge: form.knowledge,
+      handoff_topics: form.handoff_topics, handoff_message: form.handoff_message, reply_delay_min: form.reply_delay_min,
+      reply_delay_max: form.reply_delay_max, use_catalog: form.use_catalog, llm_provider: form.llm_provider,
+      llm_base_url: form.llm_base_url, llm_model: form.llm_model, llm_folder_id: form.llm_folder_id, llm_temperature: form.llm_temperature,
+      avito_client_id: form.avito_client_id, llm_api_key: llmKey, avito_client_secret: avitoSecret,
+    }
+    setBusy('save')
+    const c = await call<Config>(api, '/settings', { method: 'PUT', body })
+    setBusy(null)
+    if (!c) return null
+    setConfig(c); setForm(c); setLlmKey(''); setAvitoSecret('')
+    if (!quiet) toast('Сохранено', 'success')
+    return c
+  }
+  const connect = async () => {
+    if (dirty && !(await save(undefined, true))) return
+    setBusy('connect')
+    const res = await call<{ ok: boolean; detail: string }>(api, '/connect', { method: 'POST' })
+    setBusy(null)
+    if (!res) return
+    toast(res.detail, res.ok ? 'success' : 'error', 8000)
+    const c = await call<Config>(api, '/settings')
+    if (c) { setConfig(c); setForm(c) }
+  }
+  const checkLlm = async () => {
+    if (dirty && !(await save(undefined, true))) return
+    setBusy('llm')
+    setCheck(await call<Decision>(api, '/llm-check', { method: 'POST' }))
+    setBusy(null)
+  }
+  const provider = PROVIDERS.find(p => p.id === form.llm_provider)
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      <div className="space-y-4">
+        <section className={CARD}>
+          <h3 className="mb-4 font-semibold text-white">Работа бота</h3>
+          <div className="space-y-4">
+            <Toggle checked={form.enabled} onChange={v => set('enabled', v)} label="Бот включён" hint="Выключенный бот только записывает входящие — отвечаете вы" />
+            <div>
+              <span className={LABEL}>Режим</span>
+              <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+                {([['draft', 'Черновики', 'Бот пишет ответ, сотрудник жмёт «Отправить». Для первых дней'], ['auto', 'Сам отвечает', 'Ответ уходит покупателю сразу после паузы']] as const).map(([id, label, hint]) => (
+                  <button key={id} type="button" onClick={() => set('mode', id)}
+                    className={`rounded-xl border p-3 text-left transition ${form.mode === id ? 'border-yellow-400/60 bg-yellow-400/[0.08]' : 'border-white/10 hover:bg-white/[0.04]'}`}>
+                    <div className="text-sm font-medium text-white">{label}</div><div className="mt-0.5 text-xs text-slate-500">{hint}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <label className="block"><span className={LABEL}>Имя менеджера</span><input className={`${INPUT} mt-1.5`} value={form.persona_name} onChange={e => set('persona_name', e.target.value)} /></label>
+              <label className="block"><span className={LABEL}>Пауза от, с</span><input type="number" min={0} className={`${INPUT} mt-1.5`} value={form.reply_delay_min} onChange={e => set('reply_delay_min', Number(e.target.value) || 0)} /></label>
+              <label className="block"><span className={LABEL}>до, с</span><input type="number" min={0} className={`${INPUT} mt-1.5`} value={form.reply_delay_max} onChange={e => set('reply_delay_max', Number(e.target.value) || 0)} /></label>
+            </div>
+            <div className="text-xs text-slate-500">Пауза — для ответов модели, чтобы они не прилетали мгновенно. У автоответов своя задержка. Если покупатель прямо спросит «вы бот?», бот не станет отрицать — это защищает аккаунт от жалоб.</div>
+            <Toggle checked={form.use_catalog} onChange={v => set('use_catalog', v)} label="Смотреть цены и наличие в каталоге сайта" hint="Модель видит подходящие товары с живыми ценами и остатками" />
+          </div>
+        </section>
+
+        <section className={CARD}>
+          <h3 className="mb-4 font-semibold text-white">Как общаться и что знать</h3>
+          <label className="block"><span className={LABEL}>Стиль общения</span><textarea className={`${INPUT} mt-1.5 h-32`} value={form.style} onChange={e => set('style', e.target.value)} /></label>
+          <label className="mt-3 block"><span className={LABEL}>База знаний</span>
+            <textarea className={`${INPUT} mt-1.5 h-40`} value={form.knowledge} onChange={e => set('knowledge', e.target.value)}
+              placeholder={'Например:\nЦена в объявлении — с учётом trade-in, без обмена дороже.\nДоставка по Москве за 30 минут, 500 ₽.\nБронь держим до конца дня.'} />
+          </label>
+          <div className="mt-1 text-xs text-slate-500">Всё, что не уместилось в автоответы. Автоответы бот тоже знает — дублировать не нужно.</div>
+          <label className="mt-3 block"><span className={LABEL}>Когда звать человека</span><input className={`${INPUT} mt-1.5`} value={form.handoff_topics} onChange={e => set('handoff_topics', e.target.value)} /></label>
+          <label className="mt-3 block"><span className={LABEL}>Что написать, пока зовём человека</span>
+            <input className={`${INPUT} mt-1.5`} value={form.handoff_message} onChange={e => set('handoff_message', e.target.value)} placeholder="Сейчас уточню у коллеги и вернусь к вам. Пусто — бот молчит" /></label>
+        </section>
+      </div>
+
+      <div className="space-y-4">
+        <section className={CARD}>
+          <h3 className="mb-1 font-semibold text-white">Модель</h3>
+          <p className="mb-4 text-xs text-slate-500">{provider?.hint}</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {PROVIDERS.map(p => (
+              <button key={p.id} type="button" onClick={() => set('llm_provider', p.id)}
+                className={`rounded-xl border px-3 py-2 text-sm transition ${form.llm_provider === p.id ? 'border-yellow-400/60 bg-yellow-400/[0.08] text-white' : 'border-white/10 text-slate-400 hover:bg-white/[0.04]'}`}>{p.label}</button>
+            ))}
+          </div>
+          {form.llm_provider !== 'none' && (
+            <div className="mt-4 space-y-3">
+              <label className="block"><span className={LABEL}>API-ключ</span>
+                <input type="password" autoComplete="off" className={`${INPUT} mt-1.5`} value={llmKey} onChange={e => setLlmKey(e.target.value)}
+                  placeholder={config.llm_api_key_set ? 'Задан — оставьте пустым, чтобы не менять' : 'Вставьте ключ'} /></label>
+              {form.llm_provider === 'yandex' && (
+                <label className="block"><span className={LABEL}>ID каталога Yandex Cloud</span><input className={`${INPUT} mt-1.5`} value={form.llm_folder_id} onChange={e => set('llm_folder_id', e.target.value)} placeholder="b1g…" /></label>
+              )}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block"><span className={LABEL}>Модель</span><input className={`${INPUT} mt-1.5`} value={form.llm_model} onChange={e => set('llm_model', e.target.value)}
+                  placeholder={form.llm_provider === 'yandex' ? 'yandexgpt/latest' : form.llm_provider === 'deepseek' ? 'deepseek-chat' : 'название модели'} /></label>
+                <label className="block"><span className={LABEL}>Креативность {form.llm_temperature.toFixed(1)}</span>
+                  <input type="range" min={0} max={1} step={0.1} className="mt-4 w-full accent-yellow-400" value={form.llm_temperature} onChange={e => set('llm_temperature', Number(e.target.value))} /></label>
+              </div>
+              {form.llm_provider === 'openai_compatible' && (
+                <label className="block"><span className={LABEL}>Адрес API</span><input className={`${INPUT} mt-1.5`} value={form.llm_base_url} onChange={e => set('llm_base_url', e.target.value)} placeholder="https://openrouter.ai/api/v1" /></label>
+              )}
+              <button type="button" onClick={checkLlm} disabled={busy !== null} className={BTN_SECONDARY}>{busy === 'llm' ? 'Спрашиваем…' : 'Проверить модель'}</button>
+              {check && (
+                <div className={`rounded-xl p-3 text-sm ${check.action === 'reply' && check.source === 'llm' ? 'bg-emerald-400/10 text-emerald-200' : check.action === 'reply' ? 'bg-white/[0.05] text-slate-300' : 'bg-rose-400/10 text-rose-200'}`}>
+                  {check.action === 'reply' && check.source === 'llm' ? <>Модель отвечает: «{check.text}»</>
+                    : check.action === 'reply' ? <>Ответил автоответ — модель на этот вопрос не понадобилась: «{check.text}»</>
+                      : <>Модель не ответила: {check.reason}</>}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className={CARD}>
+          <h3 className="mb-1 font-semibold text-white">Авито</h3>
+          <p className="mb-4 text-xs text-slate-500">Ключи — в личном кабинете Авито: Настройки → API (раздел для разработчиков). Нужен доступ к API мессенджера.</p>
+          <div className="space-y-3">
+            <label className="block"><span className={LABEL}>client_id</span><input className={`${INPUT} mt-1.5`} value={form.avito_client_id} onChange={e => set('avito_client_id', e.target.value)} autoComplete="off" /></label>
+            <label className="block"><span className={LABEL}>client_secret</span>
+              <input type="password" autoComplete="off" className={`${INPUT} mt-1.5`} value={avitoSecret} onChange={e => setAvitoSecret(e.target.value)}
+                placeholder={config.avito_client_secret_set ? 'Задан — оставьте пустым, чтобы не менять' : 'Вставьте секрет'} /></label>
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="button" onClick={connect} disabled={busy !== null || !form.avito_client_id || (!config.avito_client_secret_set && !avitoSecret)} className={BTN_SECONDARY}>
+                {busy === 'connect' ? 'Подключаем…' : config.avito_connected_at ? 'Переподключить' : 'Подключить'}
+              </button>
+              {config.avito_connected_at
+                ? <span className="text-sm text-emerald-300">Подключено{config.avito_user_id ? ` · аккаунт ${config.avito_user_id}` : ''}</span>
+                : <span className="text-sm text-slate-500">Не подключено</span>}
+            </div>
+            {config.webhook_url && (
+              <div className="flex items-center gap-2 rounded-xl bg-black/30 p-2 pl-3 text-xs text-slate-400">
+                <span className="min-w-0 flex-1 truncate">Сообщения приходят на {config.webhook_url.replace(/[^/]+$/, '•••')}</span>
+                <button type="button" onClick={() => copyText(config.webhook_url!, 'Адрес скопирован')} className={BTN_ROW}>Скопировать</button>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <div className="sticky bottom-4 flex justify-end">
+          <button type="button" onClick={() => save()} disabled={!dirty || busy !== null} className={BTN_PRIMARY}>{busy === 'save' ? 'Сохраняем…' : 'Сохранить настройки'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}

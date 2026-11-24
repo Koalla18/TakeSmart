@@ -12,10 +12,10 @@ import type { AdminIconName } from './AdminIcons'
 export type AdminSection =
   | 'overview' | 'orders' | 'analytics'
   | 'products' | 'preorder' | 'categories' | 'fields' | 'quickfilters' | 'brands'
-  | 'banners' | 'tradein' | 'slides' | 'used' | 'installs' | 'gta6'
+  | 'banners' | 'tradein' | 'slides' | 'used' | 'installs' | 'gta6' | 'avito'
 
 export const ADMIN_SECTIONS: readonly AdminSection[] = [
-  'overview', 'orders', 'analytics', 'products', 'preorder', 'categories', 'fields', 'quickfilters', 'brands', 'banners', 'tradein', 'slides', 'used', 'installs', 'gta6',
+  'overview', 'orders', 'analytics', 'products', 'preorder', 'categories', 'fields', 'quickfilters', 'brands', 'banners', 'tradein', 'slides', 'used', 'installs', 'gta6', 'avito',
 ]
 
 export function isAdminSection(value: string | null | undefined): value is AdminSection {
@@ -44,6 +44,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       { id: 'orders', label: 'Заказы', icon: 'orders', hint: 'Новые, в работе, отправленные' },
       { id: 'analytics', label: 'Аналитика', icon: 'chart', hint: 'Выручка, визиты, конверсия' },
       { id: 'installs', label: 'Приложения', icon: 'zap', hint: 'Заказы на установку приложений на iPhone, каталог' },
+      { id: 'avito', label: 'Авито-бот', icon: 'chat', hint: 'Ответы покупателям на Авито: диалоги, автоответы, настройки' },
     ],
   },
   {
@@ -87,6 +88,7 @@ export const ADMIN_SECTION_META: Record<AdminSection, AdminSectionMeta> = {
   brands: { title: 'Бренды', eyebrow: 'Каталог', description: 'Справочник брендов для товаров и быстрых кнопок каталога. Логотипы показываются в меню сайта', navId: 'brands' },
   banners: { title: 'Баннеры', eyebrow: 'Витрина', description: 'Большой слайдер вверху главной. Порядок — стрелками, показ — переключателем «Активен»', navId: 'banners' },
   tradein: { title: 'Trade-in', eyebrow: 'Витрина', description: 'Диапазоны оценки устройств в калькуляторе на странице Trade-in', navId: 'tradein' },
+  avito: { title: 'Авито-бот', eyebrow: 'Продажи', description: 'Бот отвечает покупателям в чатах Авито: по вашим автоответам и, где их не хватает, своими словами по базе знаний и каталогу. Сложные вопросы передаёт вам.', navId: 'avito' },
   gta6: { title: 'GTA VI', eyebrow: 'Витрина', description: 'Страница /gta6: рассказ об игре и подборка PlayStation 5 с игрой в подарок. Добавьте сюда карточки консолей, задайте условия подарка и включите страницу — в меню сайта появится выделенный пункт.', navId: 'gta6' },
   slides: { title: 'Слайды «Товары недели»', eyebrow: 'Витрина', description: 'Блок «Товары недели» на главной странице', navId: 'banners' },
   used: { title: 'Б/У товары', eyebrow: 'Каталог', description: 'Товары с пробегом — отдельный раздел витрины', navId: 'products' },

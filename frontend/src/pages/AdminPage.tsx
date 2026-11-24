@@ -15,6 +15,7 @@ import { OverviewTab } from './admin/OverviewTab'
 import { PreorderSection } from './admin/PreorderSection'
 import { InstallsSection } from './admin/InstallsSection'
 import { Gta6Section } from './admin/Gta6Section'
+import { AvitoBotSection } from './admin/AvitoBotSection'
 import { PriceCommandBar } from '../components/PriceCommand'
 import { OrderComments, LastCommentLine, commentsPreview, type OrderComment, type OrderCommentPreview } from '../components/OrderComments'
 import { rankSearch } from '../lib/searchRank'
@@ -1332,6 +1333,8 @@ export function AdminPage() {
         )}
 
         {activeTab === 'installs' && <InstallsSection authFetch={authFetch} />}
+
+        {activeTab === 'avito' && <AvitoBotSection authFetch={authFetch} />}
 
         {activeTab === 'gta6' && (
           <Gta6Section

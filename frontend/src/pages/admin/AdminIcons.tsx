@@ -10,7 +10,7 @@ export type AdminIconName =
   | 'sliders' | 'zap' | 'search' | 'menu' | 'x' | 'logout' | 'external' | 'plus'
   | 'star' | 'eyeOff' | 'alert' | 'archive' | 'arrowRight' | 'check' | 'layers'
   | 'clock' | 'users' | 'ruble' | 'trending' | 'chevronRight' | 'settings' | 'sparkle'
-  | 'edit' | 'trash' | 'eye' | 'arrowUp' | 'arrowDown' | 'link' | 'dock' | 'sidebar' | 'bolt'
+  | 'edit' | 'trash' | 'eye' | 'arrowUp' | 'arrowDown' | 'link' | 'dock' | 'sidebar' | 'bolt' | 'chat' | 'copy' | 'send'
 
 const PATHS: Record<AdminIconName, string> = {
   home: 'M3 11l9-8 9 8v9a2 2 0 0 1-2 2h-4v-6H9v6H5a2 2 0 0 1-2-2z',
@@ -52,6 +52,9 @@ const PATHS: Record<AdminIconName, string> = {
   dock: 'M3 5.5A1.5 1.5 0 0 1 4.5 4h15A1.5 1.5 0 0 1 21 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z M8 15.5h8',
   sidebar: 'M3 5.5A1.5 1.5 0 0 1 4.5 4h15A1.5 1.5 0 0 1 21 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z M9.5 4v16',
   bolt: 'M13 2L4.5 13.5H11L10 22l8.5-11.5H12z',
+  chat: 'M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 4v-4h0A1.5 1.5 0 0 1 4 14.5z M8 9h8 M8 12h5',
+  copy: 'M9 9h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1z M16 9V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3',
+  send: 'M21 3L10 14 M21 3l-6.5 18-4.5-7-7-4.5z',
 }
 
 interface AdminIconProps extends Omit<SVGProps<SVGSVGElement>, 'name'> {
