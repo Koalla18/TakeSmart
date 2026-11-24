@@ -35,6 +35,9 @@ interface Chat {
   id: string
   avito_chat_id: string
   is_simulated: boolean
+  item_id: number | null
+  order_number: string | null
+  human_question: string | null
   client_name: string | null
   item_title: string | null
   item_price: string | null
@@ -46,16 +49,25 @@ interface Chat {
   last_message_at: string | null
   has_draft: boolean
 }
+interface OrderPayload { product_name: string; price: number; method: 'pickup' | 'delivery'; address: string; name: string; phone: string; comment: string }
 interface Message {
   id: string
   author: 'client' | 'bot' | 'staff'
   text: string
-  status: 'sent' | 'draft' | 'failed' | 'discarded'
+  status: 'sent' | 'scheduled' | 'draft' | 'failed' | 'discarded'
   source: string | null
   error: string | null
+  send_at: string | null
+  attempts: number
+  order_payload: OrderPayload | null
   created_at: string
 }
-interface ChatDetail extends Chat { messages: Message[] }
+interface CatalogProduct { id: string; name: string; price: number; stock_quantity: number; is_preorder: boolean }
+interface ChatDetail extends Chat { messages: Message[]; linked_product: CatalogProduct | null }
+interface Example { id: string; question: string; bot_answer: string | null; answer: string; item_title: string | null; chat_id: string | null; is_active: boolean; created_at: string }
+interface Unanswered { chat_id: string; client_name: string | null; item_title: string | null; question: string; reason: string | null; at: string | null }
+interface Health { last_webhook_at: string | null; last_poll_at: string | null; last_poll_error: string | null; caught_by_poll: number; llm_fail_streak: number; last_llm_error: string | null; queue_replies: number; queue_sends: number }
+interface Status { enabled: boolean; llm_ready: boolean; avito_connected: boolean; health: Health }
 interface ChatsResponse { chats: Chat[]; total: number; needs_human: number; drafts: number }
 
 interface Config {
@@ -69,6 +81,8 @@ interface Config {
   reply_delay_min: number
   reply_delay_max: number
   use_catalog: boolean
+  orders_enabled: boolean
+  pickup_address: string
   llm_provider: 'none' | 'yandex' | 'deepseek' | 'openai_compatible'
   llm_base_url: string
   llm_model: string
@@ -89,10 +103,12 @@ interface Decision {
   reason: string | null
   delay_seconds: number
   catalog: string[]
+  order: OrderPayload | null
+  examples_used: number
 }
 
-type View = 'dialogs' | 'rules' | 'test' | 'settings'
-const VIEWS: readonly View[] = ['dialogs', 'rules', 'test', 'settings']
+type View = 'dialogs' | 'rules' | 'learning' | 'test' | 'settings'
+const VIEWS: readonly View[] = ['dialogs', 'rules', 'learning', 'test', 'settings']
 type ChatFilter = 'all' | 'human' | 'draft' | 'test'
 const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
@@ -105,6 +121,20 @@ function timeShort(iso: string | null): string {
   return d.toDateString() === today.toDateString()
     ? d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
     : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+}
+
+function ago(iso: string | null): string {
+  if (!iso) return 'ещё не было'
+  const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000))
+  if (s < 60) return 'только что'
+  if (s < 3600) return `${Math.round(s / 60)} мин назад`
+  if (s < 86400) return `${Math.round(s / 3600)} ч назад`
+  return new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
+function orderText(o: OrderPayload): string {
+  const how = o.method === 'delivery' ? `доставка: ${o.address}` : 'самовывоз'
+  return [o.product_name, `${Math.round(o.price).toLocaleString('ru-RU')} ₽`, how, o.name, o.phone].filter(Boolean).join(' · ')
 }
 
 function scheduleText(r: Pick<Rule, 'time_from' | 'time_to' | 'days'>): string {
@@ -150,6 +180,7 @@ export function AvitoBotSection({ authFetch }: { authFetch: AuthFetch }) {
           items={[
             { id: 'dialogs', label: 'Диалоги', count: attention || undefined },
             { id: 'rules', label: 'Автоответы', count: rules?.length || undefined },
+            { id: 'learning', label: 'Обучение' },
             { id: 'test', label: 'Тест' },
             { id: 'settings', label: notReady ? 'Настройки •' : 'Настройки' },
           ]}
@@ -161,6 +192,7 @@ export function AvitoBotSection({ authFetch }: { authFetch: AuthFetch }) {
 
       {view === 'dialogs' && <DialogsTab api={api} config={config} openChatId={chatParam} onOpen={id => patchParams({ view: 'dialogs', chat: id })} onCounts={setCounts} />}
       {view === 'rules' && <RulesTab api={api} rules={rules} reload={loadRules} />}
+      {view === 'learning' && <LearningTab api={api} reloadRules={loadRules} onOpenChat={id => patchParams({ view: 'dialogs', chat: id })} />}
       {view === 'test' && <TestTab api={api} rules={rules} />}
       {view === 'settings' && (config ? <SettingsTab api={api} config={config} setConfig={setConfig} /> : <Loading />)}
     </div>
@@ -308,6 +340,7 @@ function ChatPanel({ api, chatId, config, onClose, onChanged }: { api: Api; chat
   const [chat, setChat] = useState<ChatDetail | null>(null)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [linkOpen, setLinkOpen] = useState(false)
   const bottom = useRef<HTMLDivElement>(null)
   const lastCount = useRef(0)
 
@@ -363,6 +396,18 @@ function ChatPanel({ api, chatId, config, onClose, onChanged }: { api: Api; chat
           <div className="text-xs text-slate-400">
             {chat.client_name || 'Покупатель'}{chat.item_price ? ` · в объявлении ${chat.item_price}` : ''}{chat.is_simulated ? ' · тренировочный' : ''}
           </div>
+          {chat.item_id ? (
+            <button type="button" onClick={() => setLinkOpen(true)} className="mt-1 text-xs text-slate-500 hover:text-slate-300">
+              {chat.linked_product
+                ? <>Товар каталога: <span className="text-slate-300">{chat.linked_product.name}</span> · {Math.round(chat.linked_product.price).toLocaleString('ru-RU')} ₽ · {chat.linked_product.is_preorder ? 'предзаказ' : `${chat.linked_product.stock_quantity} шт.`} — изменить</>
+                : <span className="underline decoration-dotted">Привязать объявление к товару каталога — для точной цены и наличия</span>}
+            </button>
+          ) : null}
+          {chat.order_number && (
+            <a href={`/admin?tab=orders&q=${encodeURIComponent(chat.order_number)}`} className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg bg-emerald-400/15 px-2 py-0.5 text-xs text-emerald-300 hover:bg-emerald-400/25">
+              Бронь оформлена · заказ {chat.order_number}
+            </a>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           {chat.mode === 'bot'
@@ -388,6 +433,11 @@ function ChatPanel({ api, chatId, config, onClose, onChanged }: { api: Api; chat
         {chat.messages.map(m => <Bubble key={m.id} m={m} name={name} api={api} onDone={() => { load(); onChanged() }} />)}
         <div ref={bottom} />
       </div>
+
+      {linkOpen && chat.item_id && (
+        <LinkProductModal api={api} itemId={chat.item_id} itemTitle={chat.item_title} current={chat.linked_product}
+          onClose={() => setLinkOpen(false)} onDone={() => { setLinkOpen(false); load() }} />
+      )}
 
       <div className="flex gap-2 border-t border-white/[0.06] p-3">
         <textarea value={text} onChange={e => setText(e.target.value)} rows={1}
@@ -417,6 +467,20 @@ function Bubble({ m, name, api, onDone }: { m: Message; name: string; api: Api; 
     if (res !== null) { setEditing(false); onDone() }
   }
 
+  if (m.status === 'scheduled') {
+    const at = m.send_at ? new Date(m.send_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''
+    return (
+      <div className="ml-auto max-w-[85%] rounded-2xl border border-dashed border-white/20 p-3">
+        <div className="mb-1 text-[11px] text-slate-400">
+          {m.attempts ? `Не ушло, повтор ${m.attempts + 1} в ${at}` : `Отправится в ${at}`} · {meta}
+        </div>
+        <div className="whitespace-pre-wrap text-sm text-slate-200">{m.text}</div>
+        {m.order_payload && <div className="mt-1.5 text-xs text-emerald-300">Оформит бронь: {orderText(m.order_payload)}</div>}
+        {m.error && <div className="mt-1 text-xs text-rose-300">{m.error}</div>}
+        <button type="button" disabled={busy} onClick={() => run(`/messages/${m.id}/discard`, {})} className={`${BTN_ROW} mt-2`}>Не отправлять</button>
+      </div>
+    )
+  }
   if (m.status === 'draft') {
     return (
       <div className="ml-auto max-w-[85%] rounded-2xl border border-dashed border-sky-400/40 bg-sky-400/[0.06] p-3">
@@ -424,10 +488,12 @@ function Bubble({ m, name, api, onDone }: { m: Message; name: string; api: Api; 
         {editing
           ? <textarea className={`${INPUT} h-24`} value={text} onChange={e => setText(e.target.value)} />
           : <div className="whitespace-pre-wrap text-sm text-slate-100">{m.text}</div>}
+        {m.order_payload && <div className="mt-1.5 rounded-lg bg-emerald-400/10 px-2 py-1 text-xs text-emerald-200">После отправки оформится бронь: {orderText(m.order_payload)}</div>}
         {m.error && <div className="mt-1 text-xs text-rose-300">{m.error}</div>}
         <div className="mt-2.5 flex flex-wrap gap-2">
           <button type="button" disabled={busy} onClick={() => run(`/messages/${m.id}/approve`, editing ? { text } : {})} className={`${BTN_PRIMARY} !px-3 !py-1.5`}>Отправить</button>
           {!editing && <button type="button" onClick={() => setEditing(true)} className={BTN_ROW}>Изменить</button>}
+          {editing && <span className="self-center text-[11px] text-slate-500">Ваш вариант запомнится — бот будет отвечать так в похожих случаях</span>}
           <button type="button" disabled={busy} onClick={() => run(`/messages/${m.id}/discard`, {})} className={BTN_ROW}>Не отвечать</button>
         </div>
       </div>
@@ -443,6 +509,105 @@ function Bubble({ m, name, api, onDone }: { m: Message; name: string; api: Api; 
           {m.status === 'failed' ? `Не отправлено: ${m.error || 'ошибка'}` : meta}
         </div>
       )}
+    </div>
+  )
+}
+
+function LinkProductModal({ api, itemId, itemTitle, current, onClose, onDone }: {
+  api: Api; itemId: number; itemTitle: string | null; current: CatalogProduct | null; onClose: () => void; onDone: () => void
+}) {
+  const [q, setQ] = useState(itemTitle || '')
+  const [hits, setHits] = useState<CatalogProduct[] | null>(null)
+  useEffect(() => {
+    const query = q.trim()
+    if (query.length < 2) return
+    const t = window.setTimeout(async () => {
+      setHits(await call<CatalogProduct[]>(api, `/products?q=${encodeURIComponent(query)}`) ?? [])
+    }, 250)
+    return () => window.clearTimeout(t)
+  }, [api, q])
+  const link = async (p: CatalogProduct) => {
+    if (await call(api, `/items/${itemId}/link`, { method: 'PUT', body: { product_id: p.id } }) !== null) { toast('Объявление привязано', 'success'); onDone() }
+  }
+  const unlink = async () => {
+    if (await call(api, `/items/${itemId}/link`, { method: 'DELETE' }) !== null) { toast('Привязка снята', 'success'); onDone() }
+  }
+  return (
+    <Modal title="Товар для объявления" onClose={onClose}>
+      <p className="mb-3 text-sm text-slate-400">Бот будет брать цену и наличие из этой карточки во всех диалогах по объявлению «{itemTitle || itemId}».</p>
+      <input className={INPUT} value={q} onChange={e => setQ(e.target.value)} placeholder="iPhone 17 Pro 256" autoFocus />
+      <div className="mt-3 max-h-80 space-y-1.5 overflow-y-auto">
+        {hits === null ? null : hits.length === 0 ? <div className="text-sm text-slate-500">Ничего не нашлось</div> : hits.map(p => (
+          <button key={p.id} type="button" onClick={() => link(p)}
+            className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left text-sm transition hover:bg-white/[0.05] ${current?.id === p.id ? 'border-yellow-400/50' : 'border-white/10'}`}>
+            <span className="text-white">{p.name}</span>
+            <span className="shrink-0 text-xs text-slate-400">{Math.round(p.price).toLocaleString('ru-RU')} ₽ · {p.is_preorder ? 'предзаказ' : `${p.stock_quantity} шт.`}</span>
+          </button>
+        ))}
+      </div>
+      {current && <button type="button" onClick={unlink} className={`${BTN_ROW} mt-4`}>Снять привязку</button>}
+    </Modal>
+  )
+}
+
+// ── Обучение ─────────────────────────────────────────────────────────────────
+
+function LearningTab({ api, reloadRules, onOpenChat }: { api: Api; reloadRules: () => void; onOpenChat: (id: string) => void }) {
+  const [data, setData] = useState<{ examples: Example[]; unanswered: Unanswered[] } | null>(null)
+  const [ruleDraft, setRuleDraft] = useState<RuleDraft | null>(null)
+  const load = useCallback(async () => { setData(await call(api, '/learning')) }, [api])
+  useEffect(() => { const t = window.setTimeout(load, 0); return () => window.clearTimeout(t) }, [load])
+
+  const toggle = async (e: Example) => { if (await call(api, `/examples/${e.id}`, { method: 'PATCH', body: { is_active: !e.is_active } }) !== null) load() }
+  const remove = async (e: Example) => { if (await call(api, `/examples/${e.id}`, { method: 'DELETE' }) !== null) load() }
+  const dismiss = async (u: Unanswered) => { if (await call(api, `/chats/${u.chat_id}/dismiss-question`, { method: 'POST' }) !== null) load() }
+  const toRule = (answer: string) => setRuleDraft({ ...NEW_RULE, answer })
+
+  if (!data) return <Loading />
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      <section>
+        <h3 className="mb-1 font-semibold text-white">Бот не смог ответить</h3>
+        <p className="mb-3 text-sm text-slate-500">Вопросы, на которых бот позвал человека. Ответьте покупателю в диалоге — ответ запомнится. Частый вопрос лучше превратить в автоответ.</p>
+        {data.unanswered.length === 0 ? <div className={`${CARD} text-sm text-slate-400`}>Таких вопросов нет.</div> : (
+          <div className="space-y-2">
+            {data.unanswered.map(u => (
+              <div key={u.chat_id} className={CARD}>
+                <div className="text-sm text-white">«{u.question}»</div>
+                <div className="mt-1 text-xs text-slate-500">{[u.client_name, u.item_title, u.reason, timeShort(u.at)].filter(Boolean).join(' · ')}</div>
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  <button type="button" onClick={() => onOpenChat(u.chat_id)} className={BTN_ROW}>Открыть диалог</button>
+                  <button type="button" onClick={() => setRuleDraft({ ...NEW_RULE })} className={BTN_ROW}>Создать автоответ</button>
+                  <button type="button" onClick={() => dismiss(u)} className={BTN_ROW}>Убрать</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+      <section>
+        <h3 className="mb-1 font-semibold text-white">Как сотрудники поправили бота · {data.examples.length}</h3>
+        <p className="mb-3 text-sm text-slate-500">Когда вы правите черновик или отвечаете вместо бота, пара «вопрос → ваш ответ» сохраняется. В похожих вопросах бот опирается на неё. Выключите пример, если он устарел.</p>
+        {data.examples.length === 0 ? <div className={`${CARD} text-sm text-slate-400`}>Пока пусто — примеры появятся после первых правок.</div> : (
+          <div className="space-y-2">
+            {data.examples.map(e => (
+              <div key={e.id} className={`${CARD} ${e.is_active ? '' : 'opacity-50'}`}>
+                <div className="text-xs text-slate-500">Покупатель{e.item_title ? ` · ${e.item_title}` : ''} · {timeShort(e.created_at)}</div>
+                <div className="text-sm text-slate-200">{e.question}</div>
+                {e.bot_answer && <div className="mt-2 text-xs text-slate-500 line-through decoration-slate-600">{e.bot_answer}</div>}
+                <div className="mt-1 text-sm text-yellow-100">{e.answer}</div>
+                <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                  <Toggle checked={e.is_active} onChange={() => toggle(e)} label="" />
+                  <button type="button" onClick={() => toRule(e.answer)} className={BTN_ROW}>Сделать автоответом</button>
+                  <button type="button" onClick={() => remove(e)} className={`${BTN_ROW} text-rose-300`} aria-label="Удалить пример"><AdminIcon name="trash" className="h-4 w-4" /></button>
+                  {e.chat_id && <button type="button" onClick={() => onOpenChat(e.chat_id!)} className="text-xs text-slate-500 hover:text-slate-300">диалог</button>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+      {ruleDraft && <RuleModal api={api} id={null} initial={ruleDraft} onClose={() => setRuleDraft(null)} onSaved={() => { setRuleDraft(null); reloadRules(); toast('Автоответ создан', 'success') }} />}
     </div>
   )
 }
@@ -670,10 +835,11 @@ function DecisionNote({ d, ruleName }: { d: Decision; ruleName?: string }) {
   const label = d.action === 'handoff' ? `Позвал человека: ${d.reason || ''}`
     : d.action === 'silent' ? `Промолчал: ${d.reason || ''}`
       : d.source === 'rule' ? `Автоответ «${ruleName || '…'}», через ${d.delay_seconds} с`
-        : `Модель${ruleName ? ` с подсказкой «${ruleName}»` : ''}, через ${d.delay_seconds} с`
+        : `Модель${ruleName ? ` с подсказкой «${ruleName}»` : ''}${d.examples_used ? `, примеров сотрудников: ${d.examples_used}` : ''}, через ${d.delay_seconds} с`
   return (
     <div className="mt-1 text-[11px] text-slate-500">
       <span className={d.action === 'handoff' ? 'text-amber-300' : ''}>{label}</span>
+      {d.order && <div className="text-emerald-300">Оформил бы бронь: {orderText(d.order)}</div>}
       {d.catalog.length > 0 && <button type="button" onClick={() => setOpen(o => !o)} className="ml-2 underline decoration-dotted">каталог ({d.catalog.length})</button>}
       {open && <div className="mt-1 space-y-0.5 text-left">{d.catalog.map(c => <div key={c}>{c}</div>)}</div>}
     </div>
@@ -681,6 +847,41 @@ function DecisionNote({ d, ruleName }: { d: Decision; ruleName?: string }) {
 }
 
 // ── Настройки ────────────────────────────────────────────────────────────────
+
+function HealthCard({ api }: { api: Api }) {
+  const [st, setSt] = useState<Status | null>(null)
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      try { const r = await api('/status'); if (r.ok && alive) setSt(await r.json()) } catch { /* сеть */ }
+    }
+    const first = window.setTimeout(load, 0)
+    const id = window.setInterval(() => { if (!document.hidden) load() }, 10000)
+    return () => { alive = false; window.clearTimeout(first); window.clearInterval(id) }
+  }, [api])
+  if (!st) return null
+  const h = st.health
+  const rows: [string, string, boolean][] = [
+    ['Последнее сообщение через вебхук', ago(h.last_webhook_at), true],
+    ['Проверка пропущенных', h.last_poll_error ? `ошибка: ${h.last_poll_error}` : ago(h.last_poll_at), !h.last_poll_error],
+    ['Подобрано опросом (вебхук не донёс)', String(h.caught_by_poll), h.caught_by_poll === 0],
+    ['Модель', h.llm_fail_streak ? `не отвечает (${h.llm_fail_streak} раза подряд): ${h.last_llm_error || ''}` : st.llm_ready ? 'отвечает' : 'не подключена', !h.llm_fail_streak],
+    ['В очереди', `думает над ${h.queue_replies} · ждут отправки ${h.queue_sends}`, true],
+  ]
+  return (
+    <section className={CARD}>
+      <h3 className="mb-1 font-semibold text-white">Состояние</h3>
+      <p className="mb-3 text-xs text-slate-500">Если что-то сломается — модель перестанет отвечать, Авито не пустит или вебхук начнёт терять сообщения — придёт push в приложение «Заказы» (не чаще раза в час).</p>
+      <div className="divide-y divide-white/[0.05] text-sm">
+        {rows.map(([k, v, ok]) => (
+          <div key={k} className="flex justify-between gap-4 py-1.5">
+            <span className="text-slate-400">{k}</span><span className={`text-right ${ok ? 'text-slate-200' : 'text-amber-300'}`}>{v}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
 
 const PROVIDERS: { id: Config['llm_provider']; label: string; hint: string }[] = [
   { id: 'none', label: 'Без модели', hint: 'Только автоответы; на остальное бот зовёт человека' },
@@ -703,6 +904,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
       enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, style: form.style, knowledge: form.knowledge,
       handoff_topics: form.handoff_topics, handoff_message: form.handoff_message, reply_delay_min: form.reply_delay_min,
       reply_delay_max: form.reply_delay_max, use_catalog: form.use_catalog, llm_provider: form.llm_provider,
+      orders_enabled: form.orders_enabled, pickup_address: form.pickup_address,
       llm_base_url: form.llm_base_url, llm_model: form.llm_model, llm_folder_id: form.llm_folder_id, llm_temperature: form.llm_temperature,
       avito_client_id: form.avito_client_id, llm_api_key: llmKey, avito_client_secret: avitoSecret,
     }
@@ -757,8 +959,15 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
             </div>
             <div className="text-xs text-slate-500">Пауза — для ответов модели, чтобы они не прилетали мгновенно. У автоответов своя задержка. Если покупатель прямо спросит «вы бот?», бот не станет отрицать — это защищает аккаунт от жалоб.</div>
             <Toggle checked={form.use_catalog} onChange={v => set('use_catalog', v)} label="Смотреть цены и наличие в каталоге сайта" hint="Модель видит подходящие товары с живыми ценами и остатками" />
+            <Toggle checked={form.orders_enabled} onChange={v => set('orders_enabled', v)} label="Оформлять бронь из чата"
+              hint="Когда покупатель согласился, бот создаёт заказ в разделе «Заказы» (списывает остаток, приходит обычный пуш о заказе). В режиме черновиков — только после вашего «Отправить»" />
+            {form.orders_enabled && (
+              <label className="block"><span className={LABEL}>Адрес самовывоза</span><input className={`${INPUT} mt-1.5`} value={form.pickup_address} onChange={e => set('pickup_address', e.target.value)} /></label>
+            )}
           </div>
         </section>
+
+        <HealthCard api={api} />
 
         <section className={CARD}>
           <h3 className="mb-4 font-semibold text-white">Как общаться и что знать</h3>
