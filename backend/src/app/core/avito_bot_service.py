@@ -33,10 +33,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.core import avito_client, llm_client
 from src.app.core.avito_bot_engine import (
     MSK, ChatContext, PiiMasker, PromptConfig, build_messages, build_reminder_messages, build_system_prompt,
-    catalog_tokens, human_delay, in_window, match_rule, parse_llm_answer, pick_examples, render_reminder,
+    human_delay, in_window, match_rule, parse_llm_answer, pick_examples, render_reminder,
     render_template, rule_covers, starts_with_refusal, wants_opt_out, is_first_reply, with_greeting,
     split_reply, typing_delay, classify_avito_message, normalize_phone, valid_email, valid_full_name,
-    order_note_for_prompt, wants_cancel,
+    order_note_for_prompt, wants_cancel, CatalogItem, build_overview, catalog_vocab, query_segments, search_catalog,
 )
 from src.app.core.config import settings
 from src.app.core.logger import get_logger
@@ -233,28 +233,47 @@ async def linked_product(session: AsyncSession, item_id: int | None) -> Product 
     return product if product is not None and product.is_active else None
 
 
+CATALOG_TTL = 60          # секунд: каталог перечитывается не чаще раза в минуту
+OVERVIEW_MAX_LINES = 250
+_CATALOG: dict[str, Any] = {"at": 0.0}
+
+
+async def catalog_snapshot(session: AsyncSession) -> dict[str, Any]:
+    """Каталог сайта для бота: товары, словарь слов из названий и справочник для модели."""
+    import time
+    if time.monotonic() - _CATALOG["at"] < CATALOG_TTL:
+        return _CATALOG
+    from src.app.database.models.category import Category
+    rows = (await session.execute(
+        select(Product, Category.name).outerjoin(Category, Category.id == Product.category_id)
+        .where(Product.is_active.is_(True))
+    )).all()
+    items: list[CatalogItem] = []
+    by_key: dict[Any, Product] = {}
+    for p, cat in rows:
+        items.append(CatalogItem(
+            name=p.name, category=cat or "Другое", price=float(p.discount_price or p.price),
+            old_price=float(p.price) if p.discount_price and p.discount_price < p.price else None,
+            stock=p.stock_quantity, preorder=p.is_preorder, preorder_note=p.preorder_note,
+            used=p.condition == "used", attributes=p.attributes if isinstance(p.attributes, dict) else {}, key=p.id,
+        ))
+        by_key[p.id] = p
+    _CATALOG.update(at=time.monotonic(), items=items, products=by_key, vocab=catalog_vocab(items),
+                    overview=build_overview(items, OVERVIEW_MAX_LINES))
+    return _CATALOG
+
+
 async def search_products(session: AsyncSession, item_title: str | None, question: str | None = None,
-                          limit: int = 6) -> list[Product]:
-    tokens = catalog_tokens(item_title, question)
-    if not tokens:
-        return []
-    res = await session.execute(
-        select(Product).where(Product.is_active.is_(True), or_(*[Product.name.ilike(f"%{t}%") for t in tokens])).limit(300)
-    )
-    scored = []
-    for p in res.scalars().all():
-        name = p.name.lower().replace("ё", "е")
-        scored.append((sum(1 for t in tokens if t in name), p))
-    if not scored:
-        return []
-    best = max(s for s, _ in scored)
-    need = max(1, best - 1) if best >= 2 else 1
-    picked = sorted((x for x in scored if x[0] >= need), key=lambda x: (-x[0], x[1].stock_quantity <= 0, x[1].price))
-    return [p for _, p in picked[:limit]]
+                          limit: int = 12) -> list[Product]:
+    """Товары по названию объявления и по каждому товару из вопроса отдельно."""
+    snap = await catalog_snapshot(session)
+    texts = ([item_title] if item_title else []) + query_segments(question or "")
+    found = search_catalog(snap["items"], texts, snap["vocab"], limit=limit)
+    return [snap["products"][it.key] for it in found if it.key in snap["products"]]
 
 
 async def catalog_products(session: AsyncSession, item_id: int | None, item_title: str | None,
-                           question: str | None, limit: int = 6) -> tuple[list[Product], Product | None]:
+                           question: str | None, limit: int = 12) -> tuple[list[Product], Product | None]:
     """Товар, привязанный к объявлению (первым), и похожие из каталога."""
     linked = await linked_product(session, item_id)
     found = await search_products(session, item_title, question, limit)
@@ -368,6 +387,7 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         examples=[(masker.mask(q), a) for q, a in examples],
         orders_enabled=cfg.orders_enabled, pickup_address=cfg.pickup_address,
         order_note=order_note_for_prompt(*order_info) if order_info else None,
+        catalog_overview=(await catalog_snapshot(session))["overview"] if cfg.use_catalog else (),
     )
     try:
         raw = await llm_call(cfg, build_messages(system, masked_ctx, HISTORY_LIMIT))

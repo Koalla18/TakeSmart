@@ -182,7 +182,8 @@ def typing_delay(text: str, min_s: int, max_s: int, rng: random.Random | None = 
 def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatContext,
                         catalog_lines: Sequence[str], now: datetime, hint: str | None = None,
                         examples: Sequence[tuple[str, str]] = (), orders_enabled: bool = False,
-                        pickup_address: str = "", order_note: str | None = None) -> str:
+                        pickup_address: str = "", order_note: str | None = None,
+                        catalog_overview: Sequence[str] = ()) -> str:
     now = now.astimezone(MSK)
     parts = [
         f"Ты — {cfg.persona_name}, менеджер магазина техники TakeSmart (Москва), отвечаешь покупателям "
@@ -249,9 +250,20 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
             parts.append(f"• {', '.join(r.keywords)}: {r.answer.strip()}")
     if cfg.knowledge.strip():
         parts += ["", "Что ещё нужно знать о магазине:", cfg.knowledge.strip()]
+    if catalog_overview:
+        parts += ["", "Справочник каталога магазина — всё, что сейчас есть в наличии и на предзаказ, цены как на сайте "
+                      "(модель: память — цена (цвета)):", *catalog_overview]
     if catalog_lines:
-        parts += ["", "Товары из каталога магазина, подходящие к разговору (живые цены и наличие):"]
+        parts += ["", "Подробно — товары, о которых спрашивают (точные цены и остатки по каждому варианту):"]
         parts += [f"[{i}] {line.lstrip('• ')}" for i, line in enumerate(catalog_lines, 1)]
+    if catalog_overview or catalog_lines:
+        parts += ["", "Как работать с каталогом:",
+                  "- Если спрашивают про несколько товаров — ответь по каждому.",
+                  "- «Базовая» модель — без Pro, Max, Plus, Air, Ultra в названии. Не путай базовую модель с Pro.",
+                  "- Если нужного варианта (цвета, памяти, модели) нет в справочнике — так и скажи и сразу предложи "
+                  "ближайшие из справочника: другой цвет, объём или соседнюю модель с ценами. Менеджера зови, только "
+                  "если похожего нет совсем или покупатель хочет именно отсутствующий вариант под заказ.",
+                  "- Цены и наличие — только из справочника и подробного списка, ничего не придумывай."]
     if examples:
         parts += ["", "Как сотрудники магазина отвечали в похожих случаях (повторяй их факты и манеру):"]
         for q, a in examples:
@@ -562,3 +574,182 @@ def order_note_for_prompt(number: str, status: str) -> str:
     return (f"У покупателя оформлена заявка №{number}. Если он явно и однозначно отменяет её (передумал, "
             'не нужно, не приедет) — добавь в JSON "cancel_order": true и вежливо подтверди отмену. '
             "Если только сомневается или спрашивает, можно ли отменить — не отменяй, уточни.")
+
+
+# ── Каталог для модели: справочник и поиск ───────────────────────────────────
+# Строится из живой базы сайта на каждый ответ (с коротким кэшем) — цены и наличие
+# всегда как на сайте, никаких файлов, которые надо обновлять.
+
+@dataclass
+class CatalogItem:
+    name: str
+    category: str
+    price: float
+    old_price: float | None = None
+    stock: int = 0
+    preorder: bool = False
+    preorder_note: str | None = None
+    used: bool = False
+    attributes: dict[str, Any] = field(default_factory=dict)
+    key: Any = None          # id товара в базе
+
+
+_STORAGE = re.compile(r"(?<!\w)(\d+\s*/\s*)?\d+\s*(?:гб|gb|тб|tb)(?!\w)", re.IGNORECASE)
+
+
+def _rub_short(value: float) -> str:
+    return f"{int(round(value)):,}".replace(",", " ")
+
+
+def item_storage(it: CatalogItem) -> str | None:
+    v = it.attributes.get("storage") if isinstance(it.attributes, dict) else None
+    if v:
+        return " ".join(str(v).split())
+    # В названии может быть и оперативная память, и диск: «16ГБ, 512ГБ SSD» → «16ГБ/512ГБ»
+    found = [" ".join(m.group(0).split()).upper().replace("GB", "ГБ").replace("TB", "ТБ") for m in _STORAGE.finditer(it.name)]
+    return "/".join(dict.fromkeys(found)) or None
+
+
+def item_color(it: CatalogItem) -> str | None:
+    v = it.attributes.get("color") if isinstance(it.attributes, dict) else None
+    if v:
+        return str(v).strip()
+    if "," in it.name:
+        tail = it.name.rsplit(",", 1)[1].strip()
+        if tail and not _STORAGE.fullmatch(tail) and len(tail) <= 40:
+            return tail
+    return None
+
+
+def family_name(it: CatalogItem) -> str:
+    """Модель без памяти и цвета: «iPhone 17 Pro 256 ГБ, Синий титан» → «iPhone 17 Pro»."""
+    s = it.name
+    for v in (it.attributes or {}).values() if isinstance(it.attributes, dict) else ():
+        if isinstance(v, str) and len(v.strip()) >= 2:
+            s = re.sub(re.escape(v.strip()), " ", s, flags=re.IGNORECASE)
+    color = item_color(it)
+    if color:
+        s = re.sub(re.escape(color), " ", s, flags=re.IGNORECASE)
+    s = _STORAGE.sub(" ", s)
+    s = re.sub(r"\(\s*[,/\s]*\)", " ", s)
+    s = re.sub(r"\s*,\s*(,\s*)*", ", ", s)
+    s = " ".join(s.split()).strip(" ,-/")
+    return s or it.name
+
+
+def _range(prices: list[float]) -> str:
+    lo, hi = min(prices), max(prices)
+    return f"{_rub_short(lo)} ₽" if lo == hi else f"{_rub_short(lo)}–{_rub_short(hi)} ₽"
+
+
+def build_overview(items: Sequence[CatalogItem], max_lines: int = 250) -> list[str]:
+    """Справочник: категория → модель → память: цены и цвета. Только в наличии и предзаказ."""
+    live = [it for it in items if it.stock > 0 or it.preorder]
+    cats: dict[str, dict[str, list[CatalogItem]]] = {}
+    for it in live:
+        fam = family_name(it) + (" (б/у)" if it.used else "")
+        cats.setdefault(it.category or "Другое", {}).setdefault(fam, []).append(it)
+    lines: list[str] = []
+    total_models = sum(len(f) for f in cats.values())
+    for cat in sorted(cats):
+        lines.append(f"## {cat}")
+        for fam in sorted(cats[cat], key=str.lower):
+            group = cats[cat][fam]
+            by_storage: dict[str, list[CatalogItem]] = {}
+            for it in group:
+                by_storage.setdefault(item_storage(it) or "", []).append(it)
+            parts = []
+            for storage in sorted(by_storage, key=lambda s: (len(s), s)):
+                variants = by_storage[storage]
+                colors = sorted({c for c in (item_color(v) for v in variants) if c}, key=str.lower)
+                pre = " предзаказ" if all(v.preorder for v in variants) else ""
+                seg = (f"{storage} — " if storage else "") + _range([v.price for v in variants]) + pre
+                if colors:
+                    seg += f" ({', '.join(colors)})"
+                parts.append(seg)
+            lines.append(f"- {fam}: " + "; ".join(parts))
+            if len(lines) >= max_lines:
+                shown = sum(1 for ln in lines if ln.startswith("- "))
+                lines.append(f"… и ещё {total_models - shown} моделей — точные варианты в подробном списке ниже")
+                return lines
+    return lines
+
+
+def _aliases() -> dict[str, str]:
+    from src.app.core.price_command import TOKEN_ALIASES  # чистый модуль, без базы
+    extra = {"айфона": "iphone", "айфоне": "iphone", "айфону": "iphone", "айпада": "ipad", "айпаде": "ipad",
+             "галакси": "galaxy", "эпл": "apple", "вотч": "watch", "часики": "watch", "аирподсы": "airpods",
+             "эйрподсы": "airpods", "наушники": "airpods", "макбука": "macbook", "плейстейшен": "playstation",
+             "пс5": "ps5", "плойку": "playstation", "сяоми": "xiaomi"}
+    return {**TOKEN_ALIASES, **extra}
+
+
+_WORD = re.compile(r"[a-zа-я0-9]+(?:[.,][0-9]+)?", re.IGNORECASE)
+_QUERY_SKIP = {"гб", "тб", "gb", "tb", "есть", "цена", "сколько", "стоит", "наличии", "можно", "базовый", "базовая",
+               "версия", "та", "же", "тот", "какая", "какой", "подскажите", "пожалуйста", "здравствуйте", "а", "и"}
+
+
+def item_words(it: CatalogItem) -> set[str]:
+    attrs = " ".join(str(v) for v in (it.attributes or {}).values()) if isinstance(it.attributes, dict) else ""
+    return set(_WORD.findall(normalize(f"{it.name} {attrs}")))
+
+
+def query_tokens(text: str, vocab: set[str]) -> list[str]:
+    """Слова запроса, которые есть в каталоге: «айфон 17 белый 256 гб» → iphone, 17, белый, 256."""
+    aliases = _aliases()
+    out: list[str] = []
+    for w in _WORD.findall(normalize(text or "")):
+        w = aliases.get(w, w)
+        if w in _QUERY_SKIP or w in out:
+            continue
+        if w.isdigit() or w in vocab or (len(w) >= 5 and any(v.startswith(w[:-2]) for v in vocab if len(v) >= 5)):
+            out.append(w)
+    return out
+
+
+def query_segments(text: str) -> list[str]:
+    """«цена на айпад 11 128 гб и айфон 17 белый 256 гб» → два запроса."""
+    parts = re.split(r"[?\n;]|\s(?:и|а также|или)\s", text or "", flags=re.IGNORECASE)
+    return [p.strip() for p in parts if len(p.strip()) >= 2]
+
+
+def _fuzzy_hit(token: str, words: set[str]) -> bool:
+    if token in words:
+        return True
+    # «белый» ↔ «белого», «синий» ↔ «синего»: совпадение по основе слова
+    return len(token) >= 5 and any(w.startswith(token[:-2]) for w in words if len(w) >= 5)
+
+
+def search_catalog(items: Sequence[CatalogItem], texts: Sequence[str], vocab: set[str],
+                   per_query: int = 5, limit: int = 12) -> list[CatalogItem]:
+    """Подходящие товары для каждого запроса отдельно: сначала самые полные совпадения,
+    в наличии раньше, чем без наличия."""
+    words_cache = {id(it): item_words(it) for it in items}
+    picked: list[CatalogItem] = []
+    for text in texts:
+        tokens = query_tokens(text, vocab)
+        if not tokens:
+            continue
+        scored = []
+        for it in items:
+            words = words_cache[id(it)]
+            score = sum(1 for t in tokens if _fuzzy_hit(t, words))
+            if score:
+                scored.append((score, it))
+        if not scored:
+            continue
+        best = max(s for s, _ in scored)
+        need = best if best <= 2 else best - 1
+        top = sorted((x for x in scored if x[0] >= need),
+                     key=lambda x: (-x[0], not (x[1].stock > 0 or x[1].preorder), x[1].price))[:per_query]
+        for _, it in top:
+            if it not in picked:
+                picked.append(it)
+    return picked[:limit]
+
+
+def catalog_vocab(items: Sequence[CatalogItem]) -> set[str]:
+    vocab: set[str] = set()
+    for it in items:
+        vocab |= {w for w in item_words(it) if not w.isdigit()}
+    return vocab

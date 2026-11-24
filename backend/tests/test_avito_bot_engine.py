@@ -297,6 +297,53 @@ def test_avito_ids_and_chat_meta():
     assert meta["item_id"] == 555 and meta["item_title"] == "Samsung Galaxy S26"
 
 
+def _demo_catalog():
+    from src.app.core.avito_bot_engine import CatalogItem as C
+    a = lambda storage, color: {"storage": storage, "color": color}
+    return [
+        C("iPad 11 A16 2025 128 ГБ Wi-Fi, Синий", "Планшеты", 40990, stock=2, attributes=a("128 ГБ", "Синий")),
+        C("iPad 11 A16 2025 128 ГБ Wi-Fi, Розовый", "Планшеты", 40990, stock=1, attributes=a("128 ГБ", "Розовый")),
+        C("iPhone 17 256 ГБ, Белый", "Смартфоны", 79990, stock=3, attributes=a("256 ГБ", "Белый")),
+        C("iPhone 17 256 ГБ, Чёрный", "Смартфоны", 79990, stock=0, attributes=a("256 ГБ", "Чёрный")),
+        C("iPhone 17 512 ГБ, Белый", "Смартфоны", 99990, stock=1, attributes=a("512 ГБ", "Белый")),
+        C("iPhone 17 Pro 256 ГБ, Белый титан", "Смартфоны", 129990, stock=2, attributes=a("256 ГБ", "Белый титан")),
+        C("Samsung Galaxy S26 Ultra 512 ГБ, Чёрный", "Смартфоны", 119990, stock=1, attributes=a("512 ГБ", "Чёрный")),
+        C("AirPods Pro 3", "Наушники", 24990, stock=5),
+    ]
+
+
+def test_catalog_overview_and_search():
+    from src.app.core.avito_bot_engine import build_overview, catalog_vocab, family_name, query_segments, search_catalog
+    cat = _demo_catalog()
+    assert family_name(cat[2]) == "iPhone 17" and family_name(cat[5]) == "iPhone 17 Pro" and family_name(cat[0]) == "iPad 11 A16 2025 Wi-Fi"
+    ov = build_overview(cat)
+    assert "## Смартфоны" in ov and "- iPhone 17: 256 ГБ — 79 990 ₽ (Белый); 512 ГБ — 99 990 ₽ (Белый)" in ov
+    assert not any("Чёрный" in ln and "iPhone 17:" in ln for ln in ov)          # нет в наличии — не в справочнике
+    assert "- AirPods Pro 3: 24 990 ₽" in ov
+    # Вопрос со скриншота: два товара в одном сообщении, по-русски
+    q = "Здравствуйте! А цена на айпад 11 128 гб и айфон 17 базовый белый 256 гб та же?"
+    assert len(query_segments(q)) == 2
+    found = [it.name for it in search_catalog(cat, query_segments(q), catalog_vocab(cat))]
+    assert "iPhone 17 256 ГБ, Белый" in found and any(n.startswith("iPad 11") for n in found)
+    assert found.index("iPhone 17 256 ГБ, Белый") < (found.index("iPhone 17 Pro 256 ГБ, Белый титан")
+                                                       if "iPhone 17 Pro 256 ГБ, Белый титан" in found else 99)
+    assert [it.name for it in search_catalog(cat, ["самсунг s26 ультра"], catalog_vocab(cat))][0].startswith("Samsung Galaxy S26")
+
+
+def test_storage_from_name():
+    from src.app.core.avito_bot_engine import CatalogItem, family_name, item_storage
+    mb = CatalogItem("Ноутбук Apple MacBook Pro 14 (M5, 10C CPU, 10C GPU, 16ГБ, 512ГБ SSD), Серебристый (Silver)", "Ноутбуки", 1)
+    assert item_storage(mb) == "16ГБ/512ГБ"
+    assert family_name(mb) == "Ноутбук Apple MacBook Pro 14 (M5, 10C CPU, 10C GPU, SSD)"
+
+
+def test_overview_line_limit():
+    from src.app.core.avito_bot_engine import CatalogItem, build_overview
+    many = [CatalogItem(f"Model {i}", "Смартфоны", 1000 + i, stock=1) for i in range(400)]
+    ov = build_overview(many, max_lines=50)
+    assert len(ov) == 51 and ov[-1].startswith("… и ещё")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
