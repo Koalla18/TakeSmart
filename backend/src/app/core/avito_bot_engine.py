@@ -128,6 +128,29 @@ class PromptConfig:
     style: str
     knowledge: str
     handoff_topics: str
+    greeting: str = ""
+
+
+# ── Приветствие и тон ────────────────────────────────────────────────────────
+
+_GREETING_START = re.compile(r"^\W*(здравствуй|добр(ый|ое|ого)\s+(день|утро|вечер)|приветствую|привет|доброго)", re.IGNORECASE)
+
+
+def is_first_reply(ctx: "ChatContext") -> bool:
+    """Наш ответ будет первым в диалоге — значит, нужно поздороваться."""
+    return not any(author in ("bot", "staff") for author, _ in ctx.history)
+
+
+def greeting_text(greeting: str, persona_name: str) -> str:
+    return " ".join(greeting.replace("{name}", persona_name).split())
+
+
+def with_greeting(text: str, greeting: str, persona_name: str) -> str:
+    """Добавить приветствие перед готовым ответом, если в нём его ещё нет."""
+    hello = greeting_text(greeting, persona_name)
+    if not hello or _GREETING_START.match(text or ""):
+        return text
+    return f"{hello}\n{text}".strip()
 
 
 def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatContext,
@@ -153,8 +176,22 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
         "- Не проси и не пересылай телефоны, карты и коды; оплату и оформление веди по условиям магазина.",
         "- Одно сообщение, без markdown, без списков со звёздочками.",
         "",
+        "Тон (это важнее краткости):",
+        "- Вежливо, тепло и с уважением, как внимательный продавец, которому приятно помочь. Обращайся на «вы».",
+        "- Не отвечай одним словом или голыми цифрами: оберни ответ в живую фразу («Да, есть в наличии!», "
+        "«Подскажу: …», «Хороший выбор, …»). Благодари за интерес, когда это уместно.",
+        "- Никогда не грубить, не спорить, не поучать и не писать приказным тоном. Не начинай с сухого «Нет.» — "
+        "мягко объясни и предложи вариант.",
+        "",
         f"Сейчас {DAY_NAMES[now.weekday()]}, {now:%d.%m.%Y %H:%M} по Москве.",
     ]
+    hello = greeting_text(cfg.greeting, cfg.persona_name)
+    if is_first_reply(ctx):
+        parts += ["", "Это твоё ПЕРВОЕ сообщение в этом диалоге: обязательно начни с приветствия"
+                      + (f" — «{hello}» (можно чуть своими словами)" if hello else " и представься")
+                      + ", затем ответь на вопрос."]
+    else:
+        parts += ["", "Вы уже общаетесь: не здоровайся заново, но сохраняй тёплый и вежливый тон."]
     if ctx.item_title or ctx.item_price:
         parts += ["", f"Покупатель пишет по объявлению: {ctx.item_title or '—'}"
                       + (f", цена в объявлении: {ctx.item_price}" if ctx.item_price else "")]

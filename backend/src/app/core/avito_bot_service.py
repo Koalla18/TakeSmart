@@ -34,7 +34,7 @@ from src.app.core import avito_client, llm_client
 from src.app.core.avito_bot_engine import (
     MSK, ChatContext, PiiMasker, PromptConfig, build_messages, build_reminder_messages, build_system_prompt,
     catalog_tokens, human_delay, in_window, match_rule, parse_llm_answer, pick_examples, render_reminder,
-    render_template, rule_covers, starts_with_refusal, wants_opt_out,
+    render_template, rule_covers, starts_with_refusal, wants_opt_out, is_first_reply, with_greeting,
 )
 from src.app.core.config import settings
 from src.app.core.logger import get_logger
@@ -317,12 +317,17 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     llm = llm_settings(cfg)
     match = match_rule(rules, pending_text, rule_hits, now)
 
+    def rule_text(rule: AvitoBotRule) -> str:
+        # Первый ответ в диалоге — с приветствием, даже если это готовый автоответ
+        text_ = rule.answer.strip()
+        return with_greeting(text_, cfg.greeting, cfg.persona_name) if is_first_reply(ctx) else text_
+
     if match and match.rule.verbatim and not (llm.ready and (starts_with_refusal(pending_text) or not rule_covers(pending_text))):
-        return Decision("reply", match.rule.answer.strip(), "rule", match.rule, delay_seconds=match.rule.delay_seconds)
+        return Decision("reply", rule_text(match.rule), "rule", match.rule, delay_seconds=match.rule.delay_seconds)
 
     if not llm.ready:
         if match:  # правило «своими словами», но модели нет — отдаём текст правила
-            return Decision("reply", match.rule.answer.strip(), "rule", match.rule, delay_seconds=match.rule.delay_seconds)
+            return Decision("reply", rule_text(match.rule), "rule", match.rule, delay_seconds=match.rule.delay_seconds)
         return Decision("handoff", cfg.handoff_message or None, reason="Нет подходящего автоответа, а модель не подключена")
 
     products: list[Product] = []
@@ -337,7 +342,7 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     masker = PiiMasker()
     masked_ctx = ChatContext(ctx.item_title, ctx.item_price, ctx.client_name, [(a, masker.mask(t)) for a, t in ctx.history])
     system = build_system_prompt(
-        PromptConfig(cfg.persona_name, cfg.style, cfg.knowledge, cfg.handoff_topics),
+        PromptConfig(cfg.persona_name, cfg.style, cfg.knowledge, cfg.handoff_topics, cfg.greeting),
         rules, masked_ctx, lines, now, hint=match.rule.answer if match else None,
         examples=[(masker.mask(q), a) for q, a in examples],
         orders_enabled=cfg.orders_enabled, pickup_address=cfg.pickup_address,

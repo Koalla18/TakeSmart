@@ -10,13 +10,13 @@ from pydantic import BaseModel, Field, field_validator
 _TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 DEFAULT_STYLE = (
-    "Пиши как живой продавец-консультант в мессенджере: коротко (1–3 предложения), "
-    "дружелюбно, без канцелярита и без эмодзи-гирлянд. Обращайся на «вы». "
-    "Не повторяй приветствие, если уже здоровался в этом диалоге. "
+    "Пиши как живой, приветливый продавец-консультант в мессенджере: по делу (1–3 предложения), "
+    "тепло и вежливо, без канцелярита и без эмодзи-гирлянд. Обращайся на «вы». "
     "Если покупатель отказался — не уговаривай, вежливо оставь контакт. "
     "Заканчивай понятным следующим шагом: забронировать, приехать, оформить доставку — "
     "но только если это уместно."
 )
+DEFAULT_GREETING = "Здравствуйте! Меня зовут {name}, я менеджер магазина TakeSmart."
 DEFAULT_REMINDER = "Здравствуйте! Остался ли вопрос по {item}? Могу забронировать для вас или подсказать по доставке."
 DEFAULT_HANDOFF = "торг и скидки сверх условий, возврат, брак, претензия, жалоба, ремонт, юридические вопросы"
 
@@ -31,6 +31,7 @@ class AvitoBotConfig(BaseModel):
     enabled: bool = False
     mode: Literal["draft", "auto"] = "draft"
     persona_name: str = Field("Дарья", max_length=40)
+    greeting: str = Field(DEFAULT_GREETING, max_length=300, description="Приветствие в первом ответе диалога; {name} — имя менеджера")
     style: str = Field(DEFAULT_STYLE, max_length=3000)
     knowledge: str = Field("", max_length=20000, description="Свободный текст: всё, что бот должен знать о магазине")
     handoff_topics: str = Field(DEFAULT_HANDOFF, max_length=1000)
@@ -75,6 +76,7 @@ class AvitoBotConfigOut(BaseModel):
     enabled: bool
     mode: str
     persona_name: str
+    greeting: str
     style: str
     knowledge: str
     handoff_topics: str
@@ -112,6 +114,7 @@ class AvitoBotConfigIn(BaseModel):
     enabled: bool | None = None
     mode: Literal["draft", "auto"] | None = None
     persona_name: str | None = Field(None, max_length=40)
+    greeting: str | None = Field(None, max_length=300)
     style: str | None = Field(None, max_length=3000)
     knowledge: str | None = Field(None, max_length=20000)
     handoff_topics: str | None = Field(None, max_length=1000)

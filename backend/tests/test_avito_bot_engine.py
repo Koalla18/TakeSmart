@@ -204,6 +204,23 @@ def test_llm_provider_urls():
     assert pasted.ready and pasted.resolved_base_url == "https://agent.timeweb.cloud/api/v1/cloud-ai/agents/abc/v1"
 
 
+def test_greeting_and_tone():
+    from src.app.core.avito_bot_engine import is_first_reply, with_greeting
+    hello = "Здравствуйте! Меня зовут {name}, я менеджер магазина TakeSmart."
+    assert with_greeting("ТЦ Багратионовский, павильон А60.", hello, "Дарья") == \
+        "Здравствуйте! Меня зовут Дарья, я менеджер магазина TakeSmart.\nТЦ Багратионовский, павильон А60."
+    assert with_greeting("Добрый день! Да, есть.", hello, "Дарья") == "Добрый день! Да, есть."   # уже поздоровались
+    assert with_greeting("Да, есть.", "", "Дарья") == "Да, есть."                                   # приветствие выключено
+    first = ChatContext(None, None, None, [("client", "Цена актуальная?")])
+    later = ChatContext(None, None, None, [("client", "Цена?"), ("bot", "Здравствуйте! 147 990 ₽"), ("client", "А гарантия?")])
+    assert is_first_reply(first) and not is_first_reply(later)
+    cfg = PromptConfig("Дарья", "коротко", "", "торг", hello)
+    p1 = build_system_prompt(cfg, [], first, [], NOW)
+    assert "ПЕРВОЕ сообщение" in p1 and "Меня зовут Дарья" in p1 and "Вежливо, тепло" in p1
+    p2 = build_system_prompt(cfg, [], later, [], NOW)
+    assert "не здоровайся заново" in p2 and "ПЕРВОЕ" not in p2
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
