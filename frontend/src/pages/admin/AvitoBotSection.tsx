@@ -838,15 +838,18 @@ function BroadcastComposer({ api, config, onClose, onCreated }: { api: Api; conf
 
 // ── Прайс ────────────────────────────────────────────────────────────────────
 
-const PRICE_EXAMPLE = `iPhone 16; 128; Белый; 62990
-iPhone 16; 128; Чёрный; 62990
-iPhone 16; 256; Ультрамарин; 72990; нет
-Galaxy Z Fold8; 12/256; Серый; 118990
-AirPods Pro 3; 24990`
+const PRICE_EXAMPLE = `ПРАЙС iPhone 17 TakeSmart, [24 ноя. 2026 в 11:02]
+16 128 Teal 🇮🇳 - 59.700
+17Pro 256 Orange -     94000🇰🇷1SIM.
+17Pro 256 Orange -     91500🇯🇵eSIM.
+17 Pro Max 2TB Orange 1Sim 🇭🇰 - 156.000
+
+# можно и таблицей: Модель; Память; Цвет; Цена; Наличие
+Galaxy Z Fold8; 12/256; Серый; 118990`
 
 function PriceListTab({ api, config, setConfig }: { api: Api; config: Config; setConfig: (c: Config) => void }) {
   const [text, setText] = useState(config.price_list)
-  const [check, setCheck] = useState<{ items: { name: string; price: number; in_stock: boolean }[]; count: number; errors: string[] } | null>(null)
+  const [check, setCheck] = useState<{ items: { name: string; price: number; in_stock: boolean; country: string | null; sim: string | null; color_ru: string | null }[]; count: number; errors: string[] } | null>(null)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     const t = window.setTimeout(async () => {
@@ -867,8 +870,10 @@ function PriceListTab({ api, config, setConfig }: { api: Api; config: Config; se
         <h3 className="mb-1 font-semibold text-white">Актуальные цены для бота</h3>
         <p className="mb-3 text-sm text-slate-400">
           Главный источник цен и наличия: бот берёт цену отсюда — и в первом сообщении, и в ответах. Чего нет в прайсе, бот ищет в каталоге сайта.
-          По строке на вариант: <code className="text-slate-200">Модель; Память; Цвет; Цена; Наличие</code>. Можно вставить прямо из Excel или Google Таблиц.
-          Наличие: пусто — есть, «нет» — нет. Без памяти и цвета: <code className="text-slate-200">Модель; Цена</code>. Строка с # — комментарий.
+          Вставляйте прайс как есть, как присылаете в Telegram: «17Pro 256 Orange - 94000🇰🇷1SIM.», «16 128 Teal 🇮🇳 - 59.700».
+          Бот поймёт модель (17Pro, 17Air, 17e — это iPhone), объём, цвет (и с опечатками), страну по флажку и SIM (1SIM — SIM + eSIM, eSIM — только eSIM).
+          Заголовки «ПРАЙС…» и разделители пропускаются. Одна и та же позиция несколько раз — действует последняя по тексту.
+          Можно и таблицей: <code className="text-slate-200">Модель; Память; Цвет; Цена; Наличие</code>. Строка с # — комментарий.
         </p>
         <textarea className={`${INPUT} h-[55vh] font-mono text-[13px]`} value={text} onChange={e => setText(e.target.value)} placeholder={PRICE_EXAMPLE} />
         <div className="mt-3 flex items-center justify-between gap-3">
@@ -883,7 +888,10 @@ function PriceListTab({ api, config, setConfig }: { api: Api; config: Config; se
           <div className="max-h-[60vh] divide-y divide-white/[0.05] overflow-y-auto text-sm">
             {check.items.map((it, i) => (
               <div key={i} className="flex justify-between gap-3 py-1.5">
-                <span className={it.in_stock ? 'text-slate-200' : 'text-slate-500 line-through'}>{it.name}</span>
+                <span className={it.in_stock ? 'text-slate-200' : 'text-slate-500 line-through'}>
+                  {it.name}
+                  {(it.country || it.sim) && <span className="ml-1.5 text-xs text-slate-500">{[it.country, it.sim].filter(Boolean).join(' · ')}</span>}
+                </span>
                 <span className="shrink-0 tabular-nums text-white">{Math.round(it.price).toLocaleString('ru-RU')} ₽</span>
               </div>
             ))}
