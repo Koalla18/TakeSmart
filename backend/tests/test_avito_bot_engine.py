@@ -218,7 +218,7 @@ def test_greeting_and_tone():
     p1 = build_system_prompt(cfg, [], first, [], NOW)
     assert "ПЕРВОЕ сообщение" in p1 and "Меня зовут Дарья" in p1 and "Вежливо, тепло" in p1
     p2 = build_system_prompt(cfg, [], later, [], NOW)
-    assert "не здоровайся заново" in p2 and "ПЕРВОЕ" not in p2
+    assert "НЕ здоровайся" in p2 and "ПЕРВОЕ" not in p2
 
 
 def test_human_mode_split_and_typing():
@@ -353,6 +353,54 @@ def test_first_message_price():
                    "✨ Розничная стоимость без участия в программе - 79 990 ₽")
     no_price = render_first_message(DEFAULT_FIRST_MESSAGE, "Илья", None)
     assert "{price}" not in no_price and "Розничная стоимость" not in no_price and no_price.endswith("trade-in.")
+
+
+def test_refusal_anywhere_and_greeting_strip():
+    from src.app.core.avito_bot_engine import is_refusal, strip_greeting
+    for t in ["Спасибо не интересует", "Нет", "нет, спасибо", "Уже не актуально", "спасибо, не надо", "не подходит"]:
+        assert is_refusal(t), t
+    for t in ["Спасибо!", "Есть в наличии 16/128?", "А не подскажете цену?", "Белый"]:
+        assert not is_refusal(t), t
+    assert strip_greeting("Здравствуйте! Цена в объявлении — это доплата.") == "Цена в объявлении — это доплата."
+    assert strip_greeting("Добрый вечер! Меня зовут Илья, я менеджер. Есть белый 128 ГБ.") == "Есть белый 128 ГБ."
+    assert strip_greeting("Есть в наличии.") == "Есть в наличии."
+
+
+def test_sanitize_reply_off_topic():
+    from src.app.core.avito_bot_engine import OFF_TOPIC_REPLY, sanitize_reply
+    math = "## Шаг 1: Раскрываем скобки $$\\left(x + \\frac{1}{y}\\right)$$"
+    assert sanitize_reply(math) == (OFF_TOPIC_REPLY, True)
+    assert sanitize_reply("x" * 1500) == (OFF_TOPIC_REPLY, True)
+    assert sanitize_reply("Да, есть **белый** 128 ГБ — 62 990 ₽") == ("Да, есть белый 128 ГБ — 62 990 ₽", False)
+
+
+def test_price_list_parse_and_priority():
+    from src.app.core.avito_bot_engine import build_overview, catalog_vocab, parse_price_list, title_match
+    text = ("# прайс\niPhone 16; 128; Белый; 62 990\niPhone 16\t128\tЧёрный\t62990\n"
+            "iPhone 16 | 256 | Ультрамарин | 72990 | нет\nGalaxy Z Fold8; 12/256; Серый; 118 990 ₽\n"
+            "AirPods Pro 3; 24990\nплохая строка")
+    items, errors = parse_price_list(text)
+    assert [it.name for it in items] == ["iPhone 16 128 ГБ, Белый", "iPhone 16 128 ГБ, Чёрный", "iPhone 16 256 ГБ, Ультрамарин",
+                                         "Galaxy Z Fold8 12/256, Серый", "AirPods Pro 3"]
+    assert items[0].price == 62990 and items[2].stock == 0 and items[3].price == 118990
+    assert len(errors) == 1
+    v = catalog_vocab(items)
+    assert title_match(items, "Apple iPhone 16 128GB Белый", v).price == 62990
+    assert title_match(items, "Samsung Galaxy Z Fold8 12/256", v).price == 118990
+    ov = build_overview(items)
+    assert any("iPhone 16: 128 ГБ — 62 990 ₽ (Белый, Чёрный)" in ln for ln in ov)
+    assert not any("Ультрамарин" in ln for ln in ov)                      # нет в наличии — не предлагаем
+
+
+def test_prompt_scope_and_trade_in():
+    from src.app.core.avito_bot_engine import DEFAULT_TRADE_IN_PRICES
+    ctx = ChatContext("iPhone 16 128", None, None, [("client", "16/128 белый есть?")])
+    p = build_system_prompt(PromptConfig("Илья", "", "", ""), [], ctx, [], NOW, greet=False,
+                            price_overview=["- iPhone 16: 128 ГБ — 62 990 ₽ (Белый)"], trade_in=DEFAULT_TRADE_IN_PRICES)
+    assert "Говори ТОЛЬКО о магазине" in p and "математика" in p
+    assert "Не переспрашивай" in p and "относится к товару ИЗ ОБЪЯВЛЕНИЯ" in p
+    assert "АКТУАЛЬНЫЙ ПРАЙС" in p and "iPhone 17 Pro Max — 65 000–70 000 ₽" in p
+    assert "НЕ здоровайся" in p and "ПЕРВОЕ сообщение" not in p
 
 
 def test_overview_line_limit():

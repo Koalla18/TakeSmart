@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from src.app.core.avito_bot_engine import DEFAULT_FIRST_MESSAGE
+from src.app.core.avito_bot_engine import DEFAULT_FIRST_MESSAGE, DEFAULT_TRADE_IN_PRICES
 
 _TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
@@ -41,6 +41,9 @@ class AvitoBotConfig(BaseModel):
     greeting: str = Field(DEFAULT_GREETING, max_length=300, description="Приветствие в первом ответе диалога; {name} — имя менеджера")
     first_message: str = Field(DEFAULT_FIRST_MESSAGE, max_length=1500,
                                description="Первое сообщение диалога; {name} — имя менеджера, {price} — розничная цена")
+    price_list: str = Field("", max_length=60000,
+                            description="Прайс для бота: «Модель; Память; Цвет; Цена; Наличие» по строкам — главный источник цен")
+    trade_in_prices: str = Field(DEFAULT_TRADE_IN_PRICES, max_length=5000, description="Модели и вилки оценки trade-in")
     staff_takes_over: bool = Field(True, description="Ответ с нашего аккаунта из приложения Авито забирает диалог у бота")
     human_mode: bool = Field(True, description="Как человек: короткими сообщениями, пауза по длине текста, «прочитано» перед ответом")
     allow_emoji: bool = False
@@ -93,6 +96,8 @@ class AvitoBotConfigOut(BaseModel):
     persona_name: str
     greeting: str
     first_message: str
+    price_list: str
+    trade_in_prices: str
     staff_takes_over: bool
     human_mode: bool
     allow_emoji: bool
@@ -136,6 +141,8 @@ class AvitoBotConfigIn(BaseModel):
     persona_name: str | None = Field(None, max_length=40)
     greeting: str | None = Field(None, max_length=300)
     first_message: str | None = Field(None, max_length=1500)
+    price_list: str | None = Field(None, max_length=60000)
+    trade_in_prices: str | None = Field(None, max_length=5000)
     staff_takes_over: bool | None = None
     human_mode: bool | None = None
     allow_emoji: bool | None = None

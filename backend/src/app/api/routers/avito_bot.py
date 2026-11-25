@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from sqlalchemy import delete, func, or_, select
@@ -23,7 +24,7 @@ from sqlalchemy import delete, func, or_, select
 from src.app.api.admin.endpoints import get_current_admin
 from src.app.core import avito_bot_service as bot
 from src.app.core import avito_bot_analytics, avito_client, llm_client
-from src.app.core.avito_bot_engine import ChatContext, render_template
+from src.app.core.avito_bot_engine import ChatContext, parse_price_list, render_template
 from src.app.core.logger import get_logger
 from src.app.database.models.admin import Admin
 from src.app.database.models.avito_bot import (
@@ -602,6 +603,19 @@ async def test_chat(body: TestIn) -> DecisionOut:
         delay_seconds=decision.delay_seconds, catalog=decision.catalog, order=decision.order,
         examples_used=decision.examples_used,
     )
+
+
+class PriceListCheckIn(BaseModel):
+    text: str = Field("", max_length=60000)
+
+
+@router.post("/price-list/check", dependencies=ADMIN, summary="Как бот прочитает прайс — без сохранения")
+async def price_list_check(body: PriceListCheckIn) -> dict:
+    items, errors = parse_price_list(body.text)
+    return {
+        "items": [{"name": it.name, "price": it.price, "in_stock": it.stock > 0} for it in items[:2000]],
+        "count": len(items), "errors": errors[:50],
+    }
 
 
 @router.post("/test-order", dependencies=ADMIN, summary="Создать тестовую заявку с Авито (видна в «Заказах» и PWA)")

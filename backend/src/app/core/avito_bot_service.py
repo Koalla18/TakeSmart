@@ -37,7 +37,7 @@ from src.app.core.avito_bot_engine import (
     render_template, rule_covers, starts_with_refusal, wants_opt_out, is_first_reply, with_greeting,
     split_reply, typing_delay, classify_avito_message, normalize_phone, valid_email, valid_full_name,
     order_note_for_prompt, wants_cancel, CatalogItem, build_overview, catalog_vocab, query_segments, search_catalog,
-    render_first_message, title_match,
+    render_first_message, title_match, is_refusal, strip_greeting, sanitize_reply, parse_price_list,
 )
 from src.app.core.config import settings
 from src.app.core.logger import get_logger
@@ -269,27 +269,50 @@ async def search_products(session: AsyncSession, item_title: str | None, questio
     """Товары по названию объявления и по каждому товару из вопроса отдельно."""
     snap = await catalog_snapshot(session)
     texts = ([item_title] if item_title else []) + query_segments(question or "")
+    if item_title and question:
+        # «16/128 белый» — уточнение к модели из объявления: ищем их вместе
+        texts.append(f"{item_title} {question}")
     found = search_catalog(snap["items"], texts, snap["vocab"], limit=limit)
     return [snap["products"][it.key] for it in found if it.key in snap["products"]]
 
 
-async def listing_price(session: AsyncSession, item_id: int | None, item_title: str | None) -> str | None:
-    """Розничная цена товара из объявления: привязанная карточка или надёжное совпадение по названию."""
+_PRICE_LIST: dict[str, Any] = {"text": None}
+
+
+def price_snapshot(cfg: AvitoBotConfig) -> dict[str, Any]:
+    """Прайс из настроек бота (вкладка «Прайс»): товары, словарь и справочник для модели."""
+    if _PRICE_LIST["text"] != cfg.price_list:
+        items, errors = parse_price_list(cfg.price_list)
+        _PRICE_LIST.update(text=cfg.price_list, items=items, errors=errors, vocab=catalog_vocab(items),
+                           overview=[ln for ln in build_overview(items, 400) if not ln.startswith("## ")])
+    return _PRICE_LIST
+
+
+async def listing_price(session: AsyncSession, item_id: int | None, item_title: str | None,
+                        cfg: AvitoBotConfig | None = None) -> str | None:
+    """Розничная цена товара из объявления: привязанная карточка → прайс бота → каталог сайта
+    (последние два — только при надёжном совпадении по названию)."""
     linked = await linked_product(session, item_id)
     if linked is not None:
         return _rub(linked.discount_price or linked.price)
+    if cfg is not None and cfg.price_list.strip():
+        prices = price_snapshot(cfg)
+        hit = title_match(prices["items"], item_title, prices["vocab"])
+        if hit:
+            return _rub(hit.price)
     snap = await catalog_snapshot(session)
     it = title_match(snap["items"], item_title, snap["vocab"])
     return _rub(it.price) if it else None
 
 
 async def first_message(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext,
-                        item_id: int | None) -> tuple[str, bool] | None:
-    """Шаблон первого сообщения диалога (приветствие + розничная цена) и нашлась ли цена.
-    None — шаблон выключен или это не начало диалога."""
-    if not cfg.first_message.strip() or not is_first_reply(ctx):
+                        item_id: int | None, greet: bool | None = None) -> tuple[str, bool] | None:
+    """Шаблон первого сообщения (приветствие + розничная цена) и нашлась ли цена.
+    None — шаблон выключен или сегодня с покупателем уже здоровались."""
+    greet = is_first_reply(ctx) if greet is None else greet
+    if not cfg.first_message.strip() or not greet:
         return None
-    price = await listing_price(session, item_id, ctx.item_title) if ctx.item_title or item_id else None
+    price = await listing_price(session, item_id, ctx.item_title, cfg) if ctx.item_title or item_id else None
     needs_price = "{price}" in cfg.first_message and bool(ctx.item_title or item_id)
     return render_first_message(cfg.first_message, cfg.persona_name, price), bool(price) or not needs_price
 
@@ -369,18 +392,26 @@ def _order_item(cfg: AvitoBotConfig, raw: dict[str, Any], products: list[Product
 async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, pending_text: str,
                  rule_hits: dict[str, Any], now: datetime | None = None, item_id: int | None = None,
                  order_info: tuple[str, str] | None = None, first_sent: bool = False,
-                 first_price_known: bool = True) -> Decision:
+                 first_price_known: bool = True, greet: bool | None = None) -> Decision:
     """order_info — (номер, статус) заявки этого диалога: модель знает о ней и может её отменить."""
     now = now or _now()
     rules = await active_rules(session)
     llm = llm_settings(cfg)
     match = match_rule(rules, pending_text, rule_hits, now)
 
+    greet = is_first_reply(ctx) if greet is None else greet
+    # Отказ — по последнему сообщению: «не интересует», а потом «где вы находитесь?» — это уже вопрос
+    refusal = is_refusal(pending_text.strip().split("\n")[-1])
+    if refusal:
+        match = None  # «Спасибо, не интересует» — не повод для автоответа «Желаете оформить доставку?»
+    if match and first_sent and "доплат" in match.rule.answer.lower():
+        match = None  # автоответ повторил бы шаблон про trade-in и цену
+
     def rule_text(rule: AvitoBotRule) -> str:
-        # Первый ответ в диалоге — с приветствием, даже если это готовый автоответ
+        # Первый ответ дня — с приветствием, даже если это готовый автоответ; иначе приветствие вырезаем
         text_ = rule.answer.strip()
-        if not is_first_reply(ctx):
-            return text_
+        if not greet or first_sent:
+            return strip_greeting(text_) or text_
         # В человечном режиме приветствие уходит отдельным коротким сообщением
         return with_greeting(text_, cfg.greeting, cfg.persona_name, "\n\n" if cfg.human_mode else "\n")
 
@@ -389,10 +420,12 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         match = None  # отмену не перебивает автоответ — отвечает модель (или короткое подтверждение)
         if not llm.ready:
             return Decision("reply", "Заявку отменила. Если передумаете — пишите, с радостью помогу.", "rule")
-    if match and match.rule.verbatim and not (llm.ready and (starts_with_refusal(pending_text) or not rule_covers(pending_text))):
+    if match and match.rule.verbatim and not (llm.ready and not rule_covers(pending_text)):
         return Decision("reply", rule_text(match.rule), "rule", match.rule, delay_seconds=match.rule.delay_seconds)
 
     if not llm.ready:
+        if refusal:
+            return Decision("silent", reason="Покупатель отказался")
         if first_sent and not first_price_known:
             return Decision("handoff", reason="Нет розничной цены для объявления — привяжите объявление к товару каталога")
         if first_sent:
@@ -420,7 +453,9 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         orders_enabled=cfg.orders_enabled, pickup_address=cfg.pickup_address,
         order_note=order_note_for_prompt(*order_info) if order_info else None,
         catalog_overview=(await catalog_snapshot(session))["overview"] if cfg.use_catalog else (),
-        first_sent=first_sent, first_price_known=first_price_known,
+        first_sent=first_sent, first_price_known=first_price_known, greet=greet,
+        price_overview=price_snapshot(cfg)["overview"] if cfg.price_list.strip() else (),
+        trade_in=cfg.trade_in_prices,
     )
     try:
         raw = await llm_call(cfg, build_messages(system, masked_ctx, HISTORY_LIMIT))
@@ -429,6 +464,12 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
 
     verdict = parse_llm_answer(raw)
     reply = masker.unmask(verdict.reply)
+    if reply and (not greet or first_sent):
+        reply = strip_greeting(reply)   # сегодня уже здоровались — второй раз не надо
+    reply, replaced = sanitize_reply(reply)
+    if replaced:
+        logger.warning("avito_bot_reply_replaced", reason="off_topic_or_too_long")
+        verdict.order = None
     first_part = (split_reply(reply) or [reply])[0] if cfg.human_mode else reply
     delay = (typing_delay(first_part, cfg.reply_delay_min, cfg.reply_delay_max) if cfg.human_mode
              else human_delay(cfg.reply_delay_min, cfg.reply_delay_max))
@@ -516,13 +557,15 @@ async def process_chat(chat_id: UUID) -> None:
             await avito_client.mark_read(avito_creds(cfg), chat.avito_chat_id)
         order_info = await _order_info(session, chat)
         # Начало диалога: сначала шаблон магазина с розничной ценой, потом — ответ на сам вопрос
-        first = await first_message(session, cfg, state.ctx, chat.item_id)
+        greet = not await _greeted_recently(session, chat)
+        first = await first_message(session, cfg, state.ctx, chat.item_id, greet=greet)
         opening, price_known = first if first else (None, True)
         ctx = state.ctx
         if opening:
             ctx = ChatContext(ctx.item_title, ctx.item_price, ctx.client_name, ctx.history + [("bot", opening)])
         decision = await decide(session, cfg, ctx, state.pending, dict(chat.rule_hits or {}), item_id=chat.item_id,
-                                order_info=order_info, first_sent=bool(opening), first_price_known=price_known)
+                                order_info=order_info, first_sent=bool(opening), first_price_known=price_known,
+                                greet=greet)
         await session.commit()
 
     push: tuple[str, str] | None = None
@@ -872,6 +915,52 @@ async def handle_webhook(payload: dict[str, Any]) -> None:
                           own=avito_client.same_id(value.get("author_id"), account_id) or None)
 
 
+GREET_EVERY = timedelta(hours=24)
+
+
+async def _greeted_recently(session: AsyncSession, chat: AvitoChat) -> bool:
+    """Писали ли мы этому покупателю за последние сутки — в этом чате или в другом (по его ID в Авито).
+    Тогда не здороваемся и не шлём шаблон с ценой ещё раз."""
+    since = _now() - GREET_EVERY
+    chat_ids = select(AvitoChat.id).where(AvitoChat.id == chat.id)
+    if chat.client_avito_id and not chat.is_simulated:
+        chat_ids = select(AvitoChat.id).where(or_(AvitoChat.id == chat.id, AvitoChat.client_avito_id == chat.client_avito_id))
+    res = await session.execute(
+        select(AvitoMessage.id).where(
+            AvitoMessage.chat_id.in_(chat_ids), AvitoMessage.author.in_(("bot", "staff")),
+            AvitoMessage.status == "sent", AvitoMessage.created_at >= since,
+        ).limit(1)
+    )
+    return res.first() is not None
+
+
+async def _import_history(session: AsyncSession, cfg: AvitoBotConfig, chat: AvitoChat, account_id: Any,
+                          skip_id: str | None) -> None:
+    """Новый для бота чат мог начаться в Авито раньше: подтягиваем последние сообщения, чтобы бот
+    видел разговор и не здоровался заново с тем, с кем уже общались."""
+    creds = avito_creds(cfg)
+    try:
+        creds.user_id = int(account_id) if account_id not in (None, "") else creds.user_id
+        messages = await avito_client.list_messages(creds, chat.avito_chat_id, limit=30)
+    except (avito_client.AvitoError, TypeError, ValueError) as exc:
+        logger.warning("avito_history_import_failed", chat=chat.avito_chat_id, error=str(exc)[:200])
+        return
+    for m in sorted(messages, key=lambda x: x.get("created") or 0):
+        mid = str(m.get("id") or "") or None
+        if not mid or mid == skip_id:
+            continue
+        kind = classify_avito_message(m, creds.user_id, _system_patterns(cfg))
+        if kind is None:
+            continue
+        direction = m.get("direction")
+        own = direction == "out" if direction in ("in", "out") else avito_client.same_id(m.get("author_id"), creds.user_id)
+        author = "system" if kind[0] == "system" else ("staff" if own else "client")
+        created = datetime.fromtimestamp(int(m.get("created") or 0), tz=timezone.utc) if m.get("created") else _now()
+        session.add(AvitoMessage(chat_id=chat.id, avito_message_id=mid, author=author, text=kind[1],
+                                 source="avito" if author != "client" else None, sent_at=created, created_at=created))
+    await session.flush()
+
+
 async def _fill_meta(cfg: AvitoBotConfig, chat: AvitoChat, account_id: Any) -> None:
     """Ник покупателя и объявление. Пробуем при каждом сообщении, пока не получится."""
     creds = avito_creds(cfg)
@@ -902,12 +991,15 @@ async def handle_incoming(avito_chat_id: str, avito_message_id: str | None, auth
         chat = (await session.execute(
             select(AvitoChat).where(AvitoChat.avito_chat_id == avito_chat_id).with_for_update()
         )).scalar_one_or_none()
+        new_chat = chat is None
         if chat is None:
             chat = AvitoChat(id=uuid4(), avito_chat_id=avito_chat_id)
             session.add(chat)
         if (not chat.client_name or not chat.item_title) and avito_creds(cfg).ready and not chat.is_simulated:
             await _fill_meta(cfg, chat, account_id or cfg.avito_user_id)
         await session.flush()
+        if new_chat and avito_creds(cfg).ready and cfg.avito_connected_at:
+            await _import_history(session, cfg, chat, account_id or cfg.avito_user_id, avito_message_id)
 
         if system:
             session.add(AvitoMessage(chat_id=chat.id, avito_message_id=avito_message_id, author="system",
@@ -1068,7 +1160,7 @@ async def process_reminder(chat_id: UUID, cfg: AvitoBotConfig) -> int:
         last_client = next((t for a, t in reversed(state.ctx.history) if a == "client"), "")
         text_: str | None = None
         reason: str | None = None
-        if starts_with_refusal(last_client):
+        if is_refusal(last_client):
             reason = "покупатель отказался"
         elif cfg.reminder_use_llm and llm_settings(cfg).ready:
             products = (await catalog_products(session, chat.item_id, chat.item_title, None))[0] if cfg.use_catalog else []

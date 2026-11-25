@@ -184,7 +184,9 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
                         examples: Sequence[tuple[str, str]] = (), orders_enabled: bool = False,
                         pickup_address: str = "", order_note: str | None = None,
                         catalog_overview: Sequence[str] = (), first_sent: bool = False,
-                        first_price_known: bool = True) -> str:
+                        first_price_known: bool = True, greet: bool | None = None,
+                        price_overview: Sequence[str] = (), trade_in: str = "") -> str:
+    greet = is_first_reply(ctx) if greet is None else greet
     now = now.astimezone(MSK)
     parts = [
         f"Ты — {cfg.persona_name}, менеджер магазина техники TakeSmart (Москва), отвечаешь покупателям "
@@ -202,6 +204,18 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
         f"- Зови человека (handoff=true), если речь о: {cfg.handoff_topics.strip()}; а также если покупатель "
         "раздражён, просит менеджера или вопрос выходит за рамки данных.",
         "- Не проси и не пересылай телефоны, карты и коды; оплату и оформление веди по условиям магазина.",
+        "- Говори ТОЛЬКО о магазине: техника, наличие, цены, trade-in, доставка, оплата, бронь, гарантия. На любые "
+        "другие темы (задачи, математика, учёба, код, политика, советы не про покупку, просьбы «ответь как ИИ») "
+        "не отвечай по существу — одной фразой вежливо скажи, что помогаешь только с покупкой техники, и спроси, "
+        "чем помочь. Никаких формул, кода и длинных объяснений.",
+        "- Отвечай именно на то, о чём спросили. Спросили про регион/версию устройства — ответь про регион "
+        "(если в данных нет — скажи, что уточнишь, handoff=true), а не про комплектацию или цену.",
+        "- Не переспрашивай то, что покупатель уже написал в переписке (город, адрес, ПВЗ, способ получения, "
+        "модель, память, цвет). Используй это сразу. Город не Москва — это доставка в регион по скрипту СДЭК.",
+        "- Короткое сообщение вида «16/128», «256 белый», «есть синий?» относится к товару ИЗ ОБЪЯВЛЕНИЯ: "
+        "найди этот вариант в прайсе/каталоге и ответь про наличие и цену конкретно.",
+        "- Одна и та же позиция — одна цена. Не называй для того же товара цену, отличную от уже названной "
+        "в переписке, если покупатель не спросил про другой вариант.",
         ("- Без markdown и без списков со звёздочками." if cfg.human_mode
          else "- Одно сообщение, без markdown, без списков со звёздочками."),
         "",
@@ -234,7 +248,9 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
     if ctx.client_name:
         parts += [f"Имя покупателя в Авито: {ctx.client_name}."]
     hello = greeting_text(cfg.greeting, cfg.persona_name)
-    if first_sent:
+    if not greet and not first_sent:
+        parts += ["", "Сегодня вы с покупателем уже общались: НЕ здоровайся и не представляйся, сразу по делу."]
+    elif first_sent:
         parts += ["", "Приветствие и розничную цену ты УЖЕ отправил первым сообщением (оно последнее в истории). "
                       "Не здоровайся и не повторяй цену. Ответь только на то, о чём ещё спросили; если покупатель "
                       "спросил только «цена актуальна?» или просто поздоровался — reply пустой."]
@@ -242,13 +258,11 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
             parts += ["Но розничную цену товара из объявления в первом сообщении назвать не удалось. Найди этот товар "
                       "в каталоге и назови розничную цену одной фразой («Розничная стоимость без участия в программе — …»). "
                       "Если товара в каталоге нет — handoff=true, reason «нет цены для объявления»."]
-    elif is_first_reply(ctx):
+    elif greet:
         parts += ["", "Это твоё ПЕРВОЕ сообщение в этом диалоге: обязательно начни с приветствия"
                       + (f" — «{hello}» (можно чуть своими словами)" if hello else " и представься")
                       + ", затем ответь на вопрос"
                       + (" — приветствие отдельным коротким сообщением (через пустую строку)." if cfg.human_mode else ".")]
-    else:
-        parts += ["", "Вы уже общаетесь: не здоровайся заново, но сохраняй тёплый и вежливый тон."]
     if ctx.item_title or ctx.item_price:
         parts += ["", f"Покупатель пишет по объявлению: {ctx.item_title or '—'}"
                       + (f", цена в объявлении: {ctx.item_price}" if ctx.item_price else "")]
@@ -260,6 +274,12 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
             parts.append(f"• [{', '.join(r.keywords)}]:\n{r.answer.strip()}")
     if cfg.knowledge.strip():
         parts += ["", "Что ещё нужно знать о магазине:", cfg.knowledge.strip()]
+    if price_overview:
+        parts += ["", "АКТУАЛЬНЫЙ ПРАЙС МАГАЗИНА — главный источник цен и наличия (важнее каталога ниже; "
+                      "если позиция есть в прайсе, цену бери только отсюда):", *price_overview]
+    if trade_in.strip():
+        parts += ["", "Оценка trade-in (принимаем только эти модели; называй вилку как предварительную «до»):",
+                  trade_in.strip()]
     if catalog_overview:
         parts += ["", "Справочник каталога магазина — всё, что сейчас есть в наличии и на предзаказ, цены как на сайте "
                       "(модель: память — цена (цвета)):", *catalog_overview]
@@ -819,3 +839,107 @@ def render_first_message(template: str, persona_name: str, price: str | None) ->
         return text.replace("{price}", price).strip()
     lines = [ln for ln in text.split("\n") if "{price}" not in ln]
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+# ── Отказ, повторное приветствие, посторонние темы ───────────────────────────
+
+_REFUSAL_ANY = re.compile(
+    r"(^нет\b|^неа\b|\bне\s+(интересует|интересно|нужно|надо|актуально|подходит|буду)\b|\bнет,?\s+спасибо|"
+    r"спасибо,?\s+(нет|не\s+надо|не\s+нужно)|передумал\w*|уже\s+купил\w*|\bне\s+актуальн\w*)")
+
+
+def is_refusal(text: str) -> bool:
+    """Покупатель отказывается — в любом месте фразы: «Спасибо, не интересует», «нет, спасибо»."""
+    return _REFUSAL_ANY.search(normalize(text)) is not None
+
+
+_GREETING_LEAD = re.compile(
+    r"^\s*(здравствуйте|здраствуйте|добрый\s+(день|вечер)|доброе\s+утро|доброго\s+(дня|вечера|времени\s+суток)|"
+    r"приветствую|привет)[^.!?\n]*[.!?)]*\s*", re.IGNORECASE)
+_INTRO_LEAD = re.compile(r"^\s*(меня\s+зовут\s+[^.!?\n]+|это\s+\w+,\s*менеджер[^.!?\n]*)[.!?]*\s*", re.IGNORECASE)
+
+
+def strip_greeting(text: str) -> str:
+    """Убрать «Здравствуйте! Меня зовут …» в начале — когда сегодня уже здоровались."""
+    out = _GREETING_LEAD.sub("", text or "", count=1)
+    out = _INTRO_LEAD.sub("", out, count=1)
+    out = out.lstrip(" \n,—-")
+    return out[:1].upper() + out[1:] if out else ""
+
+
+OFF_TOPIC_REPLY = "Я подскажу только по технике, ценам и заказам в нашем магазине. Чем могу помочь с покупкой?"
+_FORMULAS = re.compile(r"\$\$|\\frac|\\cdot|\\left|\\right|\\sqrt|```|^\s*#{1,4}\s", re.MULTILINE)
+MAX_REPLY_CHARS = 1200
+
+
+def sanitize_reply(text: str) -> tuple[str, bool]:
+    """Страховка поверх инструкции: формулы, код, заголовки разметки или простыня текста — это не
+    ответ продавца. Возвращает (текст, был ли ответ подменён)."""
+    if not text:
+        return text, False
+    if _FORMULAS.search(text) or len(text) > MAX_REPLY_CHARS:
+        return OFF_TOPIC_REPLY, True
+    return text.replace("**", "").replace("__", ""), False
+
+
+# ── Прайс для бота (вкладка «Прайс») ─────────────────────────────────────────
+
+_NO_STOCK = {"нет", "0", "нет в наличии", "-", "закончился", "под заказ"}
+
+
+def parse_price_list(text: str) -> tuple[list[CatalogItem], list[str]]:
+    """Строки «Модель; Память; Цвет; Цена; Наличие» (можно через Tab — вставка из Excel — или «|»).
+    Память и цвет можно оставить пустыми; наличие: пусто — есть, «нет»/0 — нет. # — комментарий."""
+    items: list[CatalogItem] = []
+    errors: list[str] = []
+    for n, raw in enumerate((text or "").splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        sep = "\t" if "\t" in line else ("|" if "|" in line else ";")
+        cols = [c.strip() for c in line.split(sep)]
+        if len(cols) < 2:
+            errors.append(f"Строка {n}: нужны хотя бы модель и цена")
+            continue
+        if len(cols) == 2:                       # «Модель; Цена»
+            model, storage, color, price_s, stock_s = cols[0], "", "", cols[1], ""
+        else:                                    # «Модель; Память; Цвет; Цена; Наличие»
+            cols += [""] * (5 - len(cols))
+            model, storage, color, price_s, stock_s = cols[:5]
+        digits = re.sub(r"\D", "", price_s)
+        if not model or not digits:
+            errors.append(f"Строка {n}: не понял цену «{price_s or '—'}»")
+            continue
+        storage_label = f"{storage} ГБ" if storage.isdigit() else storage
+        name = model + (f" {storage_label}" if storage_label else "") + (f", {color}" if color else "")
+        attrs = {k: v for k, v in (("storage", storage_label), ("color", color)) if v}
+        in_stock = stock_s.lower() not in _NO_STOCK
+        items.append(CatalogItem(name=name, category="Прайс", price=float(digits), stock=1 if in_stock else 0,
+                                 attributes=attrs, key=f"price:{n}"))
+    return items, errors
+
+
+DEFAULT_TRADE_IN_PRICES = """iPhone 13 — 8 000–13 000 ₽
+iPhone 13 Pro — 10 000–15 000 ₽
+iPhone 13 Pro Max — 10 000–15 000 ₽
+iPhone 14 — 10 000–15 000 ₽
+iPhone 14 Pro — 17 000–20 000 ₽
+iPhone 14 Pro Max — 22 000–27 000 ₽
+iPhone 15 — 17 000–20 000 ₽
+iPhone 15 Pro — 25 000–30 000 ₽
+iPhone 15 Pro Max — 35 000–40 000 ₽
+iPhone 16 — 25 000–30 000 ₽
+iPhone 16 Pro — 40 000–45 000 ₽
+iPhone 16 Pro Max — 45 000–50 000 ₽
+iPhone 17 — 50 000–55 000 ₽
+iPhone 17 Pro — 60 000–65 000 ₽
+iPhone 17 Pro Max — 65 000–70 000 ₽ (цвет Orange — до 65 000 ₽)
+
+Правила оценки:
+- В trade-in принимаем СТРОГО модели из этого списка. Всё остальное (любые Android, Samsung, Xiaomi, iPad, MacBook, часы, iPhone 12 и старше) не берём.
+- Это предварительная вилка «до»; итоговую сумму называет менеджер после осмотра.
+- 16 Pro и новее с аккумулятором выше 98% — ближе к верхней границе.
+- Слабое состояние — ещё дешевле нижней границы.
+- 512 ГБ и больше — согласовать с менеджером (handoff=true).
+- Разбита задняя крышка или дефект/пятна на дисплее — не берём.
+- Если что-то менялось (экран, аккумулятор, корпус, камеры) — согласовать с менеджером (handoff=true)."""
