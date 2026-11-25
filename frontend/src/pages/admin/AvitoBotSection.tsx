@@ -7,6 +7,7 @@ import { AdminIcon } from './AdminIcons'
 import { BTN_PRIMARY, BTN_SECONDARY, SegmentedTabs } from './AdminShell'
 import { call, copyText, type Api, type AuthFetch } from './installsApi'
 import { BTN_ROW, CARD, INPUT, LABEL, Modal, Toggle } from './installsUi'
+import { PriceListTab } from './AvitoPriceTab'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // «Авито-бот». Вкладки: «Диалоги» (живые переписки, черновики, «нужен человек»),
@@ -91,6 +92,8 @@ interface Config {
   greeting: string
   first_message: string
   price_list: string
+  price_list_can_undo?: boolean
+  price_list_updated_at?: string | null
   trade_in_prices: string
   staff_takes_over: boolean
   human_mode: boolean
@@ -832,73 +835,6 @@ function BroadcastComposer({ api, config, onClose, onCreated }: { api: Api; conf
       <div className="flex flex-wrap justify-end gap-2">
         <button type="button" onClick={() => create(false)} disabled={busy} className={BTN_SECONDARY}>Сохранить черновик</button>
         <button type="button" onClick={() => create(true)} disabled={busy} className={BTN_PRIMARY}>Отправить {selected.size || ''}</button>
-      </div>
-    </div>
-  )
-}
-
-// ── Прайс ────────────────────────────────────────────────────────────────────
-
-const PRICE_EXAMPLE = `ПРАЙС iPhone 17 TakeSmart, [24 ноя. 2026 в 11:02]
-16 128 Teal 🇮🇳 - 59.700
-17Pro 256 Orange -     94000🇰🇷1SIM.
-17Pro 256 Orange -     91500🇯🇵eSIM.
-17 Pro Max 2TB Orange 1Sim 🇭🇰 - 156.000
-
-# можно и таблицей: Модель; Память; Цвет; Цена; Наличие
-Galaxy Z Fold8; 12/256; Серый; 118990`
-
-function PriceListTab({ api, config, setConfig }: { api: Api; config: Config; setConfig: (c: Config) => void }) {
-  const [text, setText] = useState(config.price_list)
-  const [check, setCheck] = useState<{ items: { name: string; price: number; in_stock: boolean; country: string | null; sim: string | null; color_ru: string | null; few?: boolean }[]; count: number; errors: string[] } | null>(null)
-  const [busy, setBusy] = useState(false)
-  useEffect(() => {
-    const t = window.setTimeout(async () => {
-      setCheck(await call(api, '/price-list/check', { method: 'POST', body: { text } }))
-    }, 400)
-    return () => window.clearTimeout(t)
-  }, [api, text])
-  const save = async () => {
-    setBusy(true)
-    const c = await call<Config>(api, '/settings', { method: 'PUT', body: { price_list: text } })
-    setBusy(false)
-    if (c) { setConfig(c); toast('Прайс сохранён — бот уже отвечает по нему', 'success') }
-  }
-  const dirty = text !== config.price_list
-  return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-      <div className={CARD}>
-        <h3 className="mb-1 font-semibold text-white">Актуальные цены для бота</h3>
-        <p className="mb-3 text-sm text-slate-400">
-          Главный источник цен и наличия: бот берёт цену отсюда — и в первом сообщении, и в ответах. Чего нет в прайсе, бот ищет в каталоге сайта.
-          Вставляйте прайс как есть, как присылаете в Telegram: «17Pro 256 Orange - 94000🇰🇷1SIM.», «16 128 Teal 🇮🇳 - 59.700».
-          Бот поймёт модель (17Pro, 17Air, 17e — это iPhone), объём, цвет (и с опечатками), страну по флажку и SIM (1SIM — SIM + eSIM, eSIM — только eSIM). 🏎️ — осталось мало: бот предложит забронировать заранее.
-          Заголовки «ПРАЙС…» и разделители пропускаются. Одна и та же позиция несколько раз — действует последняя по тексту.
-          Можно и таблицей: <code className="text-slate-200">Модель; Память; Цвет; Цена; Наличие</code>. Строка с # — комментарий.
-        </p>
-        <textarea className={`${INPUT} h-[55vh] font-mono text-[13px]`} value={text} onChange={e => setText(e.target.value)} placeholder={PRICE_EXAMPLE} />
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <span className="text-xs text-slate-500">{check ? `Позиций: ${check.count}${check.errors.length ? ` · ошибок: ${check.errors.length}` : ''}` : ''}</span>
-          <button type="button" onClick={save} disabled={!dirty || busy} className={BTN_PRIMARY}>{busy ? 'Сохраняем…' : 'Сохранить прайс'}</button>
-        </div>
-      </div>
-      <div className={`${CARD} self-start`}>
-        <h3 className="mb-3 text-sm font-semibold text-white">Как бот это прочитает{check && check.count > 0 ? <span className="ml-2 font-normal text-slate-400">· позиций: {check.count}</span> : null}</h3>
-        {check?.errors.length ? <div className="mb-3 space-y-1 text-xs text-rose-300">{check.errors.map(e => <div key={e}>{e}</div>)}</div> : null}
-        {!check || check.count === 0 ? <div className="text-sm text-slate-500">Прайс пуст — бот берёт цены из каталога сайта.</div> : (
-          <div className="divide-y divide-white/[0.05] text-sm">
-            {check.items.map((it, i) => (
-              <div key={i} className="flex justify-between gap-3 py-1.5">
-                <span className={it.in_stock ? 'text-slate-200' : 'text-slate-500 line-through'}>
-                  {it.name}
-                  {(it.country || it.sim) && <span className="ml-1.5 text-xs text-slate-500">{[it.country, it.sim].filter(Boolean).join(' · ')}</span>}
-                  {it.few && <span className="ml-1.5 text-xs text-amber-400">осталось мало</span>}
-                </span>
-                <span className="shrink-0 tabular-nums text-white">{Math.round(it.price).toLocaleString('ru-RU')} ₽</span>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   )
