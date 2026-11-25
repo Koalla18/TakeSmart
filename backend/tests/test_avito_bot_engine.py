@@ -498,6 +498,82 @@ def test_title_match_foreign_words_do_not_match():
     assert title_match(items, "iPhone 17 Pro 256GB", v).price == 91500
 
 
+def test_price_list_headers_and_supplier_formats():
+    from src.app.core.avito_bot_engine import parse_price_list
+    text = """18 Pro 256GB Black eSim - 114 990
+18 Max 256GB Black 1Sim+eSim - 127 990
+17Pro 256 Orange -     97 990 сим+есим
+17Pro 256 Orange -     94 990 есим
+A57 5G 12/256GB A.Navy — 42 990₽
+❤️ iPHONE DUO ❤️
+E-SIM НЕ АКТИВ
+━━━━━
+1TB:
+White - 264 990🇯🇵
+Прайс Samsung Z Fold8
+Z Fold8 12/256GB
+Cream — 109 990₽ •
+💻 MACBOOK AIR
+13» M5 • 16GB / 512GB
+• Silver (MDH74) - 104 990🇮🇳
+MacBook Air 15 M4
+MW1K3 Air 15 Starlight (16GB, 512GB) — 140 990
+SE 3
+SE 44 Starlight M/L MEHJ4 — 25 990
+Magic Keyboard 2024–2026
+AirPods Pro 3 — 17 990
+iPro 11 M5 256 Black Wi-Fi — 110 990\tiPro 11 M5 256 Silver LTE — 125 990
+📱5 Portal White - 24 990
+GO Pro Mission 1 PRO- 52.000
+Надорвана коробка или помятая - 54 990
+iPad Air 13 M4 128 Wi-Fi Starlight — 🚗
+"""
+    items, errors = parse_price_list(text)
+    by = {(it.name, it.attributes.get("sim")): it.price for it in items}
+    assert errors == ["Строка 27: не нашёл цену"]
+    assert by == {
+        ("iPhone 18 Pro 256 ГБ, Black", "только eSIM"): 114990,
+        ("iPhone 18 Pro Max 256 ГБ, Black", "SIM + eSIM"): 127990,
+        ("iPhone 17 Pro 256 ГБ, Orange", "SIM + eSIM"): 97990,
+        ("iPhone 17 Pro 256 ГБ, Orange", "только eSIM"): 94990,
+        ("Samsung Galaxy A57 5G 12/256 ГБ, Navy", None): 42990,
+        ("iPhone Duo 1 ТБ, White", "только eSIM"): 264990,
+        ("Samsung Galaxy Z Fold8 12/256 ГБ, Cream", None): 109990,
+        ("MacBook Air 13 M5 16/512 ГБ, Silver", None): 104990,
+        ("MacBook Air 15 M4 16/512 ГБ, Starlight", None): 140990,
+        ("Apple Watch SE 3 44 M/L, Starlight", None): 25990,
+        ("AirPods Pro 3", None): 17990,
+        ("iPad Pro 11 M5 Wi-Fi 256 ГБ, Black", None): 110990,
+        ("iPad Pro 11 M5 LTE 256 ГБ, Silver", None): 125990,
+        ("PlayStation 5 Portal, White", None): 24990,
+        ("GO Pro Mission 1 Pro", None): 52000,
+        ("GO Pro Mission 1 Pro (надорвана коробка или помятая)", None): 54990,
+    }
+    _, lost = parse_price_list("Cream — 109 990")
+    assert len(lost) == 1                                   # без заголовка модель не выдумываем
+
+
+def test_title_match_never_quotes_another_model():
+    from src.app.core.avito_bot_engine import catalog_vocab, parse_price_list, title_match
+    items, _ = parse_price_list(
+        "18 Pro 256GB Black eSim - 114 990\n18 Max 256GB Black eSim - 117 990\n"
+        "Magic Keyboard Black iPad Pro 11 — 30 990\niPad Pro 11 M5 256 Black Wi-Fi — 110 990\n"
+        "[MDE34] Pro 14 (M5 24/1TB) Black — 194 990\n[MGDR4] Pro 14 (M5 Pro 24/1TB) Black — 225 990\n"
+        "S26 12/256Gb Black - 64 990₽\nS26+ 12/256Gb White - 72 990₽\n📱5 💿 Дисковод - 10 990")
+    v = catalog_vocab(items)
+
+    def price(title):
+        hit = title_match(items, title, v)
+        return hit.price if hit else None
+
+    assert price("iPhone 18 Pro Max 256 ГБ") == 117990 and price("iPhone 18 Max 256") == 117990
+    assert price("iPhone 18 Pro 256GB") == 114990 and price("iPhone 18 256") is None
+    assert price("iPad Pro 11") == 110990 and price("Magic Keyboard iPad Pro 11") == 30990
+    assert price("MacBook Pro 14 M5 24/1TB") == 194990 and price("MacBook Pro 14 M5 Pro 24/1TB") == 225990
+    assert price("Samsung Galaxy S26 256") == 64990 and price("Samsung Galaxy S26+ 256") == 72990
+    assert price("PlayStation 5") is None and price("Чехол iPhone 18 Pro") is None
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

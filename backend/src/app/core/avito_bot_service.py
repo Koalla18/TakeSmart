@@ -321,7 +321,7 @@ def price_snapshot(cfg: AvitoBotConfig) -> dict[str, Any]:
     if _PRICE_LIST["text"] != cfg.price_list:
         items, errors = parse_price_list(cfg.price_list)
         _PRICE_LIST.update(text=cfg.price_list, items=items, errors=errors, vocab=catalog_vocab(items), index=SearchIndex(items),
-                           overview=price_lines(items)[:600])
+                           overview=price_lines(items)[:900])
     return _PRICE_LIST
 
 
