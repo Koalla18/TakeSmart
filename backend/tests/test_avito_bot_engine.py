@@ -458,6 +458,18 @@ def test_search_specificity_and_index():
     assert title_match(items, "iPhone 15 256GB", v, idx) is None                  # чужой модели нет
 
 
+def test_off_topic_silent_prompt_and_verdict():
+    ctx = ChatContext("iPhone 16 128", None, None, [("client", "реши уравнение 2x+3=11")])
+    on = build_system_prompt(PromptConfig("Илья", "", "", "", off_topic_silent=True), [], ctx, [], NOW, greet=False)
+    off = build_system_prompt(PromptConfig("Илья", "", "", "", off_topic_silent=False), [], ctx, [], NOW, greet=False)
+    assert '"off_topic": true' in on and "ЦЕЛИКОМ не про магазин" in on and "«спасибо», «ок»" in on
+    assert "ЦЕЛИКОМ не про магазин" not in off and "одной фразой вежливо скажи" in off
+    v = parse_llm_answer('{"reply": "", "handoff": false, "reason": "", "off_topic": true}')
+    assert v.off_topic and not v.reply
+    assert not parse_llm_answer('{"reply": "Да, есть", "handoff": false}').off_topic
+    assert not parse_llm_answer("просто текст").off_topic
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

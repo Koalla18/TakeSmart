@@ -47,6 +47,7 @@ class AvitoBotConfig(BaseModel):
     staff_takes_over: bool = Field(True, description="Ответ с нашего аккаунта из приложения Авито забирает диалог у бота")
     human_mode: bool = Field(True, description="Как человек: короткими сообщениями, пауза по длине текста, «прочитано» перед ответом")
     allow_emoji: bool = False
+    off_topic_silent: bool = Field(True, description="На вопросы не по теме магазина (математика, код и т.п.) не отвечать — прочитал и молчит")
     style: str = Field(DEFAULT_STYLE, max_length=3000)
     knowledge: str = Field("", max_length=20000, description="Свободный текст: всё, что бот должен знать о магазине")
     handoff_topics: str = Field(DEFAULT_HANDOFF, max_length=1000)
@@ -101,6 +102,7 @@ class AvitoBotConfigOut(BaseModel):
     staff_takes_over: bool
     human_mode: bool
     allow_emoji: bool
+    off_topic_silent: bool
     style: str
     knowledge: str
     handoff_topics: str
@@ -146,6 +148,7 @@ class AvitoBotConfigIn(BaseModel):
     staff_takes_over: bool | None = None
     human_mode: bool | None = None
     allow_emoji: bool | None = None
+    off_topic_silent: bool | None = None
     style: str | None = Field(None, max_length=3000)
     knowledge: str | None = Field(None, max_length=20000)
     handoff_topics: str | None = Field(None, max_length=1000)

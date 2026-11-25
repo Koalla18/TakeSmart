@@ -469,7 +469,7 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     masked_ctx = ChatContext(ctx.item_title, ctx.item_price, ctx.client_name, [(a, masker.mask(t)) for a, t in ctx.history])
     system = build_system_prompt(
         PromptConfig(cfg.persona_name, cfg.style, cfg.knowledge, cfg.handoff_topics, cfg.greeting,
-                     cfg.human_mode, cfg.allow_emoji),
+                     cfg.human_mode, cfg.allow_emoji, cfg.off_topic_silent),
         rules, masked_ctx, lines, now, hint=match.rule.answer if match else None,
         examples=[(masker.mask(q), a) for q, a in examples],
         orders_enabled=cfg.orders_enabled, pickup_address=cfg.pickup_address,
@@ -488,10 +488,16 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     reply = masker.unmask(verdict.reply)
     if reply and (not greet or first_sent):
         reply = strip_greeting(reply)   # сегодня уже здоровались — второй раз не надо
+    if cfg.off_topic_silent and verdict.off_topic and not verdict.order:
+        # Сообщение целиком не по теме: как живой менеджер — прочитал и промолчал
+        return Decision("silent", reason="Не по теме магазина — бот не отвечает", catalog=lines, examples_used=len(examples))
     reply, replaced = sanitize_reply(reply)
     if replaced:
         logger.warning("avito_bot_reply_replaced", reason="off_topic_or_too_long")
         verdict.order = None
+        if cfg.off_topic_silent:
+            return Decision("silent", reason="Ответ модели ушёл в сторону от магазина — бот промолчал",
+                            catalog=lines, examples_used=len(examples))
     first_part = (split_reply(reply) or [reply])[0] if cfg.human_mode else reply
     delay = (typing_delay(first_part, cfg.reply_delay_min, cfg.reply_delay_max) if cfg.human_mode
              else human_delay(cfg.reply_delay_min, cfg.reply_delay_max))
