@@ -90,6 +90,8 @@ interface Config {
   persona_name: string
   greeting: string
   first_message: string
+  price_list: string
+  trade_in_prices: string
   staff_takes_over: boolean
   human_mode: boolean
   allow_emoji: boolean
@@ -138,8 +140,8 @@ interface Decision {
   first_message: string | null
 }
 
-type View = 'dialogs' | 'broadcasts' | 'analytics' | 'rules' | 'learning' | 'test' | 'settings'
-const VIEWS: readonly View[] = ['dialogs', 'broadcasts', 'analytics', 'rules', 'learning', 'test', 'settings']
+type View = 'dialogs' | 'broadcasts' | 'analytics' | 'prices' | 'rules' | 'learning' | 'test' | 'settings'
+const VIEWS: readonly View[] = ['dialogs', 'broadcasts', 'analytics', 'prices', 'rules', 'learning', 'test', 'settings']
 type ChatFilter = 'all' | 'human' | 'draft' | 'test'
 const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
@@ -219,6 +221,7 @@ export function AvitoBotSection({ authFetch }: { authFetch: AuthFetch }) {
             { id: 'dialogs', label: 'Диалоги', count: attention || undefined },
             { id: 'broadcasts', label: 'Рассылки' },
             { id: 'analytics', label: 'Аналитика' },
+            { id: 'prices', label: 'Прайс' },
             { id: 'rules', label: 'Автоответы', count: rules?.length || undefined },
             { id: 'learning', label: 'Обучение' },
             { id: 'test', label: 'Тест' },
@@ -234,6 +237,7 @@ export function AvitoBotSection({ authFetch }: { authFetch: AuthFetch }) {
       {view === 'rules' && <RulesTab api={api} rules={rules} reload={loadRules} />}
       {view === 'broadcasts' && <BroadcastsTab api={api} config={config} onOpenChat={id => patchParams({ view: 'dialogs', chat: id })} />}
       {view === 'analytics' && <BotAnalyticsTab api={api} />}
+      {view === 'prices' && (config ? <PriceListTab api={api} config={config} setConfig={setConfig} /> : <Loading />)}
       {view === 'learning' && <LearningTab api={api} reloadRules={loadRules} onOpenChat={id => patchParams({ view: 'dialogs', chat: id })} />}
       {view === 'test' && <TestTab api={api} rules={rules} />}
       {view === 'settings' && (config ? <SettingsTab api={api} config={config} setConfig={setConfig} /> : <Loading />)}
@@ -832,6 +836,64 @@ function BroadcastComposer({ api, config, onClose, onCreated }: { api: Api; conf
   )
 }
 
+// ── Прайс ────────────────────────────────────────────────────────────────────
+
+const PRICE_EXAMPLE = `iPhone 16; 128; Белый; 62990
+iPhone 16; 128; Чёрный; 62990
+iPhone 16; 256; Ультрамарин; 72990; нет
+Galaxy Z Fold8; 12/256; Серый; 118990
+AirPods Pro 3; 24990`
+
+function PriceListTab({ api, config, setConfig }: { api: Api; config: Config; setConfig: (c: Config) => void }) {
+  const [text, setText] = useState(config.price_list)
+  const [check, setCheck] = useState<{ items: { name: string; price: number; in_stock: boolean }[]; count: number; errors: string[] } | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    const t = window.setTimeout(async () => {
+      setCheck(await call(api, '/price-list/check', { method: 'POST', body: { text } }))
+    }, 400)
+    return () => window.clearTimeout(t)
+  }, [api, text])
+  const save = async () => {
+    setBusy(true)
+    const c = await call<Config>(api, '/settings', { method: 'PUT', body: { price_list: text } })
+    setBusy(false)
+    if (c) { setConfig(c); toast('Прайс сохранён — бот уже отвечает по нему', 'success') }
+  }
+  const dirty = text !== config.price_list
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className={CARD}>
+        <h3 className="mb-1 font-semibold text-white">Актуальные цены для бота</h3>
+        <p className="mb-3 text-sm text-slate-400">
+          Главный источник цен и наличия: бот берёт цену отсюда — и в первом сообщении, и в ответах. Чего нет в прайсе, бот ищет в каталоге сайта.
+          По строке на вариант: <code className="text-slate-200">Модель; Память; Цвет; Цена; Наличие</code>. Можно вставить прямо из Excel или Google Таблиц.
+          Наличие: пусто — есть, «нет» — нет. Без памяти и цвета: <code className="text-slate-200">Модель; Цена</code>. Строка с # — комментарий.
+        </p>
+        <textarea className={`${INPUT} h-[55vh] font-mono text-[13px]`} value={text} onChange={e => setText(e.target.value)} placeholder={PRICE_EXAMPLE} />
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <span className="text-xs text-slate-500">{check ? `Позиций: ${check.count}${check.errors.length ? ` · ошибок: ${check.errors.length}` : ''}` : ''}</span>
+          <button type="button" onClick={save} disabled={!dirty || busy} className={BTN_PRIMARY}>{busy ? 'Сохраняем…' : 'Сохранить прайс'}</button>
+        </div>
+      </div>
+      <div className={`${CARD} self-start`}>
+        <h3 className="mb-3 text-sm font-semibold text-white">Как бот это прочитает</h3>
+        {check?.errors.length ? <div className="mb-3 space-y-1 text-xs text-rose-300">{check.errors.map(e => <div key={e}>{e}</div>)}</div> : null}
+        {!check || check.count === 0 ? <div className="text-sm text-slate-500">Прайс пуст — бот берёт цены из каталога сайта.</div> : (
+          <div className="max-h-[60vh] divide-y divide-white/[0.05] overflow-y-auto text-sm">
+            {check.items.map((it, i) => (
+              <div key={i} className="flex justify-between gap-3 py-1.5">
+                <span className={it.in_stock ? 'text-slate-200' : 'text-slate-500 line-through'}>{it.name}</span>
+                <span className="shrink-0 tabular-nums text-white">{Math.round(it.price).toLocaleString('ru-RU')} ₽</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Аналитика ────────────────────────────────────────────────────────────────
 
 const PERIODS = [7, 30, 90] as const
@@ -1304,7 +1366,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
 
   const save = async (patch?: Partial<Config>, quiet?: boolean): Promise<Config | null> => {
     const body: Record<string, unknown> = patch ?? {
-      enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, first_message: form.first_message, staff_takes_over: form.staff_takes_over, human_mode: form.human_mode, allow_emoji: form.allow_emoji, style: form.style, knowledge: form.knowledge,
+      enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, first_message: form.first_message, trade_in_prices: form.trade_in_prices, staff_takes_over: form.staff_takes_over, human_mode: form.human_mode, allow_emoji: form.allow_emoji, style: form.style, knowledge: form.knowledge,
       handoff_topics: form.handoff_topics, handoff_message: form.handoff_message, reply_delay_min: form.reply_delay_min,
       reply_delay_max: form.reply_delay_max, use_catalog: form.use_catalog, llm_provider: form.llm_provider,
       orders_enabled: form.orders_enabled, pickup_address: form.pickup_address, system_patterns: form.system_patterns,
@@ -1440,6 +1502,9 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
           <label className="mt-3 block"><span className={LABEL}>Когда звать человека</span><input className={`${INPUT} mt-1.5`} value={form.handoff_topics} onChange={e => set('handoff_topics', e.target.value)} /></label>
           <label className="mt-3 block"><span className={LABEL}>Что написать, пока зовём человека</span>
             <input className={`${INPUT} mt-1.5`} value={form.handoff_message} onChange={e => set('handoff_message', e.target.value)} placeholder="Сейчас уточню у коллеги и вернусь к вам. Пусто — бот молчит" /></label>
+          <label className="mt-3 block"><span className={LABEL}>Оценка trade-in</span>
+            <textarea className={`${INPUT} mt-1.5 h-72 font-mono text-[13px]`} value={form.trade_in_prices} onChange={e => set('trade_in_prices', e.target.value)} /></label>
+          <div className="mt-1 text-xs text-slate-500">Какие модели принимаем в trade-in, вилки оценки и правила. Бот называет только предварительную вилку «до …» и не берёт ничего, чего нет в списке.</div>
           <label className="mt-3 block"><span className={LABEL}>Системные сообщения Авито</span>
             <textarea className={`${INPUT} mt-1.5 h-28 font-mono text-[13px]`} value={form.system_patterns} onChange={e => set('system_patterns', e.target.value)} /></label>
           <div className="mt-1 text-xs text-slate-500">По одной фразе в строке. Сообщение, в котором есть такая фраза, бот считает служебным сообщением Авито: не отвечает на него и не учитывает в разговоре, в диалоге оно показывается серой плашкой. Служебные типы сообщений Авито бот пропускает и без этого списка. Если бот ответил на системное сообщение — скопируйте сюда его кусок.</div>
