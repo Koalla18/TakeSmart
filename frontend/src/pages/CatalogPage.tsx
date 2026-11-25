@@ -18,7 +18,9 @@ import {
 } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
 import { usePreorderState } from '../lib/preorder'
-import { rankSearch, normalizeSearchText } from '../lib/searchRank'
+import { makePopularComparator, availabilityRank, modelGeneration } from '../lib/productRank'
+import { rankSearch } from '../lib/searchRank'
+import { selectQuickFilter, matchesBrand } from '../lib/quickFilter'
 import { 
   ChevronDownIcon, 
   FilterIcon, 
@@ -460,25 +462,21 @@ export function CatalogPage() {
   const filteredProducts = useMemo(() => {
     let result = [...displayProducts]
     const hasSearch = searchQuery.trim().length > 0
-    
-    // While searching, ignore category/brand filters and search globally.
+    // Быстрый фильтр — это подбор ВНУТРИ выбранной категории и бренда, а не глобальный поиск
+    const isQuickFilter = hasSearch && !!currentCategory?.quickFilters.some(qf => qf.query === searchQuery)
+
+    // Категория и бренд для обычного списка. Ручной поиск из строки — глобальный,
+    // а быстрый фильтр сам подбирает внутри категории и бренда (lib/quickFilter)
     if (!hasSearch) {
-      // Category filter
       if (selectedCategory !== 'all') {
         result = result.filter(p => p.categorySlug === selectedCategory)
       }
-
-      // Brand filter
-      if (selectedBrand === 'android') {
-        result = result.filter(p => !['apple'].includes(p.brand.toLowerCase()))
-      } else if (selectedBrand !== 'all') {
-        result = result.filter(p => p.brand.toLowerCase() === selectedBrand)
-      }
+      result = result.filter(p => matchesBrand(p, selectedBrand))
     }
-    
+
     // Price filter
     result = result.filter(p => p.price >= priceRange[0] && p.price <= priceRange[1])
-    
+
     // Stock filter — предзаказ наличием не считается
     if (inStockOnly) {
       result = result.filter(p => p.inStock && !p.preorder)
@@ -487,57 +485,51 @@ export function CatalogPage() {
       result = result.filter(p => p.preorder)
     } else if (!preorderInCatalog && !hasSearch) {
       // Предзаказ — отдельный раздел: в списках категорий его нет, пока не включили
-      // в админке. Поиск по названию находит новинки всегда — иначе «iPhone 18» в
-      // строке поиска давал бы пустой результат при живом предзаказе
+      // в админке. Поиск по названию находит новинки всегда
       result = result.filter(p => !p.preorder)
     }
-    
-    // Smart search
+
+    // Подбор / поиск. Матч по СЛОВАМ названия и бренда, а не подстрокой
+    const popular = makePopularComparator(displayProducts)
     let searchRanked = false
-    if (searchQuery) {
-      const q = normalizeSearchText(searchQuery)
-      // If query matches a quick filter tag — use exact substring match
-      // and exclude products that match MORE specific sibling filters
-      const isQuickFilter = currentCategory?.quickFilters.some(qf => qf.query === searchQuery)
+    if (hasSearch) {
       if (isQuickFilter) {
-        // Find sibling filters that are more specific (contain this query as prefix)
-        const moreSpecific = (currentCategory?.quickFilters ?? [])
-          .filter(qf => qf.query !== searchQuery && qf.query.toLowerCase().startsWith(q))
-          .map(qf => qf.query.toLowerCase())
-        result = result.filter(p => {
-          const hay = normalizeSearchText(`${p.name} ${p.brand} ${p.description} ${p.slug}`)
-          if (!hay.includes(q)) return false
-          // Exclude if it matches a more specific sibling tag
-          if (moreSpecific.some(s => hay.includes(s))) return false
-          return true
-        })
+        result = selectQuickFilter(result, {
+          category: selectedCategory,
+          brand: selectedBrand,
+          query: searchQuery,
+          siblings: currentCategory?.quickFilters.map(qf => qf.query) ?? [],
+        }, popular)
       } else {
-        // Ручной поиск: слова запроса матчатся по началу слов названия, результаты
-        // ранжируются по силе совпадения; описание и slug — только слабый резерв
-        result = rankSearch(result, searchQuery, p => `${p.name} ${p.brand}`, p => `${p.description} ${p.slug}`)
-        searchRanked = true
+        // Ручной поиск: по силе совпадения; описание и slug — только слабый резерв
+        result = rankSearch(result, searchQuery, p => `${p.name} ${p.brand}`, p => `${p.description} ${p.slug}`, popular)
       }
+      searchRanked = true
     }
-    
-    // Sort
+
+    // Sort. Единый компаратор (lib/productRank): наличие → метка → группа → поколение → цена
+    const byAvail = (a: Product, b: Product) => availabilityRank(a) - availabilityRank(b)
     switch (sort) {
       case 'price-asc':
-        result.sort((a, b) => a.price - b.price)
+        result.sort((a, b) => byAvail(a, b) || a.price - b.price || popular(a, b))
         break
       case 'price-desc':
-        result.sort((a, b) => b.price - a.price)
+        result.sort((a, b) => byAvail(a, b) || b.price - a.price || popular(a, b))
         break
       case 'name':
         result.sort((a, b) => a.name.localeCompare(b.name))
         break
       case 'new':
-        result.sort((a, b) => (b.badge === 'new' ? 1 : 0) - (a.badge === 'new' ? 1 : 0))
+        // Новинки и предзаказ с ближайшей датой выше, затем свежее поколение
+        result.sort((a, b) =>
+          (b.badge === 'new' ? 1 : 0) - (a.badge === 'new' ? 1 : 0) ||
+          modelGeneration(b.name) - modelGeneration(a.name) || popular(a, b))
         break
       default:
-        // При активном поиске держим порядок по релевантности, «хиты» его не перетасовывают
-        if (!searchRanked) result.sort((a, b) => (b.badge === 'hit' ? 1 : 0) - (a.badge === 'hit' ? 1 : 0))
+        // при поиске порядок уже по релевантности (tie-break — популярный)
+        if (!searchRanked) result.sort(popular)
     }
-    
+
     return result
   }, [displayProducts, selectedCategory, selectedBrand, priceRange, inStockOnly, preorderOnly, preorderInCatalog, sort, searchQuery])
 
@@ -756,8 +748,8 @@ export function CatalogPage() {
                             setSelectedBrand('all')
                           } else {
                             setSearchQuery(qf.query)
+                            // Тег без бренда не сбрасывает выбранный бренд
                             if (qf.brand) setSelectedBrand(qf.brand)
-                            else setSelectedBrand('all')
                           }
                         }}
                         className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-all ${

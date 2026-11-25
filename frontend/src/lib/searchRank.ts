@@ -70,6 +70,7 @@ export function rankSearch<T>(
   query: string,
   getName: (item: T) => string,
   getExtra?: (item: T) => string,
+  tiebreak?: (a: T, b: T) => number,
 ): T[] {
   if (!query.trim()) return [...items]
   const scored: { item: T; score: number; len: number }[] = []
@@ -81,7 +82,9 @@ export function rankSearch<T>(
     scored.push({ item, score, len: getName(item).length })
   }
   const kept = hasStrong ? scored.filter(s => s.score > WEAK) : scored
-  return kept.sort((a, b) => (b.score - a.score) || (a.len - b.len)).map(s => s.item)
+  return kept
+    .sort((a, b) => (b.score - a.score) || (tiebreak ? tiebreak(a.item, b.item) : 0) || (a.len - b.len))
+    .map(s => s.item)
 }
 
 /** Булев строгий матч (точно/по началу слов) — для списков с замороженным порядком */
