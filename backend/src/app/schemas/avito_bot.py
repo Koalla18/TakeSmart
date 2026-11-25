@@ -30,6 +30,8 @@ DEFAULT_HANDOFF = "торг и скидки сверх условий, возв�
 
 # ── Настройки ────────────────────────────────────────────────────────────────
 
+PRICE_LIMIT = 400_000          # символов: полный прайс на пару тысяч позиций
+
 LlmProvider = Literal["none", "yandex", "deepseek", "qwen", "timeweb", "openai_compatible"]
 
 
@@ -41,8 +43,10 @@ class AvitoBotConfig(BaseModel):
     greeting: str = Field(DEFAULT_GREETING, max_length=300, description="Приветствие в первом ответе диалога; {name} — имя менеджера")
     first_message: str = Field(DEFAULT_FIRST_MESSAGE, max_length=1500,
                                description="Первое сообщение диалога; {name} — имя менеджера, {price} — розничная цена")
-    price_list: str = Field("", max_length=60000,
+    price_list: str = Field("", max_length=PRICE_LIMIT,
                             description="Прайс для бота: «Модель; Память; Цвет; Цена; Наличие» по строкам — главный источник цен")
+    price_list_prev: str = Field("", max_length=PRICE_LIMIT, description="Прайс до последнего изменения — для отмены")
+    price_list_updated_at: datetime | None = None
     trade_in_prices: str = Field(DEFAULT_TRADE_IN_PRICES, max_length=5000, description="Модели и вилки оценки trade-in")
     staff_takes_over: bool = Field(True, description="Ответ с нашего аккаунта из приложения Авито забирает диалог у бота")
     human_mode: bool = Field(True, description="Как человек: короткими сообщениями, пауза по длине текста, «прочитано» перед ответом")
@@ -98,6 +102,8 @@ class AvitoBotConfigOut(BaseModel):
     greeting: str
     first_message: str
     price_list: str
+    price_list_can_undo: bool = False
+    price_list_updated_at: datetime | None = None
     trade_in_prices: str
     staff_takes_over: bool
     human_mode: bool
@@ -143,7 +149,7 @@ class AvitoBotConfigIn(BaseModel):
     persona_name: str | None = Field(None, max_length=40)
     greeting: str | None = Field(None, max_length=300)
     first_message: str | None = Field(None, max_length=1500)
-    price_list: str | None = Field(None, max_length=60000)
+    price_list: str | None = Field(None, max_length=PRICE_LIMIT)
     trade_in_prices: str | None = Field(None, max_length=5000)
     staff_takes_over: bool | None = None
     human_mode: bool | None = None

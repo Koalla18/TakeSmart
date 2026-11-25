@@ -574,6 +574,55 @@ def test_title_match_never_quotes_another_model():
     assert price("PlayStation 5") is None and price("Чехол iPhone 18 Pro") is None
 
 
+def test_price_list_duplicates_keep_lowest_price():
+    from src.app.core.avito_bot_engine import parse_price_list_full
+    items, errors, repeats = parse_price_list_full(
+        "17Pro 256 Orange - 104 990 есим\n17Pro 256 Orange - 98 990 есим\n17Pro 256 Orange - 99 990 есим\n"
+        "17Pro 256 Orange - 90 000🇯🇵 есим\nMDVQ4 Air 15 M5 16GB 512 2026 Sky Blue - 124 990\n"
+        "MacBook Air 15 M5 16/512 Sky Blue — 126 990")
+    assert not errors and len(items) == 3 and len(repeats) == 2
+    assert sorted(i.price for i in items) == [90000, 98990, 124990]
+
+
+def test_price_update_changes_only_pasted_models():
+    from src.app.core.avito_bot_engine import parse_price_list
+    from src.app.core.avito_price_update import apply_changes, compare, dump_price_list
+    base = ("17Pro 256 Orange - 94 990🇯🇵 eSIM\n17Pro 256 Silver - 99 990🇯🇵 eSIM\n17Pro 256 Orange - 96 000🇮🇳 eSIM\n"
+            "16 128 Black 🇮🇳 - 62 990\niPad 11 128 Pink Wi-Fi — 44 990 🏎️\nAirPods Pro 3 — 17 990")
+    items, _ = parse_price_list(base)
+    stored = dump_price_list(items)
+    again, errors = parse_price_list(stored)                      # сохранённая база читается без потерь
+    assert not errors and dump_price_list(again) == stored
+    assert {(i.name, i.price, str(i.attributes)) for i in again} == {(i.name, i.price, str(i.attributes)) for i in items}
+
+    new = "🇯🇵 Япония eSIM:\niPhone 17 Pro 256\nOrange - 96 990\nBlue - 98 990"
+    diff = compare(stored, new)
+    got = {(c.kind, c.item.name, c.item.price) for c in diff.changes}
+    assert got == {("changed", "iPhone 17 Pro 256 ГБ, Orange", 96990), ("added", "iPhone 17 Pro 256 ГБ, Blue", 98990),
+                   ("removed", "iPhone 17 Pro 256 ГБ, Silver", 99990)}      # индийский, iPhone 16, iPad — не тронуты
+    assert diff.unchanged == 4
+    mixed, _ = parse_price_list("🇯🇵 eSIM\n17Pro 256 Orange - 96 990\nAirPods Pro 3 - 16 990")
+    assert [(i.attributes.get("country"), i.attributes.get("sim")) for i in mixed] == [("Япония", "только eSIM"), (None, None)]
+    text, applied = apply_changes(stored, diff, {c.id for c in diff.changes if c.kind == "removed"})
+    result = {(i.name, i.attributes.get("country")): i.price for i in parse_price_list(text)[0]}
+    assert applied == 2 and result[("iPhone 17 Pro 256 ГБ, Silver", "Япония")] == 99990
+    assert result[("iPhone 17 Pro 256 ГБ, Orange", "Япония")] == 96990
+    assert result[("iPhone 17 Pro 256 ГБ, Orange", "Индия")] == 96000 and len(result) == 7
+
+    assert len([c for c in compare(stored, new, "add").changes if c.kind == "removed"]) == 0
+    assert len([c for c in compare(stored, new, "full").changes if c.kind == "removed"]) == 5
+    assert compare(stored, "привет, цены позже", "full").changes == []      # пустое сообщение базу не стирает
+    assert compare(stored, base).changes == []
+    # разные поставщики пишут одно и то же по-разному
+    names = {i.name for i in parse_price_list("S26 12/256 Black - 60 000\nSamsung S26 12/256 Black - 61 000\n"
+                                              "Samsung Galaxy S26 12/256GB Black - 62 000р\nApple iPhone 16 128 Black - 60 000")[0]}
+    assert names == {"Samsung Galaxy S26 12/256 ГБ, Black", "iPhone 16 128 ГБ, Black"}
+
+    # без флажка и SIM — вариант один, значит это он; резкое падение помечаем
+    cheap = compare(stored, "iPad 11 128 Pink Wi-Fi - 34.800", "add").changes
+    assert len(cheap) == 1 and cheap[0].kind == "changed" and cheap[0].warning
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

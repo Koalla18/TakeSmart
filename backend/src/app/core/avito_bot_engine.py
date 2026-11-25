@@ -1081,6 +1081,8 @@ COLORS = {
     "titanium black": ("Titanium Black", "чёрный титан"), "titanium gray": ("Titanium Gray", "серый титан"),
     "titanium silverblue": ("Titanium SilverBlue", "серо-голубой титан"),
     "titanium whitesilver": ("Titanium WhiteSilver", "бело-серебристый титан"),
+    "cosmic orange": ("Orange", "оранжевый"), "deep blue": ("Blue", "синий"), "cloud white": ("White", "белый"),
+    "mist blue": ("Mist Blue", "голубой"), "light gold": ("Light Gold", "золотой"),
     "ceramic pink": ("Ceramic Pink", "розовый"), "jasper plum": ("Jasper Plum", "сливовый"),
     "apricot topaz": ("Apricot Topaz", "абрикосовый"), "prussian blue": ("Prussian Blue", "синий"),
     "черный": ("Black", "чёрный"), "чёрный": ("Black", "чёрный"), "белый": ("White", "белый"),
@@ -1088,7 +1090,7 @@ COLORS = {
 }
 # С этих слов начинается строка «только цвет — цена»: модель берётся из заголовка над ней
 _BARE_STARTS = {k.split()[0] for k in COLORS} | {"space", "jet", "sky", "ceramic", "jasper", "apricot", "prussian",
-                                                  "rose", "light", "cobalt", "night"}
+                                                  "rose", "light", "cobalt", "night", "cosmic", "deep", "cloud", "mist"}
 _MODEL_WORDS = {"pro": "Pro", "max": "Max", "air": "Air", "plus": "Plus", "duo": "Duo", "mini": "mini", "ultra": "Ultra",
                 "neo": "Neo", "iphone": "iPhone", "ipad": "iPad", "macbook": "MacBook"}
 _LOOKALIKE = str.maketrans("аеорсухкмтнвіАЕОРСУХКМТНВІ", "aeopcyxkmthbiAEOPCYXKMTHBI")
@@ -1098,7 +1100,7 @@ _FLAG = re.compile("([\U0001F1E6-\U0001F1FF])([\U0001F1E6-\U0001F1FF])")
 _NUM = r"(?:\d{1,3}(?:[.\s]+\d{3})+|\d{4,7})"
 _DASH_PRICE = re.compile(rf"[-—–=:]\s*({_NUM})(?!\d|[A-ZА-Я]\b)")
 _END_PRICE = re.compile(rf"(?<![\w./])(\d{{5,7}}|\d{{1,3}}[.\s]+(?:000|490|500|900|990))(?=\W*$)")
-_RUB_PRICE = re.compile(rf"(?<![\w.])({_NUM})\s*(?:₽|руб)")
+_RUB_PRICE = re.compile(rf"(?<![\w.])({_NUM})\s*(?:₽|руб|[рР](?![а-яёa-z]))")
 
 _ESIM_WORD = r"(?:e\s*-?\s*sim|[еe]\s*-?\s*с(?:ч)?им)"
 _SIM_COMBO = re.compile(rf"(?:(?<![a-zа-я\d])[12]\s*)?(?:i?sim|ism|сим)\s*\+\s*{_ESIM_WORD}", re.IGNORECASE)
@@ -1184,6 +1186,10 @@ def _find_color(tokens: list[str]) -> tuple[list[str], list[str]]:
 def _expand_model(text: str) -> str:
     """Сокращения поставщиков → полное название, по которому ищут покупатели."""
     text = re.sub(r"^iPro\b", "iPad Pro", text)
+    # «Apple iPhone», «Samsung S26», «Galaxy S26» у разных поставщиков — одно и то же название
+    text = re.sub(r"^Apple\s+(?=iPhone|iPad|MacBook|AirPods|iMac)", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^(?:Samsung\s+)?(?:Galaxy\s+)?(?=(?:[AS]\d{2}[a-z]?\+?\s|Z\s*(?:Fold|Flip)))(?=.*\d\s*(?:gb)?\s*/\s*\d)",
+                  "Samsung Galaxy ", text, flags=re.IGNORECASE)
     text = re.sub(r"(\d)(pro|air|plus|duo|max|mini)\b", r"\1 \2", text, flags=re.IGNORECASE)
     if re.match(r"^1[1-9]e?(?:\s|$)", text):
         text = f"iPhone {text}"
@@ -1197,8 +1203,6 @@ def _expand_model(text: str) -> str:
         text = "Apple Watch Series " + text[1:]
     elif re.match(r"^(?:SE\s+(?:\d\s+)?(?:40|44)|Ultra\s+\d\s+49)\b", text):
         text = f"Apple Watch {text}"
-    elif re.match(r"^(?:[AS]\d{2}[a-z]?\+?(?=\s)|Z\s*(?:Fold|Flip))", text) and re.search(r"\d\s*(?:gb)?\s*/\s*\d", text, re.IGNORECASE):
-        text = f"Samsung Galaxy {text}"
     elif re.match(r"^pixel\b", text, re.IGNORECASE):
         text = f"Google {text}"
     elif re.match(r"^\d+(?:/\d+)?\s*w\b", text, re.IGNORECASE):
@@ -1256,6 +1260,8 @@ class _PriceContext:
     title: str = ""
     spec: str = ""
     sim: str | None = None
+    country: str | None = None
+    pending: bool = False      # страна/SIM из заголовка, под которым ещё не было позиций
     last_model: str = ""
     watch_se: str = ""
 
@@ -1276,17 +1282,27 @@ class _PriceContext:
         raw = _FLAG.sub(" ", line).strip(" •*:➖━-—–\t")
         if re.fullmatch(r"SE\s*\d", text, re.IGNORECASE):
             self.watch_se = text.split()[-1][-1]
-        if text and _TITLE_WORDS.search(text):
-            self.title, self.spec, self.sim = text, "", sim
-        elif _SPEC_HEADER.match(raw):
+        phone = re.fullmatch(r"(?:iphone\s*)?(1[1-9]\s*(?:e|pro|air|plus|duo)?(?:\s*max)?)", text, re.IGNORECASE)
+        flag = _flag_country(line)
+        if text and (_TITLE_WORDS.search(text) or phone):
+            title = f"iPhone {phone.group(1)}" if phone else text
+            keep = self.pending                    # «🇯🇵 Япония:» стоит над названием модели
+            self.sim = sim or (self.sim if keep else None)
+            self.country = flag or (self.country if keep else None)
+            self.title, self.spec, self.pending = title, "", bool(self.sim or self.country)
+            return
+        if _SPEC_HEADER.match(raw):
             self.spec = text
-        elif sim:
-            self.sim = sim
+        if sim:
+            self.sim, self.pending = sim, True
+        # «🇯🇵 Япония:» — страна всех строк ниже; «1 Ревизия 🇯🇵» — просто приписка
+        if flag and _FLAG.match(line.strip(" •*:➖━-—–\t")):
+            self.country, self.pending = flag, True
 
 
-def _parse_free_line(line: str, n: int, ctx: _PriceContext) -> tuple[CatalogItem, str] | str | None:
+def _parse_free_line(line: str, n: int, ctx: _PriceContext) -> CatalogItem | str | None:
     """«17Pro Max 256 Orange - 103000🇰🇷1SIM.», «15 256 Black 🇮🇳 - 61.100», «Cream — 109 990₽» под заголовком.
-    Возвращает (позиция, артикул); None — заголовок или разделитель, str — ошибка."""
+    None — заголовок или разделитель, str — ошибка."""
     low = line.lower()
     if re.search(r"\[\d{1,2}\s*\w+\.?\s*\d{4}", line):
         return None
@@ -1303,7 +1319,6 @@ def _parse_free_line(line: str, n: int, ctx: _PriceContext) -> tuple[CatalogItem
         return None
     price, name_end, price_end = priced
     left, right = line[:name_end], line[price_end:]
-    sku = " ".join(_SKU.findall(line))
     country = _flag_country(line)
     sim = _sim_label(line)
     few = "\U0001F3CE" in line or bool(_STOCK_LEFT.search(line))   # 🏎️ или «/1шт» — осталось мало
@@ -1313,23 +1328,31 @@ def _parse_free_line(line: str, n: int, ctx: _PriceContext) -> tuple[CatalogItem
     text = _clean_text(left)
     if not text:
         return f"Строка {n}: не понял модель"
+    bare = False
     first = text.split()[0].lower()
-    if first in _BARE_STARTS or re.match(r"^\d+\s*(?:gb|гб)?\s*/\s*\d+(?!\d*\s*w)|^\d+\s*(?:gb|гб|tb|тб)\b", text, re.IGNORECASE):
+    if first in _BARE_STARTS or re.match(r"^\d+\s*(?:gb|гб)?\s*/\s*\d+(?!\d*\s*w)|^\d+\s*(?:gb|гб|tb|тб)\b"
+                                          r"|^(?:64|128|256|512|1024)\b", text, re.IGNORECASE):
         if not ctx.title:
             return f"Строка {n}: не понял, к какой модели относится «{text}»"
+        bare = True
         # объём из подзаголовка не дублируем, если он уже есть в самой строке
         spec = "" if _RAM_STORAGE.search(text) or _ONE_STORAGE.search(text) else ctx.spec
         title = ctx.title
         if spec and (_RAM_STORAGE.search(spec) or _ONE_STORAGE.search(spec)):
             title = _ONE_STORAGE.sub(" ", _RAM_STORAGE.sub(" ", title))
         text = " ".join(x for x in (title, spec, text) if x)
-        sim = sim or ctx.sim
     elif not re.search(r"[A-Za-z]", text) and not re.match(r"^\d", text):
         # «Надорвана коробка — 54 990»: уточнение к товару строкой выше
         if not ctx.last_model:
             return f"Строка {n}: не понял модель"
         text = f"{ctx.last_model} ({text.lower()})"
     text = ctx.refine(" ".join(_expand_model(text).split()))
+    # страну и SIM из заголовка получают телефоны под ним и строки «цвет — цена»; не AirPods ниже
+    phone = bool(re.match(r"(?:iPhone|Samsung Galaxy [ASZ]|Google Pixel)", text, re.IGNORECASE))
+    if bare or phone:
+        country = country or ctx.country
+    if phone:
+        sim = sim or ctx.sim
 
     storage, head, tail = "", text, ""
     m = _RAM_STORAGE.search(text)
@@ -1381,8 +1404,8 @@ def _parse_free_line(line: str, n: int, ctx: _PriceContext) -> tuple[CatalogItem
     if few:
         attrs["few"] = "осталось мало"
     name = " ".join(x for x in (model, storage) if x) + (f", {color_en}" if color_en else "")
-    ctx.last_model = model
-    return CatalogItem(name=name, category="Прайс", price=price, stock=1, attributes=attrs, key=f"price:{n}"), sku
+    ctx.last_model, ctx.pending = model, False
+    return CatalogItem(name=name, category="Прайс", price=price, stock=1, attributes=attrs, key=f"price:{n}")
 
 
 def _parse_table_line(line: str, n: int) -> CatalogItem | str:
@@ -1406,26 +1429,62 @@ def _parse_table_line(line: str, n: int) -> CatalogItem | str:
                        attributes=attrs, key=f"price:{n}")
 
 
+def words_without_years(name: str) -> tuple[str, ...]:
+    """Слова названия без года выпуска и без учёта порядка: «Air 15 M5 2026» = «Air 15 M5»."""
+    return tuple(sorted(w for w in _WORD.findall(normalize(_split_units(name))) if not re.fullmatch(r"20[12]\d", w)))
+
+
+def position_key(it: CatalogItem) -> tuple:
+    """Одна и та же позиция: модель, объём и цвет (всё в названии), страна и SIM."""
+    a = it.attributes or {}
+    return words_without_years(it.name), a.get("country"), a.get("sim")
+
+
+def _parse_stored_line(line: str, n: int) -> CatalogItem | str:
+    """Строка базы после обновления: «@|цена|название|объём|цвет|цвет по-русски|страна|SIM|мало|наличие»."""
+    cells = [c.strip() for c in line.split("|")[1:]]
+    cells += [""] * (9 - len(cells))
+    price, name, storage, color, color_ru, country, sim, few, stock = cells[:9]
+    price = re.sub(r"\D", "", price)
+    if not price or not name:
+        return f"Строка {n}: не понял цену или название"
+    attrs = {k: v for k, v in (("storage", storage), ("color", color), ("color_ru", color_ru), ("country", country),
+                               ("sim", sim), ("few", few)) if v}
+    return CatalogItem(name=name, category="Прайс", price=float(price), stock=0 if stock.lower() in _NO_STOCK else 1,
+                       attributes=attrs, key=f"price:{n}")
+
+
 def parse_price_list(text: str) -> tuple[list[CatalogItem], list[str]]:
-    """Прайс для бота. Два формата, можно вперемешку:
+    items, errors, _ = parse_price_list_full(text)
+    return items, errors
+
+
+def parse_price_list_full(text: str) -> tuple[list[CatalogItem], list[str], list[str]]:
+    """Позиции, ошибки и список повторов (повтор — берём меньшую цену).
+
+    Прайс для бота. Два формата, можно вперемешку:
       • как присылают поставщики: «17Pro Max 256 Orange - 103000🇰🇷1SIM.», «15 256 Black 🇮🇳 - 61.100» —
         модель, объём, цвет, цена, флажок страны (версия) и SIM. Заголовок («iPad Air 13 M4 128GB»,
         «1TB:») относится к строкам «цвет — цена» под ним;
       • таблицей: «Модель; Память; Цвет; Цена; Наличие» (через ; Tab или |), «нет» в наличии — нет.
     # — комментарий."""
-    found: list[tuple[CatalogItem, str]] = []
+    found: list[CatalogItem] = []
     errors: list[str] = []
     ctx = _PriceContext()
     for n, raw in enumerate((text or "").splitlines(), 1):
         line = raw.strip().strip("•").strip()
         if not line or line.startswith("#"):
             continue
+        if line.startswith("@|"):
+            stored = _parse_stored_line(line, n)
+            (errors if isinstance(stored, str) else found).append(stored)
+            continue
         if ";" in line or "|" in line or ("\t" in line and not _DASH_PRICE.search(line)):
             result = _parse_table_line(line, n)
             if isinstance(result, str):
                 errors.append(result)
             else:
-                found.append((result, ""))
+                found.append(result)
             continue
         for k, part in enumerate(_split_items(line)):
             result = _parse_free_line(part.strip("• "), n, ctx)
@@ -1433,18 +1492,26 @@ def parse_price_list(text: str) -> tuple[list[CatalogItem], list[str]]:
                 errors.append(result)
             elif result is not None:
                 if k:
-                    result[0].key = f"price:{n}.{k}"
+                    result.key = f"price:{n}.{k}"
                 found.append(result)
-    # Одна и та же позиция (модель, объём, цвет, страна, SIM, артикул) несколько раз — действует
-    # последняя по тексту: прайс дополняют снизу, свежая цена ниже
-    latest: dict[tuple, CatalogItem] = {}
-    for it, sku in found:
-        a = it.attributes or {}
-        latest[(it.name.lower(), a.get("country"), a.get("sim"), sku)] = it
-    return list(latest.values()), errors
+    # Одна и та же позиция несколько раз — берём лучшую (меньшую) цену
+    best: dict[tuple, CatalogItem] = {}
+    repeats: dict[tuple, list[float]] = {}
+    for it in found:
+        key = position_key(it)
+        old = best.get(key)
+        if old is None:
+            best[key] = it
+            continue
+        repeats.setdefault(key, [old.price]).append(it.price)
+        if (it.stock <= 0, it.price) < (old.stock <= 0, old.price):
+            best[key] = it
+    duplicates = [f"{best[k].name}: " + ", ".join(_rub_short(p) for p in prices) + f" → оставил {_rub_short(best[k].price)}"
+                  for k, prices in repeats.items() if len(set(prices)) > 1]
+    return list(best.values()), errors, duplicates
 
 
-def _storage_gb(it: CatalogItem) -> int:
+def price_storage_gb(it: CatalogItem) -> int:
     st = (it.attributes or {}).get("storage", "") or ""
     m = re.search(r"(\d+)\D*$", st)
     if not m:
@@ -1455,7 +1522,7 @@ def _storage_gb(it: CatalogItem) -> int:
 def price_lines(items: Sequence[CatalogItem]) -> list[str]:
     """Каждая позиция прайса отдельной строкой — со страной и SIM: модели нужно различать версии."""
     out = []
-    for it in sorted(items, key=lambda x: (family_name(x).lower(), _storage_gb(x),
+    for it in sorted(items, key=lambda x: (family_name(x).lower(), price_storage_gb(x),
                                            (x.attributes or {}).get("color", ""), x.price)):
         if it.stock <= 0:
             continue

@@ -23,7 +23,7 @@ from sqlalchemy import delete, func, or_, select
 
 from src.app.api.admin.endpoints import get_current_admin
 from src.app.core import avito_bot_service as bot
-from src.app.core import avito_bot_analytics, avito_client, llm_client
+from src.app.core import avito_bot_analytics, avito_client, avito_price_update, llm_client
 from src.app.core.avito_bot_engine import ChatContext, parse_price_list, render_template
 from src.app.core.logger import get_logger
 from src.app.database.models.admin import Admin
@@ -33,6 +33,7 @@ from src.app.database.models.avito_bot import (
 from src.app.database.models.product import Product
 from src.app.database.session import AsyncSessionFactory
 from src.app.schemas.avito_bot import (
+    PRICE_LIMIT,
     SECRET_FIELDS, ApproveIn, AudienceChatOut, AudienceOut, AvitoAnalyticsOut, AvitoBotConfigIn, BroadcastCreate,
     BroadcastDetailOut, BroadcastOut, BroadcastPreviewIn, BroadcastRecipientOut, OptOutIn, AvitoBotConfigOut, ChatDetailOut, ChatOut, ChatsOut, ConnectOut,
     DecisionOut, ExampleOut, ExamplePatch, HealthOut, LearningOut, LinkedProductOut, LinkIn, MessageOut, RuleIn,
@@ -50,10 +51,17 @@ def _config_out(cfg) -> AvitoBotConfigOut:
         data.pop(f, None)
     return AvitoBotConfigOut(
         **{k: v for k, v in data.items() if k in AvitoBotConfigOut.model_fields},
+        price_list_can_undo=bool(cfg.price_list_prev),
         llm_api_key_set=bool(cfg.llm_api_key),
         avito_client_secret_set=bool(cfg.avito_client_secret),
         webhook_url=bot.webhook_url(cfg) if cfg.avito_connected_at else None,
     )
+
+
+def _remember_price_list(cfg) -> None:
+    """Перед изменением прайса сохраняем прежний — его можно вернуть кнопкой."""
+    cfg.price_list_prev = cfg.price_list
+    cfg.price_list_updated_at = datetime.now(timezone.utc)
 
 
 # ── Настройки ────────────────────────────────────────────────────────────────
@@ -71,6 +79,8 @@ async def put_settings(body: AvitoBotConfigIn) -> AvitoBotConfigOut:
     async with AsyncSessionFactory() as session:
         cfg = await bot.load_config(session)
         data = body.model_dump(exclude_unset=True)
+        if data.get("price_list") is not None and data["price_list"] != cfg.price_list:
+            _remember_price_list(cfg)
         for key, value in data.items():
             if key in SECRET_FIELDS:
                 if value == "":
@@ -627,19 +637,85 @@ async def test_chat(body: TestIn) -> DecisionOut:
 
 
 class PriceListCheckIn(BaseModel):
-    text: str = Field("", max_length=60000)
+    text: str = Field("", max_length=PRICE_LIMIT)
+
+
+def _item_out(it) -> dict:
+    a = it.attributes or {}
+    return {"name": it.name, "price": it.price, "in_stock": it.stock > 0, "country": a.get("country"),
+            "sim": a.get("sim"), "color_ru": a.get("color_ru"), "few": bool(a.get("few"))}
+
+
+def _row_key(it) -> str:
+    """Та же строка в списке базы на экране: название, страна, SIM."""
+    a = it.attributes or {}
+    return f"{it.name}|{a.get('country') or ''}|{a.get('sim') or ''}"
 
 
 @router.post("/price-list/check", dependencies=ADMIN, summary="Как бот прочитает прайс — без сохранения")
 async def price_list_check(body: PriceListCheckIn) -> dict:
     items, errors = parse_price_list(body.text)
+    return {"items": [_item_out(it) for it in items[:3000]], "count": len(items), "errors": errors[:50]}
+
+
+class PriceUpdateIn(BaseModel):
+    text: str = Field(..., max_length=PRICE_LIMIT, description="Новые цены: одно сообщение или весь прайс")
+    mode: avito_price_update.Mode = "models"
+
+
+class PriceApplyIn(PriceUpdateIn):
+    base_hash: str = Field(..., max_length=64, description="Из предпросмотра: база не должна была измениться")
+    skip: list[str] = Field(default_factory=list, max_length=5000, description="Снятые галочки")
+
+
+@router.post("/price-list/preview", dependencies=ADMIN, summary="Что изменится, если применить новые цены")
+async def price_list_preview(body: PriceUpdateIn) -> dict:
+    async with AsyncSessionFactory() as session:
+        cfg = await bot.load_config(session)
+        await session.commit()
+    diff = avito_price_update.compare(cfg.price_list, body.text, body.mode)
     return {
-        "items": [{"name": it.name, "price": it.price, "in_stock": it.stock > 0,
-                   "country": (it.attributes or {}).get("country"), "sim": (it.attributes or {}).get("sim"),
-                   "color_ru": (it.attributes or {}).get("color_ru"),
-                   "few": bool((it.attributes or {}).get("few"))} for it in items[:2000]],
-        "count": len(items), "errors": errors[:50],
+        "base_hash": avito_price_update.base_hash(cfg.price_list),
+        "changes": [{"id": c.id, "kind": c.kind, "item": _item_out(c.item), "old_key": _row_key(c.old) if c.old else None,
+                     "old_price": c.old.price if c.old else None, "warning": c.warning} for c in diff.changes],
+        "unchanged": diff.unchanged, "new_count": diff.new_count, "base_errors": diff.base_errors,
+        "errors": diff.errors[:100], "duplicates": diff.duplicates[:100],
     }
+
+
+@router.post("/price-list/apply", response_model=AvitoBotConfigOut, dependencies=ADMIN, summary="Применить изменения прайса")
+async def price_list_apply(body: PriceApplyIn) -> AvitoBotConfigOut:
+    async with AsyncSessionFactory() as session:
+        cfg = await bot.load_config(session)
+        if avito_price_update.base_hash(cfg.price_list) != body.base_hash:
+            raise HTTPException(status_code=409, detail="Прайс уже изменили в другом окне — сравните ещё раз")
+        diff = avito_price_update.compare(cfg.price_list, body.text, body.mode)
+        text, applied = avito_price_update.apply_changes(cfg.price_list, diff, set(body.skip))
+        if not applied:
+            raise HTTPException(status_code=409, detail="Нечего применять")
+        if len(text) > PRICE_LIMIT:
+            raise HTTPException(status_code=422, detail="Прайс получается слишком большим")
+        _remember_price_list(cfg)
+        cfg.price_list = text
+        await bot.save_config(session, cfg)
+        await session.commit()
+    logger.info("avito_bot_price_list_updated", mode=body.mode, applied=applied, skipped=len(body.skip))
+    return _config_out(cfg)
+
+
+@router.post("/price-list/undo", response_model=AvitoBotConfigOut, dependencies=ADMIN,
+             summary="Вернуть прайс, который был до последнего изменения")
+async def price_list_undo() -> AvitoBotConfigOut:
+    async with AsyncSessionFactory() as session:
+        cfg = await bot.load_config(session)
+        if not cfg.price_list_prev:
+            raise HTTPException(status_code=409, detail="Отменять нечего")
+        cfg.price_list, cfg.price_list_prev = cfg.price_list_prev, ""
+        cfg.price_list_updated_at = datetime.now(timezone.utc)
+        await bot.save_config(session, cfg)
+        await session.commit()
+    logger.info("avito_bot_price_list_undone")
+    return _config_out(cfg)
 
 
 @router.post("/test-order", dependencies=ADMIN, summary="Создать тестовую заявку с Авито (видна в «Заказах» и PWA)")
