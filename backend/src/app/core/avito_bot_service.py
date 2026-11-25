@@ -17,9 +17,11 @@
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import secrets
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -36,7 +38,7 @@ from src.app.core.avito_bot_engine import (
     human_delay, in_window, match_rule, parse_llm_answer, pick_examples, render_reminder,
     render_template, rule_covers, starts_with_refusal, wants_opt_out, is_first_reply, with_greeting,
     split_reply, typing_delay, classify_avito_message, normalize_phone, valid_email, valid_full_name,
-    order_note_for_prompt, wants_cancel, CatalogItem, build_overview, catalog_vocab, query_segments, search_catalog,
+    order_note_for_prompt, wants_cancel, CatalogItem, SearchIndex, build_overview, catalog_vocab, query_segments, search_catalog,
     render_first_message, title_match, is_refusal, strip_greeting, sanitize_reply, parse_price_list, price_lines,
 )
 from src.app.core.config import settings
@@ -234,16 +236,13 @@ async def linked_product(session: AsyncSession, item_id: int | None) -> Product 
     return product if product is not None and product.is_active else None
 
 
-CATALOG_TTL = 60          # секунд: каталог перечитывается не чаще раза в минуту
+CATALOG_TTL = 60          # секунд: каталог считается свежим минуту; потом обновляется в фоне
 OVERVIEW_MAX_LINES = 250
 _CATALOG: dict[str, Any] = {"at": 0.0}
+_CATALOG_LOCK = asyncio.Lock()
 
 
-async def catalog_snapshot(session: AsyncSession) -> dict[str, Any]:
-    """Каталог сайта для бота: товары, словарь слов из названий и справочник для модели."""
-    import time
-    if time.monotonic() - _CATALOG["at"] < CATALOG_TTL:
-        return _CATALOG
+async def _load_catalog(session: AsyncSession) -> None:
     from src.app.database.models.category import Category
     rows = (await session.execute(
         select(Product, Category.name).outerjoin(Category, Category.id == Product.category_id)
@@ -259,8 +258,31 @@ async def catalog_snapshot(session: AsyncSession) -> dict[str, Any]:
             used=p.condition == "used", attributes=p.attributes if isinstance(p.attributes, dict) else {}, key=p.id,
         ))
         by_key[p.id] = p
-    _CATALOG.update(at=time.monotonic(), items=items, products=by_key, vocab=catalog_vocab(items),
-                    overview=build_overview(items, OVERVIEW_MAX_LINES))
+    # Всё собираем заранее и подменяем одним обновлением — читатели не видят половину каталога
+    _CATALOG.update(items=items, products=by_key, vocab=catalog_vocab(items), index=SearchIndex(items),
+                    overview=build_overview(items, OVERVIEW_MAX_LINES), at=time.monotonic())
+
+
+async def _refresh_catalog_bg() -> None:
+    if _CATALOG_LOCK.locked():
+        return
+    async with _CATALOG_LOCK:
+        try:
+            async with AsyncSessionFactory() as session:
+                await _load_catalog(session)
+        except Exception as exc:  # старый каталог остаётся — бот продолжает отвечать
+            logger.warning("avito_bot_catalog_refresh_failed", error=str(exc)[:200])
+
+
+async def catalog_snapshot(session: AsyncSession) -> dict[str, Any]:
+    """Каталог сайта для бота: товары, словарь слов, индекс поиска и справочник для модели.
+    Ответ не ждёт базу: устаревший каталог отдаётся сразу, а обновляется в фоне; ждём только самый первый раз."""
+    if "items" not in _CATALOG:
+        async with _CATALOG_LOCK:
+            if "items" not in _CATALOG:
+                await _load_catalog(session)
+    elif time.monotonic() - _CATALOG["at"] >= CATALOG_TTL and not _CATALOG_LOCK.locked():
+        asyncio.get_running_loop().create_task(_refresh_catalog_bg())
     return _CATALOG
 
 
@@ -272,7 +294,7 @@ async def search_products(session: AsyncSession, item_title: str | None, questio
     if item_title and question:
         # «16/128 белый» — уточнение к модели из объявления: ищем их вместе
         texts.append(f"{item_title} {question}")
-    found = search_catalog(snap["items"], texts, snap["vocab"], limit=limit)
+    found = search_catalog(snap["items"], texts, snap["vocab"], limit=limit, index=snap["index"])
     return [snap["products"][it.key] for it in found if it.key in snap["products"]]
 
 
@@ -283,25 +305,25 @@ def price_snapshot(cfg: AvitoBotConfig) -> dict[str, Any]:
     """Прайс из настроек бота (вкладка «Прайс»): товары, словарь и справочник для модели."""
     if _PRICE_LIST["text"] != cfg.price_list:
         items, errors = parse_price_list(cfg.price_list)
-        _PRICE_LIST.update(text=cfg.price_list, items=items, errors=errors, vocab=catalog_vocab(items),
+        _PRICE_LIST.update(text=cfg.price_list, items=items, errors=errors, vocab=catalog_vocab(items), index=SearchIndex(items),
                            overview=price_lines(items)[:600])
     return _PRICE_LIST
 
 
 async def listing_price(session: AsyncSession, item_id: int | None, item_title: str | None,
                         cfg: AvitoBotConfig | None = None) -> str | None:
-    """Розничная цена товара из объявления: привязанная карточка → прайс бота → каталог сайта
-    (последние два — только при надёжном совпадении по названию)."""
+    """Розничная цена товара из объявления: прайс бота → привязанная карточка → каталог сайта.
+    Прайс и каталог — только при надёжном совпадении по названию объявления."""
+    if cfg is not None and cfg.price_list.strip():
+        prices = price_snapshot(cfg)
+        hit = title_match(prices["items"], item_title, prices["vocab"], prices["index"])
+        if hit:
+            return _rub(hit.price)
     linked = await linked_product(session, item_id)
     if linked is not None:
         return _rub(linked.discount_price or linked.price)
-    if cfg is not None and cfg.price_list.strip():
-        prices = price_snapshot(cfg)
-        hit = title_match(prices["items"], item_title, prices["vocab"])
-        if hit:
-            return _rub(hit.price)
     snap = await catalog_snapshot(session)
-    it = title_match(snap["items"], item_title, snap["vocab"])
+    it = title_match(snap["items"], item_title, snap["vocab"], snap["index"])
     return _rub(it.price) if it else None
 
 

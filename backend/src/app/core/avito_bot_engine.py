@@ -787,31 +787,62 @@ def _fuzzy_hit(token: str, words: set[str]) -> bool:
     return len(token) >= 5 and any(w.startswith(token[:-2]) for w in words if len(w) >= 5)
 
 
+class SearchIndex:
+    """Индекс каталога: слова каждого товара и обратный индекс «слово → товары».
+    Строится один раз на каталог — поиск не пересчитывает слова и не обходит весь каталог на каждое слово."""
+
+    def __init__(self, items: Sequence[CatalogItem]):
+        self.items = list(items)
+        self.words = [item_words(it) for it in self.items]
+        self.name_len = [len(_WORD.findall(normalize(_split_units(it.name)))) for it in self.items]
+        self.inv: dict[str, list[int]] = {}
+        for i, ws in enumerate(self.words):
+            for w in ws:
+                self.inv.setdefault(w, []).append(i)
+        self._cands: dict[str, frozenset[int]] = {}
+
+    def candidates(self, token: str) -> frozenset[int]:
+        """Товары со словом точно или по основе («белый» ↔ «белого»)."""
+        hit = self._cands.get(token)
+        if hit is None:
+            found = set(self.inv.get(token, ()))
+            if len(token) >= 5:
+                stem = token[:-2]
+                for w, ids in self.inv.items():
+                    if len(w) >= 5 and w.startswith(stem):
+                        found.update(ids)
+            hit = self._cands[token] = frozenset(found)
+        return hit
+
+    def extra_words(self, i: int, score: int) -> int:
+        """Лишние слова в названии: у «iPhone 17» их меньше, чем у «iPhone 17 Pro Max» — он точнее для запроса «17»."""
+        return max(0, self.name_len[i] - score)
+
+
 def search_catalog(items: Sequence[CatalogItem], texts: Sequence[str], vocab: set[str],
-                   per_query: int = 5, limit: int = 12) -> list[CatalogItem]:
+                   per_query: int = 5, limit: int = 12, index: SearchIndex | None = None) -> list[CatalogItem]:
     """Подходящие товары для каждого запроса отдельно: сначала самые полные совпадения,
-    в наличии раньше, чем без наличия."""
-    words_cache = {id(it): item_words(it) for it in items}
+    при равных — в наличии, затем точнее по названию (без лишних слов), затем дешевле."""
+    index = index or SearchIndex(items)
     picked: list[CatalogItem] = []
     for text in texts:
         tokens = query_tokens(text, vocab)
         if not tokens:
             continue
-        scored = []
-        for it in items:
-            words = words_cache[id(it)]
-            score = sum(1 for t in tokens if _fuzzy_hit(t, words))
-            if score:
-                scored.append((score, it))
-        if not scored:
+        scores: dict[int, int] = {}
+        for t in tokens:
+            for i in index.candidates(t):
+                scores[i] = scores.get(i, 0) + 1
+        if not scores:
             continue
-        best = max(s for s, _ in scored)
+        best = max(scores.values())
         need = best if best <= 2 else best - 1
-        top = sorted((x for x in scored if x[0] >= need),
-                     key=lambda x: (-x[0], not (x[1].stock > 0 or x[1].preorder), x[1].price))[:per_query]
-        for _, it in top:
-            if it not in picked:
-                picked.append(it)
+        top = sorted((i for i, sc in scores.items() if sc >= need),
+                     key=lambda i: (-scores[i], not (index.items[i].stock > 0 or index.items[i].preorder),
+                                    index.extra_words(i, scores[i]), index.items[i].price))[:per_query]
+        for i in top:
+            if index.items[i] not in picked:
+                picked.append(index.items[i])
     return picked[:limit]
 
 
@@ -831,31 +862,38 @@ DEFAULT_FIRST_MESSAGE = (
 )
 
 
-def title_match(items: Sequence[CatalogItem], title: str | None, vocab: set[str]) -> CatalogItem | None:
+def title_match(items: Sequence[CatalogItem], title: str | None, vocab: set[str],
+                index: SearchIndex | None = None) -> CatalogItem | None:
     """Товар каталога для объявления — только если совпадение надёжное: все числа из названия
     (модель, память) есть в товаре и совпало не меньше 70% значимых слов. Иначе None — лучше
-    не назвать цену, чем назвать чужую. При нескольких равных берём тот, что в наличии и дешевле."""
+    не назвать цену, чем назвать чужую. При нескольких равных берём тот, что в наличии, точнее по
+    названию («17 Pro», а не «17 Pro Max») и дешевле."""
     if not title:
         return None
     tokens = query_tokens(title, vocab)
     if not tokens:
         return None
+    index = index or SearchIndex(items)
     digits = [t for t in tokens if t.isdigit()]
-    best: list[tuple[float, CatalogItem]] = []
-    for it in items:
-        words = item_words(it)
-        if any(d not in words for d in digits):
-            continue
-        hit = sum(1 for t in tokens if _fuzzy_hit(t, words))
+    if digits:
+        pool = set(index.inv.get(digits[0], ()))
+        for d in digits[1:]:
+            pool &= set(index.inv.get(d, ()))
+    else:
+        pool = set(range(len(index.items)))
+    best: list[tuple[float, int, int]] = []
+    for i in pool:
+        hit = sum(1 for t in tokens if i in index.candidates(t))
         share = hit / len(tokens)
         if share >= 0.7:
-            best.append((share, it))
+            best.append((share, hit, i))
     if not best:
         return None
-    top = max(s for s, _ in best)
-    candidates = [it for s, it in best if s == top]
-    candidates.sort(key=lambda it: (not (it.stock > 0 or it.preorder), it.price))
-    return candidates[0]
+    top = max(b[0] for b in best)
+    candidates = [(hit, i) for sh, hit, i in best if sh == top]
+    candidates.sort(key=lambda x: (not (index.items[x[1]].stock > 0 or index.items[x[1]].preorder),
+                                   index.extra_words(x[1], x[0]), index.items[x[1]].price))
+    return index.items[candidates[0][1]]
 
 
 def render_first_message(template: str, persona_name: str, price: str | None) -> str:

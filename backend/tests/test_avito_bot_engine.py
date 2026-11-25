@@ -442,6 +442,22 @@ def test_free_price_list_format():
     assert price_lines(few)[0].endswith("73 500 ₽ — осталось мало") and not price_lines(few)[1].endswith("мало")
 
 
+def test_search_specificity_and_index():
+    from src.app.core.avito_bot_engine import CatalogItem, SearchIndex, catalog_vocab, search_catalog, title_match
+    items = [CatalogItem("iPhone 17 Pro Max 256 ГБ, Orange", "Смартфоны", 103000, stock=5),
+             CatalogItem("iPhone 17 Pro 256 ГБ, Orange", "Смартфоны", 94000, stock=5),
+             CatalogItem("iPhone 17 256 ГБ, Black", "Смартфоны", 73500, stock=5),
+             CatalogItem("iPhone 16 Pro 256 ГБ, Orange", "Смартфоны", 90000, stock=0)]
+    v = catalog_vocab(items)
+    idx = SearchIndex(items)
+    # «17 про 256» — точный 17 Pro раньше Pro Max, хотя Pro Max не дороже ранжируется
+    assert search_catalog(items, ["17 про 256"], v, index=idx)[0].name.startswith("iPhone 17 Pro 256")
+    assert [i.name for i in search_catalog(items, ["17 про 256"], v)] == [i.name for i in search_catalog(items, ["17 про 256"], v, index=idx)]
+    assert title_match(items, "iPhone 17 Pro 256GB", v, idx).price == 94000      # не Pro Max
+    assert title_match(items, "iPhone 17 256GB Black", v, idx).price == 73500
+    assert title_match(items, "iPhone 15 256GB", v, idx) is None                  # чужой модели нет
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
