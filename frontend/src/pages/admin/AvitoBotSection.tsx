@@ -882,10 +882,10 @@ function PriceListTab({ api, config, setConfig }: { api: Api; config: Config; se
         </div>
       </div>
       <div className={`${CARD} self-start`}>
-        <h3 className="mb-3 text-sm font-semibold text-white">Как бот это прочитает</h3>
+        <h3 className="mb-3 text-sm font-semibold text-white">Как бот это прочитает{check && check.count > 0 ? <span className="ml-2 font-normal text-slate-400">· позиций: {check.count}</span> : null}</h3>
         {check?.errors.length ? <div className="mb-3 space-y-1 text-xs text-rose-300">{check.errors.map(e => <div key={e}>{e}</div>)}</div> : null}
         {!check || check.count === 0 ? <div className="text-sm text-slate-500">Прайс пуст — бот берёт цены из каталога сайта.</div> : (
-          <div className="max-h-[60vh] divide-y divide-white/[0.05] overflow-y-auto text-sm">
+          <div className="divide-y divide-white/[0.05] text-sm">
             {check.items.map((it, i) => (
               <div key={i} className="flex justify-between gap-3 py-1.5">
                 <span className={it.in_stock ? 'text-slate-200' : 'text-slate-500 line-through'}>
