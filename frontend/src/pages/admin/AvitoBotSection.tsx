@@ -849,7 +849,7 @@ Galaxy Z Fold8; 12/256; Серый; 118990`
 
 function PriceListTab({ api, config, setConfig }: { api: Api; config: Config; setConfig: (c: Config) => void }) {
   const [text, setText] = useState(config.price_list)
-  const [check, setCheck] = useState<{ items: { name: string; price: number; in_stock: boolean; country: string | null; sim: string | null; color_ru: string | null }[]; count: number; errors: string[] } | null>(null)
+  const [check, setCheck] = useState<{ items: { name: string; price: number; in_stock: boolean; country: string | null; sim: string | null; color_ru: string | null; few?: boolean }[]; count: number; errors: string[] } | null>(null)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     const t = window.setTimeout(async () => {
@@ -871,7 +871,7 @@ function PriceListTab({ api, config, setConfig }: { api: Api; config: Config; se
         <p className="mb-3 text-sm text-slate-400">
           Главный источник цен и наличия: бот берёт цену отсюда — и в первом сообщении, и в ответах. Чего нет в прайсе, бот ищет в каталоге сайта.
           Вставляйте прайс как есть, как присылаете в Telegram: «17Pro 256 Orange - 94000🇰🇷1SIM.», «16 128 Teal 🇮🇳 - 59.700».
-          Бот поймёт модель (17Pro, 17Air, 17e — это iPhone), объём, цвет (и с опечатками), страну по флажку и SIM (1SIM — SIM + eSIM, eSIM — только eSIM).
+          Бот поймёт модель (17Pro, 17Air, 17e — это iPhone), объём, цвет (и с опечатками), страну по флажку и SIM (1SIM — SIM + eSIM, eSIM — только eSIM). 🏎️ — осталось мало: бот предложит забронировать заранее.
           Заголовки «ПРАЙС…» и разделители пропускаются. Одна и та же позиция несколько раз — действует последняя по тексту.
           Можно и таблицей: <code className="text-slate-200">Модель; Память; Цвет; Цена; Наличие</code>. Строка с # — комментарий.
         </p>
@@ -891,6 +891,7 @@ function PriceListTab({ api, config, setConfig }: { api: Api; config: Config; se
                 <span className={it.in_stock ? 'text-slate-200' : 'text-slate-500 line-through'}>
                   {it.name}
                   {(it.country || it.sim) && <span className="ml-1.5 text-xs text-slate-500">{[it.country, it.sim].filter(Boolean).join(' · ')}</span>}
+                  {it.few && <span className="ml-1.5 text-xs text-amber-400">осталось мало</span>}
                 </span>
                 <span className="shrink-0 tabular-nums text-white">{Math.round(it.price).toLocaleString('ru-RU')} ₽</span>
               </div>
