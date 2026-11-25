@@ -103,7 +103,8 @@ def _send_one(sub_info: dict, payload: str) -> dict | None:
         return {"status": None, "detail": str(exc)[:160]}
 
 
-async def send_push_to_all(title: str, body: str, url: str = "/app", tag: str = "takesmart-order") -> dict:
+async def send_push_to_all(title: str, body: str, url: str = "/app", tag: str = "takesmart-order",
+                           kind: str = "order") -> dict:
     """Рассылает Web Push всем подпискам. Возвращает {sent,total,pruned,errors}. Безопасно."""
     if not settings.VAPID_PRIVATE_KEY or not settings.VAPID_PUBLIC_KEY:
         logger.warning("push_not_configured", skipping=True)
@@ -115,7 +116,7 @@ async def send_push_to_all(title: str, body: str, url: str = "/app", tag: str = 
             return {"sent": 0, "total": 0, "pruned": 0, "errors": []}
 
         payload = json.dumps(
-            {"title": title, "body": body, "url": url, "tag": tag}, ensure_ascii=False
+            {"title": title, "body": body, "url": url, "tag": tag, "kind": kind}, ensure_ascii=False
         )
         infos = [
             (sub.endpoint, {"endpoint": sub.endpoint, "keys": {"p256dh": sub.p256dh, "auth": sub.auth}})

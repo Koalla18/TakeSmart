@@ -470,6 +470,34 @@ def test_off_topic_silent_prompt_and_verdict():
     assert not parse_llm_answer("просто текст").off_topic
 
 
+def test_farewell_phones_only_from_price():
+    from datetime import datetime, timezone
+    from src.app.core.avito_bot_engine import farewell_wish, is_phone_item
+    assert "дня" in farewell_wish(datetime(2026, 11, 25, 9, 0, tzinfo=timezone.utc))      # 12:00 МСК
+    assert "вечера" in farewell_wish(datetime(2026, 11, 25, 16, 0, tzinfo=timezone.utc))  # 19:00 МСК
+    assert "ночи" in farewell_wish(datetime(2026, 11, 25, 22, 0, tzinfo=timezone.utc))    # 01:00 МСК
+    assert is_phone_item("Смартфоны", "Samsung Galaxy S25 256 ГБ")
+    assert is_phone_item("Другое", "Apple iPhone 16 128GB")
+    assert is_phone_item(None, "Samsung Galaxy S25 Ultra")
+    assert not is_phone_item("Наушники", "AirPods Pro 3")
+    assert not is_phone_item("Планшеты", "Galaxy Tab S10")
+    ctx = ChatContext("Samsung Galaxy S25", None, None, [("client", "Спасибо, до свидания")])
+    p = build_system_prompt(PromptConfig("Илья", "", "", ""), [], ctx, [], NOW, greet=False)
+    assert "ТОЛЬКО из прайса магазина" in p and "ничего не обещай" in p
+    assert "тепло попрощайся" in p and "пожелай" in p
+
+
+def test_title_match_foreign_words_do_not_match():
+    from src.app.core.avito_bot_engine import catalog_vocab, parse_price_list, title_match
+    items, _ = parse_price_list("17e 256 Black 1Sim 🇮🇳 - 60.900\n17Pro 256 Orange - 91500🇯🇵eSIM.\n"
+                                "16 Pro Max 256 White 🇺🇸 - 91.700")
+    v = catalog_vocab(items)
+    assert title_match(items, "Samsung Galaxy S25 256 ГБ", v) is None          # не iPhone 256 ГБ
+    assert title_match(items, "AirPods Max", v) is None                         # не iPhone Pro Max
+    assert title_match(items, "Новый Apple iPhone 17 Pro 256 ГБ Orange", v).price == 91500
+    assert title_match(items, "iPhone 17 Pro 256GB", v).price == 91500
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

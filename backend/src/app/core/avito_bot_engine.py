@@ -134,6 +134,25 @@ class PromptConfig:
     off_topic_silent: bool = True
 
 
+def farewell_wish(now: datetime) -> str:
+    """Пожелание по времени суток в Москве: утром и днём — хорошего дня, вечером — вечера, ночью — доброй ночи."""
+    h = now.astimezone(MSK).hour
+    if 5 <= h < 17:
+        return "хорошего дня и отличного настроения"
+    if 17 <= h < 23:
+        return "хорошего вечера и отличного настроения"
+    return "доброй ночи"
+
+
+_PHONE_NAME = re.compile(r"\b(iphone|galaxy\s+(s|a|z|m|note)\d*|pixel\s*\d|xiaomi|redmi|poco|honor|realme|oneplus|nothing\s+phone|айфон)", re.IGNORECASE)
+
+
+def is_phone_item(category: str | None, name: str) -> bool:
+    """Смартфон: по категории сайта («Смартфоны», «Телефоны») или по названию."""
+    cat = (category or "").lower()
+    return "смартфон" in cat or "телефон" in cat or bool(_PHONE_NAME.search(name or ""))
+
+
 # ── Приветствие и тон ────────────────────────────────────────────────────────
 
 _GREETING_START = re.compile(r"^\W*(здравствуй|добр(ый|ое|ого)\s+(день|утро|вечер)|приветствую|привет|доброго)", re.IGNORECASE)
@@ -197,8 +216,11 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
         cfg.style.strip(),
         "",
         "Жёсткие правила:",
-        "- Цены, наличие, сроки и условия бери ТОЛЬКО из данных ниже. Чего там нет — не выдумывай: "
-        "скажи, что уточнишь, и поставь handoff=true.",
+        "- Цены, наличие, сроки и условия бери ТОЛЬКО из данных ниже. Чего там нет — не выдумывай и ничего не "
+        "обещай («согласовываю», «уточню и напишу»): reply пустой, handoff=true — менеджер ответит сам.",
+        "- Телефоны (iPhone, Samsung и любые смартфоны) — ТОЛЬКО из прайса магазина: модели, объёмы, цвета, страны "
+        "и цены. Чего нет в прайсе — того сейчас нет в наличии; не называй цвета и варианты, которых нет в прайсе "
+        "у этой модели, и не предлагай телефоны не из прайса.",
         "- Если покупатель прямо и всерьёз спрашивает, бот ли ты или живой человек, не отрицай, что ты "
         "виртуальный помощник магазина, и предложи подключить менеджера. В остальном общайся естественно, "
         "не упоминай, что ты ИИ, без надобности.",
@@ -249,6 +271,12 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
         "(эмодзи — только если они разрешены выше).",
         "",
         f"Сейчас {DAY_NAMES[now.weekday()]}, {now:%d.%m.%Y %H:%M} по Москве.",
+        "",
+        "Завершение диалога:",
+        f"- Если разговор подошёл к концу (покупатель благодарит, прощается, договорились о брони или встрече, "
+        f"«подумаю», «не актуально») — тепло попрощайся одной-двумя фразами: поблагодари и пожелай {farewell_wish(now)}. "
+        "Без повторного приветствия и без новых предложений купить.",
+        "- Если ты уже попрощался, а покупатель ответил «и вам», «спасибо», 👍 — reply пустой.",
     ]
     if cfg.human_mode:
         parts += ["", "Можно ответить одним или двумя короткими сообщениями подряд, как в мессенджере: "
@@ -259,7 +287,8 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
     if not greet and not first_sent:
         parts += ["", "Сегодня вы с покупателем уже общались: НЕ здоровайся и не представляйся, сразу по делу."]
     elif first_sent:
-        parts += ["", "Приветствие и розничную цену ты УЖЕ отправил первым сообщением (оно последнее в истории). "
+        parts += ["", "Приветствие и розничную цену ты УЖЕ написал (последнее сообщение в истории), твой ответ "
+                      "допишется в то же сообщение следом. "
                       "Не здоровайся и не повторяй цену. Ответь только на то, о чём ещё спросили; если покупатель "
                       "спросил только «цена актуальна?» или просто поздоровался — reply пустой."]
         if not first_price_known:
@@ -345,7 +374,7 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
         "",
         'Ответь строго JSON-объектом без пояснений: {"reply": "текст сообщения покупателю или пустая строка", '
         '"handoff": true|false, "reason": "коротко, зачем нужен человек, или пусто", "off_topic": true|false}. '
-        "Если сказать нечего (например, покупатель просто попрощался после твоего вопроса) — reply пустой, handoff=false.",
+        "Если сказать нечего (например, вы уже попрощались) — reply пустой, handoff=false.",
     ]
     return "\n".join(parts)
 
@@ -872,29 +901,50 @@ DEFAULT_FIRST_MESSAGE = (
 )
 
 
+# Слова названия объявления, которые не определяют товар
+_TITLE_SKIP = {"apple", "смартфон", "телефон", "мобильный", "новый", "новая", "новые", "оригинал", "оригинальный",
+               "ростест", "гарантия", "рассрочка", "trade", "in", "трейд", "ин", "обмен", "в", "на", "с", "для",
+               "без", "доставка", "москва", "наличии", "запечатанный", "запечатан", "nfc"}
+
+
+def title_words(title: str) -> list[str]:
+    """Значимые слова названия объявления — все, включая те, которых нет в каталоге."""
+    aliases = _aliases()
+    out: list[str] = []
+    for w in _WORD.findall(normalize(_split_units(title or ""))):
+        w = aliases.get(w, w)
+        if w in _QUERY_SKIP or w in _TITLE_SKIP or w in out:
+            continue
+        out.append(w)
+    return out
+
+
 def title_match(items: Sequence[CatalogItem], title: str | None, vocab: set[str],
                 index: SearchIndex | None = None) -> CatalogItem | None:
-    """Товар каталога для объявления — только если совпадение надёжное: все числа из названия
-    (модель, память) есть в товаре и совпало не меньше 70% значимых слов. Иначе None — лучше
-    не назвать цену, чем назвать чужую. При нескольких равных берём тот, что в наличии, точнее по
-    названию («17 Pro», а не «17 Pro Max») и дешевле."""
+    """Товар для объявления — только при надёжном совпадении: каждое слово с цифрой из названия
+    (модель и память: 17, s25, 256) есть в товаре, и совпало не меньше 70% значимых слов названия —
+    считая и слова, которых в каталоге нет вовсе («Samsung Galaxy S25» не совпадёт с iPhone 256 ГБ).
+    Иначе None — лучше не назвать цену, чем назвать чужую. При нескольких равных берём тот, что
+    в наличии, точнее по названию («17 Pro», а не «17 Pro Max») и дешевле."""
     if not title:
         return None
-    tokens = query_tokens(title, vocab)
-    if not tokens:
+    words = title_words(title)
+    if not words:
         return None
     index = index or SearchIndex(items)
-    digits = [t for t in tokens if t.isdigit()]
+    digits = [w for w in words if any(ch.isdigit() for ch in w)]
+    if any(d not in index.inv for d in digits):
+        return None
     if digits:
-        pool = set(index.inv.get(digits[0], ()))
+        pool = set(index.inv[digits[0]])
         for d in digits[1:]:
-            pool &= set(index.inv.get(d, ()))
+            pool &= set(index.inv[d])
     else:
         pool = set(range(len(index.items)))
     best: list[tuple[float, int, int]] = []
     for i in pool:
-        hit = sum(1 for t in tokens if i in index.candidates(t))
-        share = hit / len(tokens)
+        hit = sum(1 for w in words if i in index.candidates(w))
+        share = hit / len(words)
         if share >= 0.7:
             best.append((share, hit, i))
     if not best:

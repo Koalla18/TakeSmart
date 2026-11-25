@@ -609,14 +609,17 @@ async def test_chat(body: TestIn) -> DecisionOut:
             pending = pending + [text] if author == "client" else []
         ctx = ChatContext(body.item_title, body.item_price, None, history)
         first = await bot.first_message(session, cfg, ctx, None)
-        opening, price_known = first if first else (None, True)
+        opening, early = bot.opening_or_handoff(first, body.item_title)
         if opening:
             ctx = ChatContext(ctx.item_title, ctx.item_price, None, history + [("bot", opening)])
-        decision = await bot.decide(session, cfg, ctx, "\n".join(pending), hits, first_sent=bool(opening),
-                                    first_price_known=price_known)
+        decision = early or await bot.decide(session, cfg, ctx, "\n".join(pending), hits, first_sent=bool(opening))
+        if decision.action == "handoff" and not decision.text:
+            opening = None
         await session.commit()
-    return DecisionOut(first_message=opening,
-        action=decision.action, text=decision.text, source=decision.source,
+    merged = bot.with_opening(opening, decision)
+    joined = bool(merged and merged != opening)   # шаблон и ответ ушли бы одним сообщением
+    return DecisionOut(first_message=merged,
+        action=decision.action, text=None if joined else decision.text, source=decision.source,
         rule_id=decision.rule.id if decision.rule else None, reason=decision.reason,
         delay_seconds=decision.delay_seconds, catalog=decision.catalog, order=decision.order,
         examples_used=decision.examples_used,
