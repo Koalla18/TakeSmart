@@ -437,6 +437,9 @@ def test_free_price_list_format():
     assert search_catalog(items, ["японец 17 про 256 оранж"], v)[0].price == 91200
     assert search_catalog(items, ["17 про 256 оранжевый с симкой"], v)[0].price == 94000
     assert search_catalog(items, ["эйр 512 голубой"], v)[0].price == 76500
+    few, _ = parse_price_list("17 256 Black -             73500🇮🇳1SIM.🏎️\n17 256 White - 73500🇮🇳1SIM.")
+    assert few[0].attributes.get("few") and not few[1].attributes.get("few")
+    assert price_lines(few)[0].endswith("73 500 ₽ — осталось мало") and not price_lines(few)[1].endswith("мало")
 
 
 if __name__ == "__main__":

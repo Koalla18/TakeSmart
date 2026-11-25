@@ -615,7 +615,8 @@ async def price_list_check(body: PriceListCheckIn) -> dict:
     return {
         "items": [{"name": it.name, "price": it.price, "in_stock": it.stock > 0,
                    "country": (it.attributes or {}).get("country"), "sim": (it.attributes or {}).get("sim"),
-                   "color_ru": (it.attributes or {}).get("color_ru")} for it in items[:2000]],
+                   "color_ru": (it.attributes or {}).get("color_ru"),
+                   "few": bool((it.attributes or {}).get("few"))} for it in items[:2000]],
         "count": len(items), "errors": errors[:50],
     }
 

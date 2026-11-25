@@ -289,6 +289,8 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
                   "ближайшие позиции и ответь конкретно — модель, объём, цвет, страна, SIM, цена. Не переспрашивай то, "
                   "что можно понять из прайса и объявления; если вариантов несколько — назови их, а не задавай вопрос.",
                   "- Если позиции нет в прайсе — так и скажи и предложи ближайшие из прайса (другой цвет, объём, страну).",
+                  "- «осталось мало» — последние штуки. Когда называешь такую позицию, скажи спокойно, что осталось "
+                  "совсем немного и лучше забронировать заранее. Не дави и не выдумывай точное количество.",
                   *price_overview]
     if trade_in.strip():
         parts += ["", "Оценка trade-in (принимаем только эти модели; называй вилку как предварительную «до»):",
@@ -978,6 +980,7 @@ def _parse_free_line(line: str, n: int) -> CatalogItem | str | None:
     if "прайс" in low or re.search(r"\[\d{1,2}\s*\w+\.?\s*\d{4}", line) or not re.search(r"\d", line):
         return None
     country, sim = _flag_country(line), _sim_label(line)
+    few = "\U0001F3CE" in line                                          # 🏎️ — осталось очень мало
     plain = _FLAG.sub(" ", line)
     prices = [m for m in _FREE_PRICE.finditer(plain) if int(re.sub(r"\D", "", m.group(1))) >= 1000]
     if not prices:
@@ -1010,6 +1013,8 @@ def _parse_free_line(line: str, n: int) -> CatalogItem | str | None:
         attrs["country"] = country
     if sim:
         attrs["sim"] = sim
+    if few:
+        attrs["few"] = "осталось мало"
     name = f"{model} {storage}" + (f", {color_en}" if color_en else "")
     return CatalogItem(name=name, category="Прайс", price=price, stock=1, attributes=attrs, key=f"price:{n}")
 
@@ -1082,7 +1087,8 @@ def price_lines(items: Sequence[CatalogItem]) -> list[str]:
             color = f"{color} ({a['color_ru']})"
         extra = ", ".join(x for x in (a.get("country"), a.get("sim")) if x)
         out.append(f"- {family_name(it)} {a.get('storage', '')} {color}".rstrip()
-                   + (f" — {extra}" if extra else "") + f" — {_rub_short(it.price)} ₽")
+                   + (f" — {extra}" if extra else "") + f" — {_rub_short(it.price)} ₽"
+                   + (" — осталось мало" if a.get("few") else ""))
     return out
 
 
