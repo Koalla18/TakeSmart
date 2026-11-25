@@ -1250,6 +1250,30 @@ function ImportModal({ api, onClose, onDone }: { api: Api; onClose: () => void; 
 // ── Тест ─────────────────────────────────────────────────────────────────────
 
 interface TestTurn { author: 'client' | 'bot'; text: string; decision?: Decision; whole?: boolean }
+interface ListingPrice { price: string | null; source: string | null; matched: string | null }
+interface RunRow { label: string; question: string; d: Decision | null }
+
+const QUICK: readonly (readonly [string, string])[] = [
+  ['Наличие', 'Здравствуйте! Ещё продаётся?'],
+  ['Цвет и память', '16/128 белый есть?'],
+  ['Японец', 'Японец 17 про 256 оранжевый есть? Сколько стоит?'],
+  ['С физической SIM', 'А с физической симкой есть?'],
+  ['Регион', 'Какой регион у этого телефона?'],
+  ['Trade-in', 'Хочу в трейд-ин айфон 14 Pro, сколько доплатить?'],
+  ['Trade-in Android', 'А самсунг в трейд-ин возьмёте?'],
+  ['Доставка', 'А доставка есть? Я в Подольске'],
+  ['Оплата картой', 'Можно оплатить картой? Сколько комиссия?'],
+  ['Гарантия', 'Гарантия есть?'],
+  ['Торг', 'Скинете за наличные?'],
+  ['Не по теме', 'Реши уравнение 2x + 3 = 11'],
+  ['«Вы бот?»', 'Вы бот или живой человек?'],
+  ['Отказ', 'Уже не актуально, спасибо'],
+  ['Позвать человека', 'Позовите менеджера, у меня проблема с прошлым заказом'],
+]
+const SCRIPTS: readonly { title: string; steps: readonly string[] }[] = [
+  { title: 'Бронь, самовывоз', steps: ['Здравствуйте, ещё продаётся?', 'Беру. Как забронировать?', 'Заберу сам', 'Иван Петров, +7 999 123-45-67'] },
+  { title: 'Бронь, доставка', steps: ['Добрый день, актуально?', 'Беру, нужна доставка по Москве', 'Тверская 1, кв 5', 'Анна Смирнова, 89991234567, почта anna@mail.ru'] },
+]
 
 function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
   const [item, setItem] = useState('iPhone 17 Pro 256 ГБ')
@@ -1257,47 +1281,161 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
   const [turns, setTurns] = useState<TestTurn[]>([])
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState<Status | null>(null)
+  const [listings, setListings] = useState<string[]>([])
+  const [lp, setLp] = useState<ListingPrice | null>(null)
+  const [run, setRun] = useState<RunRow[] | null>(null)
+  const [runBusy, setRunBusy] = useState(false)
+  const bottom = useRef<HTMLDivElement>(null)
   const ruleName = (id: string | null) => rules?.find(r => r.id === id)?.keywords[0]
 
-  const send = async () => {
-    const t = text.trim()
-    if (!t) return
+  useEffect(() => {
+    call<Status>(api, '/status').then(r => r && setStatus(r))
+    call<string[]>(api, '/test/listings').then(r => r && setListings(r))
+  }, [api])
+  useEffect(() => {
+    const t = window.setTimeout(async () => {
+      setLp(await call<ListingPrice>(api, `/test/listing?title=${encodeURIComponent(item)}`))
+    }, 350)
+    return () => window.clearTimeout(t)
+  }, [api, item])
+  useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [turns, busy])
+
+  const ask = (history: TestTurn[], t: string) => call<Decision>(api, '/test', {
+    method: 'POST',
+    body: { text: t, history: history.map(({ author, text }) => ({ author, text })), item_title: item || null, item_price: price || null },
+  })
+  const withAnswer = (prev: TestTurn[], t: string, d: Decision): TestTurn[] => [...prev, { author: 'client', text: t },
+    ...(d.first_message ? [{ author: 'bot' as const, text: d.first_message, whole: true }] : []),
+    ...(d.text ? [{ author: 'bot' as const, text: d.text, decision: d, whole: d.source !== 'llm' }] : [{ author: 'bot' as const, text: '', decision: d }])]
+
+  const send = async (override?: string) => {
+    const t = (override ?? text).trim()
+    if (!t || busy) return
     setBusy(true)
-    const history = turns.map(({ author, text }) => ({ author, text }))
-    const d = await call<Decision>(api, '/test', { method: 'POST', body: { text: t, history, item_title: item || null, item_price: price || null } })
+    const d = await ask(turns, t)
     setBusy(false)
     if (!d) return
-    setText('')
-    setTurns(prev => [...prev, { author: 'client', text: t },
-      ...(d.first_message ? [{ author: 'bot' as const, text: d.first_message, whole: true }] : []),
-      ...(d.text ? [{ author: 'bot' as const, text: d.text, decision: d, whole: d.source !== 'llm' }] : [{ author: 'bot' as const, text: '', decision: d }])])
+    if (override === undefined) setText('')
+    setTurns(prev => withAnswer(prev, t, d))
+  }
+  const play = async (steps: readonly string[]) => {
+    if (busy) return
+    setBusy(true)
+    let cur: TestTurn[] = []
+    setTurns([])
+    for (const t of steps) {
+      setTurns([...cur, { author: 'client', text: t }])
+      const d = await ask(cur, t)
+      if (!d) break
+      cur = withAnswer(cur, t, d)
+      setTurns(cur)
+    }
+    setBusy(false)
+  }
+  const runAll = async () => {
+    if (runBusy) return
+    setRunBusy(true)
+    const rows: RunRow[] = QUICK.map(([label, question]) => ({ label, question, d: null }))
+    setRun(rows)
+    for (let i = 0; i < rows.length; i += 4) {   // по четыре вопроса одновременно: быстро, но без перегрузки модели
+      const batch = rows.slice(i, i + 4)
+      const res = await Promise.all(batch.map(r => ask([], r.question)))
+      res.forEach((d, j) => { rows[i + j] = { ...batch[j], d } })
+      setRun([...rows])
+    }
+    setRunBusy(false)
   }
 
+  const noModel = status && !status.llm_ready
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
-      <div className={`${CARD} flex min-h-[55vh] flex-col !p-0`}>
-        <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
-          {turns.length === 0 && <div className="text-sm text-slate-500">Напишите как покупатель — увидите, что ответит бот и почему. Ничего не сохраняется и в Авито не уходит.</div>}
-          {turns.map((t, i) => t.author === 'client' ? (
-            <div key={i} className="max-w-[80%]"><div className="inline-block rounded-2xl bg-white/[0.06] px-3.5 py-2 text-sm text-slate-100">{t.text}</div></div>
-          ) : (
-            <div key={i} className="ml-auto max-w-[85%] text-right">
-              {t.text && (t.whole ? [t.text] : t.text.split(/\n\s*\n/)).filter(p => p.trim()).map((part, j) => (
-                <div key={j} className="mb-1 flex justify-end"><div className="inline-block whitespace-pre-wrap rounded-2xl bg-yellow-400/[0.14] px-3.5 py-2 text-left text-sm text-yellow-50">{part.trim()}</div></div>
-              ))}
-              {t.decision && <DecisionNote d={t.decision} ruleName={ruleName(t.decision.rule_id)} />}
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="min-w-0 space-y-4">
+        {status && (
+          <div className={`rounded-xl border px-4 py-2.5 text-sm ${noModel ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-emerald-400/20 bg-emerald-400/[0.07] text-emerald-200'}`}>
+            {noModel ? 'Модель не подключена — отвечают только автоответы. Подключите модель во вкладке «Настройки», чтобы проверить живое общение.'
+              : 'Модель подключена — бот отвечает как в настоящем диалоге: те же правила, прайс, каталог, trade-in. Ничего не сохраняется и в Авито не уходит.'}
+          </div>
+        )}
+        <div className={`${CARD} flex min-h-[50vh] flex-col !p-0`}>
+          <div className="max-h-[62vh] flex-1 space-y-3 overflow-y-auto px-5 py-4">
+            {turns.length === 0 && <div className="text-sm text-slate-500">Напишите как покупатель или нажмите готовую реплику справа — увидите, что ответит бот и почему.</div>}
+            {turns.map((t, i) => t.author === 'client' ? (
+              <div key={i} className="max-w-[80%]"><div className="inline-block rounded-2xl bg-white/[0.06] px-3.5 py-2 text-sm text-slate-100">{t.text}</div></div>
+            ) : (
+              <div key={i} className="ml-auto max-w-[85%] text-right">
+                {t.text && (t.whole ? [t.text] : t.text.split(/\n\s*\n/)).filter(p => p.trim()).map((part, j) => (
+                  <div key={j} className="mb-1 flex justify-end"><div className="inline-block whitespace-pre-wrap rounded-2xl bg-yellow-400/[0.14] px-3.5 py-2 text-left text-sm text-yellow-50">{part.trim()}</div></div>
+                ))}
+                {t.decision && <DecisionNote d={t.decision} ruleName={ruleName(t.decision.rule_id)} />}
+              </div>
+            ))}
+            {busy && <div className="ml-auto text-right text-xs text-slate-500">бот думает…</div>}
+            <div ref={bottom} />
+          </div>
+          <div className="flex gap-2 border-t border-white/[0.06] p-3">
+            <input className={INPUT} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') send() }} placeholder="Сообщение покупателя" />
+            <button type="button" onClick={() => send()} disabled={busy || !text.trim()} className={BTN_PRIMARY} aria-label="Отправить"><AdminIcon name="send" className="h-4 w-4" /></button>
+          </div>
+        </div>
+        {run && (
+          <div className={CARD}>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-white">Прогон готовых вопросов{runBusy ? ' — идёт…' : ''}</h3>
+              <button type="button" onClick={() => setRun(null)} className="text-xs text-slate-500 underline decoration-dotted">скрыть</button>
             </div>
-          ))}
-        </div>
-        <div className="flex gap-2 border-t border-white/[0.06] p-3">
-          <input className={INPUT} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') send() }} placeholder="Сообщение покупателя" />
-          <button type="button" onClick={send} disabled={busy || !text.trim()} className={BTN_PRIMARY} aria-label="Отправить"><AdminIcon name="send" className="h-4 w-4" /></button>
-        </div>
+            <div className="divide-y divide-white/[0.05] text-sm">
+              {run.map(r => (
+                <div key={r.label} className="grid gap-1 py-2.5 sm:grid-cols-[170px_minmax(0,1fr)] sm:gap-4">
+                  <div><div className="font-medium text-slate-200">{r.label}</div><div className="text-xs text-slate-500">{r.question}</div></div>
+                  <div className="min-w-0">
+                    {!r.d ? <span className="text-slate-500">…</span> : (
+                      <>
+                        {r.d.text ? <div className="whitespace-pre-wrap text-yellow-50">{r.d.text}</div> : <div className="text-slate-500">{r.d.action === 'silent' ? 'молчит' : 'без текста'}</div>}
+                        <DecisionNote d={r.d} ruleName={ruleName(r.d.rule_id)} />
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
-      <div className={`${CARD} space-y-3 self-start`}>
-        <label className="block"><span className={LABEL}>Объявление</span><input className={`${INPUT} mt-1.5`} value={item} onChange={e => setItem(e.target.value)} /></label>
-        <label className="block"><span className={LABEL}>Цена в объявлении</span><input className={`${INPUT} mt-1.5`} value={price} onChange={e => setPrice(e.target.value)} placeholder="135 990 ₽" /></label>
-        <button type="button" onClick={() => setTurns([])} className={`${BTN_ROW} w-full`}>Начать заново</button>
+      <div className="space-y-4 self-start">
+        <div className={`${CARD} space-y-3`}>
+          <label className="block"><span className={LABEL}>Объявление</span>
+            <input className={`${INPUT} mt-1.5`} value={item} onChange={e => setItem(e.target.value)} list="avito-test-listings" placeholder="Название, как в объявлении" />
+            <datalist id="avito-test-listings">{listings.map(l => <option key={l} value={l} />)}</datalist>
+          </label>
+          <div className="rounded-lg bg-white/[0.04] px-3 py-2 text-xs leading-relaxed text-slate-400">
+            {!item.trim() ? 'Без объявления бот отвечает как на общий вопрос.'
+              : lp?.price ? <>Розничная цена в первом сообщении: <b className="text-white">{lp.price}</b><br />из: {lp.source} — {lp.matched}</>
+                : lp ? <span className="text-amber-300">Цена по этому названию не нашлась — первое сообщение уйдёт без строки с ценой, а менеджеру придёт пометка. Проверьте прайс или привяжите объявление к товару.</span> : 'Ищу цену…'}
+          </div>
+          <label className="block"><span className={LABEL}>Цена в объявлении</span><input className={`${INPUT} mt-1.5`} value={price} onChange={e => setPrice(e.target.value)} placeholder="Доплата по trade-in, например 25 000 ₽" /></label>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setTurns([])} disabled={busy} className={`${BTN_ROW} flex-1`}>Начать заново</button>
+            <button type="button" onClick={runAll} disabled={runBusy || busy} className={`${BTN_ROW} flex-1`}>{runBusy ? 'Идёт прогон…' : 'Прогнать все'}</button>
+          </div>
+        </div>
+        <div className={CARD}>
+          <h3 className="mb-2 text-sm font-semibold text-white">Готовые реплики</h3>
+          <div className="flex flex-wrap gap-1.5">
+            {QUICK.map(([label, q]) => (
+              <button key={label} type="button" disabled={busy} title={q} onClick={() => send(q)}
+                className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-slate-200 transition hover:bg-white/[0.09] disabled:opacity-50">{label}</button>
+            ))}
+          </div>
+          <h3 className="mb-2 mt-4 text-sm font-semibold text-white">Диалоги целиком</h3>
+          <div className="space-y-1.5">
+            {SCRIPTS.map(sc => (
+              <button key={sc.title} type="button" disabled={busy} onClick={() => play(sc.steps)}
+                className={`${BTN_ROW} w-full !justify-start`}>▶ {sc.title}<span className="ml-2 text-xs text-slate-500">{sc.steps.length} сообщ.</span></button>
+            ))}
+          </div>
+          <p className="mt-3 text-xs leading-relaxed text-slate-500">«Прогнать все» задаёт каждый вопрос в новом диалоге — быстро видно, где бот ошибается. В диалоге с бронью бот покажет, какую заявку оформил бы; настоящая заявка в «Заказах» не создаётся.</p>
+        </div>
       </div>
     </div>
   )
