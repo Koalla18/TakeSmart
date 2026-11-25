@@ -378,7 +378,7 @@ def test_price_list_parse_and_priority():
     from src.app.core.avito_bot_engine import build_overview, catalog_vocab, parse_price_list, title_match
     text = ("# прайс\niPhone 16; 128; Белый; 62 990\niPhone 16\t128\tЧёрный\t62990\n"
             "iPhone 16 | 256 | Ультрамарин | 72990 | нет\nGalaxy Z Fold8; 12/256; Серый; 118 990 ₽\n"
-            "AirPods Pro 3; 24990\nплохая строка")
+            "AirPods Pro 3; 24990\nплохая строка\n17 Pro 256 Orange")
     items, errors = parse_price_list(text)
     assert [it.name for it in items] == ["iPhone 16 128 ГБ, Белый", "iPhone 16 128 ГБ, Чёрный", "iPhone 16 256 ГБ, Ультрамарин",
                                          "Galaxy Z Fold8 12/256, Серый", "AirPods Pro 3"]
@@ -408,6 +408,35 @@ def test_overview_line_limit():
     many = [CatalogItem(f"Model {i}", "Смартфоны", 1000 + i, stock=1) for i in range(400)]
     ov = build_overview(many, max_lines=50)
     assert len(ov) == 51 and ov[-1].startswith("… и ещё")
+
+
+def test_free_price_list_format():
+    from src.app.core.avito_bot_engine import parse_price_list, price_lines, catalog_vocab, search_catalog, query_tokens
+    text = """ПРАЙС iPhone 17 TakeSmart, [24 ноя. 2026 в 11:02]
+15 256 Black 🇮🇳 - 61.100
+17Pro 256 Orange -     94000🇰🇷1SIM.
+17Pro 256 Orange -     91500🇯🇵eSIM.
+17Pro 256 Orange -     91200🇯🇵eSIM.
+17 Air 512 Blue eSIM 🇯🇵 - 76.500
+18 Duo 512 While - 216000🇯🇵.
+------
+"""
+    items, errors = parse_price_list(text)
+    assert errors == []
+    assert len(items) == 5                                                # дубль японского 17 Pro — последний
+    by = {(it.name, it.attributes.get("country"), it.attributes.get("sim")): it.price for it in items}
+    assert by[("iPhone 15 256 ГБ, Black", "Индия", None)] == 61100
+    assert by[("iPhone 17 Pro 256 ГБ, Orange", "Корея", "SIM + eSIM")] == 94000
+    assert by[("iPhone 17 Pro 256 ГБ, Orange", "Япония", "только eSIM")] == 91200
+    assert by[("iPhone 17 Air 512 ГБ, Blue", "Япония", "только eSIM")] == 76500
+    assert any(n.startswith("iPhone 18 Duo 512 ГБ, White") for n, _, _ in by)   # опечатка «While»
+    lines = price_lines(items)
+    assert "- iPhone 17 Pro 256 ГБ Orange (оранжевый) — Япония, только eSIM — 91 200 ₽" in lines
+    v = catalog_vocab(items)
+    assert query_tokens("японец 17 про 256 оранж", v) == ["япония", "17", "pro", "256", "orange"]
+    assert search_catalog(items, ["японец 17 про 256 оранж"], v)[0].price == 91200
+    assert search_catalog(items, ["17 про 256 оранжевый с симкой"], v)[0].price == 94000
+    assert search_catalog(items, ["эйр 512 голубой"], v)[0].price == 76500
 
 
 if __name__ == "__main__":

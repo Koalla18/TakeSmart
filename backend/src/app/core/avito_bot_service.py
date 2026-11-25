@@ -37,7 +37,7 @@ from src.app.core.avito_bot_engine import (
     render_template, rule_covers, starts_with_refusal, wants_opt_out, is_first_reply, with_greeting,
     split_reply, typing_delay, classify_avito_message, normalize_phone, valid_email, valid_full_name,
     order_note_for_prompt, wants_cancel, CatalogItem, build_overview, catalog_vocab, query_segments, search_catalog,
-    render_first_message, title_match, is_refusal, strip_greeting, sanitize_reply, parse_price_list,
+    render_first_message, title_match, is_refusal, strip_greeting, sanitize_reply, parse_price_list, price_lines,
 )
 from src.app.core.config import settings
 from src.app.core.logger import get_logger
@@ -284,7 +284,7 @@ def price_snapshot(cfg: AvitoBotConfig) -> dict[str, Any]:
     if _PRICE_LIST["text"] != cfg.price_list:
         items, errors = parse_price_list(cfg.price_list)
         _PRICE_LIST.update(text=cfg.price_list, items=items, errors=errors, vocab=catalog_vocab(items),
-                           overview=[ln for ln in build_overview(items, 400) if not ln.startswith("## ")])
+                           overview=price_lines(items)[:600])
     return _PRICE_LIST
 
 

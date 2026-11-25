@@ -613,7 +613,9 @@ class PriceListCheckIn(BaseModel):
 async def price_list_check(body: PriceListCheckIn) -> dict:
     items, errors = parse_price_list(body.text)
     return {
-        "items": [{"name": it.name, "price": it.price, "in_stock": it.stock > 0} for it in items[:2000]],
+        "items": [{"name": it.name, "price": it.price, "in_stock": it.stock > 0,
+                   "country": (it.attributes or {}).get("country"), "sim": (it.attributes or {}).get("sim"),
+                   "color_ru": (it.attributes or {}).get("color_ru")} for it in items[:2000]],
         "count": len(items), "errors": errors[:50],
     }
 

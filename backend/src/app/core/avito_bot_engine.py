@@ -276,7 +276,20 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
         parts += ["", "Что ещё нужно знать о магазине:", cfg.knowledge.strip()]
     if price_overview:
         parts += ["", "АКТУАЛЬНЫЙ ПРАЙС МАГАЗИНА — главный источник цен и наличия (важнее каталога ниже; "
-                      "если позиция есть в прайсе, цену бери только отсюда):", *price_overview]
+                      "если позиция есть в прайсе, цену бери только отсюда). Формат: модель объём цвет — страна, SIM — цена.",
+                  "Как читать прайс:",
+                  "- Страна — это версия (регион) устройства: Япония, Корея, Индия, США, Гонконг, ОАЭ и т.д. "
+                  "Спросили «какой регион/страна/версия» — отвечай по прайсу; если вариантов несколько — перечисли "
+                  "их с ценами.",
+                  "- «SIM + eSIM» — одна физическая SIM и eSIM. «только eSIM» — физической SIM нет. Просят «с симкой», "
+                  "«под физическую SIM» — предлагай только SIM + eSIM; про eSIM-версии честно предупреждай, что SIM-карту "
+                  "вставить нельзя.",
+                  "- «Японец», «кореец», «индиец», «американец», «гонконг» — это страна версии.",
+                  "- Покупатель пишет как попало («17 про макс 256 оранж», «16/128», «айфон 17 голубой»): найди "
+                  "ближайшие позиции и ответь конкретно — модель, объём, цвет, страна, SIM, цена. Не переспрашивай то, "
+                  "что можно понять из прайса и объявления; если вариантов несколько — назови их, а не задавай вопрос.",
+                  "- Если позиции нет в прайсе — так и скажи и предложи ближайшие из прайса (другой цвет, объём, страну).",
+                  *price_overview]
     if trade_in.strip():
         parts += ["", "Оценка trade-in (принимаем только эти модели; называй вилку как предварительную «до»):",
                   trade_in.strip()]
@@ -710,7 +723,18 @@ def build_overview(items: Sequence[CatalogItem], max_lines: int = 250) -> list[s
 
 def _aliases() -> dict[str, str]:
     from src.app.core.price_command import TOKEN_ALIASES  # чистый модуль, без базы
-    extra = {"айфона": "iphone", "айфоне": "iphone", "айфону": "iphone", "айпада": "ipad", "айпаде": "ipad",
+    extra = {"японец": "япония", "японский": "япония", "японская": "япония", "японии": "япония", "японию": "япония",
+             "япон": "япония", "jp": "япония", "кореец": "корея", "корейский": "корея", "корейская": "корея",
+             "корее": "корея", "корею": "корея", "kr": "корея", "индиец": "индия", "индийский": "индия",
+             "индийская": "индия", "индии": "индия", "американец": "сша", "американский": "сша", "американская": "сша",
+             "американка": "сша", "штатов": "сша", "usa": "сша", "us": "сша", "гонконгский": "гонконг", "hk": "гонконг",
+             "китайский": "китай", "китайская": "китай", "эмираты": "оаэ", "дубай": "оаэ", "дубайский": "оаэ",
+             "симкой": "sim", "симка": "sim", "симку": "sim", "сим": "sim", "физической": "sim", "физ": "sim",
+             "есим": "esim", "есимом": "esim", "есимка": "esim", "оранж": "orange", "оранжевый": "orange",
+             "голубой": "blue", "синий": "blue", "белый": "white", "черный": "black", "серебристый": "silver",
+             "серебро": "silver", "золотой": "gold", "розовый": "pink", "бирюзовый": "teal", "лавандовый": "lavender",
+             "бордовый": "burgundy", "про": "pro", "макс": "max", "эйр": "air", "плюс": "plus", "дуо": "duo",
+             "айфона": "iphone", "айфоне": "iphone", "айфону": "iphone", "айпада": "ipad", "айпаде": "ipad",
              "галакси": "galaxy", "эпл": "apple", "вотч": "watch", "часики": "watch", "аирподсы": "airpods",
              "эйрподсы": "airpods", "наушники": "airpods", "макбука": "macbook", "плейстейшен": "playstation",
              "пс5": "ps5", "плойку": "playstation", "сяоми": "xiaomi"}
@@ -887,36 +911,179 @@ def sanitize_reply(text: str) -> tuple[str, bool]:
 _NO_STOCK = {"нет", "0", "нет в наличии", "-", "закончился", "под заказ"}
 
 
+# Флажок страны → страна (версия устройства)
+COUNTRIES = {
+    "IN": "Индия", "JP": "Япония", "KR": "Корея", "US": "США", "HK": "Гонконг", "AE": "ОАЭ", "MX": "Мексика",
+    "CN": "Китай", "EU": "Европа", "GB": "Великобритания", "CA": "Канада", "SG": "Сингапур", "AU": "Австралия",
+    "RU": "Россия", "KZ": "Казахстан", "TH": "Таиланд", "VN": "Вьетнам", "MY": "Малайзия", "ID": "Индонезия",
+    "TW": "Тайвань", "DE": "Германия", "FR": "Франция", "IT": "Италия", "ES": "Испания", "TR": "Турция",
+}
+# Цвет как пишут в прайсе (и с опечатками) → (как называется, по-русски)
+COLORS = {
+    "black": ("Black", "чёрный"), "white": ("White", "белый"), "while": ("White", "белый"), "whitе": ("White", "белый"),
+    "blue": ("Blue", "синий"), "silver": ("Silver", "серебристый"), "orange": ("Orange", "оранжевый"),
+    "gold": ("Gold", "золотой"), "pink": ("Pink", "розовый"), "teal": ("Teal", "бирюзовый"),
+    "ultramarine": ("Ultramarine", "ультрамарин"), "lavender": ("Lavender", "лавандовый"), "sage": ("Sage", "шалфей, зелёный"),
+    "yellow": ("Yellow", "жёлтый"), "desert": ("Desert", "песочный"), "natural": ("Natural", "натуральный титан"),
+    "night sky": ("Night Sky", "ночное небо, тёмно-синий"), "nightsky": ("Night Sky", "ночное небо, тёмно-синий"),
+    "burg": ("Burgundy", "бордовый"), "burgundy": ("Burgundy", "бордовый"), "green": ("Green", "зелёный"),
+    "purple": ("Purple", "фиолетовый"), "red": ("Red", "красный"), "gray": ("Gray", "серый"), "grey": ("Gray", "серый"),
+    "space gray": ("Space Gray", "серый космос"), "starlight": ("Starlight", "сияющая звезда"),
+    "midnight": ("Midnight", "тёмная ночь"), "titanium": ("Titanium", "титан"), "graphite": ("Graphite", "графит"),
+}
+_MODEL_WORDS = {"pro": "Pro", "max": "Max", "air": "Air", "plus": "Plus", "duo": "Duo", "mini": "mini", "ultra": "Ultra"}
+_LOOKALIKE = str.maketrans("аеорсухкмтнвіАЕОРСУХКМТНВІ", "aeopcyxkmthbiAEOPCYXKMTHBI")
+_FLAG = re.compile("([\U0001F1E6-\U0001F1FF])([\U0001F1E6-\U0001F1FF])")
+_FREE_PRICE = re.compile(r"(?<![\d.])(\d{1,3}(?:[.\s]\d{3})+|\d{4,7})(?![\d])")
+_SIM_PHYS = re.compile(r"(?<![a-zа-я])([12])\s*(?:i\s*)?(?:sim|ism|sm|сим)", re.IGNORECASE)
+_ESIM = re.compile(r"(?<![a-z])e\s*-?\s*sim", re.IGNORECASE)
+_STORAGE_TOKEN = re.compile(r"^(32|64|128|256|512|1024|[12]tb|[12]тб)$", re.IGNORECASE)
+
+
+def _flag_country(line: str) -> str | None:
+    m = _FLAG.search(line)
+    if not m:
+        return None
+    code = "".join(chr(ord(ch) - 0x1F1E6 + ord("A")) for ch in m.groups())
+    return COUNTRIES.get(code, code)
+
+
+def _sim_label(line: str) -> str | None:
+    m = _SIM_PHYS.search(line)
+    if m:
+        return "SIM + eSIM" if m.group(1) == "1" else "2 SIM"
+    if _ESIM.search(line):
+        return "только eSIM"
+    return None
+
+
+def _color(tokens: list[str]) -> tuple[str, str | None]:
+    raw = " ".join(tokens).strip()
+    fixed = raw.translate(_LOOKALIKE).lower()
+    if fixed in COLORS:
+        return COLORS[fixed]
+    for i in range(len(tokens), 0, -1):          # «Space Gray Titan» → самое длинное известное начало
+        head = " ".join(tokens[:i]).translate(_LOOKALIKE).lower()
+        if head in COLORS:
+            en, ru = COLORS[head]
+            rest = " ".join(tokens[i:])
+            return (f"{en} {rest}".strip(), ru)
+    return (raw.title() if raw.islower() else raw), None
+
+
+def _parse_free_line(line: str, n: int) -> CatalogItem | str | None:
+    """«17Pro Max 256 Orange - 103000🇰🇷1SIM.», «15 256 Black 🇮🇳 - 61.100», «17 Air 512 Blue eSIM 🇯🇵 - 76.500».
+    None — строка-шум (заголовок, разделитель), str — ошибка."""
+    low = line.lower()
+    if "прайс" in low or re.search(r"\[\d{1,2}\s*\w+\.?\s*\d{4}", line) or not re.search(r"\d", line):
+        return None
+    country, sim = _flag_country(line), _sim_label(line)
+    plain = _FLAG.sub(" ", line)
+    prices = [m for m in _FREE_PRICE.finditer(plain) if int(re.sub(r"\D", "", m.group(1))) >= 1000]
+    if not prices:
+        return f"Строка {n}: не нашёл цену"
+    pm = prices[-1]
+    price = float(re.sub(r"\D", "", pm.group(1)))
+    left = plain[:pm.start()]
+    left = _SIM_PHYS.sub(" ", left)
+    left = _ESIM.sub(" ", left)
+    left = re.sub(r"(\d)\s*(tb|тб)\b", r"\1tb", left, flags=re.IGNORECASE)
+    left = re.sub(r"(\d)(pro|air|plus|duo|max|mini|ultra)", r"\1 \2", left, flags=re.IGNORECASE)
+    tokens = [t for t in re.split(r"[\s\-–—.,:;]+", re.sub(r"[^\w\s\-–—.,/+]", " ", left)) if t]
+    idx = next((i for i, t in enumerate(tokens) if _STORAGE_TOKEN.match(t.translate(_LOOKALIKE))), None)
+    if idx is None or idx == 0:
+        return f"Строка {n}: не понял модель и объём"
+    model_tokens, color_tokens = tokens[:idx], tokens[idx + 1:]
+    st = tokens[idx].lower().translate(_LOOKALIKE)
+    storage = f"{st[0]} ТБ" if st.endswith(("tb", "тб")) else ("1 ТБ" if st == "1024" else f"{st} ГБ")
+    words = [_MODEL_WORDS.get(t.lower().translate(_LOOKALIKE), t) for t in model_tokens]
+    model = " ".join(words)
+    if re.match(r"^\d", model):
+        model = f"iPhone {model}"
+    color_en, color_ru = _color(color_tokens) if color_tokens else ("", None)
+    attrs = {"storage": storage}
+    if color_en:
+        attrs["color"] = color_en
+    if color_ru:
+        attrs["color_ru"] = color_ru
+    if country:
+        attrs["country"] = country
+    if sim:
+        attrs["sim"] = sim
+    name = f"{model} {storage}" + (f", {color_en}" if color_en else "")
+    return CatalogItem(name=name, category="Прайс", price=price, stock=1, attributes=attrs, key=f"price:{n}")
+
+
+def _parse_table_line(line: str, n: int) -> CatalogItem | str:
+    sep = "\t" if "\t" in line else ("|" if "|" in line else ";")
+    cols = [c.strip() for c in line.split(sep)]
+    if len(cols) < 2:
+        return f"Строка {n}: нужны хотя бы модель и цена"
+    if len(cols) == 2:                       # «Модель; Цена»
+        model, storage, color, price_s, stock_s = cols[0], "", "", cols[1], ""
+    else:                                    # «Модель; Память; Цвет; Цена; Наличие»
+        cols += [""] * (5 - len(cols))
+        model, storage, color, price_s, stock_s = cols[:5]
+    digits = re.sub(r"\D", "", price_s)
+    if not model or not digits:
+        return f"Строка {n}: не понял цену «{price_s or '—'}»"
+    storage_label = f"{storage} ГБ" if storage.isdigit() else storage
+    name = model + (f" {storage_label}" if storage_label else "") + (f", {color}" if color else "")
+    attrs = {k: v for k, v in (("storage", storage_label), ("color", color)) if v}
+    in_stock = stock_s.lower() not in _NO_STOCK
+    return CatalogItem(name=name, category="Прайс", price=float(digits), stock=1 if in_stock else 0,
+                       attributes=attrs, key=f"price:{n}")
+
+
 def parse_price_list(text: str) -> tuple[list[CatalogItem], list[str]]:
-    """Строки «Модель; Память; Цвет; Цена; Наличие» (можно через Tab — вставка из Excel — или «|»).
-    Память и цвет можно оставить пустыми; наличие: пусто — есть, «нет»/0 — нет. # — комментарий."""
+    """Прайс для бота. Два формата, можно вперемешку:
+      • как присылают поставщики: «17Pro Max 256 Orange - 103000🇰🇷1SIM.», «15 256 Black 🇮🇳 - 61.100» —
+        модель, объём, цвет, цена, флажок страны (версия) и SIM; заголовки и разделители пропускаются;
+      • таблицей: «Модель; Память; Цвет; Цена; Наличие» (через ; Tab или |), «нет» в наличии — нет.
+    # — комментарий."""
     items: list[CatalogItem] = []
     errors: list[str] = []
     for n, raw in enumerate((text or "").splitlines(), 1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        sep = "\t" if "\t" in line else ("|" if "|" in line else ";")
-        cols = [c.strip() for c in line.split(sep)]
-        if len(cols) < 2:
-            errors.append(f"Строка {n}: нужны хотя бы модель и цена")
+        result = _parse_table_line(line, n) if any(c in line for c in ";\t|") else _parse_free_line(line, n)
+        if isinstance(result, str):
+            errors.append(result)
+        elif result is not None:
+            items.append(result)
+    # Одна и та же позиция (модель, объём, цвет, страна, SIM) несколько раз — действует последняя
+    # по тексту: прайс дополняют снизу, свежая цена ниже
+    latest: dict[tuple, CatalogItem] = {}
+    for it in items:
+        a = it.attributes or {}
+        latest[(it.name.lower(), a.get("country"), a.get("sim"))] = it
+    return list(latest.values()), errors
+
+
+def _storage_gb(it: CatalogItem) -> int:
+    st = (it.attributes or {}).get("storage", "") or ""
+    m = re.match(r"(\d+)", st)
+    if not m:
+        return 0
+    return int(m.group(1)) * (1024 if "ТБ" in st or "TB" in st.upper() else 1)
+
+
+def price_lines(items: Sequence[CatalogItem]) -> list[str]:
+    """Каждая позиция прайса отдельной строкой — со страной и SIM: модели нужно различать версии."""
+    out = []
+    for it in sorted(items, key=lambda x: (family_name(x).lower(), _storage_gb(x),
+                                           (x.attributes or {}).get("color", ""), x.price)):
+        if it.stock <= 0:
             continue
-        if len(cols) == 2:                       # «Модель; Цена»
-            model, storage, color, price_s, stock_s = cols[0], "", "", cols[1], ""
-        else:                                    # «Модель; Память; Цвет; Цена; Наличие»
-            cols += [""] * (5 - len(cols))
-            model, storage, color, price_s, stock_s = cols[:5]
-        digits = re.sub(r"\D", "", price_s)
-        if not model or not digits:
-            errors.append(f"Строка {n}: не понял цену «{price_s or '—'}»")
-            continue
-        storage_label = f"{storage} ГБ" if storage.isdigit() else storage
-        name = model + (f" {storage_label}" if storage_label else "") + (f", {color}" if color else "")
-        attrs = {k: v for k, v in (("storage", storage_label), ("color", color)) if v}
-        in_stock = stock_s.lower() not in _NO_STOCK
-        items.append(CatalogItem(name=name, category="Прайс", price=float(digits), stock=1 if in_stock else 0,
-                                 attributes=attrs, key=f"price:{n}"))
-    return items, errors
+        a = it.attributes or {}
+        color = a.get("color", "")
+        if a.get("color_ru"):
+            color = f"{color} ({a['color_ru']})"
+        extra = ", ".join(x for x in (a.get("country"), a.get("sim")) if x)
+        out.append(f"- {family_name(it)} {a.get('storage', '')} {color}".rstrip()
+                   + (f" — {extra}" if extra else "") + f" — {_rub_short(it.price)} ₽")
+    return out
 
 
 DEFAULT_TRADE_IN_PRICES = """iPhone 13 — 8 000–13 000 ₽
