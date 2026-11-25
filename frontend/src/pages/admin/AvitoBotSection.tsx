@@ -1651,7 +1651,8 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
           <div className="mt-1 text-xs text-slate-500">Всё, что не уместилось в автоответы. Автоответы бот тоже знает — дублировать не нужно.</div>
           <label className="mt-3 block"><span className={LABEL}>Когда звать человека</span><input className={`${INPUT} mt-1.5`} value={form.handoff_topics} onChange={e => set('handoff_topics', e.target.value)} /></label>
           <label className="mt-3 block"><span className={LABEL}>Что написать, пока зовём человека</span>
-            <input className={`${INPUT} mt-1.5`} value={form.handoff_message} onChange={e => set('handoff_message', e.target.value)} placeholder="Сейчас уточню у коллеги и вернусь к вам. Пусто — бот молчит" /></label>
+            <input className={`${INPUT} mt-1.5`} value={form.handoff_message} onChange={e => set('handoff_message', e.target.value)} placeholder="Сейчас уточню у коллеги и вернусь к вам. Пусто — бот молчит" />
+            <span className="mt-1 block text-xs text-slate-500">Только когда покупатель сам просит менеджера. При сбое, нехватке цены или данных бот ничего не пишет: отмечает прочитанным и зовёт вас.</span></label>
           <label className="mt-3 block"><span className={LABEL}>Оценка trade-in</span>
             <textarea className={`${INPUT} mt-1.5 h-72 font-mono text-[13px]`} value={form.trade_in_prices} onChange={e => set('trade_in_prices', e.target.value)} /></label>
           <div className="mt-1 text-xs text-slate-500">Какие модели принимаем в trade-in, вилки оценки и правила. Бот называет только предварительную вилку «до …» и не берёт ничего, чего нет в списке.</div>

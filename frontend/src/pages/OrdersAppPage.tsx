@@ -235,6 +235,17 @@ async function playSound(id: string, vibrate = true) {
 }
 function playAlert() { void playSound(getSoundId(), true) }
 
+// Отдельный звук для ошибок Авито (бот позвал менеджера, сбой) — чтобы не путать с новым заказом
+const DEFAULT_ERROR_SOUND_ID = 'signal'
+function getErrorSoundId(): string {
+  try {
+    const v = localStorage.getItem('takesmart_app_error_sound_id')
+    if (v && SOUNDS.some((s) => s.id === v)) return v
+  } catch { /* */ }
+  return DEFAULT_ERROR_SOUND_ID
+}
+function playErrorAlert() { void playSound(getErrorSoundId(), true) }
+
 // Установлено ли как приложение (Home Screen / Dock) — от этого зависит доставка
 // уведомлений при ЗАКРЫТОМ приложении (особенно на iOS).
 function isStandalone(): boolean {
@@ -661,6 +672,17 @@ function OrdersFeed() {
   useEffect(() => { soundOnRef.current = soundOn; try { localStorage.setItem('takesmart_app_sound', soundOn ? '1' : '0') } catch { /* */ } }, [soundOn])
   const [soundId, setSoundId] = useState<string>(() => getSoundId())
   useEffect(() => { try { localStorage.setItem('takesmart_app_sound_id', soundId) } catch { /* */ } ; void loadSound(soundId) }, [soundId])
+  const [errorSoundId, setErrorSoundId] = useState<string>(() => getErrorSoundId())
+  useEffect(() => { try { localStorage.setItem('takesmart_app_error_sound_id', errorSoundId) } catch { /* */ } ; void loadSound(errorSoundId) }, [errorSoundId])
+  // Пуш об ошибке Авито при открытом приложении — свой звук (заказы звучат из опроса ленты)
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return
+    const onMsg = (e: MessageEvent) => {
+      if (e.data?.type === 'push' && e.data.kind === 'avito_error' && soundOnRef.current) playErrorAlert()
+    }
+    navigator.serviceWorker.addEventListener('message', onMsg)
+    return () => navigator.serviceWorker.removeEventListener('message', onMsg)
+  }, [])
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true)
@@ -834,6 +856,18 @@ function OrdersFeed() {
                       <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs ${active ? 'bg-yellow-400 text-gray-950' : 'bg-white/10 text-slate-300'}`}>{active ? '✓' : '▶'}</span>
                       <span className="flex-1 text-left">{s.label}</span>
                       {active && <span className="text-[11px] text-yellow-200/70">выбрано</span>}
+                    </button>
+                  )
+                })}
+                <div className="pt-2 text-[11px] text-slate-500">Звук ошибки Авито — бот позвал менеджера или дал сбой</div>
+                {SOUNDS.map((s) => {
+                  const active = errorSoundId === s.id
+                  return (
+                    <button key={`err-${s.id}`} onClick={() => { unlockAudio(); setErrorSoundId(s.id); void playSound(s.id, false) }}
+                      className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition active:scale-[0.99] ${active ? 'bg-rose-400/15 text-rose-100 ring-1 ring-inset ring-rose-400/30' : 'bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]'}`}>
+                      <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs ${active ? 'bg-rose-400 text-gray-950' : 'bg-white/10 text-slate-300'}`}>{active ? '✓' : '▶'}</span>
+                      <span className="flex-1 text-left">{s.label}</span>
+                      {active && <span className="text-[11px] text-rose-200/70">выбрано</span>}
                     </button>
                   )
                 })}

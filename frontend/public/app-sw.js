@@ -18,6 +18,7 @@ self.addEventListener('push', (event) => {
     data = { body: event.data ? event.data.text() : '' }
   }
   const title = data.title || 'У вас новый заказ!'
+  const kind = data.kind || 'order'
   const options = {
     body: data.body || '',
     icon: data.icon || '/app-icon-192.png',
@@ -25,9 +26,15 @@ self.addEventListener('push', (event) => {
     tag: data.tag || 'takesmart-order',
     renotify: true,
     requireInteraction: true,
-    data: { url: data.url || '/app' },
+    // Ошибка Авито — другой ритм вибрации (Android), чтобы отличать от заказа на ощупь
+    vibrate: kind === 'avito_error' ? [400, 150, 400, 150, 400] : [180, 80, 180],
+    data: { url: data.url || '/app', kind },
   }
-  event.waitUntil(self.registration.showNotification(title, options))
+  // Открытое приложение играет свой звук для этого вида уведомления
+  const tellPages = self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    .then((list) => list.forEach((c) => c.postMessage({ type: 'push', kind, title })))
+    .catch(() => {})
+  event.waitUntil(Promise.all([self.registration.showNotification(title, options), tellPages]))
 })
 
 // ── Фоновая переподписка ────────────────────────────────────────────────────
