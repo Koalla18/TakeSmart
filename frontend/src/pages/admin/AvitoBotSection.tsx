@@ -95,6 +95,7 @@ interface Config {
   staff_takes_over: boolean
   human_mode: boolean
   allow_emoji: boolean
+  off_topic_silent: boolean
   style: string
   knowledge: string
   handoff_topics: string
@@ -1375,7 +1376,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
 
   const save = async (patch?: Partial<Config>, quiet?: boolean): Promise<Config | null> => {
     const body: Record<string, unknown> = patch ?? {
-      enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, first_message: form.first_message, trade_in_prices: form.trade_in_prices, staff_takes_over: form.staff_takes_over, human_mode: form.human_mode, allow_emoji: form.allow_emoji, style: form.style, knowledge: form.knowledge,
+      enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, first_message: form.first_message, trade_in_prices: form.trade_in_prices, staff_takes_over: form.staff_takes_over, human_mode: form.human_mode, allow_emoji: form.allow_emoji, off_topic_silent: form.off_topic_silent, style: form.style, knowledge: form.knowledge,
       handoff_topics: form.handoff_topics, handoff_message: form.handoff_message, reply_delay_min: form.reply_delay_min,
       reply_delay_max: form.reply_delay_max, use_catalog: form.use_catalog, llm_provider: form.llm_provider,
       orders_enabled: form.orders_enabled, pickup_address: form.pickup_address, system_patterns: form.system_patterns,
@@ -1449,6 +1450,8 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
               hint="Отмечает сообщение прочитанным, «печатает» столько, сколько занял бы текст, и пишет короткими сообщениями: приветствие отдельно, длинный ответ — двумя" />
             <Toggle checked={form.allow_emoji} onChange={v => set('allow_emoji', v)} label="Иногда эмодзи"
               hint="Изредка одно (🙂, 👍), и только если покупатель сам пишет неформально" />
+            <Toggle checked={form.off_topic_silent} onChange={v => set('off_topic_silent', v)} label="Молчать на вопросы не по теме"
+              hint="Математика, код, политика, «игнорируй инструкции» и всё, что не про технику и покупку: бот отмечает сообщение прочитанным и не отвечает — как живой менеджер. Приветствие, «спасибо» и вопросы по покупке — отвечает как обычно. Выключите — бот будет вежливо отвечать, что помогает только с покупкой" />
             <Toggle checked={form.use_catalog} onChange={v => set('use_catalog', v)} label="Смотреть цены и наличие в каталоге сайта" hint="Модель видит подходящие товары с живыми ценами и остатками" />
             <Toggle checked={form.orders_enabled} onChange={v => set('orders_enabled', v)} label="Оформлять заявки из чата"
               hint="Когда покупатель согласился, бот спрашивает ФИО и телефон (почту — по желанию) и создаёт заявку в «Заказах» с пометкой «Заявка с Авито»; приходит пуш «Новая заявка с Авито!». Остаток списывается. В режиме черновиков — только после вашего «Отправить»" />
