@@ -38,7 +38,7 @@ from src.app.core.avito_bot_engine import (
     human_delay, in_window, match_rule, parse_llm_answer, pick_examples, render_reminder,
     render_template, rule_covers, starts_with_refusal, wants_opt_out, is_first_reply, with_greeting,
     split_reply, typing_delay, classify_avito_message, normalize_phone, valid_email, valid_full_name,
-    order_note_for_prompt, wants_cancel, CatalogItem, SearchIndex, build_overview, catalog_vocab, query_segments, search_catalog,
+    order_note_for_prompt, wants_cancel, CatalogItem, SearchIndex, build_overview, family_name, catalog_vocab, query_segments, search_catalog,
     render_first_message, title_match, is_refusal, strip_greeting, sanitize_reply, parse_price_list, price_lines,
 )
 from src.app.core.config import settings
@@ -310,21 +310,45 @@ def price_snapshot(cfg: AvitoBotConfig) -> dict[str, Any]:
     return _PRICE_LIST
 
 
-async def listing_price(session: AsyncSession, item_id: int | None, item_title: str | None,
-                        cfg: AvitoBotConfig | None = None) -> str | None:
-    """Розничная цена товара из объявления: прайс бота → привязанная карточка → каталог сайта.
-    Прайс и каталог — только при надёжном совпадении по названию объявления."""
+async def listing_price_info(session: AsyncSession, item_id: int | None, item_title: str | None,
+                             cfg: AvitoBotConfig | None = None) -> tuple[str | None, str | None, str | None]:
+    """Розничная цена товара из объявления, откуда она взята и какая позиция совпала:
+    прайс бота → привязанная карточка → каталог сайта. Прайс и каталог — только при надёжном
+    совпадении по названию объявления."""
     if cfg is not None and cfg.price_list.strip():
         prices = price_snapshot(cfg)
         hit = title_match(prices["items"], item_title, prices["vocab"], prices["index"])
         if hit:
-            return _rub(hit.price)
+            a = hit.attributes or {}
+            label = hit.name + "".join(f" · {a[k]}" for k in ("country", "sim") if a.get(k))
+            return _rub(hit.price), "прайс", label
     linked = await linked_product(session, item_id)
     if linked is not None:
-        return _rub(linked.discount_price or linked.price)
+        return _rub(linked.discount_price or linked.price), "карточка товара", linked.name
     snap = await catalog_snapshot(session)
     it = title_match(snap["items"], item_title, snap["vocab"], snap["index"])
-    return _rub(it.price) if it else None
+    return (_rub(it.price), "каталог сайта", it.name) if it else (None, None, None)
+
+
+async def listing_price(session: AsyncSession, item_id: int | None, item_title: str | None,
+                        cfg: AvitoBotConfig | None = None) -> str | None:
+    return (await listing_price_info(session, item_id, item_title, cfg))[0]
+
+
+async def test_listing_suggestions(session: AsyncSession, cfg: AvitoBotConfig, limit: int = 200) -> list[str]:
+    """Названия для поля «Объявление» в тестовом чате: модели из прайса и товары каталога в наличии."""
+    out: dict[str, None] = {}
+    if cfg.price_list.strip():
+        for it in price_snapshot(cfg)["items"]:
+            a = it.attributes or {}
+            out[f"{family_name(it)} {a.get('storage', '')}".strip()] = None
+    snap = await catalog_snapshot(session)
+    for it in snap["items"]:
+        if it.stock > 0 or it.preorder:
+            out[it.name] = None
+        if len(out) >= limit:
+            break
+    return sorted(out, key=str.lower)[:limit]
 
 
 async def first_message(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext,

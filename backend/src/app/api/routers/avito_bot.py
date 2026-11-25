@@ -577,6 +577,24 @@ async def unlink_item(item_id: int) -> Response:
     return Response(status_code=204)
 
 
+@router.get("/test/listing", dependencies=ADMIN, summary="Какая розничная цена подставится в первое сообщение")
+async def test_listing(title: str = Query("", max_length=300)) -> dict:
+    async with AsyncSessionFactory() as session:
+        cfg = await bot.load_config(session)
+        price, source, matched = await bot.listing_price_info(session, None, title or None, cfg)
+        await session.commit()
+    return {"price": price, "source": source, "matched": matched}
+
+
+@router.get("/test/listings", dependencies=ADMIN, summary="Подсказки названий объявлений для теста")
+async def test_listings() -> list[str]:
+    async with AsyncSessionFactory() as session:
+        cfg = await bot.load_config(session)
+        out = await bot.test_listing_suggestions(session, cfg)
+        await session.commit()
+    return out
+
+
 @router.post("/test", response_model=DecisionOut, dependencies=ADMIN, summary="Что бот ответит — без сохранения")
 async def test_chat(body: TestIn) -> DecisionOut:
     history = [(t.author, t.text) for t in body.history] + [("client", body.text)]
