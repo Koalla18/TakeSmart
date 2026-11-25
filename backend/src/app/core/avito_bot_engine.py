@@ -1107,10 +1107,10 @@ _SIM_COMBO = re.compile(rf"(?:(?<![a-zа-я\d])[12]\s*)?(?:i?sim|ism|сим)\s*\
 _SIM_PHYS = re.compile(r"(?<![a-zа-я])([12])\s*(?:i\s*)?(?:sim|ism|sm|сим)", re.IGNORECASE)
 _ESIM = re.compile(rf"(?<![a-zа-я]){_ESIM_WORD}", re.IGNORECASE)
 
-# Память: «8/256», «16GB / 512GB», «36/1TB», «256», «1ТБ». «M2/M3» и «40/60w» — не память
+# Память: «8/256», «16GB / 512GB», «36/1TB», «256», «1ТБ». «M2/M3» и «40/60w» — не память.
+# Через пробел или запятую — только если у ОЗУ написано «GB»: в «iPhone 16 128GB» 16 — модель
 _RAM_STORAGE = re.compile(
-    r"(?<![\w.])(4|6|8|12|16|18|24|32|36|48|64|96|128)\s*(?:gb|гб)?(?:\s*/\s*|\s*,\s*(?=\d+\s*(?:gb|гб|tb|тб))|\s+(?=\d+\s*(?:gb|гб|tb|тб))"
-    r"|(?<=gb)\s+|(?<=гб)\s+)"
+    r"(?<![\w.])(4|6|8|12|16|18|24|32|36|48|64|96|128)\s*(?:gb|гб)?(?:\s*/\s*|(?<=gb)(?:\s*,\s*|\s+)|(?<=гб)(?:\s*,\s*|\s+))"
     r"(?:(64|128|256|512|1024)\s*(?:gb|гб)?|([1248])\s*(?:tb|тб))(?!\w)", re.IGNORECASE)
 _ONE_STORAGE = re.compile(r"(?<![\w./])(?:(32|64|128|256|512|825|1024)\s*(?:gb|гб)?|([1248])\s*(?:tb|тб))(?![\w/])",
                           re.IGNORECASE)
@@ -1122,6 +1122,24 @@ _TITLE_WORDS = re.compile(
     r"iphone|ipad|macbook|mac\s*mini|mac\s*studio|imac|watch|airpods|galaxy|z\s*fold|z\s*flip|pixel|dyson|playstation|"
     r"go\s*pro|dji|magic|nothing|блоки", re.IGNORECASE)
 _SPEC_HEADER = re.compile(r"^\d+\s*(?:[»”\"″]|/|gb|гб|tb|тб)", re.IGNORECASE)
+
+
+# Страна словом: «(Индия)», «Япония:», «Japan»
+_COUNTRY_NAMES = {name.lower(): name for name in COUNTRIES.values()} | {
+    "japan": "Япония", "india": "Индия", "usa": "США", "korea": "Корея", "china": "Китай", "europe": "Европа",
+    "uae": "ОАЭ", "dubai": "ОАЭ", "дубай": "ОАЭ", "эмираты": "ОАЭ", "hong kong": "Гонконг"}
+_COUNTRY_WORD = re.compile(r"(?<![\w-])(" + "|".join(sorted(map(re.escape, _COUNTRY_NAMES), key=len, reverse=True))
+                           + r")(?![\w-])", re.IGNORECASE)
+
+
+def _word_country(line: str) -> str | None:
+    m = _COUNTRY_WORD.search(line)
+    return _COUNTRY_NAMES[m.group(1).lower()] if m else None
+
+
+def _line_country(line: str) -> str | None:
+    """Страна строки — по флажку или словом. Если названы две («Индия / США»), берётся первая."""
+    return _flag_country(line) or _word_country(line)
 
 
 def _flag_country(line: str) -> str | None:
@@ -1283,7 +1301,7 @@ class _PriceContext:
         if re.fullmatch(r"SE\s*\d", text, re.IGNORECASE):
             self.watch_se = text.split()[-1][-1]
         phone = re.fullmatch(r"(?:iphone\s*)?(1[1-9]\s*(?:e|pro|air|plus|duo)?(?:\s*max)?)", text, re.IGNORECASE)
-        flag = _flag_country(line)
+        flag = _line_country(line)
         if text and (_TITLE_WORDS.search(text) or phone):
             title = f"iPhone {phone.group(1)}" if phone else text
             keep = self.pending                    # «🇯🇵 Япония:» стоит над названием модели
@@ -1295,8 +1313,9 @@ class _PriceContext:
             self.spec = text
         if sim:
             self.sim, self.pending = sim, True
-        # «🇯🇵 Япония:» — страна всех строк ниже; «1 Ревизия 🇯🇵» — просто приписка
-        if flag and _FLAG.match(line.strip(" •*:➖━-—–\t")):
+        # «🇯🇵 Япония:» или «Япония» — страна всех строк ниже; «1 Ревизия 🇯🇵» — просто приписка
+        start = line.strip(" •*:➖━-—–(\t")
+        if flag and (_FLAG.match(start) or _COUNTRY_WORD.match(start)):
             self.country, self.pending = flag, True
 
 
@@ -1319,13 +1338,13 @@ def _parse_free_line(line: str, n: int, ctx: _PriceContext) -> CatalogItem | str
         return None
     price, name_end, price_end = priced
     left, right = line[:name_end], line[price_end:]
-    country = _flag_country(line)
+    country = _line_country(line)
     sim = _sim_label(line)
     few = "\U0001F3CE" in line or bool(_STOCK_LEFT.search(line))   # 🏎️ или «/1шт» — осталось мало
     activated = bool(re.search(r"\(\s*актив", line, re.IGNORECASE))
     if activated:
         left, right = (re.sub(r"\(\s*актив[^)]*\)?", " ", x, flags=re.IGNORECASE) for x in (left, right))
-    text = _clean_text(left)
+    text = _clean_text(_COUNTRY_WORD.sub(" ", left))
     if not text:
         return f"Строка {n}: не понял модель"
     bare = False

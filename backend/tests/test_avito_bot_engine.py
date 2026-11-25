@@ -623,6 +623,28 @@ def test_price_update_changes_only_pasted_models():
     assert len(cheap) == 1 and cheap[0].kind == "changed" and cheap[0].warning
 
 
+def test_price_list_country_words():
+    from src.app.core.avito_bot_engine import parse_price_list
+    items, errors = parse_price_list(
+        "iPhone\niPhone 16 128 ГБ, Teal (Индия) — 62 990\niPhone 17 Pro 256 ГБ, Orange (Индия / США, eSIM) — 94 990\n"
+        "Mac mini M4 16/512 ГБ (Гонконг) — 77 990\nЯпония:\niPhone 17 Pro 256\nBlue - 98 990\n"
+        "AirPods Pro 3 — 17 990")
+    assert not errors
+    got = [(i.name, i.attributes.get("country"), i.attributes.get("sim")) for i in items]
+    assert got == [("iPhone 16 128 ГБ, Teal", "Индия", None),
+                   ("iPhone 17 Pro 256 ГБ, Orange", "Индия", "только eSIM"),
+                   ("Mac mini M4 16/512 ГБ", "Гонконг", None),
+                   ("iPhone 17 Pro 256 ГБ, Blue", "Япония", None),
+                   ("AirPods Pro 3", None, None)]
+    flag, _ = parse_price_list("16 128 Teal 🇮🇳 - 62 990")
+    assert (flag[0].name, flag[0].attributes["country"]) == (got[0][0], "Индия")   # словом и флажком — одно и то же
+    names = [i.name for i in parse_price_list(
+        "iPhone 16 128GB Black - 62 990\niPhone 12 256 ГБ White - 40 000\n18 256GB Black - 90 000\n"
+        "MacBook Neo 8GB 256GB Silver - 64 990\nAir 15 Silver (M5, 16GB, 1TB) - 156 990")[0]]
+    assert names == ["iPhone 16 128 ГБ, Black", "iPhone 12 256 ГБ, White", "iPhone 18 256 ГБ, Black",
+                     "MacBook Neo 8/256 ГБ, Silver", "MacBook Air 15 M5 16/1 ТБ, Silver"]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
