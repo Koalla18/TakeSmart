@@ -40,6 +40,7 @@ from src.app.core.avito_bot_engine import (
     split_reply, typing_delay, classify_avito_message, normalize_phone, valid_email, valid_full_name,
     order_note_for_prompt, wants_cancel, CatalogItem, SearchIndex, build_overview, family_name, is_phone_item, catalog_vocab, query_segments, search_catalog,
     render_first_message, title_match, is_refusal, strip_greeting, sanitize_reply, parse_price_list, price_lines,
+    audit_reply_prices, quoted_prices, mentions_other_city, normalize, is_closing_message, bot_farewelled,
 )
 from src.app.core.config import settings
 from src.app.core.logger import get_logger
@@ -430,6 +431,7 @@ class Decision:
     order: dict[str, Any] | None = None
     examples_used: int = 0
     cancel_order: bool = False
+    suppress_opening: bool = False  # не слать шаблон первого сообщения (off-topic и т.п.)
 
 
 def _order_payload(cfg: AvitoBotConfig, raw: dict[str, Any], products: list[Product],
@@ -488,6 +490,13 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         match = None  # «Спасибо, не интересует» — не повод для автоответа «Желаете оформить доставку?»
     if match and first_sent and "доплат" in match.rule.answer.lower():
         match = None  # автоответ повторил бы шаблон про trade-in и цену
+    if match and match.rule.verbatim and "сдэк" not in normalize(match.rule.answer) and mentions_other_city(pending_text):
+        match = None  # «доставите в Питер?» — это скрипт региона (СДЭК), а не московский: отвечает модель
+    if match and is_closing_message(pending_text):
+        match = None  # завершение диалога — тепло прощается модель, а не автоответ «Желаете оформить…»
+    if is_closing_message(pending_text) and bot_farewelled(ctx):
+        # На прощание ответили «спасибо»/«и вам» — молчим, не тратя вызов модели
+        return Decision("silent", reason="Покупатель ответил на прощание — молчим")
 
     def rule_text(rule: AvitoBotRule) -> str:
         # Первый ответ дня — с приветствием, даже если это готовый автоответ; иначе приветствие вырезаем
@@ -549,15 +558,37 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     if reply and (not greet or first_sent):
         reply = strip_greeting(reply)   # сегодня уже здоровались — второй раз не надо
     if cfg.off_topic_silent and verdict.off_topic and not verdict.order:
-        # Сообщение целиком не по теме: как живой менеджер — прочитал и промолчал
-        return Decision("silent", reason="Не по теме магазина — бот не отвечает", catalog=lines, examples_used=len(examples))
+        # Сообщение целиком не по теме: как живой менеджер — прочитал и промолчал.
+        # Продающий шаблон первого сообщения на такое тоже не шлём
+        return Decision("silent", reason="Не по теме магазина — бот не отвечает", catalog=lines,
+                        examples_used=len(examples), suppress_opening=True)
     reply, replaced = sanitize_reply(reply)
     if replaced:
         logger.warning("avito_bot_reply_replaced", reason="off_topic_or_too_long")
+    if replaced and reply:
         verdict.order = None
         if cfg.off_topic_silent:
             return Decision("silent", reason="Ответ модели ушёл в сторону от магазина — бот промолчал",
+                            catalog=lines, examples_used=len(examples), suppress_opening=True)
+    if reply:
+        # Контроль цен: каждая названная цена — из прайса/каталога; устаревшую исправляем,
+        # выдуманную не отправляем вовсе — зовём человека
+        prices = price_snapshot(cfg) if cfg.price_list.strip() else None
+        extra_allowed = quoted_prices(cfg.trade_in_prices)
+        for r in rules:
+            extra_allowed += quoted_prices(r.answer)
+        for p in products:
+            extra_allowed += [int(p.discount_price or p.price), int(p.price)]
+        reply, unknown_prices, price_fixed = audit_reply_prices(
+            reply, prices["items"] if prices else [], prices["vocab"] if prices else set(),
+            prices["index"] if prices else None, extra_allowed, anchor=ctx.item_title)
+        if unknown_prices:
+            logger.warning("avito_bot_price_not_in_list", prices=unknown_prices)
+            return Decision("handoff", None, "llm", match.rule if match else None,
+                            reason=f"Модель назвала цену не из прайса ({unknown_prices[0]} ₽) — проверьте прайс",
                             catalog=lines, examples_used=len(examples))
+        if price_fixed:
+            logger.warning("avito_bot_price_corrected", hint="цена в ответе заменена на актуальную из прайса")
     first_part = (split_reply(reply) or [reply])[0] if cfg.human_mode else reply
     delay = (typing_delay(first_part, cfg.reply_delay_min, cfg.reply_delay_max) if cfg.human_mode
              else human_delay(cfg.reply_delay_min, cfg.reply_delay_max))
@@ -691,6 +722,8 @@ async def _process_chat(chat_id: UUID) -> None:
                                          greet=greet)
         if decision.action == "handoff" and not decision.text:
             opening = None   # сбой — ничего не пишем: прочитали и позвали менеджера
+        if decision.suppress_opening:
+            opening = None   # off-topic — продающий шаблон не шлём, как живой менеджер
         await session.commit()
 
     push: tuple[str, str] | None = None
@@ -725,6 +758,13 @@ async def _process_chat(chat_id: UUID) -> None:
         # (текст, источник, решение, целиком): шаблон с ценой и ответ на вопрос — одним сообщением
         planned: list[tuple[str, str | None, Decision | None, bool]] = []
         merged = with_opening(opening, decision)
+        if greet and cfg.greeting.strip():
+            # Первый ответ дня ВСЕГДА с приветствием — страховка, если модель или правило его потеряли
+            sep = "\n\n" if cfg.human_mode else "\n"
+            if merged:
+                merged = with_greeting(merged, cfg.greeting, cfg.persona_name, sep)
+            elif decision.text and decision.action in ("reply", "handoff"):
+                decision.text = with_greeting(decision.text, cfg.greeting, cfg.persona_name, sep)
         if merged and merged != opening:
             planned.append((merged, decision.source, decision, True))
         else:

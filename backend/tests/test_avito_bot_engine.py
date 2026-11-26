@@ -645,6 +645,251 @@ def test_price_list_country_words():
                      "MacBook Neo 8/256 ГБ, Silver", "MacBook Air 15 M5 16/1 ТБ, Silver"]
 
 
+def test_quoted_prices():
+    from src.app.core.avito_bot_engine import quoted_prices
+    assert quoted_prices("Бордовый есть — 127 990 ₽, отложить?") == [127990]
+    assert quoted_prices("91500 руб") == [91500]
+    assert quoted_prices("доставка 1000 рублей, предоплата 1000 ₽") == []        # меньше 10 000 — не цена товара
+    assert quoted_prices("256 ГБ, 17 Pro") == []                                 # объём и модель — не цена
+    assert quoted_prices("131 990 ₽ или 129 990 ₽") == [131990, 129990]
+
+
+def test_audit_reply_prices_fixes_stale_quote():
+    from src.app.core.avito_bot_engine import audit_reply_prices, parse_price_list, catalog_vocab, SearchIndex
+    items, errors = parse_price_list(
+        "iPhone 17 Pro Max 256 Burgundy 🇯🇵 SIM+eSIM - 131 990\niPhone 17 Pro Max 256 Orange 🇰🇷 - 129 990")
+    assert not errors
+    vocab, index = catalog_vocab(items), SearchIndex(items)
+    anchor = "iPhone 17 Pro Max 256"
+    # Устаревшая цена той же позиции — заменяем на актуальную из прайса
+    fixed, unknown, replaced = audit_reply_prices(
+        "Красного в этой модели нет, зато есть бордовый с физической SIM — 127 990 ₽, отложить на вас?",
+        items, vocab, index, [], anchor=anchor)
+    assert replaced and not unknown and "131 990 ₽" in fixed
+    # Актуальная цена — не трогаем
+    ok, unknown, replaced = audit_reply_prices("Бордовый есть — 131 990 ₽", items, vocab, index, [], anchor=anchor)
+    assert not replaced and not unknown and "131 990 ₽" in ok
+    # Перечисление вариантов: обе цены из прайса — не трогаем
+    multi, unknown, replaced = audit_reply_prices(
+        "Бордовый — 131 990 ₽, оранжевый — 129 990 ₽", items, vocab, index, [], anchor=anchor)
+    assert not unknown and not replaced and "129 990 ₽" in multi
+    # Цена, которой нет нигде, и позицию не определить — не отправляем
+    _, unknown, replaced = audit_reply_prices("Есть бордовый — 99 990 ₽", [], set(), None, [])
+    assert unknown == [99990] and not replaced
+    # Выдуманная цена в перечислении — тоже не отправляем
+    _, unknown, _ = audit_reply_prices(
+        "Бордовый — 131 990 ₽, оранжевый — 88 990 ₽", items, vocab, index, [], anchor=anchor)
+    assert unknown == [88990]
+    # Trade-in вилка из настроек — разрешённая цена, не ругаемся
+    ok, unknown, _ = audit_reply_prices("За ваш 15 Pro дадим до 30 000 ₽", items, vocab, index,
+                                        [30000], anchor=anchor)
+    assert not unknown and "30 000 ₽" in ok
+
+
+def test_red_maps_to_burgundy():
+    from src.app.core.avito_bot_engine import query_tokens, parse_price_list, catalog_vocab
+    items, _ = parse_price_list("iPhone 17 Pro Max 256 Burgundy 🇯🇵 SIM+eSIM - 131 990")
+    vocab = catalog_vocab(items)
+    assert "burgundy" in query_tokens("есть красный?", vocab)
+    assert "burgundy" in query_tokens("бордовый", vocab)
+
+
+# ── decide(): полный пайплайн решения с подставной моделью, без базы и сети ──
+
+DECIDE_PRICE = ("iPhone 17 Pro Max 256 Burgundy 🇯🇵 SIM+eSIM - 131 990\n"
+                "iPhone 17 Pro Max 256 Orange 🇰🇷 SIM+eSIM - 129 990\n"
+                "iPhone 16 128 White 🇮🇳 SIM+eSIM - 62 990")
+
+
+class _FakeProduct:
+    """Минимум полей товара для product_line и оформления брони."""
+    def __init__(self, name="AirPods Pro 3", price=16990, stock=5):
+        import uuid
+        self.id, self.name = uuid.uuid4(), name
+        self.price, self.discount_price = price, None
+        self.is_preorder, self.preorder_note = False, None
+        self.stock_quantity, self.condition = stock, "new"
+
+
+def _decide_cfg(**kw):
+    from src.app.schemas.avito_bot import AvitoBotConfig
+    base = dict(enabled=True, mode="auto", persona_name="Илья",
+                greeting="Здравствуйте! Меня зовут {name}, я менеджер магазина TakeSmart.",
+                first_message="", price_list=DECIDE_PRICE, use_catalog=True, orders_enabled=True,
+                trade_in_prices="iPhone 15 Pro — 25 000–30 000 ₽",
+                llm_provider="deepseek", llm_model="test-model", llm_api_key="test-key")
+    base.update(kw)
+    return AvitoBotConfig(**base)
+
+
+def _run_decide(model_answer: str, text: str, cfg, ctx=None, rules=None, products=(), **kw):
+    """Прогон decide() с подставной моделью и без базы: DB-helpers заменены заглушками."""
+    import asyncio
+    from src.app.core import avito_bot_service as svc
+
+    async def active_rules(session):
+        return list(rules or [])
+
+    async def catalog_products(session, item_id, item_title, question, cfg=None):
+        return list(products), None
+
+    async def staff_examples(session, limit=300):
+        return []
+
+    async def catalog_view(session, cfg=None):
+        return {"overview": []}
+
+    async def llm_call(cfg_, messages):
+        return model_answer
+
+    names = ("active_rules", "catalog_products", "staff_examples", "catalog_view", "llm_call")
+    saved = {n: getattr(svc, n) for n in names}
+    svc.active_rules, svc.catalog_products = active_rules, catalog_products
+    svc.staff_examples, svc.catalog_view, svc.llm_call = staff_examples, catalog_view, llm_call
+    try:
+        return asyncio.run(svc.decide(None, cfg, ctx or ChatContext("iPhone 17 Pro Max 256", None, "Алексей", []),
+                                      text, {}, **kw))
+    finally:
+        for n, fn in saved.items():
+            setattr(svc, n, fn)
+
+
+def test_decide_replies_normally_with_off_topic_silent_on():
+    """off_topic_silent включён по умолчанию — обычные ответы НЕ должны превращаться в молчание
+    (регрессия: return silent выполнялся на каждом непустом ответе модели)."""
+    cfg = _decide_cfg()  # off_topic_silent=True по умолчанию
+    d = _run_decide('{"reply": "Да, бордовый есть в наличии — 131 990 ₽, отложить на вас?", "handoff": false}',
+                    "есть красный?", cfg, greet=False)
+    assert d.action == "reply" and "131 990" in d.text
+
+
+def test_decide_fixes_stale_price_before_sending():
+    """Модель назвала устаревшую цену узнаваемой позиции — уходит актуальная из прайса."""
+    d = _run_decide('{"reply": "Бордовый есть, физическая SIM — 127 990 ₽", "handoff": false}',
+                    "а с физической симкой есть?", _decide_cfg(), greet=False)
+    assert d.action == "reply" and "131 990" in d.text and "127 990" not in d.text
+
+
+def test_decide_unknown_price_goes_to_manager_not_to_client():
+    """Выдуманная цена покупателю НЕ отправляется — молчание и handoff сотруднику."""
+    no_anchor = ChatContext(None, None, "Алексей", [])
+    d = _run_decide('{"reply": "Есть такой — 99 990 ₽", "handoff": false}',
+                    "почём?", _decide_cfg(), ctx=no_anchor, greet=False)
+    assert d.action == "handoff" and d.text is None and "не из прайса" in d.reason
+
+
+def test_decide_wrong_price_of_known_item_is_corrected():
+    """А вот цену узнаваемой позиции чиним, а не зовём человека: покупатель получает ответ."""
+    burgundy = ChatContext("iPhone 17 Pro Max 256 Burgundy", None, "Алексей", [])
+    d = _run_decide('{"reply": "Есть такой — 99 990 ₽", "handoff": false}',
+                    "почём?", _decide_cfg(), ctx=burgundy, greet=False)
+    assert d.action == "reply" and "131 990" in d.text and "99 990" not in d.text
+
+
+def test_decide_order_survives_price_audit():
+    """Бронь от модели не затирается контролем цен: payload с ФИО и телефоном доезжает до Decision
+    (регрессия: verdict.order = None выполнялся на каждом ответе)."""
+    answer = ('{"reply": "Оформила бронь на сегодня, ждём к семи!", "handoff": false, '
+              '"order": {"item": 1, "method": "pickup", "address": "", "name": "Иванов Иван", '
+              '"phone": "+79990000001", "email": "", "comment": "к 19:00"}}')
+    d = _run_decide(answer, "беру, бронь. Иванов Иван +79990000001, подъеду к семи", _decide_cfg(),
+                    products=[_FakeProduct()], greet=False)
+    assert d.action == "reply" and d.order is not None
+    assert d.order["name"] == "Иванов Иван" and d.order["phone"] == "+79990000001"
+
+
+def test_decide_asks_contacts_and_does_not_book_without_them():
+    """Нет ФИО/телефона — бот вежливо просит их и НЕ оформляет бронь."""
+    answer = ('{"reply": "Забронировала!", "handoff": false, "order": {"item": 1, "method": "pickup", '
+              '"address": "", "name": "", "phone": "", "email": "", "comment": ""}}')
+    d = _run_decide(answer, "забронируйте, подъеду к семи", _decide_cfg(),
+                    products=[_FakeProduct()], greet=False)
+    assert d.action == "reply" and d.order is None
+    assert "ФИО" in d.text and "телефон" in d.text and "оформлена" not in d.text.lower()
+
+
+def test_decide_second_reply_of_the_day_has_no_greeting():
+    """Сегодня уже общались — приветствие из ответа модели вырезается."""
+    d = _run_decide('{"reply": "Здравствуйте! Бордовый есть — 131 990 ₽", "handoff": false}',
+                    "есть красный?", _decide_cfg(), greet=False)
+    assert d.action == "reply" and "Здравствуй" not in d.text
+
+
+def test_is_closing_message():
+    from src.app.core.avito_bot_engine import is_closing_message, bot_farewelled
+    assert is_closing_message("спасибо")
+    assert is_closing_message("Спасибо, подумаю до завтра")
+    assert is_closing_message("и вам")
+    assert is_closing_message("не актуально, спасибо")
+    assert not is_closing_message("спасибо, а доставка есть?")     # благодарность + новый вопрос
+    assert not is_closing_message("какая цена?")
+    assert not is_closing_message("а пока есть в наличии?")        # «пока» = пока что, не прощание
+    ctx = ChatContext(None, None, None, [("bot", "Рада помочь! Хорошего вечера и отличного настроения!")])
+    assert bot_farewelled(ctx)
+    ctx = ChatContext(None, None, None, [("bot", "Бордовый есть — 131 990 ₽")])
+    assert not bot_farewelled(ctx)
+
+
+def test_mentions_other_city():
+    from src.app.core.avito_bot_engine import mentions_other_city
+    assert mentions_other_city("доставите в Питер?")
+    assert mentions_other_city("а в Казань отправите?")
+    assert mentions_other_city("я в Новосибирске, доставка есть?")
+    assert not mentions_other_city("доставка по Москве?")
+    assert not mentions_other_city("есть в наличии?")
+    assert not mentions_other_city("я из Москвы, привезёте в Подольск?")   # московский скрипт
+    assert not mentions_other_city("меня зовут Владимир")                 # имя, а не город
+    assert not mentions_other_city("читал отзывы про вас")                # «читал» — не Чита
+    assert not mentions_other_city("Иванов Иван, +79990000001")           # фамилия, а не Иваново
+
+
+def test_decide_moscow_delivery_rule_does_not_hijack_region_question():
+    """«Доставите в Питер?» — не дословный московский скрипт, а ответ модели по СДЭК (ТЗ, сценарий 13)."""
+    moscow = R("delivery", ["доставка", "доставите"], "Доставка до вашего адреса по Москве от 1000 рублей")
+    sdek_answer = ("В другие регионы доставка по СДЭК по полной оплате. "
+                   "Оплата переводом +3%. Напишите адрес ПВЗ СДЭК — рассчитаю стоимость.")
+    d = _run_decide('{"reply": "' + sdek_answer + '", "handoff": false}',
+                    "доставите в Питер?", _decide_cfg(), rules=[moscow], greet=False)
+    assert d.action == "reply" and "СДЭК" in d.text and "по Москве" not in d.text
+    # А без другого города московский скрипт уходит дословно, как и раньше
+    d = _run_decide('{"reply": "неважно", "handoff": false}',
+                    "доставите по адресу?", _decide_cfg(), rules=[moscow], greet=False)
+    assert d.action == "reply" and d.text.startswith("Доставка до вашего адреса по Москве")
+    # Региональное правило (в нём есть СДЭК) другим городом не ломается
+    region = R("sdek", ["сдэк", "отправите"], "В другие регионы доставка по СДЭК по полной оплате")
+    d = _run_decide('{"reply": "неважно", "handoff": false}',
+                    "отправите в Казань?", _decide_cfg(), rules=[region], greet=False)
+    assert d.action == "reply" and "СДЭК" in d.text
+
+
+def test_decide_closing_goes_to_model_not_to_sales_rule():
+    """«Спасибо, подумаю до завтра» — не автоответ «Желаете оформить доставку?», а прощание модели (ТЗ §13)."""
+    thanks = R("thanks", ["спасибо", "ок"], "Желаете оформить доставку или забронировать товар?")
+    d = _run_decide('{"reply": "Хорошо, Алексей! Если что — я на связи. Хорошего вечера!", "handoff": false}',
+                    "Спасибо, подумаю до завтра", _decide_cfg(), rules=[thanks], greet=False)
+    assert d.action == "reply" and d.source == "llm" and "оформить доставку" not in d.text
+
+
+def test_decide_silent_after_farewell():
+    """После нашего прощания на «спасибо» — молчание, без вызова модели (ТЗ §11, сценарий 14)."""
+    thanks = R("thanks", ["спасибо", "ок"], "Желаете оформить доставку или забронировать товар?")
+    ctx = ChatContext("iPhone 17 Pro Max 256", None, "Алексей",
+                      [("client", "Спасибо, подумаю"), ("bot", "Хорошо! Хорошего вечера и отличного настроения!")])
+    d = _run_decide('{"reply": "неважно", "handoff": false}', "спасибо большое!", _decide_cfg(),
+                    ctx=ctx, rules=[thanks], greet=False)
+    assert d.action == "silent" and d.text is None
+
+
+def test_decide_off_topic_silence_suppresses_first_message_template():
+    """Off-topic первым сообщением — молчание, и продающий шаблон не шлём (ТЗ §11, сценарий 6)."""
+    d = _run_decide('{"reply": "", "handoff": false, "off_topic": true}',
+                    "решите интеграл x^2 dx", _decide_cfg(), greet=True)
+    assert d.action == "silent" and d.suppress_opening
+    d = _run_decide('{"reply": "Бордовый есть — 131 990 ₽", "handoff": false}',
+                    "есть красный?", _decide_cfg(), greet=True)
+    assert not d.suppress_opening   # обычный ответ — шаблон на месте
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
