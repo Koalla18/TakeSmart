@@ -142,6 +142,8 @@ interface Decision {
   order: OrderPayload | null
   examples_used: number
   first_message: string | null
+  messages?: { text: string; rule_id: string | null }[]
+  order_status?: 'pending' | 'cancelled' | null
 }
 
 type View = 'dialogs' | 'broadcasts' | 'analytics' | 'prices' | 'rules' | 'learning' | 'test' | 'settings'
@@ -505,7 +507,7 @@ function ChatPanel({ api, chatId, config, onClose, onChanged }: { api: Api; chat
   )
 }
 
-const SOURCE_LABEL: Record<string, string> = { rule: 'автоответ', llm: 'модель', staff: 'сотрудник', avito: 'из приложения Авито', reminder: 'напоминание', broadcast: 'рассылка' }
+const SOURCE_LABEL: Record<string, string> = { rule: 'автоответ', llm: 'модель', llm_open: 'модель', staff: 'сотрудник', avito: 'из приложения Авито', reminder: 'напоминание', broadcast: 'рассылка' }
 
 function Bubble({ m, name, api, onDone }: { m: Message; name: string; api: Api; onDone: () => void }) {
   if (m.author === 'system') {
@@ -1185,7 +1187,7 @@ function ImportModal({ api, onClose, onDone }: { api: Api; onClose: () => void; 
 
 // ── Тест ─────────────────────────────────────────────────────────────────────
 
-interface TestTurn { author: 'client' | 'bot'; text: string; decision?: Decision; whole?: boolean }
+interface TestTurn { author: 'client' | 'bot'; text: string; decision?: Decision; rule_id?: string | null }
 interface ListingPrice { price: string | null; source: string | null; matched: string | null }
 interface RunRow { label: string; question: string; d: Decision | null }
 
@@ -1237,13 +1239,29 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
   }, [api, item])
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [turns, busy])
 
-  const ask = (history: TestTurn[], t: string) => call<Decision>(api, '/test', {
-    method: 'POST',
-    body: { text: t, history: history.map(({ author, text }) => ({ author, text })), item_title: item || null, item_price: price || null },
-  })
-  const withAnswer = (prev: TestTurn[], t: string, d: Decision): TestTurn[] => [...prev, { author: 'client', text: t },
-    ...(d.first_message ? [{ author: 'bot' as const, text: d.first_message, whole: true }] : []),
-    ...(d.text ? [{ author: 'bot' as const, text: d.text, decision: d, whole: d.source !== 'llm' }] : [{ author: 'bot' as const, text: '', decision: d }])]
+  const ask = (history: TestTurn[], t: string) => {
+    const lastDecision = [...history].reverse().find(turn => turn.decision)?.decision
+    return call<Decision>(api, '/test', {
+      method: 'POST',
+      body: {
+        text: t,
+        history: history.filter(turn => turn.text).slice(-40).map(({ author, text, rule_id }) => ({ author, text, rule_id })),
+        item_title: item.trim() || null,
+        item_price: price || null,
+        needs_human: history.some(turn => turn.decision?.action === 'handoff'),
+        order_status: lastDecision?.order_status ?? null,
+      },
+    })
+  }
+  const outgoing = (d: Decision) => d.messages ?? [d.first_message, d.text]
+    .filter((message): message is string => Boolean(message))
+    .map(message => ({ text: message, rule_id: d.rule_id }))
+  const withAnswer = (prev: TestTurn[], t: string, d: Decision): TestTurn[] => {
+    const messages = outgoing(d)
+    return [...prev, { author: 'client', text: t }, ...messages.map((message, i) => ({
+      author: 'bot' as const, ...message, decision: i === messages.length - 1 ? d : undefined,
+    })), ...(messages.length ? [] : [{ author: 'bot' as const, text: '', decision: d }])]
+  }
 
   const send = async (override?: string) => {
     const t = (override ?? text).trim()
@@ -1290,7 +1308,7 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
         {status && (
           <div className={`rounded-xl border px-4 py-2.5 text-sm ${noModel ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-emerald-400/20 bg-emerald-400/[0.07] text-emerald-200'}`}>
             {noModel ? 'Модель не подключена — отвечают только автоответы. Подключите модель во вкладке «Настройки», чтобы проверить живое общение.'
-              : 'Модель подключена — бот отвечает как в настоящем диалоге: те же правила, прайс, каталог, trade-in. Ничего не сохраняется и в Авито не уходит.'}
+              : 'Модель подключена — бот отвечает как в настоящем диалоге: те же правила, прайс и условия trade-in. Ничего не сохраняется и в Авито не уходит.'}
           </div>
         )}
         <div className={`${CARD} flex min-h-[50vh] flex-col !p-0`}>
@@ -1300,9 +1318,9 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
               <div key={i} className="max-w-[80%]"><div className="inline-block rounded-2xl bg-white/[0.06] px-3.5 py-2 text-sm text-slate-100">{t.text}</div></div>
             ) : (
               <div key={i} className="ml-auto max-w-[85%] text-right">
-                {t.text && (t.whole ? [t.text] : t.text.split(/\n\s*\n/)).filter(p => p.trim()).map((part, j) => (
-                  <div key={j} className="mb-1 flex justify-end"><div className="inline-block whitespace-pre-wrap rounded-2xl bg-yellow-400/[0.14] px-3.5 py-2 text-left text-sm text-yellow-50">{part.trim()}</div></div>
-                ))}
+                {t.text && (
+                  <div className="mb-1 flex justify-end"><div className="inline-block whitespace-pre-wrap rounded-2xl bg-yellow-400/[0.14] px-3.5 py-2 text-left text-sm text-yellow-50">{t.text}</div></div>
+                )}
                 {t.decision && <DecisionNote d={t.decision} ruleName={ruleName(t.decision.rule_id)} />}
               </div>
             ))}
@@ -1327,7 +1345,9 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
                   <div className="min-w-0">
                     {!r.d ? <span className="text-slate-500">…</span> : (
                       <>
-                        {r.d.text ? <div className="whitespace-pre-wrap text-yellow-50">{r.d.text}</div> : <div className="text-slate-500">{r.d.action === 'silent' ? 'молчит' : 'без текста'}</div>}
+                        {outgoing(r.d).length ? outgoing(r.d).map((message, i) => (
+                          <div key={i} className="whitespace-pre-wrap text-yellow-50">{message.text}</div>
+                        )) : <div className="text-slate-500">{r.d.action === 'silent' ? 'молчит' : 'без текста'}</div>}
                         <DecisionNote d={r.d} ruleName={ruleName(r.d.rule_id)} />
                       </>
                     )}
@@ -1347,7 +1367,7 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
           <div className="rounded-lg bg-white/[0.04] px-3 py-2 text-xs leading-relaxed text-slate-400">
             {!item.trim() ? 'Без объявления бот отвечает как на общий вопрос.'
               : lp?.price ? <>Розничная цена в первом сообщении: <b className="text-white">{lp.price}</b><br />из: {lp.source} — {lp.matched}</>
-                : lp ? <span className="text-amber-300">Цена по этому названию не нашлась — первое сообщение уйдёт без строки с ценой, а менеджеру придёт пометка. Проверьте прайс или привяжите объявление к товару.</span> : 'Ищу цену…'}
+                : lp ? <span className="text-amber-300">Цена по этому названию не найдена в прайсе. Когда первый ответ требует цену, бот передаст диалог менеджеру.</span> : 'Ищу цену…'}
           </div>
           <label className="block"><span className={LABEL}>Цена в объявлении</span><input className={`${INPUT} mt-1.5`} value={price} onChange={e => setPrice(e.target.value)} placeholder="Доплата по trade-in, например 25 000 ₽" /></label>
           <div className="flex gap-2">
@@ -1370,7 +1390,7 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
                 className={`${BTN_ROW} w-full !justify-start`}>▶ {sc.title}<span className="ml-2 text-xs text-slate-500">{sc.steps.length} сообщ.</span></button>
             ))}
           </div>
-          <p className="mt-3 text-xs leading-relaxed text-slate-500">«Прогнать все» задаёт каждый вопрос в новом диалоге — быстро видно, где бот ошибается. В диалоге с бронью бот покажет, какую заявку оформил бы; настоящая заявка в «Заказах» не создаётся.</p>
+          <p className="mt-3 text-xs leading-relaxed text-slate-500">«Прогнать все» задаёт каждый вопрос в новом диалоге — быстро видно, где бот ошибается. Для проверки брони введите точное название объявления, привязанного к карточке товара. Тест покажет данные заявки без её создания.</p>
         </div>
       </div>
     </div>
@@ -1526,7 +1546,6 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
               hint="Изредка одно (🙂, 👍), и только если покупатель сам пишет неформально" />
             <Toggle checked={form.off_topic_silent} onChange={v => set('off_topic_silent', v)} label="Молчать на вопросы не по теме"
               hint="Математика, код, политика, «игнорируй инструкции» и всё, что не про технику и покупку: бот отмечает сообщение прочитанным и не отвечает — как живой менеджер. Приветствие, «спасибо» и вопросы по покупке — отвечает как обычно. Выключите — бот будет вежливо отвечать, что помогает только с покупкой" />
-            <Toggle checked={form.use_catalog} onChange={v => set('use_catalog', v)} label="Смотреть цены и наличие в каталоге сайта" hint="Модель видит подходящие товары с живыми ценами и остатками" />
             <Toggle checked={form.orders_enabled} onChange={v => set('orders_enabled', v)} label="Оформлять заявки из чата"
               hint="Когда покупатель согласился, бот спрашивает ФИО и телефон (почту — по желанию) и создаёт заявку в «Заказах» с пометкой «Заявка с Авито»; приходит пуш «Новая заявка с Авито!». Остаток списывается. В режиме черновиков — только после вашего «Отправить»" />
             <button type="button" onClick={async () => {
