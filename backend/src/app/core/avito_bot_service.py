@@ -802,7 +802,7 @@ async def _process_chat(chat_id: UUID) -> None:
                 send_at = _now() + timedelta(seconds=max(0, delay - debounce))
             else:
                 send_at += timedelta(seconds=_next_part_delay(cfg, text_, chat.is_simulated))
-            parts = planned_parts(cfg, plan)
+            parts = [text_] if order else planned_parts(cfg, plan)
             for i, part in enumerate(parts):
                 if i:
                     send_at += timedelta(seconds=_next_part_delay(cfg, part, chat.is_simulated))
@@ -1014,9 +1014,56 @@ async def _send(cfg: AvitoBotConfig, chat: AvitoChat, msg: AvitoMessage, session
 
 async def deliver_message(session: AsyncSession, cfg: AvitoBotConfig, chat: AvitoChat, msg: AvitoMessage) -> tuple[str | None, Order | None]:
     """Отправляет и, если ушло, засчитывает правило и оформляет бронь. Возвращает (ошибка, заказ)."""
+    order = None
+    if msg.order_payload:
+        # Блокировка диалога и фиксация заявки до отправки позволяют безопасно повторить
+        # отправку при сетевой ошибке без повторного списания остатка.
+        chat = await session.get(AvitoChat, chat.id, with_for_update=True)
+        chat_id, message_id = chat.id, msg.id
+        try:
+            if chat.order_id is None:
+                result = await create_chat_order(session, chat, msg.order_payload)
+                if isinstance(result, str):
+                    chat.needs_human = True
+                    chat.human_reason = f"Бронь не оформилась: {result}"[:200]
+                    msg.status = "failed"
+                    msg.error = chat.human_reason
+                    return msg.error, None
+                order = result
+                chat.order_id = order.id
+                chat.order_number = order.order_number
+                msg.order_payload = {**msg.order_payload, "saved_order_id": str(order.id)}
+                if not chat.is_simulated:
+                    log_event(session, chat.id, "order", f"{order.order_number} · {msg.order_payload.get('product_name', '')}")
+            elif msg.order_payload.get("saved_order_id") != str(chat.order_id):
+                chat.needs_human = True
+                chat.human_reason = "Бронь не оформлена: в диалоге уже есть заявка"
+                msg.status = "failed"
+                msg.error = chat.human_reason
+                return msg.error, None
+            await session.commit()
+        except Exception:
+            logger.exception("avito_bot_order_save_failed", chat_id=str(chat_id))
+            await session.rollback()
+            msg = await session.get(AvitoMessage, message_id, with_for_update=True)
+            chat = await session.get(AvitoChat, chat_id, with_for_update=True)
+            chat.needs_human = True
+            chat.human_reason = "Бронь не оформилась: ошибка сохранения"
+            msg.status = "failed"
+            msg.error = chat.human_reason
+            return msg.error, None
+        # После фиксации проверяем, что сотрудник или покупатель не отменил сообщение.
+        msg = await session.get(AvitoMessage, msg.id, with_for_update=True)
+        chat = await session.get(AvitoChat, chat.id, with_for_update=True)
+        if msg.status not in ("draft", "scheduled"):
+            return "Сообщение отменено", order
+        saved_order = await session.get(Order, chat.order_id)
+        if saved_order is None or saved_order.status == "cancelled":
+            msg.status = "discarded"
+            return "Заявка отменена до отправки", order
     error = await _send(cfg, chat, msg, session)
     if error:
-        return error, None
+        return error, order
     msg.status = "sent"
     msg.sent_at = _now()
     msg.error = None
@@ -1026,18 +1073,6 @@ async def deliver_message(session: AsyncSession, cfg: AvitoBotConfig, chat: Avit
         hits[str(msg.rule_id)] = int(hits.get(str(msg.rule_id), 0)) + 1
         chat.rule_hits = hits
         await session.execute(update(AvitoBotRule).where(AvitoBotRule.id == msg.rule_id).values(hits=AvitoBotRule.hits + 1))
-    order = None
-    if msg.order_payload and chat.order_id is None:
-        result = await create_chat_order(session, chat, msg.order_payload)
-        if isinstance(result, str):
-            chat.needs_human = True
-            chat.human_reason = f"Бронь не оформилась: {result}"[:200]
-        else:
-            order = result
-            chat.order_id = order.id
-            chat.order_number = order.order_number
-            if not chat.is_simulated:
-                log_event(session, chat.id, "order", f"{order.order_number} · {msg.order_payload.get('product_name', '')}")
     return None, order
 
 
@@ -1067,7 +1102,10 @@ async def deliver_due_message(message_id: UUID) -> None:
             await session.commit()
             return
         error, order = await deliver_message(session, cfg, chat, msg)
-        if error:
+        if error and msg.status in ("failed", "discarded"):
+            if chat.needs_human:
+                push = ("⚠️ Авито: бронь не оформилась", f"{chat.client_name or 'Покупатель'} · {chat.human_reason}")
+        elif error:
             msg.attempts += 1
             msg.error = error
             if msg.attempts < SEND_RETRIES:
@@ -1594,7 +1632,7 @@ async def approve_draft(message_id: UUID, text_: str | None) -> None:
             msg.source = "staff"
             await _learn(session, chat, state, msg.text, bot_answer=original)
         # Как человек: первая часть уходит сейчас, остальные — следом, с паузой «печати»
-        parts = _parts(cfg, msg.text, msg.source)
+        parts = [msg.text] if msg.order_payload else _parts(cfg, msg.text, msg.source)
         if msg.source == "llm_open":
             msg.source = "llm"
         order_payload = msg.order_payload
@@ -1603,7 +1641,12 @@ async def approve_draft(message_id: UUID, text_: str | None) -> None:
             msg.order_payload = None
         error, order = await deliver_message(session, cfg, chat, msg)
         if error:
-            await session.rollback()
+            if msg.status in ("failed", "discarded"):
+                await session.commit()
+            else:
+                await session.rollback()
+            if order is not None:
+                await send_order_push(order)
             raise ActionError(error)
         msg.created_at = _now()
         send_at = _now()

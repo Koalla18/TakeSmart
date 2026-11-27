@@ -1077,6 +1077,69 @@ def test_test_chat_uses_outgoing_plan_and_preserves_history():
     asyncio.run(run())
 
 
+def test_booking_saved_before_confirmation_and_retry():
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+    from uuid import uuid4
+    from src.app.core import avito_bot_service as svc
+
+    async def run():
+        chat = SimpleNamespace(id=uuid4(), order_id=None, order_number=None, is_simulated=True,
+                               needs_human=False, human_reason=None, rule_hits={})
+        msg = SimpleNamespace(id=uuid4(), order_payload={"product_name": "Телефон"},
+                              status="scheduled", error=None, rule_id=None, text="Заявка оформлена")
+        order = SimpleNamespace(id=uuid4(), order_number="TM-TEST", status="pending")
+        saved = False
+
+        async def commit():
+            nonlocal saved
+            saved = True
+
+        async def get(model, key, **kwargs):
+            if model is svc.AvitoChat:
+                return chat
+            if model is svc.AvitoMessage:
+                return msg
+            return order
+
+        async def send(*args):
+            assert saved and chat.order_id == order.id
+            return "сеть недоступна"
+
+        session = SimpleNamespace(get=AsyncMock(side_effect=get), commit=AsyncMock(side_effect=commit),
+                                  rollback=AsyncMock())
+        with (patch.object(svc, "create_chat_order", new=AsyncMock(return_value=order)) as create,
+              patch.object(svc, "_send", new=AsyncMock(side_effect=send))):
+            error, created = await svc.deliver_message(session, None, chat, msg)
+            assert error and created is order and create.await_count == 1
+            error, created = await svc.deliver_message(session, None, chat, msg)
+            assert error and created is None and create.await_count == 1
+
+    asyncio.run(run())
+
+
+def test_booking_failure_does_not_send_confirmation():
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+    from uuid import uuid4
+    from src.app.core import avito_bot_service as svc
+
+    async def run():
+        chat = SimpleNamespace(id=uuid4(), order_id=None, needs_human=False, human_reason=None)
+        msg = SimpleNamespace(id=uuid4(), order_payload={"product_name": "Телефон"},
+                              status="scheduled", error=None)
+        session = SimpleNamespace(get=AsyncMock(return_value=chat), commit=AsyncMock(), rollback=AsyncMock())
+        with (patch.object(svc, "create_chat_order", new=AsyncMock(return_value="товар закончился")),
+              patch.object(svc, "_send", new=AsyncMock()) as send):
+            error, order = await svc.deliver_message(session, None, chat, msg)
+            assert error and order is None and chat.needs_human and msg.status == "failed"
+            send.assert_not_awaited()
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
