@@ -676,10 +676,10 @@ def test_audit_reply_prices_fixes_stale_quote():
     # Цена, которой нет нигде, и позицию не определить — не отправляем
     _, unknown, replaced = audit_reply_prices("Есть бордовый — 99 990 ₽", [], set(), None, [])
     assert unknown == [99990] and not replaced
-    # Выдуманная цена в перечислении — тоже не отправляем
-    _, unknown, _ = audit_reply_prices(
-        "Бордовый — 131 990 ₽, оранжевый — 88 990 ₽", items, vocab, index, [], anchor=anchor)
-    assert unknown == [88990]
+    # Привязка к обоим вариантам однозначна, исправляем и неправильные цены в списке.
+    fixed, unknown, replaced = audit_reply_prices(
+        "Бордовый — 129 990 ₽, оранжевый — 131 990 ₽", items, vocab, index, [], anchor=anchor)
+    assert replaced and not unknown and fixed == "Бордовый — 131 990 ₽, оранжевый — 129 990 ₽"
     # Trade-in вилка из настроек — разрешённая цена, не ругаемся
     ok, unknown, _ = audit_reply_prices("За ваш 15 Pro дадим до 30 000 ₽", items, vocab, index,
                                         [30000], anchor=anchor)
@@ -703,12 +703,13 @@ DECIDE_PRICE = ("iPhone 17 Pro Max 256 Burgundy 🇯🇵 SIM+eSIM - 131 990\n"
 
 class _FakeProduct:
     """Минимум полей товара для product_line и оформления брони."""
-    def __init__(self, name="AirPods Pro 3", price=16990, stock=5):
+    def __init__(self, name="iPhone 17 Pro Max 256 Burgundy", price=16990, stock=5):
         import uuid
         self.id, self.name = uuid.uuid4(), name
         self.price, self.discount_price = price, None
         self.is_preorder, self.preorder_note = False, None
         self.stock_quantity, self.condition = stock, "new"
+        self.attributes, self.color = {}, None
 
 
 def _decide_cfg(**kw):
@@ -730,22 +731,19 @@ def _run_decide(model_answer: str, text: str, cfg, ctx=None, rules=None, product
     async def active_rules(session):
         return list(rules or [])
 
-    async def catalog_products(session, item_id, item_title, question, cfg=None):
-        return list(products), None
+    async def linked_product(session, item_id):
+        return next(iter(products), None)
 
     async def staff_examples(session, limit=300):
         return []
 
-    async def catalog_view(session, cfg=None):
-        return {"overview": []}
-
     async def llm_call(cfg_, messages):
         return model_answer
 
-    names = ("active_rules", "catalog_products", "staff_examples", "catalog_view", "llm_call")
+    names = ("active_rules", "linked_product", "staff_examples", "llm_call")
     saved = {n: getattr(svc, n) for n in names}
-    svc.active_rules, svc.catalog_products = active_rules, catalog_products
-    svc.staff_examples, svc.catalog_view, svc.llm_call = staff_examples, catalog_view, llm_call
+    svc.active_rules, svc.linked_product = active_rules, linked_product
+    svc.staff_examples, svc.llm_call = staff_examples, llm_call
     try:
         return asyncio.run(svc.decide(None, cfg, ctx or ChatContext("iPhone 17 Pro Max 256", None, "Алексей", []),
                                       text, {}, **kw))
@@ -796,6 +794,7 @@ def test_decide_order_survives_price_audit():
                     products=[_FakeProduct()], greet=False)
     assert d.action == "reply" and d.order is not None
     assert d.order["name"] == "Иванов Иван" and d.order["phone"] == "+79990000001"
+    assert d.order["price"] == 131990
 
 
 def test_decide_asks_contacts_and_does_not_book_without_them():
@@ -888,6 +887,194 @@ def test_decide_off_topic_silence_suppresses_first_message_template():
     d = _run_decide('{"reply": "Бордовый есть — 131 990 ₽", "handoff": false}',
                     "есть красный?", _decide_cfg(), greet=True)
     assert not d.suppress_opening   # обычный ответ — шаблон на месте
+
+
+def test_asserted_colors():
+    from src.app.core.avito_bot_engine import asserted_colors
+    assert asserted_colors("Красного у этой модели нет, зато есть бордовый — 131 990 ₽") == ["burgundy"]
+    assert asserted_colors("Есть голубой — 131 990 ₽, отложить?") == ["blue"]
+    assert asserted_colors("бордовую отложить на вас?") == ["burgundy"]        # падеж
+    assert asserted_colors("цвета: черный и белый") == ["black", "white"]
+    assert asserted_colors("не бывает синих, зато есть оранжевый") == ["orange"]
+    assert asserted_colors("цена 131 990 ₽, SIM + eSIM") == []                 # без цветов
+
+
+def test_audit_reply_colors():
+    from src.app.core.avito_bot_engine import (audit_reply_colors, parse_price_list, catalog_vocab, SearchIndex)
+    items, _ = parse_price_list(
+        "iPhone 17 Pro Max 256 Burgundy 🇯🇵 SIM+eSIM - 131 990\n"
+        "iPhone 17 Pro Max 256 Orange 🇰🇷 SIM+eSIM - 129 990\n"
+        "iPhone 17 Pro Max 512 Orange 🇰🇷 SIM+eSIM - 149 990")
+    vocab, index = catalog_vocab(items), SearchIndex(items)
+    anchor = "iPhone 17 Pro Max 256"
+    assert audit_reply_colors("Есть голубой — 131 990 ₽", items, vocab, index, anchor) == ["blue"]
+    assert audit_reply_colors("Есть серебристый — 131 990 ₽", items, vocab, index, anchor) == ["silver"]
+    assert audit_reply_colors("Бордовый есть — 131 990 ₽", items, vocab, index, anchor) == []
+    # Отрицание не считается выдумкой: красного нет, предлагаем бордовый
+    assert audit_reply_colors("Красного нет, зато есть бордовый — 131 990 ₽", items, vocab, index, anchor) == []
+    # У 512 ГБ только Orange — бордовый на 512 это выдумка
+    assert audit_reply_colors("есть бордовый 512 — 149 990 ₽", items, vocab, index, anchor) == ["burgundy"]
+    # Объявление не из прайса — не к чему привязать, не проверяем
+    assert audit_reply_colors("есть голубой", items, vocab, index, "Кнопочный Nokia") == []
+
+
+def test_audit_price_ambiguous_variant_goes_to_handoff_not_to_wrong_price():
+    """Неверная цена без цвета в ответе, а у модели цены разных цветов разные — НЕ подставляем
+    цену случайного цвета (это сама ошибка), а отдаём человеку."""
+    from src.app.core.avito_bot_engine import audit_reply_prices, parse_price_list, catalog_vocab, SearchIndex
+    items, _ = parse_price_list(
+        "iPhone 17 Pro Max 256 Burgundy 🇯🇵 SIM+eSIM - 131 990\n"
+        "iPhone 17 Pro Max 256 Orange 🇰🇷 SIM+eSIM - 129 990")
+    vocab, index = catalog_vocab(items), SearchIndex(items)
+    anchor = "iPhone 17 Pro Max 256"
+    fixed, unknown, replaced = audit_reply_prices("Есть такой — 99 990 ₽", items, vocab, index, [], anchor=anchor)
+    assert not replaced and unknown == [99990] and "99 990" in fixed
+    # А с цветом в ответе — однозначно, чиним на цену этого цвета
+    fixed, unknown, replaced = audit_reply_prices("Бордовый есть — 99 990 ₽", items, vocab, index, [], anchor=anchor)
+    assert replaced and "131 990" in fixed and not unknown
+    fixed, unknown, replaced = audit_reply_prices("Оранжевый есть — 99 990 ₽", items, vocab, index, [], anchor=anchor)
+    assert replaced and "129 990" in fixed and not unknown
+
+
+def test_decide_invented_color_goes_to_manager_not_to_client():
+    """Цвет, которого нет у модели в прайсе, покупателю НЕ отправляется — молчание и handoff."""
+    d = _run_decide('{"reply": "Да, есть голубой 17 Pro Max — 131 990 ₽", "handoff": false}',
+                    "какие цвета в наличии?", _decide_cfg(), greet=False)
+    assert d.action == "handoff" and d.text is None and "цвет" in d.reason
+    # Разрешённый цвет проходит без handoff
+    d = _run_decide('{"reply": "Да, есть бордовый — 131 990 ₽", "handoff": false}',
+                    "есть бордовый?", _decide_cfg(), greet=False)
+    assert d.action == "reply" and "131 990" in d.text
+
+
+def test_decide_own_repeat_is_silenced():
+    """Дословный повтор своего же сообщения — не отправляем дубль (ТЗ §12)."""
+    ctx = ChatContext("iPhone 17 Pro Max 256", None, "Алексей",
+                      [("client", "есть бордовый?"), ("bot", "Бордовый есть — 131 990 ₽, отложить на вас?")])
+    d = _run_decide('{"reply": "Бордовый есть — 131 990 ₽, отложить на вас?", "handoff": false}',
+                    "а точно есть бордовый?", _decide_cfg(), ctx=ctx, greet=False)
+    assert d.action == "silent" and d.text is None
+    # Не повтор — проходит
+    d = _run_decide('{"reply": "Да, бордовый в наличии, цена та же — 131 990 ₽", "handoff": false}',
+                    "а точно есть бордовый?", _decide_cfg(), ctx=ctx, greet=False)
+    assert d.action == "reply"
+
+
+def test_decide_offers_existing_colors_when_asked_color_missing():
+    """Спрашивают цвет, которого нет у модели в прайсе — бот САМ предлагает цвета, что есть,
+    с ценами из прайса, без вызова модели и без handoff (по просьбе владельца)."""
+    d = _run_decide('{"reply": "неважно", "handoff": false}', "есть голубой?", _decide_cfg(), greet=False)
+    assert d.action == "reply" and "голубой" in d.text
+    assert "бордовый" in d.text and "оранжевый" in d.text
+    assert "131 990" in d.text and "129 990" in d.text
+    assert "Какой подойдёт?" in d.text
+
+
+def test_decide_color_that_exists_goes_to_model():
+    """Спрошенный цвет есть в прайсе — отвечает модель, детерминированный ответ не вмешивается."""
+    d = _run_decide('{"reply": "Да, бордовый есть — 131 990 ₽", "handoff": false}',
+                    "есть бордовый?", _decide_cfg(), greet=False)
+    assert d.action == "reply" and "131 990" in d.text and "Какой подойдёт" not in d.text
+
+
+def test_decide_red_question_goes_to_model_when_burgundy_exists():
+    """«Красный» при наличии бордового — модель сама предлагает оттенок по промпту (без отказа)."""
+    d = _run_decide('{"reply": "Красного нет, зато есть бордовый — 131 990 ₽", "handoff": false}',
+                    "есть красный?", _decide_cfg(), greet=False)
+    assert d.action == "reply" and "131 990" in d.text
+
+
+def test_decide_trade_in_color_is_not_color_offer():
+    """Цвет СВОЕГО телефона в trade-in — не повод предлагать цвета из прайса."""
+    d = _run_decide('{"reply": "Примем: 15 Pro до 30 000 ₽", "handoff": false}',
+                    "сдать свой голубой 15 про в трейд", _decide_cfg(), greet=False)
+    assert d.action == "reply" and "30 000" in d.text and "Какой подойдёт" not in d.text
+
+
+def test_price_audit_checks_each_volume_and_named_finish():
+    from src.app.core.avito_bot_engine import audit_reply_prices, parse_price_list, catalog_vocab, SearchIndex
+    items, errors = parse_price_list(
+        DECIDE_PRICE + "\niPhone 17 Pro Max 512 Orange Корея SIM+eSIM - 149 990"
+    )
+    assert not errors
+    vocab, index = catalog_vocab(items), SearchIndex(items)
+    anchor = "iPhone 17 Pro Max 256 Burgundy"
+    reply, unknown, changed = audit_reply_prices(
+        "Оранжевый 512 ГБ — 129 990 ₽, бордовый 256 ГБ — 149 990 ₽.", items, vocab, index, anchor=anchor,
+    )
+    assert changed and not unknown and reply == "Оранжевый 512 ГБ — 149 990 ₽, бордовый 256 ГБ — 131 990 ₽."
+    _, unknown, changed = audit_reply_prices(
+        "Бордовый 512 ГБ — 149 990 ₽", items, vocab, index, anchor=anchor,
+    )
+    assert unknown == [149990] and not changed
+    reply, unknown, changed = audit_reply_prices(
+        "Оранжевый 512 ГБ стоит 129990.", items, vocab, index, anchor=anchor,
+    )
+    assert changed and not unknown and reply == "Оранжевый 512 ГБ стоит 149 990."
+
+    reply, unknown, changed = audit_reply_prices(
+        "Да, в наличии — 131 990 ₽.", items, vocab, index, anchor=anchor, question="А оранжевый 512 есть?",
+    )
+    assert changed and not unknown and reply == "Да, в наличии — 149 990 ₽."
+
+
+def test_listing_and_booking_use_only_price_list():
+    from src.app.core.avito_bot_service import booking_price, listing_price_info
+
+    card = _FakeProduct(price=18990)
+    cfg = _decide_cfg()
+    assert booking_price(cfg, card) == 131990
+    card_without_variant = _FakeProduct(name="iPhone 17 Pro Max")
+    card_without_variant.attributes = {"storage_gb": 256, "color": "Orange"}
+    assert booking_price(cfg, card_without_variant) == 129990
+    assert booking_price(_decide_cfg(price_list=""), card) is None
+    assert listing_price_info(_decide_cfg(price_list=""), card.name) == (None, None, None)
+    assert listing_price_info(cfg, "iPhone 17 Pro Max 256 голубой") == (None, None, None)
+    assert listing_price_info(cfg, card.name)[:2] == ("131 990 ₽", "прайс")
+    assert listing_price_info(cfg, "iPhone 17 Pro Max 256")[:2] == ("129 990 ₽", "прайс")
+
+
+def test_test_chat_uses_outgoing_plan_and_preserves_history():
+    import asyncio
+    import importlib
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from src.app.core import avito_bot_service as svc
+    from src.app.schemas.avito_bot import TestIn
+
+    router = importlib.import_module("src.app.api.routers.avito_bot")
+    cfg = _decide_cfg(first_message="Здравствуйте! Розничная цена {price}")
+    title = "iPhone 17 Pro Max 256 Burgundy"
+    db = MagicMock()
+    db.__aenter__.return_value.commit = AsyncMock()
+
+    async def run():
+        decide = AsyncMock(return_value=svc.Decision("silent", suppress_opening=True))
+        with (patch.object(router, "AsyncSessionFactory", return_value=db),
+              patch.object(svc, "load_config", new=AsyncMock(return_value=cfg)),
+              patch.object(svc, "test_item_id", new=AsyncMock(return_value=29)),
+              patch.object(svc, "decide", new=decide)):
+            silent = await router.test_chat(TestIn(item_title=title, text="Решите интеграл"))
+            assert silent.action == "silent" and silent.first_message is None and not silent.messages
+
+            decide.return_value = svc.Decision("reply", "Да, есть.\n\nМогу отложить.", "llm")
+            reply = await router.test_chat(TestIn(item_title=title, text="В наличии?"))
+            assert reply.first_message and len(reply.messages) == 1
+            assert "131 990 ₽" in reply.messages[0].text and "Могу отложить." in reply.messages[0].text
+            assert decide.await_args.kwargs["item_id"] == 29
+            assert decide.await_args.args[2].history[-1] == ("client", "В наличии?")
+
+            decide.return_value = svc.Decision("reply", "Да, есть.\n\nМогу отложить.", "llm")
+            continued = await router.test_chat(TestIn(
+                item_title=title, history=[{"author": "bot", "text": reply.messages[0].text}], text="А сейчас?",
+            ))
+            assert continued.first_message is None
+            assert [message.text for message in continued.messages] == ["Да, есть.", "Могу отложить."]
+
+            parked = await router.test_chat(TestIn(item_title=title, needs_human=True, text="Вы здесь?"))
+            assert parked.action == "silent" and not parked.messages
+            assert decide.await_count == 3
+
+    asyncio.run(run())
 
 
 if __name__ == "__main__":

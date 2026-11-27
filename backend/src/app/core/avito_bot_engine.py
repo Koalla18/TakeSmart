@@ -266,9 +266,9 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
         "Жёсткие правила:",
         "- Цены, наличие, сроки и условия бери ТОЛЬКО из данных ниже. Чего там нет — не выдумывай и ничего не "
         "обещай («согласовываю», «уточню и напишу»): reply пустой, handoff=true — менеджер ответит сам.",
-        "- Телефоны (iPhone, Samsung и любые смартфоны) — ТОЛЬКО из прайса магазина: модели, объёмы, цвета, страны "
-        "и цены. Чего нет в прайсе — того сейчас нет в наличии; не называй цвета и варианты, которых нет в прайсе "
-        "у этой модели, и не предлагай телефоны не из прайса.",
+        "- Модели, объёмы, цвета, страны, SIM, наличие и розничные цены бери ТОЛЬКО из прайса магазина. "
+        "Указывай объём и цвет рядом с каждой ценой в рублях (₽). Если прайс пуст или точной позиции нет, "
+        "передай вопрос о цене менеджеру.",
         "- Если покупатель прямо и всерьёз спрашивает, бот ли ты или живой человек, не отрицай, что ты "
         "виртуальный помощник магазина, и предложи подключить менеджера. В остальном общайся естественно, "
         "не упоминай, что ты ИИ, без надобности.",
@@ -360,8 +360,8 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
     if cfg.knowledge.strip():
         parts += ["", "Что ещё нужно знать о магазине:", cfg.knowledge.strip()]
     if price_overview:
-        parts += ["", "АКТУАЛЬНЫЙ ПРАЙС МАГАЗИНА — главный источник цен и наличия (важнее каталога ниже; "
-                      "если позиция есть в прайсе, цену бери только отсюда). Формат: модель объём цвет — страна, SIM — цена.",
+        parts += ["", "АКТУАЛЬНЫЙ ПРАЙС МАГАЗИНА — единственный источник розничных цен и наличия. "
+                      "Формат: модель объём цвет — страна, SIM — цена.",
                   "Как читать прайс:",
                   "- Страна — это версия (регион) устройства: Япония, Корея, Индия, США, Гонконг, ОАЭ и т.д. "
                   "Спросили «какой регион/страна/версия» — отвечай по прайсу; если вариантов несколько — перечисли "
@@ -387,9 +387,9 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
         parts += ["", "Справочник каталога магазина — всё, что сейчас есть в наличии и на предзаказ, цены как на сайте "
                       "(модель: память — цена (цвета)):", *catalog_overview]
     if catalog_lines:
-        parts += ["", "Подробно — товары, о которых спрашивают (точные цены и остатки по каждому варианту):"]
+        parts += ["", "Карточки для оформления брони. Цены и наличие бери из прайса."]
         parts += [f"[{i}] {line.lstrip('• ')}" for i, line in enumerate(catalog_lines, 1)]
-    if catalog_overview or catalog_lines:
+    if catalog_overview:
         parts += ["", "Как работать с каталогом:",
                   "- Если спрашивают про несколько товаров — ответь по каждому.",
                   "- «Базовая» модель — без Pro, Max, Plus, Air, Ultra в названии. Не путай базовую модель с Pro.",
@@ -410,7 +410,7 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
         parts += [
             "",
             "Бронь (заявка): ты можешь оформить её сам. Делай это ТОЛЬКО когда покупатель явно согласился "
-            "купить или забронировать конкретный товар из списка выше и понятно, как он получит товар: "
+            "купить или забронировать именно вариант, указанный в карточке, и понятно, как он получит товар: "
             f"самовывоз ({pickup_address or 'в магазине'}) или доставка (тогда нужен адрес). "
             "Для самовывоза спроси, ко скольки покупателя ожидать (впиши в comment). "
             "Для заявки ОБЯЗАТЕЛЬНЫ ФИО (фамилия и имя, лучше полностью) и номер телефона; почта — по желанию, "
@@ -422,6 +422,15 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
             "а в reply подтверди заявку своими словами: менеджер свяжется для подтверждения.",
         ]
     parts += [
+        "",
+        "Образцы правильного поведения (модель, объём, цвет, страну, SIM и цену всегда бери из прайса/каталога выше):",
+        "- «есть красный?» → красного нет, но есть бордовый (Burgundy) — назови его цену из прайса и предложи отложить.",
+        "- «какой регион/страна?» → ответь страной из прайса (например, «Япония»), без цены и комплектации.",
+        "- «нужен с физической симкой» → только варианты SIM + eSIM; про eSIM-only честно предупреди, что SIM-карту вставить нельзя.",
+        "- «примете Samsung / iPhone 12 в трейд?» → вежливый отказ: в trade-in только iPhone из списка оценки; предложи новое устройство без trade-in.",
+        "- trade-in 512 ГБ и больше или устройство с заменёнными деталями → не оценивай сам: handoff=true.",
+        "- торг, «скиньте цену», «уступите» → handoff=true, своих скидок не предлагай.",
+        "- «спасибо, подумаю» → тёплое прощание с пожеланием по времени суток, без новых продаж.",
         "",
         "Перед отправкой проверь свой ответ по списку:",
         "- Отвечает ли он ровно на тот вопрос, что задал покупатель (а не на соседний)?",
@@ -1093,18 +1102,31 @@ MAX_REPLY_CHARS = 1200
 # ── Контроль цен в ответе ────────────────────────────────────────────────────
 
 MIN_QUOTED_PRICE = 10_000          # меньшие суммы (доставка, предоплата 1000 ₽) не проверяем
-_MONEY = re.compile(r"(?<![\d.,/])((?:\d{1,3}[ \u00a0\u202f])?\d{3}(?:[ \u00a0\u202f]\d{3})?|\d{5,6})(?![\d.,/])"
-                    r"(?:\s*(?:₽|руб(?:лей|ля|ь)?\.?|р\.?))", re.IGNORECASE)
+# Розница иногда приходит без знака валюты: «129 990», «129990» или «130 тыс.».
+_REPLY_MONEY = re.compile(
+    r"(?<![\w.,/])(?:(?P<amount>\d{1,3}(?:[ \u00a0\u202f]\d{3}){1,2}|\d{1,6})"
+    r"(?:[.,]0+)?(?![\d/]|[.,]\d)\s*(?:₽|руб(?:лей|ля|ь)?\b|р\b)|"
+    r"(?P<bare>\d{1,3}(?:[ \u00a0\u202f]\d{3}){1,2}|\d{5,6})(?![\w/]|[.,]\d)|"
+    r"(?P<thousands>\d{1,3})\s*тыс(?:яч[аи]?)?\b|"
+    r"(?P<short>\d{2,3})\s*[кk]\b)", re.IGNORECASE,
+)
 
 
 def quoted_prices(text: str) -> list[int]:
     """Цены, названные в тексте: «127 990 ₽», «91500 руб» → [127990, 91500]. Только от 10 000 ₽."""
-    out = []
-    for m in _MONEY.finditer(text or ""):
-        value = int(re.sub(r"\D", "", m.group(1)))
-        if value >= MIN_QUOTED_PRICE:
-            out.append(value)
-    return out
+    return [value for match in _REPLY_MONEY.finditer(text or "") if match["amount"]
+            if (value := _reply_amount(match)[0]) >= MIN_QUOTED_PRICE]
+
+
+def _reply_amount(match: re.Match) -> tuple[int, str]:
+    for group in ("amount", "bare"):
+        if match[group]:
+            return int(re.sub(r"\D", "", match[group])), group
+    return int(match["thousands"] or match["short"]) * 1000, "thousands"
+
+
+def trade_in_amounts(text: str) -> list[int]:
+    return [_reply_amount(match)[0] for match in _REPLY_MONEY.finditer(text)]
 
 
 def format_price(value: int) -> str:
@@ -1113,32 +1135,317 @@ def format_price(value: int) -> str:
 
 def audit_reply_prices(reply: str, items: Sequence["CatalogItem"], vocab: set[str],
                        index: "SearchIndex | None", extra_allowed: Sequence[int] = (),
-                       anchor: str | None = None) -> tuple[str, list[int], bool]:
-    """Каждая цена в ответе — из прайса/каталога, а не выдуманная и не устаревшая.
+                       anchor: str | None = None, *, question: str | None = None) -> tuple[str, list[int], bool]:
+    """Сверяет каждую цену с вариантом в той же части ответа."""
+    matches = list(_REPLY_MONEY.finditer(reply))
+    if not matches:
+        return reply, [], False
+    unknown: set[int] = set()
+    fixes: list[tuple[int, int, str]] = []
+    start = 0
+    trade_in_scope = False
+    if question:
+        requested = _price_variants(items, _REPLY_MONEY.sub(" ", question), anchor, vocab, index)
+        if len(requested) == 1:
+            item = requested[0]
+            anchor = " ".join(str(value) for value in (
+                item.name, item.attributes.get("country"), item.attributes.get("sim")
+            ) if value)
+    for match in matches:
+        value, group = _reply_amount(match)
+        before = reply[start:match.start()]
+        start = match.end()
+        # Запятая может отделять и следующий вариант, и уточнение к нему («бордовый, 256 ГБ»).
+        clauses = re.split(r"[.!?;\n]|,\s*(?=но |зато |а )", before)
+        before = clauses[-1]
+        if len(clauses) > 1:
+            trade_in_scope = False
+        after = re.match(r"\s*\(([^()]*)\)", reply[start:])
+        clause = before + (f" {after[1]}" if after else "")
+        if after:
+            start += after.end()
+        trade_context = bool(re.search(r"трейд|trade|оцен|примем|зач[её]т|\bваш\w*\b", normalize(before)))
+        in_range = trade_in_scope and bool(re.fullmatch(r"\s*(?:[–—-]|до)\s*", before))
+        retail_context = re.search(r"рознич|без\s+(?:trade|трейд|обмена)", normalize(before))
+        if value in extra_allowed and (trade_context or in_range) and not retail_context:
+            trade_in_scope = True
+            continue
+        trade_in_scope = False
+        if value < MIN_QUOTED_PRICE and re.search(
+            r"достав|предоплат|брон|пвз|сдэк|курьер", normalize(clause)
+        ) and not (_variant_colors(clause) or _TITLE_WORDS.search(clause)):
+            continue
+        variants = _price_variants(items, clause, anchor, vocab, index)
+        prices = {int(round(item.price)) for item in variants}
+        if len(prices) != 1:
+            unknown.add(value)
+        elif (right := next(iter(prices))) != value:
+            if group == "thousands":
+                fixes.append((*match.span(), f"{format_price(right)} ₽"))
+            else:
+                fixes.append((*match.span(group), format_price(right)))
+    if unknown:
+        return reply, sorted(unknown), False
+    for begin, end, price in reversed(fixes):
+        reply = reply[:begin] + price + reply[end:]
+    return reply, [], bool(fixes)
 
-    Если цена одна и понятно, о какой позиции речь (по тексту ответа и объявлению-anchor),
-    неверную заменяем на цену этой позиции из прайса. Возвращает (текст, неизвестные цены,
-    была ли замена). Неизвестная цена, которую не удалось привязать к позиции, — повод позвать
-    человека, а не отправлять её покупателю."""
-    quotes = quoted_prices(reply)
-    if not quotes:
-        return reply, [], False
-    allowed = {int(round(it.price)) for it in items} | {int(v) for v in extra_allowed}
-    unknown = sorted({q for q in quotes if q not in allowed})
-    if len(set(quotes)) > 1:
-        return reply, unknown, False           # перечисление вариантов: проверяем только, что цены из данных
-    query = _MONEY.sub(" ", f"{anchor or ''} {reply}")
-    # Только слова, знакомые каталогу: длинный ответ не размывает совпадение, а защита
-    # по цифрам и приставкам модели (17 ≠ 17 Pro) в title_match продолжает работать
-    tokens = query_tokens(query, vocab)
-    candidate = title_match(items, " ".join(tokens), vocab, index) if items and tokens else None
+
+# ── Контроль цветов в ответе ─────────────────────────────────────────────────
+
+# Русские цвета → канонический цвет из прайса. «Красный» осознанно ведёт на burgundy:
+# в ассортименте это ближайший оттенок (бордовый), и мы его предлагаем вместо отказа
+COLOR_WORDS = {
+    "бордовый": "burgundy", "красный": "burgundy", "оранжевый": "orange", "оранж": "orange",
+    "голубой": "blue", "небесно-голубой": "blue", "синий": "blue", "белый": "white",
+    "черный": "black", "серебристый": "silver", "серебро": "silver", "золотой": "gold",
+    "розовый": "pink", "бирюзовый": "teal", "лавандовый": "lavender", "фиолетовый": "purple",
+    "зеленый": "green", "желтый": "yellow", "серый": "gray", "титановый": "titanium",
+    "песочный": "desert", "космос": "cosmic",
+}
+
+_NEGATED = re.compile(r"\b(нет\b|не\b|не\s+бывает|отсутств\w+|к\s+сожалению|без\b)", re.IGNORECASE)
+
+
+def _build_color_stems() -> list[tuple[str, str]]:
+    stems: list[tuple[str, str]] = []
+    for word, canon in COLOR_WORDS.items():
+        stem = word.split("-")[-1]
+        if len(stem) > 4 and stem[-2:] in ("ый", "ий", "ой"):
+            stem = stem[:-2]
+        stems.append((stem, canon))
+    return sorted(stems, key=lambda sc: -len(sc[0]))   # длинные корни раньше: «серебрист…» ≠ «серый»
+
+
+_COLOR_STEMS = _build_color_stems()
+
+
+def _canonical_color(token: str) -> str | None:
+    """Цвет слова с учётом падежей: «бордовую» → burgundy, «голубого» → blue."""
+    parts = token.split("-") if token else []
+    for part in parts or [""]:
+        for stem, canon in _COLOR_STEMS:
+            if len(stem) >= 3 and part.startswith(stem):
+                return canon
+    return None
+
+
+def _color_canonicals(items: Sequence["CatalogItem"]) -> set[str]:
+    """Какие цвета реально есть у позиций (en + русские, всё в канонический вид)."""
+    out: set[str] = set()
+    for it in items:
+        a = it.attributes or {}
+        for key in ("color", "color_ru"):
+            value = a.get(key)
+            if not isinstance(value, str) or not value.strip():
+                continue
+            v = normalize(value)
+            canon = _canonical_color(v)
+            out.add(canon or v)
+    return out
+
+
+def asserted_colors(reply: str) -> list[str]:
+    """Цвета, названные в ответе УТВЕРДИТЕЛЬНО (не «нет», «не бывает», «к сожалению»).
+    Канонический вид: burgundy, orange, blue…"""
+    out: list[str] = []
+    for clause in re.split(r"[.,!?…\n;—–]+", reply or ""):
+        t = normalize(clause)
+        if not t or _NEGATED.search(t):
+            continue
+        for token in t.split():
+            canon = _canonical_color(token.strip(",:()«»\"'—–-"))
+            if canon and canon not in out:
+                out.append(canon)
+    return out
+
+
+def audit_reply_colors(reply: str, items: Sequence["CatalogItem"], vocab: set[str],
+                       index: "SearchIndex | None", anchor: str | None = None) -> list[str]:
+    """Цвет, которого нет у обсуждаемой модели в прайсе, — выдумка: возвращаем такие цвета.
+    Проверяем только когда понятно, о какой модели речь, и у неё в прайсе цвета заданы;
+    цвета в отрицательных клаузах («красного нет») не считаются."""
+    bad: list[str] = []
+    for sentence in re.split(r"[!?;\n]|(?<!\d)\.(?!\d)", _REPLY_MONEY.sub(" ", reply)):
+        colors = asserted_colors(sentence)
+        if not colors:
+            continue
+        variants = _price_variants(items, sentence, anchor, vocab, index, filter_color=False)
+        available = _color_canonicals(variants)
+        if available:
+            bad.extend(color for color in colors if color not in available)
+    return list(dict.fromkeys(bad))
+
+
+_CAPACITY = re.compile(r"(?<![\w/])(?:(\d+)\s*/\s*)?(\d+)\s*(гб|gb|тб|tb)\b|"
+                       r"(?<![\w/])(?:(\d+)\s*/\s*)?(32|64|128|256|512|1024|2048|4096)(?![\w/])",
+                       re.IGNORECASE)
+
+
+def _capacity(match: re.Match) -> tuple[str | None, int]:
+    ram, size, units, bare_ram, bare_size = match.groups()
+    return ram or bare_ram, int(size or bare_size) * (1024 if (units or "").lower() in ("тб", "tb") else 1)
+
+
+def _variant_colors(text: str) -> set[str]:
+    words = _WORD.findall(normalize(text))
+    colors = set(asserted_colors(text))
+    offset = 0
+    while offset < len(words):
+        for count in range(min(3, len(words) - offset), 0, -1):
+            name = " ".join(words[offset:offset + count])
+            if name.isascii() and name in COLORS:
+                colors.add(normalize(COLORS[name][0]))
+                offset += count
+                break
+        else:
+            offset += 1
+    return colors
+
+
+def _price_variants(items: Sequence[CatalogItem], text: str, anchor: str | None, vocab: set[str],
+                    index: SearchIndex | None, *, filter_color: bool = True) -> list[CatalogItem]:
+    """Находит модель по ответу или объявлению, затем применяет уточнения к варианту."""
+    if not items:
+        return []
+    specs = _CAPACITY.sub(" ", text)
+    tokens = query_tokens(specs, vocab)
+    colors = _variant_colors(text)
+    country = _line_country(text) or next(
+        (_COUNTRY_NAMES[word] for word in tokens if word in _COUNTRY_NAMES), None
+    )
+    sim = _sim_label(text)
+    if not sim and "sim" in tokens:
+        sim = "SIM + eSIM"
+    aliases = _aliases()
+    variants_words = {
+        aliases.get(word, word) for word in _WORD.findall(normalize(
+            " ".join([*colors, country or "", "sim esim только физической", *COLORS.keys()])
+        ))
+    }
+    model_tokens = [word for word in tokens if word not in variants_words or word in _QUALIFIERS]
+    listed = title_match(items, anchor, vocab, index)
+    model_has_number = any(any(ch.isdigit() for ch in word) for word in model_tokens)
+    same_model_words = listed and set(model_tokens) < set(title_words(family_name(listed)))
+    if same_model_words and not (model_has_number or _QUALIFIERS.intersection(model_tokens)):
+        # «Этот iPhone» — ссылка на объявление, а не другая модель.
+        explicit = listed
+    else:
+        explicit = title_match(items, " ".join(model_tokens), vocab, index) if model_tokens else None
+    # Если в ответе есть номер модели («16 Pro»), дополняем его маркой из объявления.
+    if listed and model_tokens and explicit is None and any(word.isdigit() for word in model_tokens):
+        brand = title_words(family_name(listed))[0]
+        explicit = title_match(items, " ".join([brand, *model_tokens]), vocab, index)
+    if explicit is None and (_TITLE_WORDS.search(specs) or any(
+        any(ch.isdigit() for ch in word) or word in _QUALIFIERS for word in model_tokens
+    )):
+        return []
+    candidate = explicit or listed
     if candidate is None:
-        return reply, unknown, False
-    right = int(round(candidate.price))
-    if right == quotes[0]:
-        return reply, [], False
-    fixed = _MONEY.sub(lambda m: format_price(right) + m.group(0)[len(m.group(1)):], reply, count=1)
-    return fixed, [], True
+        return []
+    family = family_name(candidate)
+    same_listing = listed is not None and family_name(listed) == family
+    scope = [item for item in items if family_name(item) == family and (item.stock > 0 or item.preorder)]
+    capacities = {_capacity(m) for m in _CAPACITY.finditer(text)}
+    if not capacities and same_listing:
+        capacities = {_capacity(m) for m in _CAPACITY.finditer(anchor or "")}
+    if len(capacities) > 1 or (filter_color and len(colors) > 1):
+        return []
+    if capacities:
+        ram, size = next(iter(capacities))
+        scope = [item for item in scope if any(
+            size == storage and (ram is None or ram == memory)
+            for memory, storage in map(_capacity, _CAPACITY.finditer(item_storage(item) or ""))
+        )]
+    if filter_color:
+        anchor_colors = _variant_colors(anchor or "") if same_listing else set()
+        same_options = same_listing and not (
+            (colors and anchor_colors and colors.isdisjoint(anchor_colors)) or _CAPACITY.search(text)
+        )
+        colors = colors or anchor_colors
+        if colors:
+            scope = [item for item in scope if colors & _color_canonicals([item])]
+        country = country or (_line_country(anchor or "") if same_options else None)
+        sim = sim or (_sim_label(anchor or "") if same_options else None)
+        scope = [
+            item for item in scope
+            if (country is None or item.attributes.get("country") == country)
+            and (sim is None or item.attributes.get("sim") == sim)
+        ]
+    return scope
+
+
+def listing_price_item(items: Sequence[CatalogItem], title: str | None, vocab: set[str],
+                       index: SearchIndex | None) -> CatalogItem | None:
+    hit = title_match(items, title, vocab, index)
+    matches = _price_variants(items, "", title, vocab, index)
+    if hit in matches:
+        return hit
+    return min(matches, key=lambda item: item.price, default=None)
+
+
+def exact_variant_price(items: Sequence[CatalogItem], title: str, vocab: set[str],
+                        index: SearchIndex | None, *, options: str = "") -> int | None:
+    prices = {int(round(item.price)) for item in _price_variants(items, options, title, vocab, index)}
+    return next(iter(prices)) if len(prices) == 1 else None
+
+
+def is_own_repeat(reply: str, ctx: "ChatContext") -> bool:
+    """Ответ дословно повторяет наше прошлое сообщение в этом диалоге — дубль не шлём."""
+    norm = normalize(reply)
+    return bool(norm) and any(
+        author in ("bot", "staff") and normalize(text) == norm for author, text in ctx.history)
+
+
+# ── Ответ про цвета без модели ───────────────────────────────────────────────
+
+_COLOR_ASK = re.compile(r"есть|нужн\w*|хочу|интересу\w*|ищу|смотр\w*|выбра\w*|выбер\w*|цвет|цвета", re.IGNORECASE)
+_TRADE_IN_HINT = re.compile(r"трейд|trade|зач[её]т|сдать|обмен|оцен\w*|аккумулятор", re.IGNORECASE)
+_RU_COLOR = {"burgundy": "бордовый", "orange": "оранжевый", "blue": "голубой", "white": "белый",
+             "black": "черный", "silver": "серебристый", "gold": "золотой", "pink": "розовый",
+             "teal": "бирюзовый", "lavender": "лавандовый", "purple": "фиолетовый", "green": "зеленый",
+             "yellow": "желтый", "gray": "серый", "titanium": "титановый", "desert": "песочный",
+             "cosmic": "космический"}
+
+
+def color_offer_reply(pending: str, anchor: str | None, items: Sequence["CatalogItem"],
+                      vocab: set[str], index: "SearchIndex | None", max_variants: int = 3) -> str | None:
+    """Покупатель спрашивает цвет, которого нет у этой модели в прайсе, — отвечаем сами,
+    без модели: какие цвета этой модели и объёма реально есть, с ценами из прайса.
+    None — не наш случай (цвет есть, вопрос не про цвет или модель неясна): отвечает модель."""
+    if not items or _TRADE_IN_HINT.search(pending or ""):
+        return None
+    asked = asserted_colors(pending)
+    if not asked or not _COLOR_ASK.search(normalize(pending)):
+        return None
+    same = _price_variants(items, _REPLY_MONEY.sub(" ", pending), anchor, vocab, index, filter_color=False)
+    available = _color_canonicals(same)
+    if not available:
+        return None
+    missing = [c for c in asked if c not in available]
+    if not missing:
+        return None                      # спрошенный цвет есть — пусть отвечает модель
+    variants: list[str] = []
+    for it in same:
+        a = it.attributes or {}
+        canon = _canonical_color(normalize(str(a.get("color") or ""))) or str(a.get("color") or "")
+        color_ru = str(a.get("color_ru") or "") or _RU_COLOR.get(canon, canon)
+        extra = ", ".join(str(a[k]) for k in ("country", "sim") if a.get(k))
+        variants.append(f"{color_ru} — {format_price(int(round(it.price)))} ₽" + (f" ({extra})" if extra else ""))
+    variants = variants[:max_variants]
+    offer = " и ".join([", ".join(variants[:-1]), variants[-1]]) if len(variants) > 1 else variants[0]
+    word = next(w for w, c in _asked_color_words(pending) if c in missing)
+    return (f"Цвета «{word}» у этой модели сейчас нет, но есть {offer}. Какой подойдёт?")
+
+
+def _asked_color_words(text: str) -> list[tuple[str, str]]:
+    """(слово как написал покупатель, канонический цвет) по тексту."""
+    out: list[tuple[str, str]] = []
+    for token in normalize(text).split():
+        canon = _canonical_color(token.strip(",:()«»\"'—–-"))
+        if canon:
+            out.append((token, canon))
+    return out
 
 
 def sanitize_reply(text: str) -> tuple[str, bool]:

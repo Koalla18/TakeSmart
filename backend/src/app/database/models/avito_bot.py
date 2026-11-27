@@ -124,7 +124,7 @@ class AvitoBotExample(Base):
 
 
 class AvitoItemLink(Base):
-    """Объявление Авито → карточка каталога: точная цена и наличие для ответов."""
+    """Объявление Авито → карточка каталога для оформления брони."""
     __tablename__ = "avito_item_links"
 
     item_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)

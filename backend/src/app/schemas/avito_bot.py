@@ -348,6 +348,7 @@ class SimulateIn(BaseModel):
 class TestTurn(BaseModel):
     author: Literal["client", "bot", "staff"]
     text: str = Field(..., max_length=4000)
+    rule_id: uuid.UUID | None = None
 
 
 class TestIn(BaseModel):
@@ -355,6 +356,15 @@ class TestIn(BaseModel):
     history: list[TestTurn] = Field(default_factory=list, max_length=40)
     item_title: str | None = Field(None, max_length=300)
     item_price: str | None = Field(None, max_length=60)
+
+    item_id: int | None = Field(None, gt=0, le=2**63 - 1)
+    needs_human: bool = False
+    order_status: Literal["pending", "cancelled"] | None = None
+
+
+class TestMessage(BaseModel):
+    text: str
+    rule_id: uuid.UUID | None = None
 
 
 class DecisionOut(BaseModel):
@@ -368,6 +378,8 @@ class DecisionOut(BaseModel):
     order: dict | None = Field(None, description="Бронь, которую бот оформил бы")
     first_message: str | None = Field(None, description="Первое сообщение-шаблон, если это начало диалога")
     examples_used: int = 0
+    messages: list[TestMessage] = Field(default_factory=list)
+    order_status: Literal["pending", "cancelled"] | None = None
 
 
 class HealthOut(BaseModel):

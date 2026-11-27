@@ -37,7 +37,7 @@ from src.app.schemas.avito_bot import (
     SECRET_FIELDS, ApproveIn, AudienceChatOut, AudienceOut, AvitoAnalyticsOut, AvitoBotConfigIn, BroadcastCreate,
     BroadcastDetailOut, BroadcastOut, BroadcastPreviewIn, BroadcastRecipientOut, OptOutIn, AvitoBotConfigOut, ChatDetailOut, ChatOut, ChatsOut, ConnectOut,
     DecisionOut, ExampleOut, ExamplePatch, HealthOut, LearningOut, LinkedProductOut, LinkIn, MessageOut, RuleIn,
-    RuleOut, RulePatch, RulesImportIn, RulesImportOut, SendIn, SimulateIn, StatusOut, TestIn, UnansweredOut,
+    RuleOut, RulePatch, RulesImportIn, RulesImportOut, SendIn, SimulateIn, StatusOut, TestIn, TestMessage, UnansweredOut,
 )
 
 logger = get_logger(__name__)
@@ -591,7 +591,7 @@ async def unlink_item(item_id: int) -> Response:
 async def test_listing(title: str = Query("", max_length=300)) -> dict:
     async with AsyncSessionFactory() as session:
         cfg = await bot.load_config(session)
-        price, source, matched = await bot.listing_price_info(session, None, title or None, cfg)
+        price, source, matched = bot.listing_price_info(cfg, title or None)
         await session.commit()
     return {"price": price, "source": source, "matched": matched}
 
@@ -600,39 +600,60 @@ async def test_listing(title: str = Query("", max_length=300)) -> dict:
 async def test_listings() -> list[str]:
     async with AsyncSessionFactory() as session:
         cfg = await bot.load_config(session)
-        out = await bot.test_listing_suggestions(session, cfg)
+        out = bot.test_listing_suggestions(cfg)
         await session.commit()
     return out
 
 
 @router.post("/test", response_model=DecisionOut, dependencies=ADMIN, summary="Что бот ответит — без сохранения")
 async def test_chat(body: TestIn) -> DecisionOut:
-    history = [(t.author, t.text) for t in body.history] + [("client", body.text)]
-    # Сколько раз правила уже сработали в этой переписке — по точному совпадению текста ответа
+    order_status = body.order_status
+    if order_status == "pending" and bot.wants_cancel(body.text):
+        order_status = "cancelled"
+    if body.needs_human:
+        return DecisionOut(
+            action="silent", text=None, source=None, rule_id=None, delay_seconds=0,
+            reason="Диалог передан менеджеру", order_status=order_status,
+        )
+
+    history = [(turn.author, turn.text) for turn in body.history if turn.text.strip()] + [("client", body.text)]
+    ctx = ChatContext(body.item_title, body.item_price, None, history)
+    pending: list[str] = []
+    for author, message in history:
+        if author == "client":
+            pending.append(message)
+        else:
+            pending.clear()
+
     async with AsyncSessionFactory() as session:
         cfg = await bot.load_config(session)
-        rules = await bot.active_rules(session)
-        bot_texts = [t.text.strip() for t in body.history if t.author == "bot"]
-        hits: dict[str, Any] = {str(r.id): bot_texts.count(r.answer.strip()) for r in rules}
-        pending: list[str] = []
-        for author, text in history:
-            pending = pending + [text] if author == "client" else []
-        ctx = ChatContext(body.item_title, body.item_price, None, history)
-        first = await bot.first_message(session, cfg, ctx, None)
-        opening, early = bot.opening_or_handoff(first, body.item_title)
-        if opening:
-            ctx = ChatContext(ctx.item_title, ctx.item_price, None, history + [("bot", opening)])
-        decision = early or await bot.decide(session, cfg, ctx, "\n".join(pending), hits, first_sent=bool(opening))
-        if decision.action == "handoff" and not decision.text:
-            opening = None
+        hits: dict[str, Any] = {}
+        for turn in body.history:
+            if turn.author == "bot" and turn.text.strip() and turn.rule_id:
+                key = str(turn.rule_id)
+                hits[key] = hits.get(key, 0) + 1
+        item_id = body.item_id or await bot.test_item_id(session, body.item_title)
+        order_info = ("ТЕСТ", order_status) if order_status else None
+        decision, planned = await bot.plan_chat_reply(
+            session, cfg, ctx, "\n".join(pending), hits, item_id=item_id, order_info=order_info,
+        )
         await session.commit()
-    merged = bot.with_opening(opening, decision)
-    joined = bool(merged and merged != opening)   # шаблон и ответ ушли бы одним сообщением
-    return DecisionOut(first_message=merged,
-        action=decision.action, text=None if joined else decision.text, source=decision.source,
+
+    messages: list[TestMessage] = []
+    for plan in planned:
+        rule_id = plan.decision.rule.id if plan.decision and plan.decision.rule else None
+        messages.extend(TestMessage(text=part, rule_id=rule_id if i == 0 else None)
+                        for i, part in enumerate(bot.planned_parts(cfg, plan)))
+    first = next((plan.text for plan in planned if plan.whole), None)
+    reply = next((plan.text for plan in planned if not plan.whole), None)
+    if decision.cancel_order:
+        order_status = "cancelled"
+    elif decision.order and not order_status:
+        order_status = "pending"
+    return DecisionOut(first_message=first, action=decision.action, text=reply, source=decision.source,
         rule_id=decision.rule.id if decision.rule else None, reason=decision.reason,
         delay_seconds=decision.delay_seconds, catalog=decision.catalog, order=decision.order,
-        examples_used=decision.examples_used,
+        examples_used=decision.examples_used, messages=messages, order_status=order_status,
     )
 
 
