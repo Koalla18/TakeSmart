@@ -40,7 +40,7 @@ from src.app.core.avito_bot_engine import (
     render_template, rule_covers, starts_with_refusal, wants_opt_out, is_first_reply, greeting_text,
     split_reply, typing_delay, classify_avito_message, normalize_phone, valid_email, valid_full_name,
     order_note_for_prompt, wants_cancel, CatalogItem, SearchIndex, family_name, catalog_vocab, query_segments, search_catalog,
-    is_refusal, strip_greeting, sanitize_reply, price_lines, quoted_prices,
+    is_refusal, strip_greeting, sanitize_reply, price_lines,
     audit_reply_prices, trade_in_amounts, mentions_other_city, normalize, is_closing_message, bot_farewelled,
     audit_reply_colors, is_own_repeat,
 )
@@ -737,13 +737,7 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
             return outcome("silent", reason="Ответ модели ушёл в сторону от магазина — бот промолчал",
                             catalog=lines, examples_used=len(examples))
     if price_text and reply:
-        # Подтверждённая цена уже будет в сообщении. Не отправляем её пересказ на повторное
-        # сопоставление по тексту: оно может отвергнуть даже правильную сумму.
-        grounded_prices = set(quoted_prices(price_text))
-        reply = " ".join(
-            sentence for sentence in re.split(r"(?<=[.!?])\s+|\n+", reply)
-            if not grounded_prices.intersection(quoted_prices(sentence))
-        ).strip()
+        reply = avito_quotes.without_retail_prices(reply)
     if reply:
         # Контроль цен: каждая названная розничная цена — из прайса; устаревшую исправляем,
         # выдуманную не отправляем вовсе — зовём человека

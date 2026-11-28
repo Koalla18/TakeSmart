@@ -9,7 +9,7 @@ from typing import Literal
 from src.app.core.avito_catalog import Match, ProductQuery, Scalar, SearchResult, attribute_value, listing_query, model_key
 from src.app.core.avito_bot_engine import (
     COLORS, ChatContext, _CAPACITY, _capacity, _line_country, _reply_sim_label, _variant_colors, format_price, normalize,
-    quoted_prices,
+    MIN_QUOTED_PRICE, quoted_prices, trade_in_amounts,
 )
 
 _PRICE_WORD = re.compile(r"\b(?:цен[ауые]|ценник|по\s*ч[её]м|стоимост\w*|сколько стоит)\b", re.IGNORECASE)
@@ -29,6 +29,11 @@ _DEPENDENT_PRODUCT = re.compile(r"\b(?:чехол\w*|стекл\w*|кабел\w*
 _COMPARISON = re.compile(r"\b(?:сравн\w*|кажд\w*|только не|кроме|или|не\s+ч[её]рн\w*)\b", re.IGNORECASE)
 _BARE_TRADE_IN = re.compile(r"\b(?:trade[\s-]*in|трейд[\s-]*ин|сдать|сдам)\b", re.IGNORECASE)
 _PRODUCT_CATEGORY = re.compile(r"\b(?:планшет\w*|смартфон\w*|ноутбук\w*|наушник\w*|пылесос\w*|приставк\w*)\b", re.IGNORECASE)
+_SUPPLEMENT_CLAUSE = re.compile(
+    r"(?<=[.!?;])\s+|\n+|,\s*(?=(?:(?:а|и|по)\s+)*(?:гарант|достав|самовывоз|цена|стоимост|ценник))",
+    re.IGNORECASE,
+)
+_SERVICE_FEE = re.compile(r"\b(?:достав\w*|предоплат\w*|пвз|сдэк|курьер\w*)\b", re.IGNORECASE)
 _TRANSFER = re.compile(r"\b(?:перевод\w*|безнал\w*|реквизит\w*|бик|(?:расч[её]тн\w*|номер)\s+сч[её]т\w*)\b", re.IGNORECASE)
 _CARD = re.compile(r"\b(?:(?:по|оплата)\s+карт\w*|картой|qr|куар)\b", re.IGNORECASE)
 _CARD_FOLLOWUP = re.compile(r"\s*(?:а\s+)?(?:по карте|картой|qr|куар)\s*\?*\s*", re.IGNORECASE)
@@ -291,6 +296,17 @@ def format_quote(results: list[SearchResult], card_markup: Decimal | None = None
                 lines.append(line)
                 seen.add(line)
     return "\n".join(lines)
+
+
+def without_retail_prices(reply: str) -> str:
+    """Leave retail amounts to the catalog but keep separately stated service fees for validation."""
+    kept = []
+    for clause in _SUPPLEMENT_CLAUSE.split(reply):
+        amounts = trade_in_amounts(clause)
+        if not amounts or (max(amounts) < MIN_QUOTED_PRICE and _SERVICE_FEE.search(clause)):
+            kept.append(clause.strip())
+    text = " ".join(part for part in kept if part)
+    return text[:1].upper() + text[1:]
 
 
 def remove_buyer_voice(reply: str, pending: str) -> str:

@@ -141,12 +141,13 @@ Dyson HS08 Ceramic Pink — 34 990 ₽
         async def dyson_model(_cfg, messages):
             if messages[0]["content"].startswith("Извлеки поисковые"):
                 return '{"queries":[]}'
-            return json.dumps({"reply": "Dyson HS08 Ceramic Pink стоит 34 990 ₽. Гарантия производителя — 12 месяцев."})
+            return json.dumps({"reply": "Dyson HS08 Ceramic Pink стоит 39 990 ₽, гарантия производителя — 12 месяцев."})
 
         with patch.object(bot, "llm_call", new=dyson_model):
             dyson = await preview_reply(TestIn(text="А Dyson HS08 Ceramic Pink почём? И какая гарантия?", item_title=listing))
             self.assertEqual(dyson.action, "reply", dyson.reason)
             self.assertEqual(dyson.messages[0].text.count("34 990 ₽"), 1)
+            self.assertNotIn("39 990", dyson.messages[0].text)
             self.assertIn("12 месяцев", dyson.messages[0].text)
 
     async def test_full_price_snapshot(self):
