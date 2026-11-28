@@ -23,8 +23,8 @@ from sqlalchemy import delete, func, or_, select
 
 from src.app.api.admin.endpoints import get_current_admin
 from src.app.core import avito_bot_service as bot
-from src.app.core import avito_bot_analytics, avito_client, avito_price_update, llm_client
-from src.app.core.avito_bot_engine import ChatContext, parse_price_list, render_template
+from src.app.core import avito_bot_analytics, avito_catalog, avito_client, avito_price_update, llm_client
+from src.app.core.avito_bot_engine import ChatContext, parse_price_list, position_key, render_template
 from src.app.core.logger import get_logger
 from src.app.database.models.admin import Admin
 from src.app.database.models.avito_bot import (
@@ -49,6 +49,7 @@ def _config_out(cfg) -> AvitoBotConfigOut:
     data = cfg.model_dump()
     for f in SECRET_FIELDS:
         data.pop(f, None)
+    data["allowed_listing_ids"] = [str(item_id) for item_id in cfg.allowed_listing_ids]
     return AvitoBotConfigOut(
         **{k: v for k, v in data.items() if k in AvitoBotConfigOut.model_fields},
         price_list_can_undo=bool(cfg.price_list_prev),
@@ -77,10 +78,25 @@ async def get_settings() -> AvitoBotConfigOut:
 @router.put("/settings", response_model=AvitoBotConfigOut, dependencies=ADMIN)
 async def put_settings(body: AvitoBotConfigIn) -> AvitoBotConfigOut:
     async with AsyncSessionFactory() as session:
-        cfg = await bot.load_config(session)
+        cfg = await bot.load_config(session, lock=True)
         data = body.model_dump(exclude_unset=True)
         if data.get("price_list") is not None and data["price_list"] != cfg.price_list:
+            _, errors = avito_catalog.prepare(data["price_list"])
+            if errors:
+                raise HTTPException(status_code=422, detail=errors[0])
             _remember_price_list(cfg)
+        for key in ("listing_scope", "allowed_listing_ids", "collect_messages_seconds"):
+            if key in data and data[key] is None:
+                raise HTTPException(status_code=422, detail=f"Поле {key} обязательно при изменении")
+        if "allowed_listing_ids" in data:
+            ids = data["allowed_listing_ids"]
+            if any(not 0 < item_id < 2**63 for item_id in ids):
+                raise HTTPException(status_code=422, detail="Некорректный ID объявления")
+            data["allowed_listing_ids"] = list(dict.fromkeys(ids))
+        avito_account_changed = (
+            data.get("avito_client_id", cfg.avito_client_id) != cfg.avito_client_id
+            or bool(data.get("avito_client_secret"))
+        )
         for key, value in data.items():
             if key in SECRET_FIELDS:
                 if value == "":
@@ -89,13 +105,35 @@ async def put_settings(body: AvitoBotConfigIn) -> AvitoBotConfigOut:
             setattr(cfg, key, value)
         if cfg.reply_delay_min > cfg.reply_delay_max:
             cfg.reply_delay_max = cfg.reply_delay_min
-        if "avito_client_id" in data or data.get("avito_client_secret"):
+        if avito_account_changed:
             cfg.avito_user_id = None
             cfg.avito_connected_at = None
         await bot.save_config(session, cfg)
         await session.commit()
     logger.info("avito_bot_settings_saved", fields=sorted(k for k in data if k not in SECRET_FIELDS))
     return _config_out(cfg)
+
+
+@router.get("/listings", dependencies=ADMIN, summary="Активные объявления подключённого аккаунта")
+async def list_listings(page: int = Query(1, ge=1), source: str = Query("avito", pattern="^(avito|chats)$")) -> dict:
+    per_page = 50
+    async with AsyncSessionFactory() as session:
+        cfg = await bot.load_config(session)
+        if source == "chats":
+            statement = select(AvitoChat.item_id, AvitoChat.item_title, AvitoChat.item_url).where(
+                AvitoChat.item_id.is_not(None), AvitoChat.is_simulated.is_(False)
+            ).distinct(AvitoChat.item_id).order_by(AvitoChat.item_id, AvitoChat.last_message_at.desc().nulls_last())
+            rows = (await session.execute(statement.offset((page - 1) * per_page).limit(per_page))).all()
+            resources = [{"id": row.item_id, "title": row.item_title, "url": row.item_url} for row in rows]
+        else:
+            try:
+                resources = await avito_client.list_items(bot.avito_creds(cfg), page, per_page)
+            except avito_client.AvitoError as exc:
+                raise HTTPException(status_code=502, detail="Авито не вернул список объявлений. Проверьте доступ API или выберите «Из диалогов».") from exc
+    items = [{"id": str(item["id"]), "title": item.get("title") or f"Объявление {item['id']}",
+              "url": item.get("url"), "status": item.get("status")} for item in resources
+             if str(item.get("id", "")).isdigit()]
+    return {"items": items, "next_page": page + 1 if len(resources) == per_page else None}
 
 
 @router.get("/status", response_model=StatusOut, dependencies=ADMIN)
@@ -591,7 +629,7 @@ async def unlink_item(item_id: int) -> Response:
 async def test_listing(title: str = Query("", max_length=300)) -> dict:
     async with AsyncSessionFactory() as session:
         cfg = await bot.load_config(session)
-        price, source, matched = bot.listing_price_info(cfg, title or None)
+        price, source, matched = await bot.listing_price_info(session, cfg, title or None)
         await session.commit()
     return {"price": price, "source": source, "matched": matched}
 
@@ -600,7 +638,7 @@ async def test_listing(title: str = Query("", max_length=300)) -> dict:
 async def test_listings() -> list[str]:
     async with AsyncSessionFactory() as session:
         cfg = await bot.load_config(session)
-        out = bot.test_listing_suggestions(cfg)
+        out = await bot.test_listing_suggestions(session, cfg)
         await session.commit()
     return out
 
@@ -633,6 +671,9 @@ async def test_chat(body: TestIn) -> DecisionOut:
                 key = str(turn.rule_id)
                 hits[key] = hits.get(key, 0) + 1
         item_id = body.item_id or await bot.test_item_id(session, body.item_title)
+        if (body.item_id or body.item_title) and not bot.listing_allowed(cfg, item_id):
+            return DecisionOut(action="silent", text=None, source=None, rule_id=None, delay_seconds=0,
+                               reason="Объявление не выбрано для автоответов", order_status=order_status)
         order_info = ("ТЕСТ", order_status) if order_status else None
         decision, planned = await bot.plan_chat_reply(
             session, cfg, ctx, "\n".join(pending), hits, item_id=item_id, order_info=order_info,
@@ -653,7 +694,7 @@ async def test_chat(body: TestIn) -> DecisionOut:
     return DecisionOut(first_message=first, action=decision.action, text=reply, source=decision.source,
         rule_id=decision.rule.id if decision.rule else None, reason=decision.reason,
         delay_seconds=decision.delay_seconds, catalog=decision.catalog, order=decision.order,
-        examples_used=decision.examples_used, messages=messages, order_status=order_status,
+        examples_used=decision.examples_used, messages=messages, order_status=order_status, search=decision.search,
     )
 
 
@@ -663,20 +704,22 @@ class PriceListCheckIn(BaseModel):
 
 def _item_out(it) -> dict:
     a = it.attributes or {}
-    return {"name": it.name, "price": it.price, "in_stock": it.stock > 0, "country": a.get("country"),
+    brand, category, model = avito_catalog.identity(it)
+    return {"name": it.name, "key": _row_key(it), "brand": brand, "category": category, "model": model,
+            "attributes": avito_catalog.normalized_attrs(it), "price": it.price, "in_stock": it.stock > 0, "country": a.get("country"),
             "sim": a.get("sim"), "color_ru": a.get("color_ru"), "few": bool(a.get("few"))}
 
 
 def _row_key(it) -> str:
     """Та же строка в списке базы на экране: название, страна, SIM."""
-    a = it.attributes or {}
-    return f"{it.name}|{a.get('country') or ''}|{a.get('sim') or ''}"
+    return avito_catalog.price_hash(repr(position_key(it)))
 
 
 @router.post("/price-list/check", dependencies=ADMIN, summary="Как бот прочитает прайс — без сохранения")
 async def price_list_check(body: PriceListCheckIn) -> dict:
-    items, errors = parse_price_list(body.text)
-    return {"items": [_item_out(it) for it in items[:3000]], "count": len(items), "errors": errors[:50]}
+    items, _ = parse_price_list(body.text)
+    _, catalog_errors = avito_catalog.prepare(body.text)
+    return {"items": [_item_out(it) for it in items[:3000]], "count": len(items), "errors": catalog_errors[:50]}
 
 
 class PriceUpdateIn(BaseModel):
@@ -695,21 +738,25 @@ async def price_list_preview(body: PriceUpdateIn) -> dict:
         cfg = await bot.load_config(session)
         await session.commit()
     diff = avito_price_update.compare(cfg.price_list, body.text, body.mode)
+    _, catalog_errors = avito_catalog.prepare(body.text)
     return {
         "base_hash": avito_price_update.base_hash(cfg.price_list),
         "changes": [{"id": c.id, "kind": c.kind, "item": _item_out(c.item), "old_key": _row_key(c.old) if c.old else None,
                      "old_price": c.old.price if c.old else None, "warning": c.warning} for c in diff.changes],
         "unchanged": diff.unchanged, "new_count": diff.new_count, "base_errors": diff.base_errors,
-        "errors": diff.errors[:100], "duplicates": diff.duplicates[:100],
+        "errors": catalog_errors[:100], "duplicates": diff.duplicates[:100],
     }
 
 
 @router.post("/price-list/apply", response_model=AvitoBotConfigOut, dependencies=ADMIN, summary="Применить изменения прайса")
 async def price_list_apply(body: PriceApplyIn) -> AvitoBotConfigOut:
     async with AsyncSessionFactory() as session:
-        cfg = await bot.load_config(session)
+        cfg = await bot.load_config(session, lock=True)
         if avito_price_update.base_hash(cfg.price_list) != body.base_hash:
             raise HTTPException(status_code=409, detail="Прайс уже изменили в другом окне — сравните ещё раз")
+        _, errors = avito_catalog.prepare(body.text)
+        if errors:
+            raise HTTPException(status_code=422, detail=errors[0])
         diff = avito_price_update.compare(cfg.price_list, body.text, body.mode)
         text, applied = avito_price_update.apply_changes(cfg.price_list, diff, set(body.skip))
         if not applied:
@@ -718,7 +765,7 @@ async def price_list_apply(body: PriceApplyIn) -> AvitoBotConfigOut:
             raise HTTPException(status_code=422, detail="Прайс получается слишком большим")
         _remember_price_list(cfg)
         cfg.price_list = text
-        await bot.save_config(session, cfg)
+        await bot.save_config(session, cfg, price_source=body.text)
         await session.commit()
     logger.info("avito_bot_price_list_updated", mode=body.mode, applied=applied, skipped=len(body.skip))
     return _config_out(cfg)
@@ -728,7 +775,7 @@ async def price_list_apply(body: PriceApplyIn) -> AvitoBotConfigOut:
              summary="Вернуть прайс, который был до последнего изменения")
 async def price_list_undo() -> AvitoBotConfigOut:
     async with AsyncSessionFactory() as session:
-        cfg = await bot.load_config(session)
+        cfg = await bot.load_config(session, lock=True)
         if not cfg.price_list_prev:
             raise HTTPException(status_code=409, detail="Отменять нечего")
         cfg.price_list, cfg.price_list_prev = cfg.price_list_prev, ""

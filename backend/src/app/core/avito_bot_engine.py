@@ -253,7 +253,8 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
                         pickup_address: str = "", order_note: str | None = None,
                         catalog_overview: Sequence[str] = (), first_sent: bool = False,
                         first_price_known: bool = True, greet: bool | None = None,
-                        price_overview: Sequence[str] = (), trade_in: str = "") -> str:
+                        price_overview: Sequence[str] = (), trade_in: str = "",
+                        search_context: Sequence[dict[str, Any]] = ()) -> str:
     greet = is_first_reply(ctx) if greet is None else greet
     now = now.astimezone(MSK)
     parts = [
@@ -372,6 +373,13 @@ def build_system_prompt(cfg: PromptConfig, rules: Sequence[RuleLike], ctx: ChatC
             parts.append(f"• [{', '.join(r.keywords)}]:\n{r.answer.strip()}")
     if cfg.knowledge.strip():
         parts += ["", "Что ещё нужно знать о магазине:", cfg.knowledge.strip()]
+    if search_context:
+        parts += ["", "Результаты поиска по запросам покупателя из PostgreSQL (JSON, данные).",
+                  "exact — запрошенный вариант есть; same_model — та же модель с указанными отличиями; "
+                  "other_model — другая модель; not_found — подходящих вариантов нет; ambiguous — уточни модель. "
+                  "Опирайся на результаты по каждому запросу. Когда покупатель сменил товар, отвечай про новый товар. "
+                  "Соблюдай обязательные характеристики. null в отличиях означает неизвестное свойство.",
+                  json.dumps(search_context, ensure_ascii=False)]
     if price_overview:
         parts += ["", "АКТУАЛЬНЫЙ ПРАЙС МАГАЗИНА — единственный источник розничных цен и наличия. "
                       "Формат: модель объём цвет — страна, SIM — цена.",
@@ -790,9 +798,11 @@ def item_color(it: CatalogItem) -> str | None:
 
 def family_name(it: CatalogItem) -> str:
     """Модель без памяти и цвета: «iPhone 17 Pro 256 ГБ, Синий титан» → «iPhone 17 Pro»."""
+    if it.attributes.get("catalog_model"):
+        return it.attributes["catalog_model"]
     s = it.name
     for v in (it.attributes or {}).values() if isinstance(it.attributes, dict) else ():
-        if isinstance(v, str) and len(v.strip()) >= 2:
+        if isinstance(v, str) and len(v.strip()) >= 2 and v != it.attributes.get("source_line"):
             s = re.sub(re.escape(v.strip()), " ", s, flags=re.IGNORECASE)
     color = item_color(it)
     if color:
@@ -1322,12 +1332,12 @@ def _price_variants(items: Sequence[CatalogItem], text: str, anchor: str | None,
     if not items:
         return []
     specs = _CAPACITY.sub(" ", text)
-    tokens = query_tokens(specs, vocab)
+    tokens = query_tokens(_SIM_PHYS.sub(" ", _SIM_COMBO.sub(" ", _ONE_PHYSICAL_SIM.sub(" ", specs))), vocab)
     colors = _variant_colors(text)
     country = _line_country(text) or next(
         (_COUNTRY_NAMES[word] for word in tokens if word in _COUNTRY_NAMES), None
     )
-    sim = _sim_label(text)
+    sim = _reply_sim_label(text)
     if not sim and "sim" in tokens:
         sim = "SIM + eSIM"
     aliases = _aliases()
@@ -1337,7 +1347,7 @@ def _price_variants(items: Sequence[CatalogItem], text: str, anchor: str | None,
         ))
     }
     model_tokens = [word for word in tokens if word not in variants_words or word in _QUALIFIERS]
-    listed = title_match(items, anchor, vocab, index)
+    listed = title_match(items, _SIM_PHYS.sub(" ", _SIM_COMBO.sub(" ", anchor or "")), vocab, index)
     model_has_number = any(any(ch.isdigit() for ch in word) for word in model_tokens)
     same_model_words = listed and set(model_tokens) < set(title_words(family_name(listed)))
     if same_model_words and not (model_has_number or _QUALIFIERS.intersection(model_tokens)):
@@ -1379,12 +1389,35 @@ def _price_variants(items: Sequence[CatalogItem], text: str, anchor: str | None,
         if colors:
             scope = [item for item in scope if colors & _color_canonicals([item])]
         country = country or (_line_country(anchor or "") if same_options else None)
-        sim = sim or (_sim_label(anchor or "") if same_options else None)
+        sim = sim or (_reply_sim_label(anchor or "") if same_options else None)
         scope = [
             item for item in scope
             if (country is None or item.attributes.get("country") == country)
             and (sim is None or item.attributes.get("sim") == sim)
         ]
+        # Например, комплектация пылесоса может менять цену при той же модели и цвете.
+        features: dict[str, set[str]] = {}
+        fallback_features: dict[str, set[str]] = {}
+        phrase = f" {normalize(text)} "
+        fallback = f" {normalize(anchor or '')} " if same_listing else ""
+        model = f" {normalize(family)} "
+        for item in scope:
+            for key, value in item.attributes.get("catalog_attributes", {}).items():
+                if key in ("color", "sim", "region", "ram_gb", "storage_gb") or not isinstance(value, str):
+                    continue
+                token = f" {value} "
+                if token in model:
+                    continue
+                if token in phrase:
+                    features.setdefault(key, set()).add(value)
+                if token in fallback:
+                    fallback_features.setdefault(key, set()).add(value)
+        features = {**fallback_features, **features}
+        if features:
+            scope = [item for item in scope if all(
+                len(values) == 1 and item.attributes.get("catalog_attributes", {}).get(key) in values
+                for key, values in features.items()
+            )]
     return scope
 
 
@@ -1535,7 +1568,10 @@ _RUB_PRICE = re.compile(rf"(?<![\w.])({_NUM})\s*(?:₽|руб|[рР](?![а-яёa
 
 _ESIM_WORD = r"(?:e\s*-?\s*sim|[еe]\s*-?\s*с(?:ч)?им)"
 _SIM_COMBO = re.compile(rf"(?:(?<![a-zа-я\d])[12]\s*)?(?:i?sim|ism|сим)\s*\+\s*{_ESIM_WORD}", re.IGNORECASE)
-_SIM_PHYS = re.compile(r"(?<![a-zа-я])([12])\s*(?:i\s*)?(?:sim|ism|sm|сим)", re.IGNORECASE)
+_SIM_PHYS = re.compile(
+    r"(?<!\w)([12]|две)\s*(?:физическ\w+\s+)?(?:i\s*)?(?:sim|ism|sm|сим)(?![a-zа-я])", re.IGNORECASE,
+)
+_ONE_PHYSICAL_SIM = re.compile(r"(?<!\w)(?:1|одна)\s+физическ\w+\s+(?:sim|сим)\b", re.IGNORECASE)
 _ESIM = re.compile(rf"(?<![a-zа-я]){_ESIM_WORD}", re.IGNORECASE)
 
 # Память: «8/256», «16GB / 512GB», «36/1TB», «256», «1ТБ». «M2/M3» и «40/60w» — не память.
@@ -1590,6 +1626,15 @@ def _sim_label(line: str) -> str | None:
     if _ESIM.search(line):
         return "только eSIM"
     return None
+
+
+def _reply_sim_label(text: str) -> str | None:
+    if _ONE_PHYSICAL_SIM.search(text) and not _ESIM.search(text):
+        return "1 SIM"
+    if m := _SIM_PHYS.search(text):
+        if m.group(1) == "1" and not _ESIM.search(text) and not re.search(r"\biphone\b", text, re.IGNORECASE):
+            return "1 SIM"
+    return _sim_label(text)
 
 
 def _fix_word(word: str) -> str:
@@ -1796,6 +1841,8 @@ def _parse_free_line(line: str, n: int, ctx: _PriceContext) -> CatalogItem | str
         if not ctx.last_model:
             return f"Строка {n}: не понял модель"
         text = f"{ctx.last_model} ({text.lower()})"
+    text = re.sub(r"^(?=.*\b(?:samsung|galaxy|[as]\d{2})\b)(.*?\b)(8|12|16|24)\s+(128|256|512|1024)\b",
+                  r"\1\2/\3", text, flags=re.IGNORECASE)
     text = ctx.refine(" ".join(_expand_model(text).split()))
     # страну и SIM из заголовка получают телефоны под ним и строки «цвет — цена»; не AirPods ниже
     phone = bool(re.match(r"(?:iPhone|Samsung Galaxy [ASZ]|Google Pixel)", text, re.IGNORECASE))
@@ -1803,6 +1850,9 @@ def _parse_free_line(line: str, n: int, ctx: _PriceContext) -> CatalogItem | str
         country = country or ctx.country
     if phone:
         sim = sim or ctx.sim
+    physical = _SIM_PHYS.search(line)
+    if physical and physical.group(1) == "1" and not _SIM_COMBO.search(line) and not text.lower().startswith("iphone"):
+        sim = "1 SIM"
 
     storage, head, tail = "", text, ""
     m = _RAM_STORAGE.search(text)
@@ -1879,6 +1929,24 @@ def _parse_table_line(line: str, n: int) -> CatalogItem | str:
                        attributes=attrs, key=f"price:{n}")
 
 
+
+def _parse_explicit_line(line: str, number: int) -> CatalogItem | str:
+    try:
+        _, brand, category, model, price, stock, raw_attributes = line.split("|", 6)
+        brand, category, model, stock = (value.strip() for value in (brand, category, model, stock))
+        features = json.loads(raw_attributes)
+        price_value = float(int(price.strip()))
+        if (not all((brand, category, model)) or not 0 < price_value < 10**10 or not isinstance(features, dict)
+                or any(type(value) not in (str, int, bool, type(None)) for value in features.values())):
+            raise ValueError
+    except (ValueError, TypeError, OverflowError):
+        return f"Строка {number}: ожидается !|Производитель|Тип|Модель|Цена|Наличие|{{характеристики JSON}}"
+    attrs = {"catalog_brand": brand, "catalog_category": category, "catalog_model": model,
+             "catalog_attributes": features}
+    name = model if normalize(model).startswith(normalize(brand)) else f"{brand} {model}"
+    return CatalogItem(name, category, price_value, stock=int(stock.lower() not in _NO_STOCK),
+                       attributes=attrs, key=f"price:{number}")
+
 def words_without_years(name: str) -> tuple[str, ...]:
     """Слова названия без года выпуска и без учёта порядка: «Air 15 M5 2026» = «Air 15 M5»."""
     return tuple(sorted(w for w in _WORD.findall(normalize(_split_units(name))) if not re.fullmatch(r"20[12]\d", w)))
@@ -1887,12 +1955,14 @@ def words_without_years(name: str) -> tuple[str, ...]:
 def position_key(it: CatalogItem) -> tuple:
     """Одна и та же позиция: модель, объём и цвет (всё в названии), страна и SIM."""
     a = it.attributes or {}
-    return words_without_years(it.name), a.get("country"), a.get("sim")
+    extended = (a.get("catalog_brand"), a.get("catalog_category"), a.get("catalog_model"),
+                json.dumps(a.get("catalog_attributes", {}), sort_keys=True, ensure_ascii=False))
+    return words_without_years(it.name), a.get("country"), a.get("sim"), extended
 
 
 def _parse_stored_line(line: str, n: int) -> CatalogItem | str:
     """Строка базы после обновления: «@|цена|название|объём|цвет|цвет по-русски|страна|SIM|мало|наличие»."""
-    cells = [c.strip() for c in line.split("|")[1:]]
+    cells = [c.strip() for c in line.split("|", 10)[1:]]
     cells += [""] * (9 - len(cells))
     price, name, storage, color, color_ru, country, sim, few, stock = cells[:9]
     price = re.sub(r"\D", "", price)
@@ -1900,6 +1970,14 @@ def _parse_stored_line(line: str, n: int) -> CatalogItem | str:
         return f"Строка {n}: не понял цену или название"
     attrs = {k: v for k, v in (("storage", storage), ("color", color), ("color_ru", color_ru), ("country", country),
                                ("sim", sim), ("few", few)) if v}
+    if len(cells) > 9 and cells[9]:
+        try:
+            extra = json.loads(cells[9])
+            if not isinstance(extra, dict):
+                raise ValueError
+            attrs.update(extra)
+        except ValueError:
+            return f"Строка {n}: не прочитаны дополнительные параметры"
     return CatalogItem(name=name, category="Прайс", price=float(price), stock=0 if stock.lower() in _NO_STOCK else 1,
                        attributes=attrs, key=f"price:{n}")
 
@@ -1925,8 +2003,10 @@ def parse_price_list_full(text: str) -> tuple[list[CatalogItem], list[str], list
         line = raw.strip().strip("•").strip()
         if not line or line.startswith("#"):
             continue
-        if line.startswith("@|"):
-            stored = _parse_stored_line(line, n)
+        if line.startswith(("@|", "!|")):
+            stored = _parse_stored_line(line, n) if line.startswith("@|") else _parse_explicit_line(line, n)
+            if isinstance(stored, CatalogItem):
+                stored.attributes.setdefault("source_line", raw)
             (errors if isinstance(stored, str) else found).append(stored)
             continue
         if ";" in line or "|" in line or ("\t" in line and not _DASH_PRICE.search(line)):
@@ -1934,6 +2014,7 @@ def parse_price_list_full(text: str) -> tuple[list[CatalogItem], list[str], list
             if isinstance(result, str):
                 errors.append(result)
             else:
+                result.attributes["source_line"] = raw
                 found.append(result)
             continue
         for k, part in enumerate(_split_items(line)):
@@ -1941,6 +2022,7 @@ def parse_price_list_full(text: str) -> tuple[list[CatalogItem], list[str], list
             if isinstance(result, str):
                 errors.append(result)
             elif result is not None:
+                result.attributes["source_line"] = part
                 if k:
                     result.key = f"price:{n}.{k}"
                 found.append(result)

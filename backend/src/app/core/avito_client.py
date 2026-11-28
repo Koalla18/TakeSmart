@@ -72,13 +72,14 @@ def forget_token(client_id: str) -> None:
     _TOKENS.pop(client_id, None)
 
 
-async def _request(creds: AvitoCreds, method: str, path: str, json: Any = None) -> Any:
+async def _request(creds: AvitoCreds, method: str, path: str, json: Any = None,
+                   params: dict[str, Any] | None = None) -> Any:
     if not creds.ready:
         raise AvitoError("Авито не подключён: нет client_id или client_secret")
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         token = await _token(creds, client)
         try:
-            resp = await client.request(method, f"{BASE}{path}", json=json, headers={"Authorization": f"Bearer {token}"})
+            resp = await client.request(method, f"{BASE}{path}", json=json, params=params, headers={"Authorization": f"Bearer {token}"})
         except httpx.HTTPError as exc:
             raise AvitoError(f"Нет связи с Авито: {exc.__class__.__name__}") from exc
         if resp.status_code == 401:
@@ -97,6 +98,15 @@ def _need_user(creds: AvitoCreds) -> int:
 
 async def get_self(creds: AvitoCreds) -> dict[str, Any]:
     return await _request(creds, "GET", "/core/v1/accounts/self")
+
+
+async def list_items(creds: AvitoCreds, page: int, per_page: int = 50) -> list[dict[str, Any]]:
+    data = await _request(creds, "GET", "/core/v1/items", params={
+        "page": page, "per_page": per_page, "status": "active",
+    })
+    if not isinstance(data, dict) or not isinstance(data.get("resources"), list):
+        raise AvitoError("Не удалось прочитать список объявлений Авито")
+    return [item for item in data["resources"] if isinstance(item, dict)]
 
 
 async def subscribe_webhook(creds: AvitoCreds, url: str) -> None:

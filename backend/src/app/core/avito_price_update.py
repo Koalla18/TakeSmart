@@ -7,12 +7,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from typing import Literal, Sequence
 
 from src.app.core.avito_bot_engine import (
     CatalogItem, family_name, parse_price_list_full, position_key, price_storage_gb, words_without_years,
 )
+from src.app.core.avito_catalog import brand_key, identity, model_key
 
 # models — пропажи только у моделей из вставленного текста; full — это весь прайс; add — ничего не удалять
 Mode = Literal["models", "full", "add"]
@@ -56,18 +58,20 @@ def _change_id(kind: str, it: CatalogItem) -> str:
 
 def _scope(it: CatalogItem) -> tuple:
     """Модель одной версии: пропавшими считаем только позиции из таких же, что есть во вставленном."""
-    return words_without_years(family_name(it)), _attr(it, "country"), _attr(it, "sim")
+    brand, category, model = identity(it)
+    brand = brand_key(brand)
+    return brand, category, words_without_years(model_key(model, brand)), _attr(it, "country"), _attr(it, "sim")
 
 
 def _compatible(a: CatalogItem, b: CatalogItem) -> bool:
-    return all(not _attr(a, k) or not _attr(b, k) or _attr(a, k) == _attr(b, k) for k in ("country", "sim"))
+    return position_key(a)[3] == position_key(b)[3] and all(not _attr(a, k) or not _attr(b, k) or _attr(a, k) == _attr(b, k) for k in ("country", "sim"))
 
 
 def _merged(old: CatalogItem, new: CatalogItem) -> CatalogItem:
     """Название остаётся прежним, цена и наличие — новые; страну и SIM дополняем, если появились."""
     attrs = dict(old.attributes or {})
     attrs.pop("few", None)
-    for k in ("country", "sim", "few"):
+    for k in ("country", "sim", "few", "source_line"):
         if _attr(new, k):
             attrs[k] = _attr(new, k)
     return CatalogItem(name=old.name, category=old.category, price=new.price, stock=new.stock,
@@ -157,7 +161,9 @@ def dump_price_list(items: Sequence[CatalogItem]) -> str:
         cells = [str(int(round(it.price))), it.name,
                  *(_attr(it, k) or "" for k in ("storage", "color", "color_ru", "country", "sim", "few")),
                  "" if it.stock > 0 else "нет"]
-        lines.append("@|" + "|".join(c.replace("|", "/") for c in cells))
+        extra = {k: v for k, v in it.attributes.items() if k.startswith("catalog_") or k == "source_line"}
+        lines.append("@|" + "|".join(c.replace("|", "/") for c in cells)
+                     + "|" + json.dumps(extra, ensure_ascii=False))
     return "\n".join(lines)
 
 

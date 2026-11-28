@@ -731,8 +731,9 @@ def _run_decide(model_answer: str, text: str, cfg, ctx=None, rules=None, product
     async def active_rules(session):
         return list(rules or [])
 
-    async def linked_product(session, item_id):
-        return next(iter(products), None)
+    from unittest.mock import AsyncMock, patch
+    from src.app.core import avito_catalog
+    from src.app.core.avito_bot_engine import exact_variant_price
 
     async def staff_examples(session, limit=300):
         return []
@@ -740,16 +741,20 @@ def _run_decide(model_answer: str, text: str, cfg, ctx=None, rules=None, product
     async def llm_call(cfg_, messages):
         return model_answer
 
-    names = ("active_rules", "linked_product", "staff_examples", "llm_call")
-    saved = {n: getattr(svc, n) for n in names}
-    svc.active_rules, svc.linked_product = active_rules, linked_product
-    svc.staff_examples, svc.llm_call = staff_examples, llm_call
-    try:
+    items, _ = avito_catalog.parse_price_list_full(cfg.price_list)[:2]
+    snapshot = svc.CatalogContext(avito_catalog.SearchIntent(queries=[]), [], items)
+    bookable = (list(products), {
+        product.id: price for product in products
+        if (price := exact_variant_price(items, product.name, svc.catalog_vocab(items), svc.SearchIndex(items))) is not None
+    })
+    with (patch.object(svc, "active_rules", new=active_rules),
+          patch.object(svc, "staff_examples", new=staff_examples),
+          patch.object(svc, "llm_call", new=llm_call),
+          patch.object(svc, "bookable_products", new=AsyncMock(return_value=bookable)),
+          patch.object(avito_catalog, "active_import", new=AsyncMock(return_value=None)),
+          patch.object(avito_catalog, "listing_items", new=AsyncMock(return_value=items))):
         return asyncio.run(svc.decide(None, cfg, ctx or ChatContext("iPhone 17 Pro Max 256", None, "Алексей", []),
-                                      text, {}, **kw))
-    finally:
-        for n, fn in saved.items():
-            setattr(svc, n, fn)
+                                      text, {}, requested=snapshot, **kw))
 
 
 def test_decide_replies_normally_with_off_topic_silent_on():
@@ -963,8 +968,9 @@ def test_decide_own_repeat_is_silenced():
 def test_decide_offers_existing_colors_when_asked_color_missing():
     """Спрашивают цвет, которого нет у модели в прайсе — бот САМ предлагает цвета, что есть,
     с ценами из прайса, без вызова модели и без handoff (по просьбе владельца)."""
-    d = _run_decide('{"reply": "неважно", "handoff": false}', "есть голубой?", _decide_cfg(), greet=False)
-    assert d.action == "reply" and "голубой" in d.text
+    d = _run_decide('{"reply": "Голубого сейчас нет. Есть бордовый — 131 990 ₽ и оранжевый — 129 990 ₽. Какой подойдёт?", "handoff": false}',
+                    "есть голубой?", _decide_cfg(), greet=False)
+    assert d.action == "reply" and "голубого" in d.text.lower()
     assert "бордовый" in d.text and "оранжевый" in d.text
     assert "131 990" in d.text and "129 990" in d.text
     assert "Какой подойдёт?" in d.text
@@ -1018,20 +1024,20 @@ def test_price_audit_checks_each_volume_and_named_finish():
     assert changed and not unknown and reply == "Да, в наличии — 149 990 ₽."
 
 
-def test_listing_and_booking_use_only_price_list():
-    from src.app.core.avito_bot_service import booking_price, listing_price_info
+def test_listing_price_is_limited_to_unambiguous_database_results():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+    from src.app.core import avito_bot_service as svc, avito_catalog
 
-    card = _FakeProduct(price=18990)
+    items, _, _ = avito_catalog.parse_price_list_full(DECIDE_PRICE)
     cfg = _decide_cfg()
-    assert booking_price(cfg, card) == 131990
-    card_without_variant = _FakeProduct(name="iPhone 17 Pro Max")
-    card_without_variant.attributes = {"storage_gb": 256, "color": "Orange"}
-    assert booking_price(cfg, card_without_variant) == 129990
-    assert booking_price(_decide_cfg(price_list=""), card) is None
-    assert listing_price_info(_decide_cfg(price_list=""), card.name) == (None, None, None)
-    assert listing_price_info(cfg, "iPhone 17 Pro Max 256 голубой") == (None, None, None)
-    assert listing_price_info(cfg, card.name)[:2] == ("131 990 ₽", "прайс")
-    assert listing_price_info(cfg, "iPhone 17 Pro Max 256")[:2] == ("129 990 ₽", "прайс")
+    with (patch.object(avito_catalog, "active_import", new=AsyncMock(return_value=1)),
+          patch.object(avito_catalog, "listing_items", new=AsyncMock(return_value=[items[0]])) as listing):
+        assert asyncio.run(svc.listing_price_info(None, cfg, items[0].name))[:2] == ("131 990 ₽", "прайс")
+        listing.return_value = items[:2]
+        assert asyncio.run(svc.listing_price_info(None, cfg, "iPhone 17 Pro Max 256")) == (None, None, None)
+        listing.return_value = []
+        assert asyncio.run(svc.listing_price_info(None, cfg, "iPhone 17 Pro Max 256 голубой")) == (None, None, None)
 
 
 def test_test_chat_uses_outgoing_plan_and_preserves_history():
@@ -1052,7 +1058,11 @@ def test_test_chat_uses_outgoing_plan_and_preserves_history():
         with (patch.object(router, "AsyncSessionFactory", return_value=db),
               patch.object(svc, "load_config", new=AsyncMock(return_value=cfg)),
               patch.object(svc, "test_item_id", new=AsyncMock(return_value=29)),
-              patch.object(svc, "decide", new=decide)):
+              patch.object(svc, "decide", new=decide),
+              patch.object(svc, "find_requested_products", new=AsyncMock(return_value=svc.CatalogContext(
+                  svc.avito_catalog.SearchIntent(queries=[]), []
+              ))),
+              patch.object(svc, "listing_price_info", new=AsyncMock(return_value=("131 990 ₽", "прайс", title)))):
             silent = await router.test_chat(TestIn(item_title=title, text="Решите интеграл"))
             assert silent.action == "silent" and silent.first_message is None and not silent.messages
 
@@ -1109,7 +1119,8 @@ def test_booking_saved_before_confirmation_and_retry():
 
         session = SimpleNamespace(get=AsyncMock(side_effect=get), commit=AsyncMock(side_effect=commit),
                                   rollback=AsyncMock())
-        with (patch.object(svc, "create_chat_order", new=AsyncMock(return_value=order)) as create,
+        with (patch.object(svc, "load_config", new=AsyncMock(return_value=_decide_cfg())),
+              patch.object(svc, "create_chat_order", new=AsyncMock(return_value=order)) as create,
               patch.object(svc, "_send", new=AsyncMock(side_effect=send))):
             error, created = await svc.deliver_message(session, None, chat, msg)
             assert error and created is order and create.await_count == 1
@@ -1127,7 +1138,7 @@ def test_booking_failure_does_not_send_confirmation():
     from src.app.core import avito_bot_service as svc
 
     async def run():
-        chat = SimpleNamespace(id=uuid4(), order_id=None, needs_human=False, human_reason=None)
+        chat = SimpleNamespace(id=uuid4(), order_id=None, needs_human=False, human_reason=None, is_simulated=True)
         msg = SimpleNamespace(id=uuid4(), order_payload={"product_name": "Телефон"},
                               status="scheduled", error=None)
         session = SimpleNamespace(get=AsyncMock(return_value=chat), commit=AsyncMock(), rollback=AsyncMock())

@@ -12,7 +12,7 @@
      SEND_RETRIES попыток зовёт человека. Если покупатель успел написать ещё —
      запланированный ответ отменяется и бот думает заново.
   4. Бронь: модель может приложить к ответу заказ — он создаётся в общей таблице заказов,
-     когда сообщение реально ушло покупателю (в режиме черновиков — когда сотрудник
+     до отправки покупателю (в режиме черновиков — когда сотрудник
      нажал «Отправить»).
 """
 from __future__ import annotations
@@ -32,16 +32,16 @@ from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.app.core import avito_client, llm_client
+from src.app.core import avito_catalog, avito_client, llm_client
 from src.app.core.avito_bot_engine import (
     MSK, ChatContext, PiiMasker, PromptConfig, build_messages, build_reminder_messages, build_system_prompt,
     human_delay, in_window, match_rule, parse_llm_answer, pick_examples, render_reminder,
     render_template, rule_covers, starts_with_refusal, wants_opt_out, is_first_reply, with_greeting,
     split_reply, typing_delay, classify_avito_message, normalize_phone, valid_email, valid_full_name,
     order_note_for_prompt, wants_cancel, CatalogItem, SearchIndex, family_name, catalog_vocab, query_segments, search_catalog,
-    render_first_message, listing_price_item, is_refusal, strip_greeting, sanitize_reply, parse_price_list, price_lines,
+    render_first_message, is_refusal, strip_greeting, sanitize_reply, price_lines,
     audit_reply_prices, trade_in_amounts, mentions_other_city, normalize, is_closing_message, bot_farewelled,
-    audit_reply_colors, exact_variant_price, is_own_repeat, color_offer_reply,
+    audit_reply_colors, is_own_repeat,
 )
 from src.app.core.config import settings
 from src.app.core.logger import get_logger
@@ -58,7 +58,6 @@ logger = get_logger(__name__)
 
 CONFIG_KEY = "avito_bot_config"
 HEALTH_KEY = "avito_bot_health"
-DEBOUNCE_SECONDS = 3          # ждём, не допишет ли покупатель ещё
 SIM_DEBOUNCE_SECONDS = 1
 SIMULATED_MAX_DELAY = 2       # тренировочные диалоги — без долгих пауз
 HISTORY_LIMIT = 30
@@ -95,8 +94,8 @@ def decrypt_secret(value: str) -> str:
 
 # ── Настройки ────────────────────────────────────────────────────────────────
 
-async def load_config(session: AsyncSession) -> AvitoBotConfig:
-    row = await session.get(SiteSetting, CONFIG_KEY)
+async def load_config(session: AsyncSession, *, lock: bool | str = False) -> AvitoBotConfig:
+    row = await session.get(SiteSetting, CONFIG_KEY, with_for_update={"read": True} if lock == "read" else bool(lock))
     raw = dict(row.value) if row is not None and isinstance(row.value, dict) else {}
     for f in SECRET_FIELDS:
         raw[f] = decrypt_secret(str(raw.get(f) or ""))
@@ -111,7 +110,12 @@ async def load_config(session: AsyncSession) -> AvitoBotConfig:
     return cfg
 
 
-async def save_config(session: AsyncSession, cfg: AvitoBotConfig) -> None:
+async def save_config(session: AsyncSession, cfg: AvitoBotConfig, *, price_source: str | None = None) -> None:
+    row = await session.get(SiteSetting, CONFIG_KEY, with_for_update=True)
+    previous_price = (row.value or {}).get("price_list", "") if row else ""
+    if cfg.price_list != previous_price:
+        connection = await session.connection()
+        await connection.run_sync(avito_catalog.publish, cfg.price_list, source=price_source)
     value = cfg.model_dump(mode="json")
     for f in SECRET_FIELDS:
         value[f] = encrypt_secret(value.get(f) or "")
@@ -131,6 +135,14 @@ def llm_settings(cfg: AvitoBotConfig) -> llm_client.LlmSettings:
 
 def avito_creds(cfg: AvitoBotConfig) -> avito_client.AvitoCreds:
     return avito_client.AvitoCreds(cfg.avito_client_id, cfg.avito_client_secret, cfg.avito_user_id)
+
+
+def listing_allowed(cfg: AvitoBotConfig, item_id: int | None) -> bool:
+    return cfg.listing_scope == "all" or (item_id is not None and item_id in cfg.allowed_listing_ids)
+
+
+def automatic_allowed(cfg: AvitoBotConfig, chat: AvitoChat) -> bool:
+    return chat.is_simulated or (cfg.enabled and listing_allowed(cfg, chat.item_id))
 
 
 async def active_rules(session: AsyncSession) -> list[AvitoBotRule]:
@@ -283,44 +295,35 @@ async def search_products(session: AsyncSession, item_title: str | None, questio
     return [snap["products"][it.key] for it in found if it.key in snap["products"]]
 
 
-_PRICE_LIST: dict[str, Any] = {"text": None}
-
-
-def price_snapshot(cfg: AvitoBotConfig) -> dict[str, Any]:
-    """Прайс из настроек бота (вкладка «Прайс»): товары, словарь и справочник для модели."""
-    if _PRICE_LIST["text"] != cfg.price_list:
-        items, errors = parse_price_list(cfg.price_list)
-        _PRICE_LIST.update(text=cfg.price_list, items=items, errors=errors, vocab=catalog_vocab(items), index=SearchIndex(items),
-                           overview=price_lines(items)[:900])
-    return _PRICE_LIST
-
-
-def listing_price_info(cfg: AvitoBotConfig, item_title: str | None) -> tuple[str | None, str | None, str | None]:
-    """Розничная цена берётся только из прайса по названию объявления."""
-    prices = price_snapshot(cfg)
-    hit = listing_price_item(prices["items"], item_title, prices["vocab"], prices["index"])
-    if hit is None:
+async def listing_price_info(session: AsyncSession, cfg: AvitoBotConfig, item_title: str | None
+                             ) -> tuple[str | None, str | None, str | None]:
+    import_id = await avito_catalog.active_import(session, cfg.price_list)
+    items = await avito_catalog.listing_items(session, import_id, item_title)
+    if len(items) != 1:
         return None, None, None
+    hit = items[0]
     a = hit.attributes
     label = hit.name + "".join(f" · {a[k]}" for k in ("country", "sim") if a.get(k))
     return _rub(hit.price), "прайс", label
 
 
-def test_listing_suggestions(cfg: AvitoBotConfig, limit: int = 200) -> list[str]:
-    """Названия позиций из прайса для поля «Объявление» в тестовом чате."""
-    names = {f"{family_name(it)} {it.attributes.get('storage', '')}".strip()
-             for it in price_snapshot(cfg)["items"]}
-    return sorted(names, key=str.lower)[:limit]
+async def test_listing_suggestions(session: AsyncSession, cfg: AvitoBotConfig, limit: int = 200) -> list[str]:
+    import_id = await avito_catalog.active_import(session, cfg.price_list)
+    if import_id is None:
+        return []
+    from src.app.database.models.avito_catalog import variants
+    statement = select(variants.c.name).where(variants.c.import_id == import_id).distinct()
+    return list(await session.scalars(statement.order_by(variants.c.name).limit(limit)))
 
 
-def first_message(cfg: AvitoBotConfig, ctx: ChatContext,
-                  item_id: int | None, greet: bool | None = None) -> tuple[str, bool] | None:
+async def first_message(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext,
+                        item_id: int | None, greet: bool | None = None) -> tuple[str, bool] | None:
     """Шаблон первого сообщения (приветствие + розничная цена) и нашлась ли цена.
     None — шаблон выключен или сегодня с покупателем уже здоровались."""
     greet = is_first_reply(ctx) if greet is None else greet
     if not cfg.first_message.strip() or not greet or not (ctx.item_title or item_id):
         return None
-    price = listing_price_info(cfg, ctx.item_title)[0]
+    price = (await listing_price_info(session, cfg, ctx.item_title))[0]
     needs_price = "{price}" in cfg.first_message
     return render_first_message(cfg.first_message, cfg.persona_name, price), bool(price) or not needs_price
 
@@ -357,16 +360,54 @@ async def test_item_id(session: AsyncSession, title: str | None) -> int | None:
     return ids[0] if len(ids) == 1 else None
 
 
-def booking_price(cfg: AvitoBotConfig, product: Product) -> int | None:
-    prices = price_snapshot(cfg)
-    attrs = product.attributes or {}
-    storage = attrs.get("storage")
-    if not storage and attrs.get("storage_gb"):
-        storage = f"{attrs['storage_gb']} ГБ"
-    options = " ".join(str(value) for value in (
-        storage, attrs.get("color") or product.color, attrs.get("country"), attrs.get("sim")
-    ) if value)
-    return exact_variant_price(prices["items"], product.name, prices["vocab"], prices["index"], options=options)
+async def price_variants_for_card(session: AsyncSession, import_id: int | None, card: Product
+                                  ) -> list[CatalogItem]:
+    query = avito_catalog.listing_query(card.name)
+    if not query:
+        return []
+    attrs = card.attributes or {}
+    features = dict(query.attributes)
+    if not features.get("color") and (attrs.get("color") or card.color):
+        features["color"] = attrs.get("color") or card.color
+    for key in ("ram_gb", "storage_gb", "region", "sim"):
+        if key not in features and attrs.get(key) is not None:
+            features[key] = attrs[key]
+    query = query.model_copy(update={"attributes": features})
+    result = await avito_catalog.search(session, import_id, query, limit=2)
+    return [match.item for match in result.matches if match.relation == "exact"]
+
+
+async def booking_price(session: AsyncSession, import_id: int | None, product: Product) -> int | None:
+    exact = await price_variants_for_card(session, import_id, product)
+    return int(exact[0].price) if len(exact) == 1 else None
+
+
+async def bookable_products(session: AsyncSession, cfg: AvitoBotConfig, item_id: int | None,
+                            requested: CatalogContext) -> tuple[list[Product], dict[UUID, int]]:
+    import_id = await avito_catalog.active_import(session, cfg.price_list)
+    target_keys = {match.item.key for result in requested.results for match in result.matches
+                   if match.relation == "exact"}
+    if not requested.results:
+        target_keys = {item.key for item in requested.listing}
+    if not target_keys:
+        return [], {}
+
+    linked = await linked_product(session, item_id)
+    cards = {linked.id: linked} if linked else {}
+    if requested.intent.booking_requested:
+        for item in requested.items:
+            if item.key not in target_keys:
+                continue
+            for candidate in await search_products(session, item.name, limit=8):
+                cards.setdefault(candidate.id, candidate)
+    products = []
+    prices = {}
+    for card in cards.values():
+        exact = await price_variants_for_card(session, import_id, card)
+        if len(exact) == 1 and exact[0].key in target_keys:
+            products.append(card)
+            prices[card.id] = int(exact[0].price)
+    return products, prices
 
 
 async def staff_examples(session: AsyncSession, limit: int = 300) -> list[tuple[str, str]]:
@@ -391,20 +432,103 @@ class Decision:
     order: dict[str, Any] | None = None
     examples_used: int = 0
     cancel_order: bool = False
+    search: list[dict[str, Any]] = field(default_factory=list)
     suppress_opening: bool = False  # не слать шаблон первого сообщения (off-topic и т.п.)
 
 
+@dataclass
+class CatalogContext:
+    intent: avito_catalog.SearchIntent
+    results: list[avito_catalog.SearchResult]
+    listing: list[CatalogItem] = field(default_factory=list)
+
+    @property
+    def items(self) -> list[CatalogItem]:
+        items = {match.item.key: match.item for result in self.results for match in result.matches}
+        return list(items.values())
+
+
+def request_differs_from_listing(requested: CatalogContext, title: str | None) -> bool:
+    if not requested.results:
+        return False
+    listing = avito_catalog.listing_query(title)
+    if not listing:
+        return True
+    listing_brand = avito_catalog.brand_key(listing.brand or "")
+    listing_key = avito_catalog.model_key(listing.model or "", listing_brand)
+    for result in requested.results:
+        query = result.query
+        brand = avito_catalog.brand_key(query.brand or "")
+        key = avito_catalog.model_key(query.model or "", brand)
+        if (key and key != listing_key) or (brand and listing_brand and brand != listing_brand):
+            return True
+        if requested.listing:
+            exact_keys = {m.item.key for m in result.matches if m.relation == "exact"}
+            if any(item.key not in exact_keys for item in requested.listing):
+                return True
+    return False
+
+
+async def find_requested_products(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext,
+                                  pending: str, masker: PiiMasker) -> CatalogContext:
+    """Модель указывает параметры поиска. Фильтры и цены определяют PostgreSQL и код."""
+    import_id = await avito_catalog.active_import(session, cfg.price_list)
+    system = (
+        "Извлеки поисковые запросы на покупку техники из последних реплик покупателя. "
+        "Не отвечай покупателю и не ищи товары. Для вопроса без поиска верни queries=[]. "
+        "Сохраняй явно выбранный товар из диалога при уточнении. Объявление — подсказка, если покупатель "
+        "ссылается на него или другого товара в диалоге нет. Новый явно названный товар имеет приоритет. "
+        "Не включай сдаваемый в trade-in товар, если о покупке именно его не спросили. "
+        "Не выдумывай незаданные параметры. На каждый запрошенный вариант — отдельный запрос. "
+        "Производитель латиницей, category коротким ключом: smartphone, tablet, computer, headphones, watch, "
+        "vacuum, console, camera, accessory или подходящий тип для иной техники. "
+        "Модель пиши как в запросе, убери из неё объём, цвет, SIM. "
+        "Для смартфона используй ram_gb, storage_gb (целые числа), color, sim, region. "
+        "SIM: two_physical, one_physical, physical_esim, esim_only, has_physical. "
+        "Для другой техники используй её свойства, не добавляй поля телефона. "
+        "booking_requested=true при явном согласии купить, просьбе о брони или продолжении оформления. "
+        "В required перечисли ключи условий «только», «обязательно», «без этого не подойдёт». "
+        "Если важный параметр неоднозначен, поставь один короткий вопрос в clarification. "
+        'Строго JSON: {"queries":[{"brand":"Samsung","category":"smartphone","model":"Galaxy S26 Ultra",'
+        '"attributes":{"ram_gb":16,"storage_gb":256,"sim":"two_physical"},"required":["sim"],'
+        '"reference":"explicit"}],"clarification":null,"booking_requested":false}. reference: explicit, conversation или listing.'
+    )
+    history = [(author, masker.mask(value)) for author, value in ctx.history]
+    meta = f"Объявление: {ctx.item_title or 'неизвестно'}."
+    messages = build_messages(system + "\n" + meta, ChatContext(None, None, None, history), HISTORY_LIMIT)
+    messages.append({"role": "user", "content": "Реплики, на которые нужно ответить:\n" + masker.mask(pending)})
+    raw = await llm_call(cfg, messages)
+    try:
+        intent = avito_catalog.SearchIntent.model_validate_json(raw.strip().removeprefix("```json").removesuffix("```").strip())
+    except ValueError as exc:
+        raise llm_client.LlmError("Модель вернула неверные параметры поиска") from exc
+    listing = await avito_catalog.listing_items(session, import_id, ctx.item_title)
+    results = []
+    for query in intent.queries:
+        if not query.model and query.reference == "listing":
+            listing_query = avito_catalog.listing_query(ctx.item_title)
+            if listing_query and (not query.brand or
+                    avito_catalog.brand_key(query.brand) == avito_catalog.brand_key(listing_query.brand or "")):
+                query = query.model_copy(update={
+                    "brand": query.brand or listing_query.brand,
+                    "category": query.category or listing_query.category,
+                    "model": listing_query.model,
+                    "attributes": {**listing_query.attributes, **query.attributes},
+                })
+        results.append(await avito_catalog.search(session, import_id, query))
+    return CatalogContext(intent, results, listing)
+
+
 def checked_reply_prices(cfg: AvitoBotConfig, reply: str, item_title: str | None,
-                         question: str | None = None) -> tuple[str, list[int], bool]:
-    prices = price_snapshot(cfg)
+                         question: str | None = None, *, items: list[CatalogItem]) -> tuple[str, list[int], bool]:
     return audit_reply_prices(
-        reply, prices["items"], prices["vocab"], prices["index"], trade_in_amounts(cfg.trade_in_prices),
+        reply, items, catalog_vocab(items), SearchIndex(items), trade_in_amounts(cfg.trade_in_prices),
         anchor=item_title, question=question,
     )
 
 
 def _order_payload(cfg: AvitoBotConfig, raw: dict[str, Any], products: list[Product],
-                   masker: PiiMasker) -> tuple[dict | None, str | None, list[str]]:
+                   masker: PiiMasker, prices: dict[UUID, int]) -> tuple[dict | None, str | None, list[str]]:
     """Проверяет бронь от модели. Возвращает (payload, причина отказа, каких контактов не хватает)."""
     name = " ".join(masker.unmask(str(raw.get("name") or "")).split())[:120]
     phone = normalize_phone(masker.unmask(str(raw.get("phone") or "")))
@@ -412,13 +536,13 @@ def _order_payload(cfg: AvitoBotConfig, raw: dict[str, Any], products: list[Prod
     missing = [label for label, ok in (("ФИО", valid_full_name(name)), ("номер телефона", phone is not None)) if not ok]
     if missing:
         return None, None, missing
-    payload, problem = _order_item(cfg, raw, products, masker)
+    payload, problem = _order_item(cfg, raw, products, masker, prices)
     if payload is not None:
         payload.update(name=name, phone=phone, email=email if valid_email(email) else "")
     return payload, problem, []
 
 
-def _order_item(cfg: AvitoBotConfig, raw: dict[str, Any], products: list[Product], masker: PiiMasker) -> tuple[dict | None, str | None]:
+def _order_item(cfg: AvitoBotConfig, raw: dict[str, Any], products: list[Product], masker: PiiMasker, prices: dict[UUID, int]) -> tuple[dict | None, str | None]:
     try:
         idx = int(raw.get("item")) - 1
     except (TypeError, ValueError):
@@ -432,7 +556,7 @@ def _order_item(cfg: AvitoBotConfig, raw: dict[str, Any], products: list[Product
     address = masker.unmask(str(raw.get("address") or "").strip())[:300]
     if method == "delivery" and len(address) < 5:
         return None, "Бронь с доставкой без адреса"
-    price = booking_price(cfg, p)
+    price = prices.get(p.id)
     if price is None:
         return None, f"Бронь не оформлена: не найдена точная цена для «{p.name}» в прайсе"
     return {
@@ -449,7 +573,8 @@ def _order_item(cfg: AvitoBotConfig, raw: dict[str, Any], products: list[Product
 async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, pending_text: str,
                  rule_hits: dict[str, Any], now: datetime | None = None, item_id: int | None = None,
                  order_info: tuple[str, str] | None = None, first_sent: bool = False,
-                 first_price_known: bool = True, greet: bool | None = None) -> Decision:
+                 first_price_known: bool = True, greet: bool | None = None,
+                 requested: CatalogContext | None = None) -> Decision:
     """order_info — (номер, статус) заявки этого диалога: модель знает о ней и может её отменить."""
     now = now or _now()
     rules = await active_rules(session)
@@ -471,9 +596,11 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         # На прощание ответили «спасибо»/«и вам» — молчим, не тратя вызов модели
         return Decision("silent", reason="Покупатель ответил на прощание — молчим")
 
-    def rule_decision(rule: AvitoBotRule) -> Decision:
+    async def rule_decision(rule: AvitoBotRule) -> Decision:
         # Первый ответ дня — с приветствием, даже если это готовый автоответ; иначе приветствие вырезаем
-        text_, unknown, _ = checked_reply_prices(cfg, rule.answer.strip(), ctx.item_title, pending_text)
+        import_id = await avito_catalog.active_import(session, cfg.price_list)
+        items = await avito_catalog.listing_items(session, import_id, ctx.item_title)
+        text_, unknown, _ = checked_reply_prices(cfg, rule.answer.strip(), ctx.item_title, pending_text, items=items)
         if unknown:
             return Decision("handoff", reason=f"Цена в автоответе не подтверждена прайсом ({unknown[0]} ₽)")
         if not greet or first_sent:
@@ -487,15 +614,16 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         match = None  # отмену не перебивает автоответ — отвечает модель (или короткое подтверждение)
         if not llm.ready:
             return Decision("reply", "Заявку отменила. Если передумаете — пишите, с радостью помогу.", "rule")
-    if match is None and not refusal and not cancelling and cfg.price_list.strip():
-        # Спрашивают цвет, которого нет у этой модели в прайсе, — отвечаем сами, без модели:
-        # предлагаем цвета, которые есть у этой модели и объёма, с ценами из прайса
-        prices = price_snapshot(cfg)
-        offer = color_offer_reply(pending_text, ctx.item_title, prices["items"], prices["vocab"], prices["index"])
-        if offer:
-            return Decision("reply", offer, "llm", delay_seconds=2)
-    if match and match.rule.verbatim and not (llm.ready and not rule_covers(pending_text)):
-        return rule_decision(match.rule)
+    # Единый разбор запроса для шаблона, автоответа и ответа модели.
+    masker = PiiMasker()
+    if llm.ready and requested is None:
+        try:
+            requested = await find_requested_products(session, cfg, ctx, pending_text, masker)
+        except llm_client.LlmError as exc:
+            return Decision("handoff", reason=f"Не удалось разобрать запрос: {exc}"[:200])
+    has_product_request = requested and (requested.results or requested.intent.clarification)
+    if match and match.rule.verbatim and not has_product_request and (not llm.ready or rule_covers(pending_text)):
+        return await rule_decision(match.rule)
 
     if not llm.ready:
         if refusal:
@@ -505,16 +633,44 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         if first_sent:
             return Decision("silent", reason="Шаблон с ценой уже отправлен, модели нет")
         if match:  # правило «своими словами», но модели нет — отдаём текст правила
-            return rule_decision(match.rule)
+            return await rule_decision(match.rule)
         return Decision("handoff", None, reason="Нет подходящего автоответа, а модель не подключена")
 
-    product = await linked_product(session, item_id) if cfg.orders_enabled else None
-    products = [product] if product else []
-    lines = [p.name for p in products]
     examples = pick_examples(pending_text, await staff_examples(session))
 
-    # Модель не видит телефонов, карт и почты — только метки
-    masker = PiiMasker()
+    products, booking_prices = await bookable_products(session, cfg, item_id, requested) if cfg.orders_enabled else ([], {})
+    lines = [p.name for p in products]
+    search_data = [result.context() for result in requested.results]
+    items = requested.items
+    if requested.intent.clarification and not requested.results:
+        clarification, replaced = sanitize_reply(masker.unmask(requested.intent.clarification))
+        if clarification and not replaced and not checked_reply_prices(cfg, clarification, None, items=[])[1]:
+            if not greet:
+                clarification = strip_greeting(clarification)
+            if clarification:
+                return Decision("reply", clarification, "llm", suppress_opening=True)
+        return Decision("handoff", reason="Модель не сформулировала уточняющий вопрос", suppress_opening=True)
+    changes_product = request_differs_from_listing(requested, ctx.item_title)
+    anchor = None
+    if len(requested.results) == 1 and items and requested.results[0].status in ("exact", "same_model"):
+        exact = [match.item for match in requested.results[0].matches if match.relation == "exact"]
+        if len(exact) == 1:
+            item = exact[0]
+            anchor = " ".join(value for value in (item.name, item.attributes.get("country"), item.attributes.get("sim"))
+                              if value)
+        else:
+            anchor = items[0].name if len(items) == 1 else family_name(items[0])
+    if not requested.results:
+        items = requested.listing
+        anchor = ctx.item_title
+    if changes_product:
+        first_sent = False
+
+    def outcome(action: str, *args, **kwargs) -> Decision:
+        kwargs.setdefault("search", search_data)
+        kwargs.setdefault("suppress_opening", changes_product)
+        return Decision(action, *args, **kwargs)
+
     masked_ctx = ChatContext(ctx.item_title, ctx.item_price, ctx.client_name, [(a, masker.mask(t)) for a, t in ctx.history])
     system = build_system_prompt(
         PromptConfig(cfg.persona_name, cfg.style, cfg.knowledge, cfg.handoff_topics, cfg.greeting,
@@ -524,13 +680,13 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         orders_enabled=cfg.orders_enabled, pickup_address=cfg.pickup_address,
         order_note=order_note_for_prompt(*order_info) if order_info else None,
         first_sent=first_sent, first_price_known=first_price_known, greet=greet,
-        price_overview=price_snapshot(cfg)["overview"] if cfg.price_list.strip() else (),
+        price_overview=price_lines(items), search_context=search_data,
         trade_in=cfg.trade_in_prices,
     )
     try:
         raw = await llm_call(cfg, build_messages(system, masked_ctx, HISTORY_LIMIT))
     except llm_client.LlmError as exc:
-        return Decision("handoff", None, reason=f"Модель не ответила: {exc}"[:200], catalog=lines)
+        return outcome("handoff", None, reason=f"Модель не ответила: {exc}"[:200], catalog=lines)
 
     verdict = parse_llm_answer(raw)
     reply = masker.unmask(verdict.reply)
@@ -539,7 +695,7 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     if cfg.off_topic_silent and verdict.off_topic and not verdict.order:
         # Сообщение целиком не по теме: как живой менеджер — прочитал и промолчал.
         # Продающий шаблон первого сообщения на такое тоже не шлём
-        return Decision("silent", reason="Не по теме магазина — бот не отвечает", catalog=lines,
+        return outcome("silent", reason="Не по теме магазина — бот не отвечает", catalog=lines,
                         examples_used=len(examples), suppress_opening=True)
     reply, replaced = sanitize_reply(reply)
     if replaced:
@@ -547,25 +703,25 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     if replaced and reply:
         verdict.order = None
         if cfg.off_topic_silent:
-            return Decision("silent", reason="Ответ модели ушёл в сторону от магазина — бот промолчал",
+            return outcome("silent", reason="Ответ модели ушёл в сторону от магазина — бот промолчал",
                             catalog=lines, examples_used=len(examples), suppress_opening=True)
     if reply:
         # Контроль цен: каждая названная розничная цена — из прайса; устаревшую исправляем,
         # выдуманную не отправляем вовсе — зовём человека
-        prices = price_snapshot(cfg)
+        prices = {"items": items, "vocab": catalog_vocab(items), "index": SearchIndex(items)}
         if prices["items"]:
             # Контроль цветов: цвет, которого нет у этой модели в прайсе, — выдумка, зовём человека
             bad_colors = audit_reply_colors(reply, prices["items"], prices["vocab"], prices["index"],
-                                            anchor=ctx.item_title)
+                                            anchor=anchor)
             if bad_colors:
                 logger.warning("avito_bot_color_not_in_list", colors=bad_colors)
-                return Decision("handoff", None, "llm", match.rule if match else None,
+                return outcome("handoff", None, "llm", match.rule if match else None,
                                 reason=f"Модель назвала цвет «{bad_colors[0]}», которого нет в прайсе у этой модели",
                                 catalog=lines, examples_used=len(examples))
-        reply, unknown_prices, price_fixed = checked_reply_prices(cfg, reply, ctx.item_title, pending_text)
+        reply, unknown_prices, price_fixed = checked_reply_prices(cfg, reply, anchor, pending_text, items=items)
         if unknown_prices:
             logger.warning("avito_bot_price_not_in_list", prices=unknown_prices)
-            return Decision("handoff", None, "llm", match.rule if match else None,
+            return outcome("handoff", None, "llm", match.rule if match else None,
                             reason=f"Модель назвала цену не из прайса ({unknown_prices[0]} ₽) — проверьте прайс",
                             catalog=lines, examples_used=len(examples))
         if price_fixed:
@@ -573,34 +729,37 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         if is_own_repeat(reply, ctx):
             # Дословный повтор своего же сообщения — не шлём дубль
             logger.warning("avito_bot_repeat", hint="модель повторила своё прошлое сообщение дословно")
-            return Decision("silent", reason="Модель повторила своё прошлое сообщение — дубль не шлём",
+            return outcome("silent", reason="Модель повторила своё прошлое сообщение — дубль не шлём",
                             catalog=lines, examples_used=len(examples))
     first_part = (split_reply(reply) or [reply])[0] if cfg.human_mode else reply
     delay = (typing_delay(first_part, cfg.reply_delay_min, cfg.reply_delay_max) if cfg.human_mode
              else human_delay(cfg.reply_delay_min, cfg.reply_delay_max))
     rule = match.rule if match else None
     order, order_problem, missing = (None, None, [])
-    if verdict.order and cfg.orders_enabled:
-        order, order_problem, missing = _order_payload(cfg, verdict.order, products, masker)
+    if verdict.order:
+        if cfg.orders_enabled and products:
+            order, order_problem, missing = _order_payload(cfg, verdict.order, products, masker, booking_prices)
+        else:
+            order_problem = "Для выбранного варианта нет карточки, доступной для оформления брони"
     if missing:
         # Модель поспешила с заявкой: без ФИО и телефона не оформляем и не говорим «забронировала»
         has_email = bool(str(verdict.order.get("email") or "").strip())
         ask = ("Отлично, оформлю заявку! Напишите, пожалуйста, " + " и ".join(missing)
                + ("" if has_email else ". Почту — по желанию") + ".")
-        return Decision("reply", ask, "llm", rule, delay_seconds=delay, catalog=lines, examples_used=len(examples))
+        return outcome("reply", ask, "llm", rule, delay_seconds=delay, catalog=lines, examples_used=len(examples))
     if verdict.handoff or order_problem:
         if not reply and cfg.handoff_message:
-            reply, unknown, _ = checked_reply_prices(cfg, cfg.handoff_message, ctx.item_title)
+            reply, unknown, _ = checked_reply_prices(cfg, cfg.handoff_message, anchor, items=items)
             if unknown:
                 reply = ""
         # Сбой с заявкой — молча зовём человека; сам покупатель попросил менеджера — короткая фраза модели
-        decision = Decision("handoff", None if order_problem else (reply or None), "llm", rule,
+        decision = outcome("handoff", None if order_problem else (reply or None), "llm", rule,
                             reason=order_problem or verdict.reason or "Модель просит сотрудника", delay_seconds=delay,
                             catalog=lines, examples_used=len(examples))
     elif not reply:
-        decision = Decision("silent", reason="Модель решила, что отвечать не нужно", catalog=lines, examples_used=len(examples))
+        decision = outcome("silent", reason="Модель решила, что отвечать не нужно", catalog=lines, examples_used=len(examples))
     else:
-        decision = Decision("reply", reply, "llm", rule, delay_seconds=delay, catalog=lines, order=order,
+        decision = outcome("reply", reply, "llm", rule, delay_seconds=delay, catalog=lines, order=order,
                             examples_used=len(examples))
     decision.cancel_order = bool(verdict.cancel_order and order_info and order_info[1] in CANCELABLE)
     return decision
@@ -697,8 +856,17 @@ async def plan_chat_reply(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatC
                           order_info: tuple[str, str] | None = None,
                           greet: bool | None = None) -> tuple[Decision, list[PlannedReply]]:
     greet = is_first_reply(ctx) if greet is None else greet
-    first = first_message(cfg, ctx, item_id, greet=greet)
+    requested = None
+    if greet and cfg.first_message.strip() and ctx.item_title and llm_settings(cfg).ready:
+        try:
+            requested = await find_requested_products(session, cfg, ctx, pending, PiiMasker())
+        except llm_client.LlmError as exc:
+            return Decision("handoff", reason=f"Не удалось разобрать запрос: {exc}"[:200]), []
+    different = requested is not None and request_differs_from_listing(requested, ctx.item_title)
+    first = None if different else await first_message(session, cfg, ctx, item_id, greet=greet)
     opening, early = opening_or_handoff(first, ctx.item_title)
+    if requested is not None and requested.results:
+        early = None
     if opening:
         # Модель должна отвечать на текущий вопрос, даже если сначала уйдёт шаблон.
         pending_start = len(ctx.history)
@@ -706,8 +874,12 @@ async def plan_chat_reply(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatC
             pending_start -= 1
         history = ctx.history[:pending_start] + [("bot", opening)] + ctx.history[pending_start:]
         ctx = ChatContext(ctx.item_title, ctx.item_price, ctx.client_name, history)
-    decision = early or await decide(session, cfg, ctx, pending, rule_hits, item_id=item_id,
-                                     order_info=order_info, first_sent=bool(opening), greet=greet)
+    if early and requested is None:
+        return early, []
+    decision = await decide(session, cfg, ctx, pending, rule_hits, item_id=item_id,
+                            order_info=order_info, first_sent=bool(opening), greet=greet, requested=requested)
+    if early and not decision.suppress_opening and decision.action != "handoff":
+        return early, []
     if decision.suppress_opening or (decision.action == "handoff" and not decision.text):
         opening = None
 
@@ -732,7 +904,7 @@ async def _process_chat(chat_id: UUID) -> None:
         cfg = await load_config(session)
         chat = await session.get(AvitoChat, chat_id)
         # Позвали человека — бот в этом диалоге молчит, пока сотрудник не вернёт его
-        if chat is None or chat.mode != "bot" or chat.needs_human or (not cfg.enabled and not chat.is_simulated):
+        if chat is None or chat.mode != "bot" or chat.needs_human or not automatic_allowed(cfg, chat):
             await session.commit()
             return
         state = await chat_state(session, chat)
@@ -754,8 +926,9 @@ async def _process_chat(chat_id: UUID) -> None:
     read_now = False
     extra_pushes: list[tuple[str, str]] = []
     async with AsyncSessionFactory() as session:
+        current_cfg = await load_config(session)
         chat = await session.get(AvitoChat, chat_id, with_for_update=True)
-        if chat is None or chat.mode != "bot" or chat.needs_human:
+        if chat is None or chat.mode != "bot" or chat.needs_human or not automatic_allowed(current_cfg, chat):
             return
         # Пока думали, покупатель дописал — новый срок уже стоит, ответим на всё сразу
         if (await chat_state(session, chat)).last_client_id != state.last_client_id:
@@ -780,7 +953,7 @@ async def _process_chat(chat_id: UUID) -> None:
 
         send_at = None
         base_time = _now()
-        debounce = SIM_DEBOUNCE_SECONDS if chat.is_simulated else DEBOUNCE_SECONDS
+        debounce = SIM_DEBOUNCE_SECONDS if chat.is_simulated else cfg.collect_messages_seconds
         for n, plan in enumerate(planned):
             text_, source, dec = plan.text, plan.source, plan.decision
             rule_id = dec.rule.id if dec and dec.rule else None
@@ -802,7 +975,7 @@ async def _process_chat(chat_id: UUID) -> None:
                 send_at = _now() + timedelta(seconds=max(0, delay - debounce))
             else:
                 send_at += timedelta(seconds=_next_part_delay(cfg, text_, chat.is_simulated))
-            parts = [text_] if order else planned_parts(cfg, plan)
+            parts = planned_parts(cfg, plan)
             for i, part in enumerate(parts):
                 if i:
                     send_at += timedelta(seconds=_next_part_delay(cfg, part, chat.is_simulated))
@@ -823,7 +996,9 @@ async def _process_chat(chat_id: UUID) -> None:
 
 
 def planned_parts(cfg: AvitoBotConfig, plan: PlannedReply) -> list[str]:
-    return [plan.text] if plan.whole else _parts(cfg, plan.text, plan.source)
+    if plan.whole or (plan.decision and plan.decision.order):
+        return [plan.text]
+    return _parts(cfg, plan.text, plan.source)
 
 
 def _parts(cfg: AvitoBotConfig, text_: str, source: str | None = "llm") -> list[str]:
@@ -861,7 +1036,13 @@ async def create_test_order() -> Order:
             .where(Product.is_active.is_(True), Product.stock_quantity > 0)
             .order_by(Product.is_featured.desc(), Product.updated_at.desc())
         )).unique()
-        match = next(((product, price) for product in products if (price := booking_price(cfg, product)) is not None), None)
+        import_id = await avito_catalog.active_import(session, cfg.price_list)
+        match = None
+        for product in products:
+            price = await booking_price(session, import_id, product)
+            if price is not None:
+                match = product, price
+                break
         if match is None:
             raise ActionError("В наличии нет привязанной карточки с точной ценой из прайса")
         product, price = match
@@ -957,7 +1138,9 @@ async def create_chat_order(session: AsyncSession, chat: AvitoChat, payload: dic
         return "товар закончился"
     price = payload.get("price") if payload.get("price_source") == "avito_price_list" else None
     if price is None:
-        price = booking_price(await load_config(session), product)
+        cfg = await load_config(session)
+        import_id = await avito_catalog.active_import(session, cfg.price_list)
+        price = await booking_price(session, import_id, product)
     if price is None:
         return "не найдена точная цена в прайсе"
     price = Decimal(str(price))
@@ -1013,7 +1196,10 @@ async def _send(cfg: AvitoBotConfig, chat: AvitoChat, msg: AvitoMessage, session
 
 
 async def deliver_message(session: AsyncSession, cfg: AvitoBotConfig, chat: AvitoChat, msg: AvitoMessage) -> tuple[str | None, Order | None]:
-    """Отправляет и, если ушло, засчитывает правило и оформляет бронь. Возвращает (ошибка, заказ)."""
+    """Фиксирует заявку, отправляет сообщение и засчитывает правило. Возвращает (ошибка, заказ)."""
+    if not automatic_allowed(cfg, chat):
+        msg.status = "discarded"
+        return "Автоответы по объявлению отключены", None
     order = None
     if msg.order_payload:
         # Блокировка диалога и фиксация заявки до отправки позволяют безопасно повторить
@@ -1053,14 +1239,20 @@ async def deliver_message(session: AsyncSession, cfg: AvitoBotConfig, chat: Avit
             msg.error = chat.human_reason
             return msg.error, None
         # После фиксации проверяем, что сотрудник или покупатель не отменил сообщение.
-        msg = await session.get(AvitoMessage, msg.id, with_for_update=True)
-        chat = await session.get(AvitoChat, chat.id, with_for_update=True)
+        cfg = await load_config(session, lock="read")
+        chat = await session.get(AvitoChat, chat_id, with_for_update=True)
+        msg = await session.get(AvitoMessage, message_id, with_for_update=True)
+        if msg is None or chat is None:
+            raise ActionError("Сообщение или диалог удалены")
         if msg.status not in ("draft", "scheduled"):
             return "Сообщение отменено", order
         saved_order = await session.get(Order, chat.order_id)
         if saved_order is None or saved_order.status == "cancelled":
             msg.status = "discarded"
             return "Заявка отменена до отправки", order
+    if not automatic_allowed(cfg, chat):
+        msg.status = "discarded"
+        return "Автоответы по объявлению отключены", order
     error = await _send(cfg, chat, msg, session)
     if error:
         return error, order
@@ -1081,11 +1273,12 @@ async def deliver_due_message(message_id: UUID) -> None:
     push: tuple[str, str] | None = None
     order: Order | None = None
     async with AsyncSessionFactory() as session:
-        cfg = await load_config(session)
+        cfg = await load_config(session, lock="read")
+        chat_id = await session.scalar(select(AvitoMessage.chat_id).where(AvitoMessage.id == message_id))
+        chat = await session.get(AvitoChat, chat_id, with_for_update=True) if chat_id else None
         msg = await session.get(AvitoMessage, message_id, with_for_update=True)
         if msg is None or msg.status != "scheduled":
             return
-        chat = await session.get(AvitoChat, msg.chat_id)
         if chat is None or chat.mode != "bot":
             msg.status = "discarded"
             await session.commit()
@@ -1224,6 +1417,7 @@ async def handle_incoming(avito_chat_id: str, avito_message_id: str | None, auth
                           system: bool = False, account_id: Any = None, own: bool | None = None) -> bool:
     """Сохраняет сообщение. True — оно новое (не дубль). system — служебное сообщение Авито:
     сохраняем для сотрудников, но бот на него не отвечает и не учитывает в разговоре."""
+    cancel_push = None
     async with AsyncSessionFactory() as session:
         cfg = await load_config(session)
         if avito_message_id:
@@ -1237,7 +1431,7 @@ async def handle_incoming(avito_chat_id: str, avito_message_id: str | None, auth
         if chat is None:
             chat = AvitoChat(id=uuid4(), avito_chat_id=avito_chat_id)
             session.add(chat)
-        if (not chat.client_name or not chat.item_title) and avito_creds(cfg).ready and not chat.is_simulated:
+        if (not chat.client_name or chat.item_id is None or not chat.item_title) and avito_creds(cfg).ready and not chat.is_simulated:
             await _fill_meta(cfg, chat, account_id or cfg.avito_user_id)
         await session.flush()
         if new_chat and avito_creds(cfg).ready and cfg.avito_connected_at:
@@ -1284,9 +1478,12 @@ async def handle_incoming(avito_chat_id: str, avito_message_id: str | None, auth
             chat.opted_out = True
             log_event(session, chat.id, "opt_out", text_[:200])
         # Явная отмена заявки — сразу, даже если бот выключен или диалог ведёт сотрудник
-        cancel_push = await _phrase_cancel(session, chat, text_)
-        if chat.mode == "bot" and not chat.needs_human and cfg.enabled:
-            chat.reply_due_at = _now() + timedelta(seconds=DEBOUNCE_SECONDS)
+        if listing_allowed(cfg, chat.item_id):
+            cancel_push = await _phrase_cancel(session, chat, text_)
+        if chat.mode == "bot" and not chat.needs_human and automatic_allowed(cfg, chat):
+            chat.reply_due_at = _now() + timedelta(seconds=cfg.collect_messages_seconds)
+        else:
+            chat.reply_due_at = None
         await session.commit()
     if cancel_push:
         await send_push_to_all(cancel_push[0], cancel_push[1], url="/app", tag=f"avito-order-{avito_chat_id}", kind="avito")
@@ -1364,7 +1561,8 @@ async def claim_reminder_chats(cfg: AvitoBotConfig, limit: int = 10) -> list[UUI
             "UPDATE avito_chats SET reminder_sent_at = now() WHERE id IN ("
             " SELECT c.id FROM avito_chats c"
             " WHERE c.reminder_sent_at IS NULL AND c.mode = 'bot' AND NOT c.needs_human AND c.order_id IS NULL"
-            "   AND c.reply_due_at IS NULL AND (c.is_simulated OR :live)"
+            "   AND c.reply_due_at IS NULL AND (c.is_simulated OR (:live AND"
+            "            (:all_items OR c.item_id = ANY(CAST(:item_ids AS bigint[])))))"
             "   AND c.last_message_at <= now() - make_interval(mins => :after)"
             "   AND c.last_message_at >= now() - make_interval(hours => :window)"
             "   AND (SELECT m.author || ':' || coalesce(m.source, '') FROM avito_messages m"
@@ -1373,7 +1571,7 @@ async def claim_reminder_chats(cfg: AvitoBotConfig, limit: int = 10) -> list[UUI
             "   AND EXISTS (SELECT 1 FROM avito_messages m WHERE m.chat_id = c.id AND m.author = 'client')"
             "   AND NOT EXISTS (SELECT 1 FROM avito_messages m WHERE m.chat_id = c.id AND m.status IN ('draft', 'scheduled'))"
             " ORDER BY c.last_message_at LIMIT :limit FOR UPDATE SKIP LOCKED) RETURNING id"
-        ), {"live": cfg.enabled, "after": cfg.reminder_after_minutes, "window": cfg.reminder_window_hours, "limit": limit})
+        ), {"live": cfg.enabled, "all_items": cfg.listing_scope == "all", "item_ids": cfg.allowed_listing_ids, "after": cfg.reminder_after_minutes, "window": cfg.reminder_window_hours, "limit": limit})
         ids = [row[0] for row in res.all()]
         await session.commit()
     return ids
@@ -1397,8 +1595,10 @@ async def run_reminders() -> int:
 async def process_reminder(chat_id: UUID, cfg: AvitoBotConfig) -> int:
     async with AsyncSessionFactory() as session:
         chat = await session.get(AvitoChat, chat_id)
-        if chat is None:
+        if chat is None or not automatic_allowed(cfg, chat):
             return 0
+        import_id = await avito_catalog.active_import(session, cfg.price_list)
+        items = await avito_catalog.listing_items(session, import_id, chat.item_title)
         state = await chat_state(session, chat)
         last_client = next((t for a, t in reversed(state.ctx.history) if a == "client"), "")
         text_: str | None = None
@@ -1411,7 +1611,7 @@ async def process_reminder(chat_id: UUID, cfg: AvitoBotConfig) -> int:
             try:
                 raw = await llm_call(cfg, build_reminder_messages(
                     PromptConfig(cfg.persona_name, cfg.style, cfg.knowledge, cfg.handoff_topics), ctx,
-                    price_snapshot(cfg)["overview"], _now()))
+                    price_lines(items), _now()))
                 verdict = parse_llm_answer(raw)
                 text_ = masker.unmask(verdict.reply) or None
                 reason = None if text_ else (verdict.reason or "модель решила не напоминать")
@@ -1421,7 +1621,7 @@ async def process_reminder(chat_id: UUID, cfg: AvitoBotConfig) -> int:
             text_ = render_reminder(cfg.reminder_template, chat.item_title, chat.client_name)
 
         if text_:
-            text_, unknown, _ = checked_reply_prices(cfg, text_, chat.item_title)
+            text_, unknown, _ = checked_reply_prices(cfg, text_, chat.item_title, items=items)
             if unknown:
                 text_, reason = None, "Цена в напоминании не подтверждена прайсом"
         if not text_:
@@ -1620,11 +1820,12 @@ async def staff_send(chat_id: UUID, text_: str) -> None:
 async def approve_draft(message_id: UUID, text_: str | None) -> None:
     order: Order | None = None
     async with AsyncSessionFactory() as session:
-        cfg = await load_config(session)
+        cfg = await load_config(session, lock="read")
+        chat_id = await session.scalar(select(AvitoMessage.chat_id).where(AvitoMessage.id == message_id))
+        chat = await session.get(AvitoChat, chat_id, with_for_update=True) if chat_id else None
         msg = await session.get(AvitoMessage, message_id, with_for_update=True)
-        if msg is None or msg.status != "draft":
+        if chat is None or msg is None or msg.status != "draft":
             raise ActionError("Черновик уже отправлен или устарел")
-        chat = await session.get(AvitoChat, msg.chat_id)
         original = msg.text
         if text_ and text_.strip() != msg.text:
             state = await chat_state(session, chat)

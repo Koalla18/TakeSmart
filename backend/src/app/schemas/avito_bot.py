@@ -32,6 +32,8 @@ DEFAULT_HANDOFF = "торг и скидки сверх условий, возв�
 
 PRICE_LIMIT = 400_000          # символов: полный прайс на пару тысяч позиций
 
+ListingScope = Literal["all", "selected"]
+
 LlmProvider = Literal["none", "yandex", "deepseek", "qwen", "timeweb", "openai_compatible"]
 
 
@@ -56,6 +58,9 @@ class AvitoBotConfig(BaseModel):
     knowledge: str = Field("", max_length=20000, description="Свободный текст: всё, что бот должен знать о магазине")
     handoff_topics: str = Field(DEFAULT_HANDOFF, max_length=1000)
     handoff_message: str = Field("", max_length=500, description="Что написать покупателю, когда зовём человека; пусто — молчать")
+    listing_scope: ListingScope = "all"
+    allowed_listing_ids: list[int] = Field(default_factory=list, max_length=5000)
+    collect_messages_seconds: int = Field(15, ge=0, le=120)
     reply_delay_min: int = Field(5, ge=0, le=300)
     reply_delay_max: int = Field(15, ge=0, le=600)
     use_catalog: bool = True
@@ -113,6 +118,9 @@ class AvitoBotConfigOut(BaseModel):
     knowledge: str
     handoff_topics: str
     handoff_message: str
+    listing_scope: ListingScope
+    allowed_listing_ids: list[str]
+    collect_messages_seconds: int
     reply_delay_min: int
     reply_delay_max: int
     use_catalog: bool
@@ -159,6 +167,9 @@ class AvitoBotConfigIn(BaseModel):
     knowledge: str | None = Field(None, max_length=20000)
     handoff_topics: str | None = Field(None, max_length=1000)
     handoff_message: str | None = Field(None, max_length=500)
+    listing_scope: ListingScope | None = None
+    allowed_listing_ids: list[int] | None = Field(None, max_length=5000)
+    collect_messages_seconds: int | None = Field(None, ge=0, le=120)
     reply_delay_min: int | None = Field(None, ge=0, le=300)
     reply_delay_max: int | None = Field(None, ge=0, le=600)
     use_catalog: bool | None = None
@@ -379,6 +390,7 @@ class DecisionOut(BaseModel):
     first_message: str | None = Field(None, description="Первое сообщение-шаблон, если это начало диалога")
     examples_used: int = 0
     messages: list[TestMessage] = Field(default_factory=list)
+    search: list[dict] = Field(default_factory=list)
     order_status: Literal["pending", "cancelled"] | None = None
 
 
