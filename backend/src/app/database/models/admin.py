@@ -7,3 +7,4 @@ class Admin(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, nullable=False)
     hashed_password = Column(String, nullable=False)
+    env_password_hash = Column(String, nullable=True)

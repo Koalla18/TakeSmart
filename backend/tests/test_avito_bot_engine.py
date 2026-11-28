@@ -581,8 +581,26 @@ def test_price_list_duplicates_keep_lowest_price():
         "17Pro 256 Orange - 104 990 есим\n17Pro 256 Orange - 98 990 есим\n17Pro 256 Orange - 99 990 есим\n"
         "17Pro 256 Orange - 90 000🇯🇵 есим\nMDVQ4 Air 15 M5 16GB 512 2026 Sky Blue - 124 990\n"
         "MacBook Air 15 M5 16/512 Sky Blue — 126 990")
-    assert not errors and len(items) == 3 and len(repeats) == 2
-    assert sorted(i.price for i in items) == [90000, 98990, 124990]
+    assert not errors and len(items) == 4 and len(repeats) == 1
+    assert sorted(i.price for i in items) == [90000, 98990, 124990, 126990]
+
+
+def test_catalog_import_preserves_generations_and_requires_conflict_review():
+    from src.app.core.avito_catalog import prepare
+    from src.app.core.avito_price_update import compare
+
+    rows, errors = prepare(
+        "iPad Air 2025 128 ГБ Blue — 74 990 ₽\niPad Air 2026 128 ГБ Blue — 86 990 ₽"
+    )
+    assert len(rows) == 2 and not errors
+    rows, errors = prepare(
+        'iPad Air (M4, 2026) 13" Wi-Fi 128 гб Blue — 86 990 ₽\n'
+        'iPad Air 13 M4 2026 Wi-Fi 128 ГБ Blue — 87 990 ₽'
+    )
+    assert len(rows) == 1 and len(errors) == 1, (rows, errors)
+    old = "iPhone 17 Pro 256 Black — 99 990 ₽"
+    diff = compare(old, "iPhone 17 Pro 256 Black 🇯🇵 eSIM — 99 990 ₽", "add")
+    assert len(diff.changes) == 1 and diff.changes[0].item.attributes["sim"] == "только eSIM"
 
 
 def test_price_update_changes_only_pasted_models():

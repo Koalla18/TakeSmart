@@ -25,6 +25,7 @@ from src.app.api.routers.avito_bot import (
 )
 from src.app.database.models.avito_bot import AvitoChat, AvitoItemLink, AvitoMessage
 from src.app.database.models.avito_catalog import imports, variants
+from src.app.database.models.admin import Admin
 from src.app.database.models.order import Order
 from src.app.database.models.product import Product
 from src.app.database.session import AsyncSessionFactory, engine
@@ -60,6 +61,102 @@ class CatalogIntegration(unittest.IsolatedAsyncioTestCase):
         async with AsyncSessionFactory() as session:
             await bot.save_config(session, cfg)
             await session.commit()
+
+    async def test_admin_password_changes_after_env_update(self):
+        from src.app.api.admin.endpoints import authenticate_admin
+        from src.app.core import admin_password
+        from src.app.core.security import get_password_hash
+
+        username = f"test-{uuid4()}"
+        original = "existing-test-login"
+        updated = "new-test-login"
+        async with AsyncSessionFactory.begin() as session:
+            session.add(Admin(username=username, hashed_password=get_password_hash(original)))
+        with patch.object(admin_password.settings, "ADMIN_USERNAME", username):
+            with patch.dict(os.environ, {"ADMIN_PASSWORD": "stale-test-value"}):
+                await admin_password.sync_admin_password()
+                await admin_password.sync_admin_password()
+            async with AsyncSessionFactory() as session:
+                self.assertIsNotNone(await authenticate_admin(username, original, session))
+                self.assertIsNone(await authenticate_admin(username, "stale-test-value", session))
+            with patch.dict(os.environ, {"ADMIN_PASSWORD": updated}):
+                await admin_password.sync_admin_password()
+            async with AsyncSessionFactory() as session:
+                self.assertIsNone(await authenticate_admin(username, original, session))
+                admin = await authenticate_admin(username, updated, session)
+                self.assertIsNotNone(admin)
+                current_hash = admin.hashed_password
+            with patch.dict(os.environ, {"ADMIN_PASSWORD": ""}):
+                await admin_password.sync_admin_password()
+            async with AsyncSessionFactory() as session:
+                admin = await authenticate_admin(username, updated, session)
+                self.assertEqual(admin.hashed_password, current_hash)
+
+    async def test_quote_ipad_dyson_followup_card_and_trade_in(self):
+        listing = 'iPad Air (M4, 2026) 13" Wi-Fi 128 гб, «Blue»'
+        price = """iPad Air 13 M4 2026 Wi-Fi 128 ГБ Blue — 86 990 ₽
+iPad Air 13 M4 2026 Wi-Fi 512 ГБ Blue — 126 990 ₽
+iPad Air 13 M4 2026 LTE 128 ГБ Blue — 93 990 ₽
+Dyson HS08 Ceramic Pink — 34 990 ₽
+"""
+        if path := os.environ.get("TAKESMART_CATALOG_SNAPSHOT"):
+            price = Path(path).read_text()
+        cfg = AvitoBotConfig(enabled=True, mode="auto", persona_name="Илья", price_list=price)
+        await self.save(cfg)
+        call = AsyncMock(side_effect=AssertionError("grounded quotes do not require a model call"))
+        with patch.object(bot, "llm_call", new=call):
+            request = "по чем и хочу прямо сейчас купить, можно ли по карте? и хочу трейд ин сдать свою технику"
+            first = await preview_reply(TestIn(text=request, item_title=listing, item_price="61990"))
+            self.assertEqual(len(first.messages), 1)
+            text = first.messages[0].text
+            for expected in ("Илья", "86 990 ₽", "100 908 ₽", "16%", "trade-in", "состояние"):
+                self.assertIn(expected, text)
+            self.assertNotIn("61 990", text)
+            self.assertNotIn("93 990", text)
+            self.assertEqual(first.search[0]["status"], "exact")
+            self.assertGreater(first.search[0]["matches"][0]["source_number"], 0)
+            async with AsyncSessionFactory() as session:
+                chat = AvitoChat(avito_chat_id=f"integration-{uuid4()}", item_title=SAMSUNG)
+                session.add(chat)
+                await session.flush()
+                session.add(AvitoMessage(chat_id=chat.id, author="bot", text="Вот предложение.",
+                    quoted_subject=bot.avito_quotes.quoted_subject(first.search)))
+                await session.flush()
+                state = await bot.chat_state(session, chat)
+                decision, _ = await bot.plan_chat_reply(session, cfg, state.ctx, "а на 512?", {})
+                self.assertIn("126 990 ₽", decision.text)
+                self.assertNotIn("93 990 ₽", decision.text)
+                self.assertEqual(decision.search[0]["query"]["reference"], "conversation")
+            dyson = await preview_reply(TestIn(
+                text="Почём HS08 Ceramic Pink?", item_title=listing, item_price="61990",
+            ))
+            self.assertIn("34 990 ₽", dyson.messages[0].text)
+            self.assertNotIn("86 990 ₽", dyson.messages[0].text)
+            self.assertEqual(dyson.search[0]["status"], "exact")
+            no_model = await preview_reply(TestIn(text="Сколько стоит Dyson HS99?", item_title=listing))
+            self.assertNotIn("86 990", no_model.messages[0].text)
+
+    async def test_full_price_snapshot(self):
+        path = os.environ.get("TAKESMART_CATALOG_SNAPSHOT")
+        if not path:
+            self.skipTest("set TAKESMART_CATALOG_SNAPSHOT to an offline price snapshot")
+        raw = Path(path).read_text()
+        rows, errors = catalog.prepare(raw)
+        self.assertFalse(errors, errors)
+        self.assertTrue(rows)
+        await self.save(AvitoBotConfig(price_list=raw))
+        async with AsyncSessionFactory() as session:
+            revision = await catalog.active_import(session, raw)
+            published = (await session.execute(catalog.rows_for(revision))).all()
+            self.assertEqual({row["key"] for row in rows}, {row.key for row in published})
+            for row in published:
+                if not row.available:
+                    continue
+                query = catalog.ProductQuery(model_id=row.model_id,
+                    attributes={key: value for key, value in row.attributes.items() if key != "few"})
+                result = await catalog.search(session, revision, query, allow_other_models=False)
+                self.assertTrue(any(m.item.key == row.key and m.item.price == row.price and m.relation == "exact"
+                                    for m in result.matches), (row.name, result))
 
     async def test_catalog_and_pilot_through_runtime(self):
         cfg = AvitoBotConfig(

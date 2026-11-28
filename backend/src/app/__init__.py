@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from src.app.core.config import settings
 from src.app.core.logger import setup_logging, get_logger
 from src.app.core.middleware import LoggingMiddleware
+from src.app.core.admin_password import sync_admin_password
 from src.app.core.avito_bot_worker import start as start_avito_bot_worker, stop as stop_avito_bot_worker
 from src.app.redis.client import get_redis_pool, close_redis_pool
 from src.app.api.routers import (
@@ -84,6 +85,7 @@ async def lifespan(app: FastAPI):
     logger.info("app_starting", env="debug" if settings.APP_DEBUG else "production")
 
     logger.info("s3_storage_configured", bucket=settings.S3_BUCKET_NAME)
+    await sync_admin_password()
 
     try:
         await get_redis_pool()

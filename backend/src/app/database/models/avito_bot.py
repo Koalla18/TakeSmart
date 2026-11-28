@@ -104,6 +104,7 @@ class AvitoMessage(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=sql_text("0"))
     order_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True,
                                                                  comment="Бронь, которую бот оформит, когда сообщение уйдёт")
+    quoted_subject: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

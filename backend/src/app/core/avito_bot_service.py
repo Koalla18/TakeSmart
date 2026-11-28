@@ -409,6 +409,7 @@ class Decision:
     cancel_order: bool = False
     search: list[dict[str, Any]] = field(default_factory=list)
     price_reply: bool = False
+    quoted_subject: dict[str, Any] | None = None
 
 
 @dataclass
@@ -424,12 +425,25 @@ class CatalogContext:
         return list(items.values())
 
 
-async def find_requested_products(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext,
-                                  pending: str, masker: PiiMasker) -> CatalogContext:
-    """Параметры понятной реплики извлекаем сразу. Модель разбирает остальные запросы."""
+async def quote_product(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext,
+                        pending: str, masker: PiiMasker) -> CatalogContext:
+    """Единый путь от исходной реплики к предложениям текущего прайса Авито."""
     quote = avito_quotes.price_request(ctx, pending)
     ready = llm_settings(cfg).ready
     intent = avito_catalog.SearchIntent(queries=[])
+    if not ready and quote is None:
+        return CatalogContext(intent, [])
+    import_id = await avito_catalog.active_import(session, cfg.price_list)
+    purchase = avito_quotes.retail_part(pending)
+    grounded = []
+    if quote and avito_quotes.can_resolve_from_words(purchase) and (
+        not quote.queries or quote.queries[0].reference != "explicit"
+    ) and re.search(r"[a-zA-Z0-9]", purchase):
+        grounded = await avito_catalog.models_in_text(session, import_id, purchase)
+        if len(grounded) == 1:
+            quote.queries = [avito_quotes.query_from_words(grounded[0], purchase)]
+        elif grounded:
+            quote.queries = []
     if ready and not (quote and quote.queries and not quote.supplement):
         try:
             intent = await extract_search_intent(cfg, ctx, pending, masker)
@@ -439,11 +453,14 @@ async def find_requested_products(session: AsyncSession, cfg: AvitoBotConfig, ct
             logger.warning("avito_bot_quote_intent_fallback", error_type=type(exc).__name__)
     if quote is None and intent.price_requested:
         quote = avito_quotes.QuoteRequest([], supplement=True)
-    if not ready and quote is None:
-        return CatalogContext(intent, [])
-
-    import_id = await avito_catalog.active_import(session, cfg.price_list)
     queries = quote.queries if quote and quote.queries else intent.queries
+    if quote and quote.has_separate_product and not grounded:
+        # Телефон после «чехол для …» и модель в запросе ремонта не являются предметом цены.
+        if re.search(r"\b(?:ремонт\w*|замен\w*\s+экран\w*)\b", purchase, re.IGNORECASE):
+            queries = []
+        elif re.search(r"\b(?:чехол\w*|стекл\w*|кабел\w*|адаптер\w*|зарядк\w*)\b", purchase, re.IGNORECASE):
+            queries = [query for query in queries if query.reference == "explicit"
+                       and query.category and avito_catalog.category_key(query.category) == "accessory"]
     results = []
     for query in queries:
         if not query.model and query.reference in ("listing", "conversation"):
@@ -455,6 +472,7 @@ async def find_requested_products(session: AsyncSession, cfg: AvitoBotConfig, ct
                     "brand": query.brand or reference.brand,
                     "category": query.category or reference.category,
                     "model": reference.model,
+                    "model_id": reference.model_id,
                     "attributes": {**reference.attributes, **query.attributes},
                 })
         if quote:
@@ -499,7 +517,9 @@ async def extract_search_intent(cfg: AvitoBotConfig, ctx: ChatContext, pending: 
     messages = build_messages(system + "\n" + meta, ChatContext(None, None, None, history), HISTORY_LIMIT)
     messages.append({"role": "user", "content": "Реплики, на которые нужно ответить:\n" + masker.mask(pending)})
     raw = await llm_call(cfg, messages)
-    return avito_catalog.SearchIntent.model_validate_json(raw.strip().removeprefix("```json").removesuffix("```").strip())
+    intent = avito_catalog.SearchIntent.model_validate_json(raw.strip().removeprefix("```json").removesuffix("```").strip())
+    intent.queries = [query.model_copy(update={"model_id": None}) for query in intent.queries]
+    return intent
 
 
 def checked_reply_prices(cfg: AvitoBotConfig, reply: str, item_title: str | None,
@@ -596,18 +616,25 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     masker = PiiMasker()
     if requested is None:
         try:
-            requested = await find_requested_products(session, cfg, ctx, pending_text, masker)
+            requested = await quote_product(session, cfg, ctx, pending_text, masker)
         except llm_client.LlmError as exc:
             if match and match.rule.verbatim and rule_covers(pending_text):
                 return await rule_decision(match.rule)
             return Decision("handoff", reason=f"Не удалось разобрать запрос: {exc}"[:200])
     search_data = [result.context() for result in requested.results]
     quote = requested.quote
-    price_text = avito_quotes.format_quote(requested.results) if quote else None
-    if quote and quote.payment and requested.results and not requested.intent.booking_requested:
-        method = "оплате картой" if quote.payment == "card" else "переводу"
-        return Decision("handoff", f"{price_text}\n\nПо {method} поможет менеджер.", "catalog",
-                        reason=f"Покупатель просит уточнить условия по {method}", search=search_data, price_reply=True)
+    price_text = avito_quotes.format_quote(
+        requested.results, cfg.card_markup_percent if quote.payment == "card" else None
+    ) if quote else None
+    if quote and price_text and quote.trade_in:
+        price_text += "\n\nПо trade-in напишите модель, объём памяти и состояние устройства, которое хотите сдать. Уточним оценку."
+    if quote and price_text and quote.payment == "card":
+        price_text += f"\n\nПри оплате картой — плюс {cfg.card_markup_percent:g}% к розничной цене."
+    if quote and price_text and quote.payment == "transfer":
+        price_text += "\n\nПо переводу и реквизитам поможет менеджер."
+        if not quote.supplement and not requested.intent.booking_requested:
+            return Decision("handoff", price_text, "catalog",
+                            reason="Покупатель просит уточнить условия по переводу", search=search_data, price_reply=True)
     if quote and not (quote.supplement or requested.intent.booking_requested):
         return Decision("reply", price_text, "catalog", search=search_data, price_reply=True)
     has_product_request = bool(quote or requested.results or requested.intent.clarification)
@@ -669,12 +696,16 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         orders_enabled=cfg.orders_enabled, pickup_address=cfg.pickup_address,
         order_note=order_note_for_prompt(*order_info) if order_info else None,
         greet=greet,
-        price_overview=price_lines(items), search_context=search_data,
+        price_overview=price_lines(items),
+        search_context=[{**result, "matches": [
+            {key: value for key, value in match.items() if key not in ("source_line", "source_number")}
+            for match in result["matches"]
+        ]} for result in search_data],
         trade_in=cfg.trade_in_prices,
     )
     if quote:
-        system += ("\nБэкенд уже отправит цену отдельным абзацем в этом же ответе. "
-                   "Ответь на остальные вопросы покупателя, цену товара не повторяй.")
+        system += ("\nБэкенд уже включит цену, условия распознанного способа оплаты и следующий шаг по trade-in. "
+                   "Ответь на остальные вопросы покупателя, не повторяй эти сведения.")
     system += ("\nТы отвечаешь как сотрудник магазина. Не обращайся к продавцу от лица покупателя, "
                "не пересказывай его сообщение вместо ответа и не придумывай банковские реквизиты.")
     try:
@@ -799,7 +830,17 @@ async def chat_state(session: AsyncSession, chat: AvitoChat) -> ChatState:
         else:
             pending = []
     sent = [(m.author, m.text) for m in msgs if m.status == "sent"]
-    return ChatState(ChatContext(chat.item_title, chat.item_price, chat.client_name, sent), "\n".join(pending), last_client, draft)
+    subject = None
+    for msg in reversed(msgs):
+        if msg.status != "sent":
+            continue
+        if msg.author == "staff":
+            break
+        if msg.quoted_subject is not None:
+            subject = msg.quoted_subject
+            break
+    return ChatState(ChatContext(chat.item_title, chat.item_price, chat.client_name, sent, subject),
+                     "\n".join(pending), last_client, draft)
 
 
 async def _cancel_pending_bot(session: AsyncSession, chat_id: UUID) -> None:
@@ -861,6 +902,8 @@ async def plan_chat_reply(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatC
     greet = is_first_reply(ctx) if greet is None else greet
     decision = await decide(session, cfg, ctx, pending, rule_hits, item_id=item_id,
                             order_info=order_info, greet=greet)
+    if decision.price_reply:
+        decision.quoted_subject = avito_quotes.quoted_subject(decision.search)
     if decision.action not in ("reply", "handoff"):
         return decision, []
     if greet:
@@ -937,7 +980,8 @@ async def _process_chat(chat_id: UUID) -> None:
                 # Черновик — одним сообщением; ответ модели разделится на части при отправке
                 draft_source = "llm_open" if plan.whole and source == "llm" else source
                 session.add(AvitoMessage(chat_id=chat.id, author="bot", text=text_, source=draft_source, rule_id=rule_id,
-                                         order_payload=order, status="draft", created_at=item_base))
+                                         order_payload=order, quoted_subject=dec.quoted_subject if dec else None,
+                                         status="draft", created_at=item_base))
                 if push is None:
                     title = "Авито: бронь ждёт подтверждения" if order else "Авито: ответ ждёт проверки"
                     push = (title, f"{chat.client_name or 'Покупатель'}: {text_[:120]}")
@@ -953,8 +997,11 @@ async def _process_chat(chat_id: UUID) -> None:
             for i, part in enumerate(parts):
                 if i:
                     send_at += timedelta(seconds=_next_part_delay(cfg, part, chat.is_simulated))
-                session.add(_part_message(chat.id, part, i, len(parts), source, rule_id, order,
-                                          "scheduled", send_at, item_base))
+                message = _part_message(chat.id, part, i, len(parts), source, rule_id, order,
+                                        "scheduled", send_at, item_base)
+                if dec and i == 0:
+                    message.quoted_subject = dec.quoted_subject
+                session.add(message)
         await session.commit()
 
     if read_now:   # позвали человека — сообщение покупателя отмечаем прочитанным
@@ -1801,6 +1848,7 @@ async def approve_draft(message_id: UUID, text_: str | None) -> None:
             state = await chat_state(session, chat)
             msg.text = text_.strip()
             msg.source = "staff"
+            msg.quoted_subject = None
             await _learn(session, chat, state, msg.text, bot_answer=original)
         # Как человек: первая часть уходит сейчас, остальные — следом, с паузой «печати»
         parts = [msg.text] if msg.order_payload else _parts(cfg, msg.text, msg.source)

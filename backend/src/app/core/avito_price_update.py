@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from typing import Literal, Sequence
 
 from src.app.core.avito_bot_engine import (
-    CatalogItem, family_name, parse_price_list_full, position_key, price_storage_gb, words_without_years,
+    CatalogItem, family_name, parse_price_list_full, price_storage_gb, words_without_years,
 )
-from src.app.core.avito_catalog import brand_key, identity, model_key
+from src.app.core.avito_catalog import normalized_attrs, variant_identity, variant_key
 
 # models — пропажи только у моделей из вставленного текста; full — это весь прайс; add — ничего не удалять
 Mode = Literal["models", "full", "add"]
@@ -53,18 +53,19 @@ def _attr(it: CatalogItem, name: str) -> str | None:
 
 
 def _change_id(kind: str, it: CatalogItem) -> str:
-    return f"{kind}:{hashlib.sha1(repr(position_key(it)).encode()).hexdigest()[:16]}"
+    return f"{kind}:{variant_key(it)[:16]}"
 
 
 def _scope(it: CatalogItem) -> tuple:
     """Модель одной версии: пропавшими считаем только позиции из таких же, что есть во вставленном."""
-    brand, category, model = identity(it)
-    brand = brand_key(brand)
-    return brand, category, words_without_years(model_key(model, brand)), _attr(it, "country"), _attr(it, "sim")
+    model, _ = variant_identity(it)
+    attrs = normalized_attrs(it)
+    return model, attrs.get("region"), attrs.get("sim")
 
 
 def _compatible(a: CatalogItem, b: CatalogItem) -> bool:
-    return position_key(a)[3] == position_key(b)[3] and all(not _attr(a, k) or not _attr(b, k) or _attr(a, k) == _attr(b, k) for k in ("country", "sim"))
+    left, right = normalized_attrs(a), normalized_attrs(b)
+    return all(not left.get(key) or not right.get(key) or left[key] == right[key] for key in ("region", "sim"))
 
 
 def _merged(old: CatalogItem, new: CatalogItem) -> CatalogItem:
@@ -80,11 +81,11 @@ def _merged(old: CatalogItem, new: CatalogItem) -> CatalogItem:
 
 def _match(current: Sequence[CatalogItem], incoming: Sequence[CatalogItem]) -> tuple[list, list[CatalogItem], list[CatalogItem]]:
     """Пары «было → стало», новые и не встретившиеся позиции."""
-    old_by_key = {position_key(it): it for it in current}
+    old_by_key = {variant_identity(it): it for it in current}
     pairs: list[tuple[CatalogItem, CatalogItem]] = []
     rest: list[CatalogItem] = []
     for new in incoming:
-        old = old_by_key.pop(position_key(new), None)
+        old = old_by_key.pop(variant_identity(new), None)
         if old is not None:
             pairs.append((old, new))
         else:
@@ -92,12 +93,13 @@ def _match(current: Sequence[CatalogItem], incoming: Sequence[CatalogItem]) -> t
     # В другом сообщении могли не указать страну или SIM — сопоставляем, если вариант ровно один
     by_name: dict[tuple, list[CatalogItem]] = {}
     for it in old_by_key.values():
-        by_name.setdefault(position_key(it)[0], []).append(it)
+        by_name.setdefault(variant_identity(it, ignore_region_and_sim=True), []).append(it)
     added: list[CatalogItem] = []
     for new in rest:
-        options = [o for o in by_name.get(position_key(new)[0], []) if _compatible(o, new)]
+        key = variant_identity(new, ignore_region_and_sim=True)
+        options = [o for o in by_name.get(key, []) if _compatible(o, new)]
         if len(options) == 1:
-            by_name[position_key(new)[0]].remove(options[0])
+            by_name[key].remove(options[0])
             pairs.append((options[0], new))
         else:
             added.append(new)
@@ -128,7 +130,8 @@ def compare(base_text: str, new_text: str, mode: Mode = "models") -> Diff:
     for old, new in pairs:
         scope.add(_scope(old))
         merged = _merged(old, new)
-        if (merged.price, merged.stock, _attr(merged, "few")) == (old.price, old.stock, _attr(old, "few")):
+        if (merged.price == old.price and merged.stock == old.stock
+                and all(_attr(merged, key) == _attr(old, key) for key in ("few", "country", "sim"))):
             unchanged += 1
             continue
         warning = None
@@ -170,12 +173,12 @@ def dump_price_list(items: Sequence[CatalogItem]) -> str:
 def apply_changes(base_text: str, diff: Diff, skip: set[str]) -> tuple[str, int]:
     """Новый текст прайса и сколько изменений применено."""
     current, _, _ = parse_price_list_full(base_text)
-    items = {position_key(it): it for it in current}
+    items = {variant_identity(it): it for it in current}
     applied = [c for c in diff.changes if c.id not in skip]
     for c in applied:
         if c.old is not None:
-            items.pop(position_key(c.old), None)
+            items.pop(variant_identity(c.old), None)
     for c in applied:
         if c.new is not None:
-            items[position_key(c.new)] = c.new
+            items[variant_identity(c.new)] = c.new
     return dump_price_list(list(items.values())), len(applied)

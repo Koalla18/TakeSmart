@@ -24,7 +24,7 @@ from sqlalchemy import delete, func, or_, select
 from src.app.api.admin.endpoints import get_current_admin
 from src.app.core import avito_bot_service as bot
 from src.app.core import avito_bot_analytics, avito_catalog, avito_client, avito_price_update, llm_client
-from src.app.core.avito_bot_engine import ChatContext, parse_price_list, position_key, render_template
+from src.app.core.avito_bot_engine import ChatContext, render_template
 from src.app.core.logger import get_logger
 from src.app.database.models.admin import Admin
 from src.app.database.models.avito_bot import (
@@ -85,7 +85,7 @@ async def put_settings(body: AvitoBotConfigIn) -> AvitoBotConfigOut:
             if errors:
                 raise HTTPException(status_code=422, detail=errors[0])
             _remember_price_list(cfg)
-        for key in ("listing_scope", "allowed_listing_ids", "collect_messages_seconds"):
+        for key in ("listing_scope", "allowed_listing_ids", "collect_messages_seconds", "card_markup_percent"):
             if key in data and data[key] is None:
                 raise HTTPException(status_code=422, detail=f"Поле {key} обязательно при изменении")
         if "allowed_listing_ids" in data:
@@ -720,15 +720,13 @@ def _item_out(it) -> dict:
 
 
 def _row_key(it) -> str:
-    """Та же строка в списке базы на экране: название, страна, SIM."""
-    return avito_catalog.price_hash(repr(position_key(it)))
+    return avito_catalog.variant_key(it)
 
 
 @router.post("/price-list/check", dependencies=ADMIN, summary="Как бот прочитает прайс — без сохранения")
 async def price_list_check(body: PriceListCheckIn) -> dict:
-    items, _ = parse_price_list(body.text)
-    _, catalog_errors = avito_catalog.prepare(body.text)
-    return {"items": [_item_out(it) for it in items[:3000]], "count": len(items), "errors": catalog_errors[:50]}
+    rows, errors = avito_catalog.prepare(body.text)
+    return {"items": [_item_out(row["item"]) for row in rows[:3000]], "count": len(rows), "errors": errors}
 
 
 class PriceUpdateIn(BaseModel):
@@ -748,6 +746,11 @@ async def price_list_preview(body: PriceUpdateIn) -> dict:
         await session.commit()
     diff = avito_price_update.compare(cfg.price_list, body.text, body.mode)
     _, catalog_errors = avito_catalog.prepare(body.text)
+    if diff.base_errors and body.mode != "full":
+        catalog_errors.append("В текущем прайсе есть непрочитанные строки. Исправьте их в исходном тексте или загрузите весь прайс.")
+    if not catalog_errors and diff.changes:
+        proposed, _ = avito_price_update.apply_changes(cfg.price_list, diff, set())
+        _, catalog_errors = avito_catalog.prepare(proposed)
     return {
         "base_hash": avito_price_update.base_hash(cfg.price_list),
         "changes": [{"id": c.id, "kind": c.kind, "item": _item_out(c.item), "old_key": _row_key(c.old) if c.old else None,
@@ -767,11 +770,16 @@ async def price_list_apply(body: PriceApplyIn) -> AvitoBotConfigOut:
         if errors:
             raise HTTPException(status_code=422, detail=errors[0])
         diff = avito_price_update.compare(cfg.price_list, body.text, body.mode)
+        if diff.base_errors and body.mode != "full":
+            raise HTTPException(status_code=422, detail="Исправьте непрочитанные строки в исходном прайсе или замените его целиком")
         text, applied = avito_price_update.apply_changes(cfg.price_list, diff, set(body.skip))
         if not applied:
             raise HTTPException(status_code=409, detail="Нечего применять")
         if len(text) > PRICE_LIMIT:
             raise HTTPException(status_code=422, detail="Прайс получается слишком большим")
+        _, errors = avito_catalog.prepare(text)
+        if errors:
+            raise HTTPException(status_code=422, detail=errors[0])
         _remember_price_list(cfg)
         cfg.price_list = text
         await bot.save_config(session, cfg, price_source=body.text)
@@ -787,6 +795,9 @@ async def price_list_undo() -> AvitoBotConfigOut:
         cfg = await bot.load_config(session, lock=True)
         if not cfg.price_list_prev:
             raise HTTPException(status_code=409, detail="Отменять нечего")
+        _, errors = avito_catalog.prepare(cfg.price_list_prev)
+        if errors:
+            raise HTTPException(status_code=422, detail=f"Предыдущий прайс требует проверки: {errors[0]}")
         cfg.price_list, cfg.price_list_prev = cfg.price_list_prev, ""
         cfg.price_list_updated_at = datetime.now(timezone.utc)
         await bot.save_config(session, cfg)

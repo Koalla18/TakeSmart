@@ -168,6 +168,7 @@ class ChatContext:
     item_price: str | None = None
     client_name: str | None = None
     history: list[tuple[str, str]] = field(default_factory=list)  # (author: client|bot|staff, text)
+    quoted_subject: dict[str, Any] | None = None
 
 
 @dataclass
@@ -1959,7 +1960,8 @@ def position_key(it: CatalogItem) -> tuple:
     a = it.attributes or {}
     extended = (a.get("catalog_brand"), a.get("catalog_category"), a.get("catalog_model"),
                 json.dumps(a.get("catalog_attributes", {}), sort_keys=True, ensure_ascii=False))
-    return words_without_years(it.name), a.get("country"), a.get("sim"), extended
+    parts = tuple(sorted(_WORD.findall(normalize(_split_units(it.name)))))
+    return parts, a.get("country"), a.get("sim"), extended
 
 
 def _parse_stored_line(line: str, n: int) -> CatalogItem | str:
@@ -1989,7 +1991,7 @@ def parse_price_list(text: str) -> tuple[list[CatalogItem], list[str]]:
     return items, errors
 
 
-def parse_price_list_full(text: str) -> tuple[list[CatalogItem], list[str], list[str]]:
+def parse_price_list_full(text: str, *, deduplicate: bool = True) -> tuple[list[CatalogItem], list[str], list[str]]:
     """Позиции, ошибки и список повторов (повтор — берём меньшую цену).
 
     Прайс для бота. Два формата, можно вперемешку:
@@ -2028,7 +2030,9 @@ def parse_price_list_full(text: str) -> tuple[list[CatalogItem], list[str], list
                 if k:
                     result.key = f"price:{n}.{k}"
                 found.append(result)
-    # Одна и та же позиция несколько раз — берём лучшую (меньшую) цену
+    if not deduplicate:
+        return found, errors, []
+    # Старый интерфейс разбора прайса показывает один результат на позицию.
     best: dict[tuple, CatalogItem] = {}
     repeats: dict[tuple, list[float]] = {}
     for it in found:

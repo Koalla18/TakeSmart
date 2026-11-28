@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from difflib import SequenceMatcher
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Literal
@@ -23,7 +24,7 @@ from src.app.database.models.avito_catalog import brands, categories, imports, m
 _CATEGORY_NAMES = {
     "smartphone": "Смартфоны", "tablet": "Планшеты", "computer": "Компьютеры и ноутбуки",
     "headphones": "Наушники", "watch": "Часы", "vacuum": "Пылесосы", "console": "Игровые консоли",
-    "camera": "Камеры и дроны", "accessory": "Аксессуары",
+    "camera": "Камеры и дроны", "accessory": "Аксессуары", "haircare": "Уход за волосами",
 }
 _CATEGORY_ALIASES = {"laptop": "computer", "phone": "smartphone", "смартфон": "smartphone",
                      "ноутбук": "computer", "пылесос": "vacuum", "планшет": "tablet"}
@@ -41,7 +42,8 @@ _FAMILIES = (
     (r"^huawei (?:matebook)\b", "Huawei", "computer"),
     (r"^dji\b", "DJI", "camera"), (r"^gopro\b", "GoPro", "camera"),
     (r"^dyson (?:v\d+|gen\d+|washg1)\b", "Dyson", "vacuum"),
-    (r"^dyson (?:airwrap|supersonic|airstrait)\b", "Dyson", "haircare"),
+    (r"^dyson (?:airwrap|supersonic|airstrait|hs\d{2}|ht\d{2})\b", "Dyson", "haircare"),
+    (r"^(?:блок|адаптер|зарядка) apple\b", "Apple", "accessory"),
     (r"^(?:apple )?(?:magic|apple pencil|airtag)\b", "Apple", "accessory"),
     (r"^(?:nothing )?phone \d", "Nothing", "smartphone"),
     (r"^honor (?:magic|x|\d)", "Honor", "smartphone"),
@@ -78,6 +80,12 @@ def model_key(value: str, brand: str = "") -> str:
     if brand and key.startswith(brand + " "):
         key = key[len(brand) + 1:]
     key = re.sub(r"^galaxy (?=[asz]\d|z\s*(?:fold|flip))", "", key)
+    if key.startswith("ipad "):
+        key = re.sub(r"\bwi\s*fi\b", "wifi", key)
+        key = re.sub(r"\b(?:cellular|lte)\b", "cellular", key)
+        return "ipad " + " ".join(sorted(key.split()[1:]))
+    if brand == "dyson" and (code := re.search(r"\b(?:hs|ht)\d{2}\b", key)):
+        return code[0]
     return key
 
 
@@ -104,6 +112,10 @@ def attribute_value(key: str, value: Scalar) -> Scalar:
 def identity(item: CatalogItem) -> tuple[str, str, str]:
     attrs = item.attributes
     model = attrs.get("catalog_model") or family_name(item)
+    if re.match(r"^duo\b", normalize(model)):
+        model = "iPhone " + model
+    if re.match(r"^(?:hs|ht)\d{2}\b", normalize(model)):
+        model = "Dyson " + model
     brand, category = attrs.get("catalog_brand"), attrs.get("catalog_category")
     if not brand or not category:
         clean = normalize(model)
@@ -136,8 +148,21 @@ def price_hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def variant_identity(item: CatalogItem, *, ignore_region_and_sim: bool = False) -> tuple[tuple[str, str, str], str]:
+    brand, category, model = identity(item)
+    brand = brand_key(brand)[:120]
+    model_id = (brand, category[:120], model_key(model, brand)[:300])
+    ignored = {"few", "region", "sim"} if ignore_region_and_sim else {"few"}
+    attrs = {key: value for key, value in normalized_attrs(item).items() if key not in ignored}
+    return model_id, json.dumps(attrs, sort_keys=True, ensure_ascii=False)
+
+
+def variant_key(item: CatalogItem) -> str:
+    return price_hash(json.dumps(variant_identity(item), ensure_ascii=False))
+
+
 def prepare(text: str) -> tuple[list[dict[str, Any]], list[str]]:
-    items, errors, _ = parse_price_list_full(text)
+    items, errors, _ = parse_price_list_full(text, deduplicate=False)
     lines = text.splitlines()
     rows: dict[str, dict[str, Any]] = {}
     for item in items:
@@ -145,18 +170,21 @@ def prepare(text: str) -> tuple[list[dict[str, Any]], list[str]]:
         if not brand or not category or not model.strip():
             errors.append(f"{item.name}: укажите производителя, тип и модель в структурированной строке")
             continue
-        model_id = (brand_key(brand)[:120], category[:120], model_key(model, brand_key(brand))[:300])
+        model_id, _ = variant_identity(item)
         if not model_id[0] or not model_id[1] or not model_id[2] or not 0 < item.price < 10**10:
             errors.append(f"{item.name}: проверьте производителя, тип, модель и цену")
             continue
         attrs = normalized_attrs(item)
-        digest = price_hash(json.dumps([model_id, {k: v for k, v in attrs.items() if k != "few"}], sort_keys=True, ensure_ascii=False))
+        digest = variant_key(item)
         number = int(str(item.key).split(":")[1].split(".")[0])
         record = dict(key=digest, model_key=model_id, brand_name=brand[:120], model_name=model[:300],
                       name=item.name[:350], attributes=attrs, price=Decimal(str(item.price)),
                       available=item.stock > 0, source_number=number,
-                      source_line=item.attributes.get("source_line") or lines[number - 1])
-        if digest not in rows or record["price"] < rows[digest]["price"]:
+                      source_line=item.attributes.get("source_line") or lines[number - 1], item=item)
+        previous = rows.get(digest)
+        if previous and (previous["price"], previous["available"]) != (record["price"], record["available"]):
+            errors.append(f"Строки {previous['source_number']} и {number}: разные цены или наличие одной комплектации {item.name}")
+        if previous is None or (not record["available"], record["price"]) < (not previous["available"], previous["price"]):
             rows[digest] = record
     return list(rows.values()), errors
 
@@ -202,6 +230,7 @@ class ProductQuery(BaseModel):
     brand: str | None = Field(None, max_length=120)
     category: str | None = Field(None, max_length=120)
     model: str | None = Field(None, max_length=280)
+    model_id: int | None = Field(None, gt=0)
     attributes: dict[str, Scalar] = Field(default_factory=dict, max_length=20)
     required: list[str] = Field(default_factory=list, max_length=20)
     reference: Literal["explicit", "conversation", "listing"] = "explicit"
@@ -220,6 +249,42 @@ class SearchIntent(BaseModel):
     price_requested: bool = False
 
 
+_PRODUCT_CODE = re.compile(r"\b(?:[a-z]*\d+[a-z0-9]*|pro|max|ultra|plus|mini|air|fe|anc|wifi|cellular)\b")
+
+
+def _similar_model(asked: str, candidate: str) -> bool:
+    if not asked or _PRODUCT_CODE.findall(asked) != _PRODUCT_CODE.findall(candidate):
+        return False
+    return SequenceMatcher(None, asked, candidate).ratio() >= 0.85
+
+
+async def models_in_text(session: AsyncSession, import_id: int | None, text: str) -> list[ProductQuery]:
+    """Извлекает известные названия из исходных слов клиента, даже если модель переписала их."""
+    if not import_id:
+        return []
+    normalized = " " + normalize(text) + " "
+    candidates = (await session.execute(select(models.c.brand_key, models.c.category_key, models.c.name, models.c.key)
+        .join(variants, variants.c.model_id == models.c.id)
+        .where(variants.c.import_id == import_id).distinct())).all()
+    mentions = {}
+    for brand, category, name, key in candidates:
+        names = {" ".join(normalize(name).split()), key}
+        if brand == "dyson" and re.fullmatch(r"(?:hs|ht)\d{2}", key):
+            names.add(key)
+        for label in names:
+            if not label or " " + label + " " not in normalized:
+                continue
+            start = normalized.index(" " + label + " ")
+            end = start + len(label) + 1
+            mentions[(start, end, brand, category, key)] = ProductQuery(brand=brand, category=category, model=name)
+    choices = {}
+    for (start, end, brand, category, key), query in sorted(mentions.items()):
+        if not any(left <= start and end <= right and (left, right) != (start, end)
+                   for left, right, *_ in mentions):
+            choices.setdefault((brand, category, key), query)
+    return list(choices.values())
+
+
 @dataclass
 class Match:
     item: CatalogItem
@@ -231,12 +296,15 @@ class Match:
 class SearchResult:
     query: ProductQuery
     matches: list[Match]
-    status: Literal["exact", "same_model", "other_model", "not_found", "ambiguous"]
+    status: Literal["exact", "same_model", "other_model", "not_found", "ambiguous", "unavailable"]
+    revision: int | None = None
 
     def context(self) -> dict[str, Any]:
-        return {"query": self.query.model_dump(exclude_none=True), "status": self.status, "matches": [
+        return {"query": self.query.model_dump(exclude_none=True), "status": self.status, "revision": self.revision, "matches": [
             {"id": m.item.key, "name": m.item.name, "attributes": m.item.attributes.get("catalog_attributes", {}),
-             "price_rub": int(m.item.price), "relation": m.relation, "differences": m.differences}
+             "price_rub": int(m.item.price), "relation": m.relation, "differences": m.differences,
+             "source_line": m.item.attributes.get("source_line"), "source_number": m.item.attributes.get("source_number"),
+             "model_id": m.item.attributes.get("model_id"), "model": m.item.attributes.get("catalog_model")}
             for m in self.matches
         ]}
 
@@ -249,7 +317,8 @@ def _item(row) -> CatalogItem:
         attributes={**{k: v for k, v in (
             ("storage", storage_label), ("color", attrs.get("color")), ("country", attrs.get("region")),
             ("sim", _SIM_LABEL.get(attrs.get("sim"))), ("few", attrs.get("few")),
-        ) if v}, "catalog_attributes": attrs, "catalog_model": row.model_name}, key=row.key)
+        ) if v}, "catalog_attributes": attrs, "catalog_model": row.model_name,
+            "source_line": row.source_line, "source_number": row.source_number, "model_id": row.model_id}, key=row.key)
 
 
 def rows_for(import_id: int):
@@ -285,15 +354,18 @@ async def search(session: AsyncSession, import_id: int | None, query: ProductQue
     brand = brand_key(query.brand or "")
     category = category_key(query.category or "")
     key = model_key(query.model or "", brand)
-    if not import_id or not (key or brand or category):
-        return SearchResult(query, [], "not_found")
+    if not import_id or not (query.model_id or key or brand or category):
+        return SearchResult(query, [], "not_found", import_id)
     scope = rows_for(import_id)
     if brand:
         scope = scope.where(models.c.brand_key == brand)
     if category:
         scope = scope.where(models.c.category_key == category)
     same_model = not key
-    if key:
+    if query.model_id:
+        scope = scope.where(variants.c.model_id == query.model_id)
+        same_model = True
+    elif key:
         keys = _compatible_model_keys(key, brand)
         if brand in ("apple", "samsung") and category == "smartphone" and (
             attribute_value("sim", query.attributes.get("sim", "")) == "esim_only"
@@ -304,13 +376,26 @@ async def search(session: AsyncSession, import_id: int | None, query: ProductQue
         model_ids = list(await session.scalars(
             model_scope.with_only_columns(variants.c.model_id).distinct().limit(2)
         ))
+        if not model_ids:
+            candidate_rows = (await session.execute(scope.with_only_columns(variants.c.model_id, models.c.key).distinct())).all()
+            compatible = []
+            if key.startswith("ipad "):
+                requested_tokens = set(key.split())
+                compatible = [row.model_id for row in candidate_rows if requested_tokens < set(row.key.split())]
+            if not compatible:
+                compatible = [row.model_id for row in candidate_rows if _similar_model(key, row.key)]
+            if len(compatible) > 1:
+                return SearchResult(query, [], "ambiguous", import_id)
+            if compatible:
+                model_ids = compatible
+                model_scope = scope.where(variants.c.model_id == compatible[0])
         if len(model_ids) > 1 and len(keys) == 1:
-            return SearchResult(query, [], "ambiguous")
+            return SearchResult(query, [], "ambiguous", import_id)
         if model_ids:
             scope = model_scope
             same_model = True
         elif not (allow_other_models and brand and category):
-            return SearchResult(query, [], "not_found")
+            return SearchResult(query, [], "not_found", import_id)
 
     wanted = {k: attribute_value(k, v) for k, v in query.attributes.items()}
     conditions = {
@@ -319,6 +404,7 @@ async def search(session: AsyncSession, import_id: int | None, query: ProductQue
         for k, value in wanted.items()
     }
     scoring = sum(case((condition, 0), else_=1) for condition in conditions.values())
+    model_scope = scope
     scope = scope.where(variants.c.available.is_(True), *(conditions[k] for k in query.required))
     priority = [scoring] if conditions else []
     price_order = [variants.c.price, variants.c.key]
@@ -333,7 +419,12 @@ async def search(session: AsyncSession, import_id: int | None, query: ProductQue
                        if not _matches_value(k, value, row.attributes.get(k))}
         relation = "other_model" if not same_model else "same_model" if differences else "exact"
         matches.append(Match(_item(row), relation, differences))
-    return SearchResult(query, matches, matches[0].relation if matches else "not_found")
+    if same_model and (key or query.model_id) and (not matches or matches[0].relation != "exact"):
+        unavailable = await session.scalar(model_scope.with_only_columns(variants.c.key)
+            .where(variants.c.available.is_(False), *conditions.values()).limit(1))
+        if unavailable:
+            return SearchResult(query, matches, "unavailable", import_id)
+    return SearchResult(query, matches, matches[0].relation if matches else "not_found", import_id)
 
 
 def listing_query(title: str | None) -> ProductQuery | None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -50,6 +51,7 @@ class AvitoBotConfig(BaseModel):
     price_list_prev: str = Field("", max_length=PRICE_LIMIT, description="Прайс до последнего изменения — для отмены")
     price_list_updated_at: datetime | None = None
     trade_in_prices: str = Field(DEFAULT_TRADE_IN_PRICES, max_length=5000, description="Модели и вилки оценки trade-in")
+    card_markup_percent: Decimal = Field(Decimal("16"), ge=0, le=100, decimal_places=2)
     staff_takes_over: bool = Field(True, description="Ответ с нашего аккаунта из приложения Авито забирает диалог у бота")
     human_mode: bool = Field(True, description="Как человек: короткими сообщениями, пауза по длине текста, «прочитано» перед ответом")
     allow_emoji: bool = False
@@ -110,6 +112,7 @@ class AvitoBotConfigOut(BaseModel):
     price_list_can_undo: bool = False
     price_list_updated_at: datetime | None = None
     trade_in_prices: str
+    card_markup_percent: float
     staff_takes_over: bool
     human_mode: bool
     allow_emoji: bool
@@ -159,6 +162,7 @@ class AvitoBotConfigIn(BaseModel):
     first_message: str | None = Field(None, max_length=1500)
     price_list: str | None = Field(None, max_length=PRICE_LIMIT)
     trade_in_prices: str | None = Field(None, max_length=5000)
+    card_markup_percent: Decimal | None = Field(None, ge=0, le=100, decimal_places=2)
     staff_takes_over: bool | None = None
     human_mode: bool | None = None
     allow_emoji: bool | None = None
