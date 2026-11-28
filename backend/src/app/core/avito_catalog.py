@@ -4,7 +4,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Collection
 from difflib import SequenceMatcher
+from functools import lru_cache
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Literal
@@ -19,7 +21,10 @@ from src.app.core.avito_bot_engine import (
     COLORS, CatalogItem, _aliases, _capacity, _CAPACITY, _line_country, _sim_label,
     family_name, normalize, parse_price_list_full,
 )
+from src.app.core.avito_colors import color_candidates, color_key, color_spans
 from src.app.database.models.avito_catalog import brands, categories, imports, models, variants
+from src.app.database.models.product import Product
+from src.app.database.models.product_variant import ProductVariant
 
 _CATEGORY_NAMES = {
     "smartphone": "Смартфоны", "tablet": "Планшеты", "computer": "Компьютеры и ноутбуки",
@@ -56,8 +61,84 @@ _SIM = {"2 sim": "two_physical", "две физические sim": "two_physica
         "has physical": "has_physical", "физическая sim": "has_physical"}
 _SIM_LABEL = {"two_physical": "2 SIM", "physical_esim": "SIM + eSIM", "esim_only": "только eSIM",
               "one_physical": "1 SIM"}
-
 Scalar = str | int | bool
+
+
+class ImportColors:
+    """Additional finish names and translations explicitly paired in this price revision."""
+
+    def __init__(self, aliases: dict[str, set[str]]):
+        self.aliases = aliases
+        # Keep punctuation in the rest of the title (notably 8/256 and SIM + eSIM).
+        phrases = [r"[\W_]+".join(map(re.escape, alias.split())) for alias in sorted(aliases, key=len, reverse=True)]
+        self.pattern = re.compile(r"(?<!\w)(?:" + "|".join(phrases) + r")(?!\w)", re.I) if phrases else None
+
+    def candidates(self, value: str) -> set[str]:
+        name = normalize(value)
+        declared = self.aliases.get(name)
+        standard = color_candidates(value)
+        if declared and standard == {name} and name not in _OFFICIAL_COLORS:
+            return declared
+        return standard | (declared or set())
+
+    def key(self, value: str) -> str:
+        if normalize(value) not in self.aliases:
+            return color_key(value)
+        choices = self.candidates(value)
+        return next(iter(choices)) if len(choices) == 1 else normalize(value)
+
+    def spans(self, text: str) -> list[tuple[int, int, str]]:
+        standard = color_spans(text)
+        if not self.pattern:
+            return standard
+        custom = [(m.start(), m.end(), self.key(m[0]))
+                  for m in self.pattern.finditer(text.replace("ё", "е").replace("Ё", "Е"))]
+        # A complete official name with its translation wins over a word inside it.
+        result = []
+        for span in sorted(custom + standard, key=lambda match: (match[0], -match[1])):
+            if not result or span[0] >= result[-1][1]:
+                result.append(span)
+        return result
+
+    def mentions(self, text: str) -> list[str]:
+        return list(dict.fromkeys(shade for _, _, shade in self.spans(text)))
+
+
+_STANDARD_PALETTE = ImportColors({})
+_OFFICIAL_COLORS = {normalize(official) for official, _ in COLORS.values()}
+# Historical imports can contain a normalized translation or a complete bilingual label.
+_HISTORICAL_LABELS = {
+    normalize(label) for alias, (official, translated) in COLORS.items()
+    for label in (alias, translated, f"{official} {translated}", f"{translated} {official}")
+}
+
+
+@lru_cache(maxsize=2)
+def import_colors(price_text: str) -> ImportColors:
+    aliases: dict[str, set[str]] = {}
+    items, _, _ = parse_price_list_full(price_text, deduplicate=False)
+    for item in items:
+        attrs = {**item.attributes, **item.attributes.get("catalog_attributes", {})}
+        raw = attrs.get("color")
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        official = color_key(raw)
+        if not official:
+            continue
+        if official not in _OFFICIAL_COLORS:
+            aliases.setdefault(normalize(raw), set()).add(official)
+        translation = attrs.get("color_ru")
+        if not isinstance(translation, str) or not normalize(translation):
+            continue
+        if official not in color_candidates(translation):
+            for phrase in (translation, f"{raw} {translation}", f"{translation} {raw}"):
+                aliases.setdefault(normalize(phrase), set()).add(official)
+    return ImportColors(aliases)
+
+
+@lru_cache(maxsize=512)
+def _stored_color_labels(official: str) -> frozenset[str]:
+    return frozenset({official} | {label for label in _HISTORICAL_LABELS if color_key(label) == official})
 
 
 def brand_key(name: str) -> str:
@@ -101,8 +182,7 @@ def attribute_value(key: str, value: Scalar) -> Scalar:
     if key == "sim":
         return _SIM.get(normalize(str(value)), normalize(str(value)))
     if key == "color":
-        color = COLORS.get(normalize(str(value)))
-        return normalize(color[0]) if color else _aliases().get(normalize(str(value)), normalize(str(value)))
+        return color_key(str(value))
     if key in ("region", "country"):
         region = _line_country(str(value)) or str(value)
         return _aliases().get(normalize(region), normalize(region))
@@ -129,7 +209,8 @@ def identity(item: CatalogItem) -> tuple[str, str, str]:
 
 def normalized_attrs(item: CatalogItem) -> dict[str, Scalar]:
     raw = item.attributes
-    values = {key: value for key, value in raw.get("catalog_attributes", {}).items() if value is not None}
+    values = {key: value for key, value in raw.get("catalog_attributes", {}).items()
+              if key != "color_ru" and value is not None}
     if raw.get("few"):
         values["few"] = True
     storage = _CAPACITY.fullmatch(raw.get("storage") or "")
@@ -298,9 +379,11 @@ class SearchResult:
     matches: list[Match]
     status: Literal["exact", "same_model", "other_model", "not_found", "ambiguous", "unavailable"]
     revision: int | None = None
+    storefront: Literal["listed", "in_stock"] | None = None
 
     def context(self) -> dict[str, Any]:
-        return {"query": self.query.model_dump(exclude_none=True), "status": self.status, "revision": self.revision, "matches": [
+        return {"query": self.query.model_dump(exclude_none=True), "status": self.status, "revision": self.revision,
+                **({"storefront": self.storefront} if self.storefront else {}), "matches": [
             {"id": m.item.key, "name": m.item.name, "attributes": m.item.attributes.get("catalog_attributes", {}),
              "price_rub": int(m.item.price), "relation": m.relation, "differences": m.differences,
              "source_line": m.item.attributes.get("source_line"), "source_number": m.item.attributes.get("source_number"),
@@ -326,7 +409,9 @@ def rows_for(import_id: int):
                   models.c.brand_key, models.c.category_key).join(models).where(variants.c.import_id == import_id)
 
 
-def _matches_value(key: str, expected: Scalar, actual: Scalar | None) -> bool:
+def _matches_value(key: str, expected: Scalar, actual: Scalar | None, colors: Collection[str]) -> bool:
+    if key == "color":
+        return actual in colors
     if key == "sim" and expected == "has_physical":
         return actual in ("two_physical", "physical_esim", "one_physical")
     return actual == expected
@@ -387,7 +472,8 @@ def _compatible_model_keys(key: str, brand: str) -> tuple[str, ...]:
 
 
 async def search(session: AsyncSession, import_id: int | None, query: ProductQuery, limit: int = 6,
-                 *, spread_storage: bool = False, allow_other_models: bool = True) -> SearchResult:
+                 *, spread_storage: bool = False, allow_other_models: bool = True,
+                 palette: ImportColors | None = None) -> SearchResult:
     brand = brand_key(query.brand or "")
     category = category_key(query.category or "")
     key = model_key(query.model or "", brand)
@@ -413,7 +499,11 @@ async def search(session: AsyncSession, import_id: int | None, query: ProductQue
         ):
             # До исправления разбора «только eSIM» оставляло «только» в ключе модели.
             keys += tuple(f"{candidate} только" for candidate in keys)
-        model_scope = scope.where(models.c.key.in_(keys))
+        identity_filter = models.c.key.in_(keys)
+        if not brand:
+            # Structured imports can introduce a brand unknown to the free-text title parser.
+            identity_filter |= func.concat(models.c.brand_key, " ", models.c.key).in_(keys)
+        model_scope = scope.where(identity_filter)
         model_ids = list(await session.scalars(
             model_scope.with_only_columns(variants.c.model_id).distinct().limit(2)
         ))
@@ -444,6 +534,14 @@ async def search(session: AsyncSession, import_id: int | None, query: ProductQue
         if k == "sim" and value == "has_physical" else variants.c.attributes.contains({k: value})
         for k, value in wanted.items()
     }
+    color_labels: set[str] = set()
+    allowed_colors: set[str] = set()
+    if "color" in wanted:
+        raw = str(query.attributes["color"])
+        allowed_colors = (palette or _STANDARD_PALETTE).candidates(raw)
+        for shade in allowed_colors | {str(wanted["color"])}:
+            color_labels.update(_stored_color_labels(shade))
+        conditions["color"] = variants.c.attributes["color"].astext.in_(sorted(color_labels))
     scoring = sum(case((condition, 0), else_=1) for condition in conditions.values())
     model_scope = scope
     scope = scope.where(variants.c.available.is_(True), *(conditions[k] for k in query.required))
@@ -451,15 +549,18 @@ async def search(session: AsyncSession, import_id: int | None, query: ProductQue
     if conditions:
         priority.append(scoring)
     price_order = [variants.c.price, variants.c.key]
+    spread = []
     if spread_storage and "storage_gb" not in wanted:
-        priority.append(func.row_number().over(
-            partition_by=variants.c.attributes["storage_gb"].astext, order_by=[*priority, *price_order],
-        ))
+        spread.append(variants.c.attributes["storage_gb"].astext)
+    if len(allowed_colors) > 1:
+        spread.append(variants.c.attributes["color"].astext)
+    if spread:
+        priority.append(func.row_number().over(partition_by=spread, order_by=[*priority, *price_order]))
     rows = (await session.execute(scope.order_by(*priority, *price_order).limit(limit))).all()
     matches = []
     for row in rows:
         differences = {k: {"requested": value, "found": row.attributes.get(k)} for k, value in wanted.items()
-                       if not _matches_value(k, value, row.attributes.get(k))}
+                       if not _matches_value(k, value, row.attributes.get(k), color_labels)}
         relation = "other_model" if not same_model else "same_model" if differences else "exact"
         matches.append(Match(_item(row), relation, differences))
     if same_model and (key or query.model_id) and (not matches or matches[0].relation != "exact"):
@@ -470,22 +571,123 @@ async def search(session: AsyncSession, import_id: int | None, query: ProductQue
     return SearchResult(query, matches, matches[0].relation if matches else "not_found", import_id)
 
 
-def listing_query(title: str | None) -> ProductQuery | None:
+def listing_query(title: str | None, palette: ImportColors | None = None) -> ProductQuery | None:
     if not title or "\n" in title or "|" in title or ";" in title:
         return None
+    custom = None
+    if palette and palette.pattern:
+        spans = palette.spans(title)
+        if len(spans) == 1:
+            start, end, shade = spans[0]
+            if normalize(title[start:end]) in palette.aliases:
+                custom = shade
+                title = title[:start] + " " + title[end:]
     parsed, _, _ = parse_price_list_full(f"{title} — 99999 ₽")
     if not parsed:
         return None
     brand, category, model = identity(parsed[0])
     attrs = normalized_attrs(parsed[0])
     attrs.pop("few", None)
+    if custom:
+        attrs["color"] = custom
     return ProductQuery(brand=brand or None, category=category or None, model=model,
                         attributes=attrs, reference="listing")
 
 
-async def listing_items(session: AsyncSession, import_id: int | None, title: str | None) -> list[CatalogItem]:
-    query = listing_query(title)
+@lru_cache(maxsize=2048)
+def _storefront_title(title: str, palette: ImportColors | None) -> ProductQuery | None:
+    return listing_query(title, palette)
+
+
+async def confirm_storefront_variants(session: AsyncSession, results: list[SearchResult],
+                                      palette: ImportColors | None = None) -> None:
+    """Проверяем комплектацию по каталогу магазина. Цены магазина здесь не читаем."""
+    palette = palette or _STANDARD_PALETTE
+    unresolved = [
+        (result, brand_key(result.query.brand or ""), category_key(result.query.category or ""),
+         model_key(result.query.model or "", brand_key(result.query.brand or "")))
+        for result in results
+        if result.query.model and result.status in ("not_found", "same_model", "unavailable")
+    ]
+    if not unresolved:
+        return
+    products = (await session.execute(select(
+        Product.id, Product.name, Product.brand, Product.color, Product.attributes, Product.stock_quantity,
+    ).where(Product.is_active.is_(True), Product.is_preorder.is_(False), Product.condition != "used"))).all()
+    candidates = []
+    for product in products:
+        title = _storefront_title(product.name, palette)
+        if not title or not title.model:
+            continue
+        brand = brand_key(title.brand or product.brand or "")
+        category = category_key(title.category or "")
+        key = model_key(title.model, brand)
+        for result, wanted_brand, wanted_category, wanted_key in unresolved:
+            same_model = key == wanted_key or (not wanted_brand and wanted_key == f"{brand} {key}")
+            if not same_model or (wanted_brand and wanted_brand != brand) or (
+                wanted_category and category and wanted_category != category
+            ):
+                continue
+            attrs = dict(title.attributes)
+            stored_color = (product.attributes or {}).get("color") or product.color
+            if isinstance(stored_color, str) and stored_color.strip():
+                field_color = palette.key(stored_color)
+                title_color = attrs.get("color")
+                if not title_color or field_color in palette.candidates(str(title_color)):
+                    attrs["color"] = field_color
+            for attr in result.query.attributes.keys() - attrs.keys():
+                value = (product.attributes or {}).get(attr)
+                if value is None and attr == "color":
+                    value = product.color
+                if isinstance(value, (str, int)):
+                    attrs[attr] = attribute_value(attr, value)
+            candidates.append((result, product, attrs))
+    if not candidates:
+        return
+
+    variant_rows = (await session.execute(select(
+        ProductVariant.product_id, ProductVariant.color, ProductVariant.storage,
+        ProductVariant.stock_quantity, ProductVariant.is_active,
+    ).where(ProductVariant.product_id.in_({product.id for _, product, _ in candidates})))).all()
+    by_product: dict[UUID, list] = {}
+    for variant in variant_rows:
+        by_product.setdefault(variant.product_id, []).append(variant)
+    for result, product, attrs in candidates:
+        wanted = {key: attribute_value(key, value) for key, value in result.query.attributes.items()}
+        expected_colors = set()
+        if "color" in wanted:
+            raw = str(result.query.attributes["color"])
+            expected_colors = palette.candidates(raw) | {str(wanted["color"])}
+        product_variants = by_product.get(product.id)
+        offers = [(attrs, product.stock_quantity)] if not product_variants else []
+        for variant in product_variants or []:
+            if not variant.is_active:
+                continue
+            features = dict(attrs)
+            if variant.color:
+                features["color"] = palette.key(variant.color)
+            if variant.storage:
+                if capacity := _CAPACITY.fullmatch(variant.storage.strip()):
+                    ram, storage = _capacity(capacity)
+                    features["storage_gb"] = storage
+                    if ram:
+                        features["ram_gb"] = int(ram)
+                else:
+                    features["storage_gb"] = attribute_value("storage_gb", variant.storage)
+            offers.append((features, variant.stock_quantity))
+        for features, stock in offers:
+            if all(_matches_value(key, value, features.get(key), expected_colors) for key, value in wanted.items()):
+                if stock > 0:
+                    result.storefront = "in_stock"
+                    break
+                if not result.storefront:
+                    result.storefront = "listed"
+
+
+async def listing_items(session: AsyncSession, import_id: int | None, title: str | None,
+                        palette: ImportColors | None = None) -> list[CatalogItem]:
+    query = listing_query(title, palette)
     if not query:
         return []
-    result = await search(session, import_id, query)
+    result = await search(session, import_id, query, palette=palette)
     return [match.item for match in result.matches if match.relation == "exact"]

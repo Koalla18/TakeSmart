@@ -34,7 +34,7 @@ from src.app.database.models.order import Order
 from src.app.database.models.product import Product
 from src.app.database.models.product_variant import ProductVariant
 from src.app.database.session import AsyncSessionFactory, engine
-from src.app.schemas.avito_bot import AvitoBotConfig, AvitoBotConfigIn, TestIn
+from src.app.schemas.avito_bot import AvitoBotConfig, AvitoBotConfigIn, TestIn as PreviewInput
 from src.app.schemas.order import OrderCreate
 
 PRICE = """
@@ -120,12 +120,12 @@ class CatalogIntegration(unittest.IsolatedAsyncioTestCase):
     async def test_physical_sim_and_trade_in_listing_in_preview(self):
         price = PRICE + "\nSamsung S26 Ultra 12/512 Black eSIM — 79 000 ₽"
         await self.save(AvitoBotConfig(enabled=True, price_list=price, trade_in_listing_ids=[123]))
-        first = await preview_reply(TestIn(text="Только с физической SIM. Сколько за 256?", item_title=SAMSUNG, item_id=123))
+        first = await preview_reply(PreviewInput(text="Только с физической SIM. Сколько за 256?", item_title=SAMSUNG, item_id=123))
         answer = first.messages[0]
         self.assertIn("Цена в объявлении действует при сдаче устройства по trade-in.", answer.text)
         self.assertIn("80 000 ₽", answer.text)
         self.assertEqual(answer.quoted_subject["attributes"]["sim"], "has_physical")
-        second = await preview_reply(TestIn(text="А на 512?", item_title=SAMSUNG, item_id=123,
+        second = await preview_reply(PreviewInput(text="А на 512?", item_title=SAMSUNG, item_id=123,
             history=[{"author": "client", "text": "Только с физической SIM. Сколько за 256?"},
                      {"author": "bot", **answer.model_dump()}]))
         self.assertIn("83 000 ₽", second.messages[0].text)
@@ -136,11 +136,11 @@ class CatalogIntegration(unittest.IsolatedAsyncioTestCase):
 
     async def test_ordinal_selects_the_option_that_was_displayed(self):
         await self.save(AvitoBotConfig(enabled=True, price_list=PRICE))
-        first = await preview_reply(TestIn(text="Сколько стоит белый iPhone Duo?"))
+        first = await preview_reply(PreviewInput(text="Сколько стоит белый iPhone Duo?"))
         answer = first.messages[0]
         shown = [line for line in answer.text.splitlines() if "₽" in line]
         self.assertEqual(len(shown), 3)
-        next_answer = await preview_reply(TestIn(text="А у второго?", history=[
+        next_answer = await preview_reply(PreviewInput(text="А у второго?", history=[
             {"author": "client", "text": "Сколько стоит белый iPhone Duo?"}, {"author": "bot", **answer.model_dump()},
         ]))
         self.assertEqual(next_answer.messages[0].text, shown[1])
@@ -302,13 +302,13 @@ class CatalogIntegration(unittest.IsolatedAsyncioTestCase):
         await self.save(cfg)
         no_model = AsyncMock(side_effect=AssertionError("routine reply must not require LLM"))
         with patch.object(bot, "llm_call", new=no_model):
-            offered = await preview_reply(TestIn(text="че в итоге по цене ты мне скажешь на эту модель и когда можно приехать",
+            offered = await preview_reply(PreviewInput(text="че в итоге по цене ты мне скажешь на эту модель и когда можно приехать",
                                                  item_title=listing))
             self.assertEqual(offered.action, "reply", offered.reason)
             self.assertIn("147 990 ₽", offered.messages[0].text)
             self.assertIn("Наш адрес — ул. Барклая, 10, павильон А60.", offered.messages[0].text)
             self.assertIn("Работаем ежедневно с 10:30 до 20:30.", offered.messages[0].text)
-            followup = await preview_reply(TestIn(text="мне надо черный", item_title=listing, history=[
+            followup = await preview_reply(PreviewInput(text="мне надо черный", item_title=listing, history=[
                 {"author": "client", "text": "По чём?"},
                 {"author": "bot", "text": offered.messages[0].text},
             ]))
@@ -320,14 +320,14 @@ class CatalogIntegration(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(followup.search[0]["query"]["attributes"]["storage_gb"], 512)
             self.assertEqual(followup.search[0]["query"]["attributes"]["sim"], "physical_esim")
 
-            unknown = await preview_reply(TestIn(text="мне надо черный"))
+            unknown = await preview_reply(PreviewInput(text="мне надо черный"))
             self.assertEqual(unknown.action, "reply", unknown.reason)
             self.assertIn("какая модель вам нужна", unknown.messages[0].text)
-            address = await preview_reply(TestIn(text="Подскажите, пожалуйста, адрес"))
+            address = await preview_reply(PreviewInput(text="Подскажите, пожалуйста, адрес"))
             self.assertEqual(address.action, "reply", address.reason)
             self.assertIn("Наш адрес — ул. Барклая, 10, павильон А60.", address.messages[0].text)
             self.assertIn("во сколько вам удобно подъехать?", address.messages[0].text)
-            colors = await preview_reply(TestIn(text="Какие цвета есть?", item_title=listing))
+            colors = await preview_reply(PreviewInput(text="Какие цвета есть?", item_title=listing))
             self.assertEqual(colors.action, "reply", colors.reason)
             self.assertIn("147 990 ₽", colors.messages[0].text)
             self.assertIn("153 990 ₽", colors.messages[0].text)
@@ -356,7 +356,7 @@ class CatalogIntegration(unittest.IsolatedAsyncioTestCase):
             "Выбор вариантов в обсуждаемом объявлении.",
             '{"reply":"Подскажите, пожалуйста, какая модель вам нужна?"}',
         ])) as model:
-            recovered = await preview_reply(TestIn(text="Я выбираю вариант"))
+            recovered = await preview_reply(PreviewInput(text="Я выбираю вариант"))
             self.assertEqual(recovered.action, "reply", recovered.reason)
             self.assertIn("какая модель вам нужна", " ".join(message.text for message in recovered.messages))
             self.assertEqual(model.await_count, 2)
@@ -409,7 +409,7 @@ Google Pixel 11 Pro XL 12/256 ГБ Obsidian — 82 990 ₽
         call = AsyncMock(side_effect=AssertionError("grounded quotes do not require a model call"))
         with patch.object(bot, "llm_call", new=call):
             request = "по чем и хочу прямо сейчас купить, можно ли по карте? и хочу трейд ин сдать свою технику"
-            first = await preview_reply(TestIn(text=request, item_title=listing, item_price="61990"))
+            first = await preview_reply(PreviewInput(text=request, item_title=listing, item_price="61990"))
             self.assertEqual(len(first.messages), 1)
             text = first.messages[0].text
             for expected in ("Илья", "86 990 ₽", "100 908 ₽", "16%", "trade-in", "состояние"):
@@ -418,7 +418,7 @@ Google Pixel 11 Pro XL 12/256 ГБ Obsidian — 82 990 ₽
             self.assertNotIn("93 990", text)
             self.assertEqual(first.search[0]["status"], "exact")
             self.assertGreater(first.search[0]["matches"][0]["source_number"], 0)
-            gray = await preview_reply(TestIn(
+            gray = await preview_reply(PreviewInput(
                 text=request, item_title="iPad Air 13 (M4, 2026) Wi-Fi 128 гб, Space Gray", item_price="62990",
             ))
             gray_text = gray.messages[0].text
@@ -429,7 +429,7 @@ Google Pixel 11 Pro XL 12/256 ГБ Obsidian — 82 990 ₽
                 self.assertNotIn(unrelated, gray_text)
             self.assertEqual(gray.search[0]["status"], "exact")
             self.assertIn("Space Gray", gray.search[0]["matches"][0]["source_line"])
-            unavailable_color = await preview_reply(TestIn(
+            unavailable_color = await preview_reply(PreviewInput(
                 text="по чем", item_title="iPad Air 13 (M4, 2026) Wi-Fi 256 гб, Space Gray",
             ))
             self.assertEqual(unavailable_color.search[0]["status"], "same_model")
@@ -453,16 +453,17 @@ Google Pixel 11 Pro XL 12/256 ГБ Obsidian — 82 990 ₽
                 result = await catalog.search(session, gray.search[0]["revision"], catalog.ProductQuery.model_validate(context))
                 self.assertEqual(result.status, "exact")
                 self.assertEqual(result.matches[0].item.price, 126990)
-            dyson = await preview_reply(TestIn(
+
+            dyson = await preview_reply(PreviewInput(
                 text="Почём HS08 Ceramic Pink?", item_title=listing, item_price="61990",
             ))
             self.assertIn("34 990 ₽", dyson.messages[0].text)
             self.assertNotIn("86 990 ₽", dyson.messages[0].text)
             self.assertEqual(dyson.search[0]["status"], "exact")
-            no_model = await preview_reply(TestIn(text="Сколько стоит Dyson HS99?", item_title=listing))
+            no_model = await preview_reply(PreviewInput(text="Сколько стоит Dyson HS99?", item_title=listing))
             self.assertNotIn("86 990", no_model.messages[0].text)
 
-            pixel = await preview_reply(TestIn(
+            pixel = await preview_reply(PreviewInput(
                 text="по чем", item_title="Google Pixel 11 Pro XL, 12/256 ГБ, SIM + eSIM", item_price="72990",
             ))
             pixel_text = pixel.messages[0].text
@@ -482,12 +483,72 @@ Google Pixel 11 Pro XL 12/256 ГБ Obsidian — 82 990 ₽
                                         "Цену уточню — передам менеджеру."})
 
         with patch.object(bot, "llm_call", new=dyson_model):
-            dyson = await preview_reply(TestIn(text="А Dyson HS08 Ceramic Pink почём? И какая гарантия?", item_title=listing))
+            dyson = await preview_reply(PreviewInput(text="А Dyson HS08 Ceramic Pink почём? И какая гарантия?", item_title=listing))
             self.assertEqual(dyson.action, "reply", dyson.reason)
             self.assertEqual(dyson.messages[0].text.count("34 990 ₽"), 1)
             self.assertNotIn("39 990", dyson.messages[0].text)
             self.assertNotIn("уточню", dyson.messages[0].text)
             self.assertIn("12 месяцев", dyson.messages[0].text)
+
+    async def test_storefront_configuration_is_found_without_borrowing_any_price(self):
+        title = 'iPad Air 13 (M4, 2026) Wi-Fi 128 гб Starlight'
+        storefront = 'Планшет Apple iPad Air 13" (M4, 2026) 128 ГБ Wi-Fi, Starlight (Сияющая звезда)'
+        price = ("iPad Air 13 M4 2026 Wi-Fi 128 ГБ Blue — 86 990 ₽\n"
+                 "iPad Air 13 M4 2026 LTE 128 ГБ Starlight — 93 990 ₽")
+        cfg = AvitoBotConfig(enabled=True, persona_name="Илья", price_list=price)
+        await self.save(cfg)
+        async with AsyncSessionFactory() as session:
+            product = Product(name=storefront, slug=f"starlight-test-{uuid4()}", brand="Apple",
+                              price=79990, stock_quantity=2)
+            session.add(product)
+            await session.flush()
+            ctx = bot.ChatContext(title, "61990", None, [])
+            with patch.object(bot, "llm_call", new=AsyncMock(side_effect=AssertionError("lookup must be deterministic"))):
+                decision, _ = await bot.plan_chat_reply(session, cfg, ctx, "По чём?", {})
+                self.assertEqual(decision.action, "reply")
+                self.assertIn("Илья", decision.text)
+                self.assertIn("По каталогу магазина эта комплектация в наличии.", decision.text)
+                self.assertIn("Розничную цену для Авито пока не могу подтвердить.", decision.text)
+                self.assertNotIn("₽", decision.text)
+                self.assertEqual(decision.search[0]["storefront"], "in_stock")
+                self.assertEqual(decision.quoted_subject["attributes"]["color"], "starlight")
+                self.assertFalse(any(match.get("shown") for match in decision.search[0]["matches"]))
+
+                product.stock_quantity = 0
+                await session.flush()
+                decision, _ = await bot.plan_chat_reply(session, cfg, ctx, "По чём?", {})
+                self.assertIn("Эта комплектация есть в каталоге магазина.", decision.text)
+                self.assertNotIn("в наличии", decision.text)
+
+                wrong_ctx = bot.ChatContext(title.replace("128", "256"), None, None, [])
+                decision, _ = await bot.plan_chat_reply(session, cfg, wrong_ctx, "По чём?", {})
+                self.assertNotIn("storefront", decision.search[0])
+
+        price += '\nПланшет Apple iPad Air 13 (M4, 2026) Wi-Fi 128 ГБ, Сияющая звезда — 83 990 ₽'
+        await self.save(cfg.model_copy(update={"price_list": price}))
+        preview = await preview_reply(PreviewInput(text="По чём?", item_title=title, item_price="61990"))
+        self.assertEqual(preview.search[0]["status"], "exact")
+        self.assertIn("83 990 ₽", preview.messages[0].text)
+        self.assertNotIn("79 990 ₽", preview.messages[0].text)
+        revision = preview.search[0]["revision"]
+        async with AsyncSessionFactory.begin() as session:
+            exact_key = preview.search[0]["matches"][0]["id"]
+            await session.execute(update(variants).where(
+                variants.c.import_id == revision, variants.c.key == exact_key,
+            ).values(attributes={"storage_gb": 128, "color": "starlight сияющая звезда"}))
+        await self.save(cfg.model_copy(update={
+            "price_list": price, "llm_provider": "deepseek", "llm_api_key": "fake-test-key",
+        }))
+        model = AsyncMock(side_effect=[
+            '{"queries":[]}',
+            '{"reply":"Этой модели нет в наличии. Гарантия магазина 12 месяцев."}',
+        ])
+        with patch.object(bot, "llm_call", new=model):
+            mixed = await preview_reply(PreviewInput(text="По чём? И какая гарантия?", item_title=title))
+        self.assertEqual(mixed.search[0]["status"], "exact")
+        self.assertIn("83 990 ₽", mixed.messages[0].text)
+        self.assertIn("Гарантия магазина 12 месяцев.", mixed.messages[0].text)
+        self.assertNotIn("нет в наличии", mixed.messages[0].text)
 
     async def test_ipad_year_alias_keeps_conflicting_years_and_hardware_apart(self):
         price = """iPad Air 13 M4 Wi-Fi 128 ГБ Space Gray — 79 990 ₽
@@ -498,7 +559,7 @@ iPad Air 13 M4 2026 LTE 128 ГБ Space Gray — 99 990 ₽
 iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
 """
         await self.save(AvitoBotConfig(enabled=True, price_list=price))
-        response = await preview_reply(TestIn(
+        response = await preview_reply(PreviewInput(
             text="по чем", item_title="iPad Air 13 (M4, 2026) Wi-Fi 128 гб, Space Gray",
         ))
         self.assertEqual(response.search[0]["status"], "same_model")
@@ -520,7 +581,7 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
                                       "По trade-in напишите модель, объём памяти и состояние устройства."},
         ]
         with patch.object(bot, "llm_call", new=AsyncMock(side_effect=AssertionError("known case must bypass LLM"))) as model:
-            only_this = await preview_reply(TestIn(text="нет я только этот хочу", item_title=title, history=history))
+            only_this = await preview_reply(PreviewInput(text="нет я только этот хочу", item_title=title, history=history))
             self.assertEqual(only_this.action, "reply", only_this.reason)
             self.assertIn("79 990 ₽", only_this.messages[0].text)
             self.assertNotIn("86 990 ₽", only_this.messages[0].text)
@@ -528,7 +589,7 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
             history.append({"author": "bot", "text": only_this.messages[0].text})
 
             for request in ("у меня айфон DUO 256gb", "новый айфон дуо", "нет я хочу сдать этот айфон дуо"):
-                declined = await preview_reply(TestIn(text=request, item_title=title, history=history))
+                declined = await preview_reply(PreviewInput(text=request, item_title=title, history=history))
                 self.assertEqual(declined.action, "reply", declined.reason)
                 self.assertIn("iPhone Duo на 256 ГБ", declined.messages[0].text)
                 self.assertIn("не принимаем по trade-in", declined.messages[0].text)
@@ -536,12 +597,12 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
                 history.append({"author": "client", "text": request})
                 history.append({"author": "staff", "text": "К сожалению, не можем принять."})
 
-            again = await preview_reply(TestIn(text="А за этот сколько?", item_title=title, history=history))
+            again = await preview_reply(PreviewInput(text="А за этот сколько?", item_title=title, history=history))
             self.assertEqual(again.action, "reply", again.reason)
             self.assertIn("79 990 ₽", again.messages[0].text)
             self.assertNotIn("191 990", again.messages[0].text)
 
-            mixed = await preview_reply(TestIn(text="По чём? И хочу сдать свой айфон Duo 256gb", item_title=title))
+            mixed = await preview_reply(PreviewInput(text="По чём? И хочу сдать свой айфон Duo 256gb", item_title=title))
             self.assertEqual(mixed.action, "reply", mixed.reason)
             self.assertIn("79 990 ₽", mixed.messages[0].text)
             self.assertIn("не принимаем по trade-in", mixed.messages[0].text)
@@ -554,10 +615,80 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
 
         await self.save(cfg.model_copy(update={"trade_in_prices": "iPhone Duo — 65 000–75 000 ₽"}))
         with patch.object(bot, "llm_call", new=AsyncMock(return_value='{"reply":"Подскажите состояние телефона."}')) as accepted:
-            reply = await preview_reply(TestIn(text="хочу сдать iPhone Duo 256gb", item_title=title))
+            reply = await preview_reply(PreviewInput(text="хочу сдать iPhone Duo 256gb", item_title=title))
             self.assertEqual(reply.action, "reply", reply.reason)
             accepted.assert_awaited_once()
             self.assertIn("Устройство покупателя для сдачи по trade-in: iPhone Duo, 256 ГБ", accepted.call_args.args[1][0]["content"])
+
+    async def test_shared_local_color_and_specific_shade_in_chat(self):
+        await self.save(AvitoBotConfig(enabled=True, price_list="""
+Google Pixel 11 Pro XL 12/256 Obsidian — 82 990 ₽
+Google Pixel 11 Pro XL 12/256 Jet Black — 84 990 ₽
+Google Pixel 11 Pro XL 12/256 Snow — 85 990 ₽
+Google Pixel 11 Pro XL 12/512 Obsidian — 89 990 ₽
+Google Pixel 11 Pro XL 12/512 Snow — 88 990 ₽
+"""))
+        with patch.object(bot, "llm_call", new=AsyncMock(side_effect=AssertionError("catalog lookup required"))):
+            first = await preview_reply(PreviewInput(text="по чем", item_title="Google Pixel 11 Pro XL 12/256, чёрный"))
+            self.assertEqual(first.action, "reply", first.reason)
+            self.assertEqual(first.search[0]["status"], "exact")
+            text = first.messages[0].text
+            self.assertIn("Здравствуйте", text)
+            for name, price in (("Obsidian", "82 990 ₽"), ("Jet Black", "84 990 ₽")):
+                self.assertTrue(any(name.lower() in line.lower() and price in line for line in text.splitlines()), text)
+            for wrong in ("85 990 ₽", "89 990 ₽", "не могу подтвердить"):
+                self.assertNotIn(wrong, text)
+            followup = await preview_reply(PreviewInput(
+                text="Только Obsidian", item_title="Google Pixel 11 Pro XL 12/256, чёрный",
+                history=[{"author": "client", "text": "по чем"}, {"author": "bot", **first.messages[0].model_dump()}],
+            ))
+            self.assertEqual(followup.action, "reply", followup.reason)
+            self.assertEqual(followup.search[0]["status"], "exact")
+            self.assertIn("82 990 ₽", followup.messages[0].text)
+            for wrong in ("84 990 ₽", "85 990 ₽", "89 990 ₽"):
+                self.assertNotIn(wrong, followup.messages[0].text)
+            from_text = await preview_reply(PreviewInput(
+                text="А на 512?", item_title="Google Pixel 11 Pro XL 12/256, чёрный", history=[
+                    {"author": "client", "text": "по чем"}, {"author": "bot", "text": first.messages[0].text},
+                ],
+            ))
+            self.assertEqual(from_text.action, "reply", from_text.reason)
+            self.assertIn("89 990 ₽", from_text.messages[0].text)
+            self.assertNotIn("88 990 ₽", from_text.messages[0].text)
+
+    async def test_price_file_teaches_new_shade_to_listing_and_followup(self):
+        await self.save(AvitoBotConfig(enabled=True, price_list="""
+@|31100|Dyson HS08, Lunar Mist||Lunar Mist|лунный туман||||
+@|32200|Dyson HS08, Ceramic Pink||Ceramic Pink|розовый||||
+!|Acme|speaker|Pulse V2|41400|да|{"color":"Lunar Mist","color_ru":"лунный туман"}
+!|Acme|speaker|Pulse V2|42800|да|{"color":"White"}
+"""))
+        with patch.object(bot, "llm_call", new=AsyncMock(side_effect=AssertionError("catalog lookup required"))):
+            for label in ("Lunar Mist", "лунный туман", "Lunar Mist (лунный туман)", "лунный туман (Lunar Mist)"):
+                first = await preview_reply(PreviewInput(text="по чем", item_title=f"Dyson HS08, {label}"))
+                self.assertEqual(first.action, "reply", label)
+                self.assertEqual(first.search[0]["status"], "exact", label)
+                self.assertIn("31 100 ₽", first.messages[0].text)
+                self.assertNotIn("32 200 ₽", first.messages[0].text)
+
+            listing = "Dyson HS08, Ceramic Pink"
+            previous = await preview_reply(PreviewInput(text="по чем", item_title=listing))
+            followup = await preview_reply(PreviewInput(
+                text="А лунный туман?", item_title=listing, history=[
+                    {"author": "client", "text": "по чем"}, {"author": "bot", **previous.messages[0].model_dump()},
+                ],
+            ))
+            self.assertEqual(followup.action, "reply", followup.reason)
+            self.assertEqual(followup.search[0]["status"], "exact")
+            self.assertIn("31 100 ₽", followup.messages[0].text)
+            self.assertNotIn("32 200 ₽", followup.messages[0].text)
+
+            speaker = await preview_reply(PreviewInput(text="по чем", item_title="Acme Pulse V2, лунный туман"))
+            self.assertEqual(speaker.action, "reply", speaker.reason)
+            self.assertEqual(speaker.search[0]["status"], "exact")
+            self.assertIn("41 400 ₽", speaker.messages[0].text)
+            for wrong in ("42 800 ₽", "31 100 ₽", "32 200 ₽"):
+                self.assertNotIn(wrong, speaker.messages[0].text)
 
     async def test_full_price_snapshot(self):
         path = os.environ.get("TAKESMART_CATALOG_SNAPSHOT")
@@ -567,11 +698,14 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
         rows, errors = catalog.prepare(raw)
         self.assertFalse(errors, errors)
         self.assertTrue(rows)
-        await self.save(AvitoBotConfig(price_list=raw))
+        cfg = AvitoBotConfig(enabled=True, persona_name="Илья", price_list=raw)
+        await self.save(cfg)
+        palette = catalog.import_colors(raw)
         async with AsyncSessionFactory() as session:
             revision = await catalog.active_import(session, raw)
             published = (await session.execute(catalog.rows_for(revision))).all()
             self.assertEqual({row["key"] for row in rows}, {row.key for row in published})
+            imported = {row["key"]: row["item"] for row in rows}
             misses = []
             for row in published:
                 if not row.available:
@@ -579,17 +713,50 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
                 query = catalog.ProductQuery(model_id=row.model_id,
                     attributes={key: value for key, value in row.attributes.items() if key != "few"})
                 result = await catalog.search(session, revision, query, allow_other_models=False)
-                self.assertTrue(any(m.item.key == row.key and m.item.price == row.price and m.relation == "exact"
-                                    for m in result.matches), (row.name, result))
-                item = catalog._item(row)
-                title = ", ".join([item.name] + [item.attributes[key] for key in ("country", "sim") if item.attributes.get(key)])
-                by_name = catalog.listing_query(title)
-                if by_name:
-                    result = await catalog.search(session, revision, by_name, allow_other_models=False)
-                    if any(m.item.key == row.key and m.item.price == row.price and m.relation == "exact" for m in result.matches):
-                        continue
-                misses.append((title, row.model_key, by_name and by_name.model, by_name and by_name.attributes))
-            self.assertFalse(misses, f"Position title lookup failed for {len(misses)} rows: {misses}")
+                matched = next((m for m in result.matches if m.item.key == row.key and m.item.price == row.price
+                                and m.relation == "exact"), None)
+                self.assertIsNotNone(matched, row.name)
+                old_reply = bot.avito_quotes._line(matched)
+                recovered, _ = bot.avito_quotes.conversation_subject(
+                    bot.ChatContext(history=[("bot", old_reply)]), palette,
+                )
+                self.assertIsNotNone(recovered, old_reply)
+                self.assertEqual(catalog.model_key(recovered.model, row.brand_key), row.model_key, old_reply)
+                self.assertEqual(recovered.attributes, query.attributes, old_reply)
+                item = imported[row.key]
+                color, russian = item.attributes.get("color"), item.attributes.get("color_ru")
+                names = [(item.name, True)]
+                if color and russian:
+                    model, separator, suffix = item.name.rpartition(color)
+                    self.assertTrue(separator, f"{color!r} missing in source name {item.name!r}")
+                    names.extend((model + label + suffix, specific) for label, specific in (
+                        (russian, False), (f"{color} ({russian})", True), (f"{russian} ({color})", True),
+                    ))
+                for name, specific in names:
+                    title = ", ".join([name] + [
+                        item.attributes[key] for key in ("country", "sim") if item.attributes.get(key)
+                    ])
+                    decision, replies = await bot.plan_chat_reply(session, cfg, bot.ChatContext(item_title=title),
+                                                                   "по чем", {})
+                    self.assertEqual(decision.action, "reply", title)
+                    self.assertEqual(len(replies), 1, title)
+                    reply_text = replies[0].text
+                    self.assertIn("Илья", reply_text, title)
+                    for denial in ("нет в наличии", "нет точной комплектации", "не могу подтвердить"):
+                        self.assertNotIn(denial, reply_text.casefold(), title)
+                    trace = decision.search[0] if decision.search else {}
+                    exact = [m for m in trace.get("matches", []) if m["relation"] == "exact"]
+                    if color and specific:
+                        self.assertEqual({m["attributes"].get("color") for m in exact} - {row.attributes["color"]},
+                                         set(), title)
+                    if specific:
+                        self.assertIn(f"{int(row.price):,} ₽".replace(",", " "), reply_text, title)
+                    found_original = any(m["id"] == row.key and m["price_rub"] == row.price for m in exact)
+                    shown_prices = [f"{m['price_rub']:,} ₽".replace(",", " ") for m in exact if m.get("shown")]
+                    kept_color = not color or trace.get("query", {}).get("attributes", {}).get("color")
+                    if not (found_original and kept_color and any(price in reply_text for price in shown_prices)):
+                        misses.append((title, trace.get("query"), reply_text))
+            self.assertEqual(len(misses), 0, f"Position title lookup failures (first 12): {misses[:12]}")
 
     async def test_catalog_and_pilot_through_runtime(self):
         cfg = AvitoBotConfig(
@@ -598,6 +765,7 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
             llm_provider="deepseek", llm_api_key="fake-test-key",
             first_message="Здравствуйте! Цена по объявлению {price}",
         )
+        await self.save(cfg.model_copy(update={"price_list": "iPhone 16 128 White — 59 990 ₽"}))
         await self.save(cfg)
         async with AsyncSessionFactory() as session:
             known_old = await catalog.active_import(session, "iPhone 16 128 White — 59 990 ₽")
@@ -679,7 +847,7 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
             return json.dumps({"reply": "Чёрный Samsung Galaxy S26 Ultra 16/256 ГБ, две физические SIM — 81 000 ₽."})
 
         with patch.object(bot, "llm_call", new=samsung_model):
-            samsung = await preview_reply(TestIn(
+            samsung = await preview_reply(PreviewInput(
                 text="Samsung S26 Ultra 16 256 2 SIM чёрный сколько стоит?", item_id=1001, item_title=SAMSUNG,
             ))
             self.assertEqual(samsung.action, "reply", samsung.reason)
@@ -692,7 +860,7 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
             return json.dumps({"reply": "Да, в наличии — 81 000 ₽."})
 
         with patch.object(bot, "llm_call", new=samsung_short):
-            samsung = await preview_reply(TestIn(
+            samsung = await preview_reply(PreviewInput(
                 text="Samsung S26 Ultra 16 256 2 SIM чёрный сколько стоит?", item_id=1001,
                 item_title="Samsung Galaxy S26 Ultra",
             ))
@@ -708,7 +876,7 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
             return json.dumps({"reply": "Dyson V15 Detect Absolute есть за 45 000 ₽."})
 
         with patch.object(bot, "llm_call", new=dyson_model):
-            dyson = await preview_reply(TestIn(text="А Dyson V15 Detect Absolute сколько?", item_id=1001, item_title=SAMSUNG))
+            dyson = await preview_reply(PreviewInput(text="А Dyson V15 Detect Absolute сколько?", item_id=1001, item_title=SAMSUNG))
             self.assertEqual(dyson.action, "reply", dyson.reason)
             self.assertTrue(any("50 000 ₽" in message.text for message in dyson.messages))
 
@@ -756,10 +924,10 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
                 self.assertGreater((await session.get(AvitoChat, selected_id)).reply_due_at, first_due)
                 self.assertIsNone((await session.get(AvitoChat, excluded_id)).reply_due_at)
                 self.assertIsNone((await session.get(AvitoChat, unknown_id)).reply_due_at)
-            denied = await preview_reply(TestIn(text=buyer_text, item_id=1002, item_title=SAMSUNG))
+            denied = await preview_reply(PreviewInput(text=buyer_text, item_id=1002, item_title=SAMSUNG))
             self.assertEqual(denied.action, "silent")
             self.assertFalse(calls)
-            preview = await preview_reply(TestIn(text=buyer_text, item_id=1001, item_title=SAMSUNG))
+            preview = await preview_reply(PreviewInput(text=buyer_text, item_id=1001, item_title=SAMSUNG))
             self.assertEqual(preview.search[0]["status"], "exact")
             self.assertEqual(preview.order["product_id"], str(iphone_id))
             await bot._process_chat(selected_id)
@@ -825,7 +993,7 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
             self.assertLess(due - started, timedelta(seconds=7))
 
         with patch.object(bot, "llm_call", new=duo_model):
-            price = await preview_reply(TestIn(
+            price = await preview_reply(PreviewInput(
                 text="белый на терабайт сколько?", item_id=1003, item_title=listing,
             ))
             self.assertEqual(price.action, "reply", price.reason)
@@ -834,14 +1002,14 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
             self.assertEqual(len(price.messages), 1)
             self.assertIn("Здравствуйте", price.messages[0].text)
 
-            white = await preview_reply(TestIn(text="Белый сколько?", item_id=1003, item_title=listing))
+            white = await preview_reply(PreviewInput(text="Белый сколько?", item_id=1003, item_title=listing))
             white_text = white.messages[0].text
             self.assertIn("219 990 ₽", white_text)
             self.assertIn("239 990 ₽", white_text)
             self.assertIn("264 990 ₽", white_text)
             self.assertNotIn("259 990 ₽", white_text)
 
-            followup = await preview_reply(TestIn(
+            followup = await preview_reply(PreviewInput(
                 text="а на 512?", item_id=1001, item_title=SAMSUNG,
                 history=[
                     {"author": "client", "text": "Белый на терабайт сколько?"},
@@ -855,7 +1023,7 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
 
             no_call = AsyncMock(side_effect=AssertionError("clear catalog price should not call the model"))
             with patch.object(bot, "llm_call", new=no_call):
-                fallback = await preview_reply(TestIn(
+                fallback = await preview_reply(PreviewInput(
                     text="iPhone Duo 1 ТБ белый сколько стоит?", item_id=1003, item_title=listing,
                 ))
             no_call.assert_not_awaited()
@@ -865,7 +1033,7 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
 
             greeting_call = AsyncMock(side_effect=AssertionError("non-price greeting should not call the model"))
             with patch.object(bot, "llm_call", new=greeting_call):
-                greeting = await preview_reply(TestIn(
+                greeting = await preview_reply(PreviewInput(
                     text="Привет, я сейчас приеду", item_id=1003, item_title=listing,
                 ))
             greeting_call.assert_not_awaited()
@@ -883,7 +1051,7 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
                 return json.dumps({"reply": "Белый iPhone Duo 1 ТБ — 264 990 ₽. Доставка есть."})
 
             with patch.object(bot, "llm_call", new=malformed_then_delivery):
-                delivery = await preview_reply(TestIn(
+                delivery = await preview_reply(PreviewInput(
                     text="Белый Duo 1 ТБ сколько, и доставка есть?", item_id=1003, item_title=listing,
                 ))
             self.assertEqual(len(extraction_calls), 2)
@@ -892,14 +1060,14 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
             self.assertEqual(delivery_text.count("264 990 ₽"), 1)
             self.assertIn("достав", delivery_text.lower())
 
-            echo = await preview_reply(TestIn(
+            echo = await preview_reply(PreviewInput(
                 text="Белый Duo 1 ТБ сколько, и доставка есть?", item_id=1003, item_title=listing,
             ))
             self.assertEqual(echo.action, "handoff", echo.reason)
             self.assertIn("264 990 ₽", echo.messages[0].text)
             self.assertNotIn("Илья, добрый вечер", echo.messages[0].text)
 
-            mixed = await preview_reply(TestIn(
+            mixed = await preview_reply(PreviewInput(
                 text=buyer_mixed, item_id=1003, item_title=listing,
             ))
             self.assertIn(mixed.action, ("reply", "handoff"), mixed.reason)
@@ -983,10 +1151,10 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
                 self.assertNotIn("Здравствуйте", followup.text)
                 self.assertFalse((await session.get(AvitoChat, new_id)).needs_human)
 
-            missing = await preview_reply(TestIn(text="по чем", item_id=4001, item_title="Samsung Galaxy A56, 8/256 ГБ"))
+            missing = await preview_reply(PreviewInput(text="по чем", item_id=4001, item_title="Samsung Galaxy A56, 8/256 ГБ"))
             self.assertEqual(missing.search[0]["matches"], [])
             self.assertNotIn("A17", missing.messages[0].text)
-            explicit = await preview_reply(TestIn(text="Почём A17 5G 8/256?", item_id=4001, item_title=title))
+            explicit = await preview_reply(PreviewInput(text="Почём A17 5G 8/256?", item_id=4001, item_title=title))
             self.assertIn("25 990 ₽", explicit.messages[0].text)
             self.assertNotIn("22 990 ₽", explicit.messages[0].text)
         no_model.assert_not_awaited()

@@ -341,7 +341,7 @@ async def search_products(session: AsyncSession, item_title: str | None, questio
 async def listing_price_info(session: AsyncSession, cfg: AvitoBotConfig, item_title: str | None
                              ) -> tuple[str | None, str | None, str | None]:
     import_id = await avito_catalog.active_import(session, cfg.price_list)
-    items = await avito_catalog.listing_items(session, import_id, item_title)
+    items = await avito_catalog.listing_items(session, import_id, item_title, avito_catalog.import_colors(cfg.price_list))
     if len(items) != 1:
         return None, None, None
     hit = items[0]
@@ -373,9 +373,9 @@ async def test_item_id(session: AsyncSession, title: str | None) -> int | None:
     return ids[0] if len(ids) == 1 else None
 
 
-async def price_variants_for_card(session: AsyncSession, import_id: int | None, card: Product
-                                  ) -> list[CatalogItem]:
-    query = avito_catalog.listing_query(card.name)
+async def price_variants_for_card(session: AsyncSession, import_id: int | None, card: Product,
+                                  palette: avito_catalog.ImportColors | None = None) -> list[CatalogItem]:
+    query = avito_catalog.listing_query(card.name, palette)
     if not query:
         return []
     attrs = card.attributes or {}
@@ -386,12 +386,13 @@ async def price_variants_for_card(session: AsyncSession, import_id: int | None, 
         if key not in features and attrs.get(key) is not None:
             features[key] = attrs[key]
     query = query.model_copy(update={"attributes": features})
-    result = await avito_catalog.search(session, import_id, query, limit=2)
+    result = await avito_catalog.search(session, import_id, query, limit=2, palette=palette)
     return [match.item for match in result.matches if match.relation == "exact"]
 
 
-async def booking_price(session: AsyncSession, import_id: int | None, product: Product) -> int | None:
-    exact = await price_variants_for_card(session, import_id, product)
+async def booking_price(session: AsyncSession, import_id: int | None, product: Product,
+                        palette: avito_catalog.ImportColors | None = None) -> int | None:
+    exact = await price_variants_for_card(session, import_id, product, palette)
     return int(exact[0].price) if len(exact) == 1 else None
 
 
@@ -416,7 +417,7 @@ async def bookable_products(session: AsyncSession, cfg: AvitoBotConfig, item_id:
     products = []
     prices = {}
     for card in cards.values():
-        exact = await price_variants_for_card(session, import_id, card)
+        exact = await price_variants_for_card(session, import_id, card, avito_catalog.import_colors(cfg.price_list))
         if len(exact) == 1 and exact[0].key in target_keys:
             products.append(card)
             prices[card.id] = int(exact[0].price)
@@ -474,7 +475,8 @@ class CatalogContext:
 async def quote_product(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext,
                         pending: str, masker: PiiMasker) -> CatalogContext:
     """Единый путь от исходной реплики к предложениям текущего прайса Авито."""
-    quote = avito_quotes.price_request(ctx, pending)
+    palette = avito_catalog.import_colors(cfg.price_list)
+    quote = avito_quotes.price_request(ctx, pending, palette)
     ready = llm_settings(cfg).ready
     intent = avito_catalog.SearchIntent(queries=[])
     if not ready and quote is None:
@@ -489,7 +491,7 @@ async def quote_product(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatCon
     ) and re.search(r"[a-zA-Z0-9]", purchase):
         grounded = await avito_catalog.models_in_text(session, import_id, purchase)
         if len(grounded) == 1:
-            quote.queries = [avito_quotes.query_from_words(grounded[0], purchase)]
+            quote.queries = [avito_quotes.query_from_words(grounded[0], purchase, palette)]
         elif grounded:
             quote.queries = []
     search_parse_failed = False
@@ -513,11 +515,15 @@ async def quote_product(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatCon
         elif re.search(r"\b(?:чехол\w*|стекл\w*|кабел\w*|адаптер\w*|зарядк\w*)\b", purchase, re.IGNORECASE):
             queries = [query for query in queries if query.reference == "explicit"
                        and query.category and avito_catalog.category_key(query.category) == "accessory"]
+    if quote and not quote.queries and len(queries) == 1 and avito_quotes.can_resolve_from_words(purchase):
+        shades = palette.mentions(purchase)
+        if len(shades) == 1 and "color" in queries[0].attributes:
+            queries = [queries[0].model_copy(update={"attributes": {**queries[0].attributes, "color": shades[0]}})]
     results = []
     for query in queries:
         if not query.model and query.reference in ("listing", "conversation"):
-            subject, discussed = avito_quotes.conversation_subject(ctx)
-            reference = subject if query.reference == "conversation" or discussed else avito_catalog.listing_query(ctx.item_title)
+            subject, discussed = avito_quotes.conversation_subject(ctx, palette)
+            reference = subject if query.reference == "conversation" or discussed else avito_catalog.listing_query(ctx.item_title, palette)
             if reference and (not query.brand or
                     avito_catalog.brand_key(query.brand) == avito_catalog.brand_key(reference.brand or "")):
                 query = query.model_copy(update={
@@ -530,12 +536,14 @@ async def quote_product(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatCon
                 })
         if quote:
             result = await avito_catalog.search(
-                session, import_id, query, spread_storage=True, allow_other_models=False,
+                session, import_id, query, spread_storage=True, allow_other_models=False, palette=palette,
             )
         else:
-            result = await avito_catalog.search(session, import_id, query)
+            result = await avito_catalog.search(session, import_id, query, palette=palette)
         results.append(result)
-    listing = await avito_catalog.listing_items(session, import_id, ctx.item_title) if not results and quote is None else []
+    if quote:
+        await avito_catalog.confirm_storefront_variants(session, results, palette)
+    listing = await avito_catalog.listing_items(session, import_id, ctx.item_title, palette) if not results and quote is None else []
     return CatalogContext(intent, results, listing, quote, search_parse_failed)
 
 
@@ -547,14 +555,14 @@ async def extract_search_intent(cfg: AvitoBotConfig, ctx: ChatContext, pending: 
         "«Почём?», «а на 512?», «а белый?» после разговора о цене требуют поиск. "
         "«Мне нужен чёрный» после списка цветов — выбор варианта обсуждаемой модели, а не просьба оформить бронь. "
         "Сначала товар из новой реплики, затем последний обсуждаемый товар, затем объявление. "
-        "«Белый на терабайт сколько?» — укажи цвет white и storage_gb=1024, модель возьми из разговора "
+        "«Белый на терабайт сколько?» — укажи цвет «белый» и storage_gb=1024, модель возьми из разговора "
         "или объявления. При смене товара не переноси характеристики предыдущей модели. "
         "«Я сейчас приеду» — сама по себе не просьба назвать цену. Для вопроса без поиска верни queries=[]. "
         "Не включай сдаваемый в trade-in товар, если о покупке именно его не спросили. "
         "Не выдумывай незаданные параметры. На каждый запрошенный вариант — отдельный запрос. "
         "Производитель латиницей, category коротким ключом: smartphone, tablet, computer, headphones, watch, "
         "vacuum, console, camera, accessory или подходящий тип для иной техники. "
-        "Модель пиши как в запросе, убери из неё объём, цвет, SIM. "
+        "Модель пиши как в запросе, убери из неё объём, цвет, SIM. В color сохраняй название цвета покупателя на исходном языке. "
         "Для смартфона используй ram_gb, storage_gb (целые числа), color, sim, region. "
         "SIM: two_physical, one_physical, physical_esim, esim_only, has_physical. "
         "Для другой техники используй её свойства, не добавляй поля телефона. "
@@ -666,7 +674,7 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
 
     async def rule_decision(rule: AvitoBotRule) -> Decision:
         import_id = await avito_catalog.active_import(session, cfg.price_list)
-        items = await avito_catalog.listing_items(session, import_id, ctx.item_title)
+        items = await avito_catalog.listing_items(session, import_id, ctx.item_title, avito_catalog.import_colors(cfg.price_list))
         text_, unknown, _ = checked_reply_prices(cfg, rule.answer.strip(), ctx.item_title, pending_text, items=items)
         if unknown:
             return Decision("handoff", reason=f"Цена в автоответе не подтверждена прайсом ({unknown[0]} ₽)")
@@ -798,6 +806,10 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
                    "В поле reply пиши только ответы на остальные вопросы покупателя. Не вставляй строку товара с ценой, "
                    "даже если она есть в истории, результатах поиска или примерах. Для совпадения exact цена уже подтверждена. "
                    "Не обещай уточнить цену или передать вопрос о цене менеджеру.")
+        if any(result.storefront for result in requested.results):
+            system += ("\nЗапрошенная комплектация найдена в каталоге магазина. "
+                       "Бэкенд отдельно сообщит, что известно о наличии и цене для Авито. "
+                       "Не делай выводов о наличии этой комплектации и не повторяй эту часть ответа.")
     system += ("\nТы отвечаешь как сотрудник магазина. Не обращайся к продавцу от лица покупателя, "
                "не пересказывай его сообщение вместо ответа и не придумывай банковские реквизиты.")
     try:
@@ -831,7 +843,11 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
             return outcome("silent", reason="Ответ модели ушёл в сторону от магазина — бот промолчал",
                             catalog=lines, examples_used=len(examples))
     if price_text and reply:
-        reply = avito_quotes.without_retail_prices(reply)
+        availability_confirmed = bool(requested.results) and all(
+            result.status == "exact" or (result.storefront == "in_stock" and result.status != "unavailable")
+            for result in requested.results
+        )
+        reply = avito_quotes.without_retail_prices(reply, availability_confirmed=availability_confirmed)
         if quote and quote.trade_in:
             reply = avito_quotes.without_trade_in_restatement(reply)
     if reply:
@@ -1189,7 +1205,7 @@ async def create_test_order() -> Order:
         import_id = await avito_catalog.active_import(session, cfg.price_list)
         match = None
         for product in products:
-            price = await booking_price(session, import_id, product)
+            price = await booking_price(session, import_id, product, avito_catalog.import_colors(cfg.price_list))
             if price is not None:
                 match = product, price
                 break
@@ -1281,7 +1297,7 @@ async def create_chat_order(session: AsyncSession, chat: AvitoChat, payload: dic
     planned_price = payload.get("price") if payload.get("price_source") == "avito_price_list" else None
     cfg = await load_config(session)
     import_id = await avito_catalog.active_import(session, cfg.price_list)
-    price = await booking_price(session, import_id, product)
+    price = await booking_price(session, import_id, product, avito_catalog.import_colors(cfg.price_list))
     if price is None:
         return "не найдена точная цена в прайсе"
     price = Decimal(str(price))
@@ -1833,7 +1849,7 @@ async def process_reminder(chat_id: UUID, cfg: AvitoBotConfig) -> int:
         if chat is None or not automatic_allowed(cfg, chat):
             return 0
         import_id = await avito_catalog.active_import(session, cfg.price_list)
-        items = await avito_catalog.listing_items(session, import_id, chat.item_title)
+        items = await avito_catalog.listing_items(session, import_id, chat.item_title, avito_catalog.import_colors(cfg.price_list))
         state = await chat_state(session, chat)
         last_client = next((t for a, t in reversed(state.ctx.history) if a == "client"), "")
         text_: str | None = None

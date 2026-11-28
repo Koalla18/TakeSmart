@@ -47,6 +47,26 @@ def test_normalize_and_keywords():
     assert keyword_matches("ещё", normalize("еще"))                  # ё = е
 
 
+def test_listing_finds_the_same_variant_in_localized_color_titles():
+    from src.app.core.avito_catalog import listing_query
+
+    for model, english, russian in (
+        ("Samsung Galaxy S26 Ultra 12/256", "Titanium Gray", "серый титан"),
+        ("Google Pixel 11 Pro XL 12/256", "Fog", "серо-зелёный"),
+        ("iPad Air 13 M4 2026 Wi-Fi 128 ГБ", "Midnight", "тёмная ночь"),
+        ("MacBook Air 15 M5 512 ГБ", "Sky Blue", "небесно-голубой"),
+        ("Dyson HS08", "Apricot Topaz", "абрикосовый"),
+        ("Apple Watch Series 11 42 M/L", "Rose Gold", "розовое золото"),
+        ("AirPods Max 2026", "Indigo", "индиго"),
+    ):
+        original = listing_query(f"{model}, {english}")
+        assert original and original.attributes.get("color"), model
+        for label in (russian, f"{english} ({russian})", f"{russian} ({english})"):
+            result = listing_query(f"{model}, {label}")
+            assert result and result.brand == original.brand and result.model == original.model, (model, label)
+            assert result.attributes == original.attributes, (model, label, original, result)
+
+
 def test_match_rule_longest_phrase_and_limits():
     m = match_rule(RULES, "Добрый день, где вы находитесь?", {}, NOW)
     assert m and m.rule.id == "addr" and m.keyword == "где вы находитесь"

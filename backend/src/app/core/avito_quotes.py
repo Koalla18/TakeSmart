@@ -2,16 +2,18 @@
 from __future__ import annotations
 
 import re
-from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
 
-from src.app.core.avito_catalog import Match, ProductQuery, Scalar, SearchResult, attribute_value, listing_query, model_key
+from src.app.core.avito_catalog import (
+    ImportColors, Match, ProductQuery, Scalar, SearchResult, attribute_value, listing_query, model_key,
+)
 from src.app.core.avito_bot_engine import (
-    COLORS, ChatContext, _CAPACITY, _capacity, _line_country, _reply_sim_label, _variant_colors, format_price, normalize,
+    ChatContext, _CAPACITY, _capacity, _line_country, _reply_sim_label, format_price, normalize,
     MIN_QUOTED_PRICE, quoted_prices, trade_in_amounts,
 )
+from src.app.core.avito_colors import color_candidates, color_key, color_label, color_mentions
 
 _PRICE_WORD = re.compile(r"\b(?:цен[ауые]|ценник|по\s*ч[её]м|стоимост\w*|сколько стоит)\b", re.IGNORECASE)
 _HOW_MUCH = re.compile(r"\b(?:сколько|скока)\b", re.IGNORECASE)
@@ -58,6 +60,11 @@ _SUPPLEMENT_CLAUSE = re.compile(
 )
 _SERVICE_FEE = re.compile(r"\b(?:достав\w*|предоплат\w*|пвз|сдэк|курьер\w*)\b", re.IGNORECASE)
 _PRICE_CLAUSE = re.compile(r"\b(?:цен[аыуеой]*|ценник\w*|стоимост\w*|прайс\w*|по\s*ч[её]м)\b", re.IGNORECASE)
+_STOCK_DENIAL = re.compile(
+    r"\b(?:(?:нет|не вижу|отсутствует)\b[^.!?;]{0,50}\bв наличии|"
+    r"в наличии\s+(?:нет|не вижу)|не\s+в\s+наличии)\b",
+    re.IGNORECASE,
+)
 _VARIANT_FILLER = re.compile(
     r"\b(?:а|и|да|мне|вам|у|вас|нужен|нужна|нужно|нужны|надо|хочу|хотел|хотела|"
     r"бы|можно|есть|имеется|бывает|в|на|цвет|цвете|цвета|вариант|памяти|только|пожалуйста|подскажите)\b"
@@ -95,14 +102,6 @@ _OTHER_PRODUCT = re.compile(
 _TERABYTE = re.compile(r"\b(?:(1|2|4|8)\s*)?терабайт\w*\b", re.IGNORECASE)
 _BARE_RAM = re.compile(r"(?<![\w/])(4|6|8|12|16|18|24)\s+(?=(?:128|256|512|1024)\b)")
 _SENT_PRICE = re.compile(r"^(?P<title>.+?)\s+—\s+\d[\d\s]*\s*₽(?:\s+без trade-in)?(?:\s+\(картой — [\d\s]+₽\))?\.?\s*$")
-_rendered_colors: dict[str, set[str]] = defaultdict(set)
-for _official_color, _translated_color in COLORS.values():
-    _rendered_colors[_translated_color.casefold()].add(_official_color)
-_QUOTE_COLORS = {label: next(iter(names)) for label, names in _rendered_colors.items() if len(names) == 1}
-_QUOTE_COLOR = re.compile(
-    r",\s*(" + "|".join(re.escape(label) for label in sorted(_QUOTE_COLORS, key=len, reverse=True)) + r")(?=\s*(?:,|$))",
-    re.IGNORECASE,
-)
 _BUYER_VOICE = re.compile(
     r"^\s*(?:(?:[А-ЯЁ][а-яё-]+),\s*)?(?:(?:добрый (?:день|вечер)|доброе утро|здравствуйте|привет)[!.,\s]+)?"
     r"(?:подскажите(?:, пожалуйста)?,?\s+(?:есть ли|можно ли|сколько стоит|какая цена|"
@@ -131,8 +130,8 @@ def can_resolve_from_words(pending: str) -> bool:
     return not (_DEPENDENT_PRODUCT.search(pending) or _COMPARISON.search(pending))
 
 
-def query_from_words(subject: ProductQuery, text: str) -> ProductQuery:
-    attrs, sizes, _ = _options(text, subject.brand)
+def query_from_words(subject: ProductQuery, text: str, import_colors: ImportColors | None = None) -> ProductQuery:
+    attrs, sizes, _ = _options(text, subject.brand, import_colors)
     if len(sizes) == 1:
         attrs = _with_capacity(attrs, *sizes[0])
     return subject.model_copy(update={"attributes": attrs})
@@ -159,13 +158,13 @@ def _named_phone(text: str) -> tuple[ProductQuery | None, str]:
     return ProductQuery(brand=brand, category="smartphone", model=model), remainder
 
 
-def _options(text: str, brand: str | None) -> tuple[dict[str, Scalar], list[tuple[str | None, int]], set[str]]:
+def _options(
+    text: str, brand: str | None, import_colors: ImportColors | None = None,
+) -> tuple[dict[str, Scalar], list[tuple[str | None, int]], set[str]]:
     capacities = list(dict.fromkeys(
         _capacity(match) for match in _CAPACITY.finditer(_TERABYTE.sub(lambda m: f"{m[1] or '1'} ТБ", text))
     ))
-    colors = _variant_colors(text)
-    if "burgundy" in colors and re.search(r"\bкрасн\w*\b", text, re.IGNORECASE):
-        colors = colors - {"burgundy"} | {"red"}
+    colors = set(import_colors.mentions(text) if import_colors else color_mentions(text))
     attrs: dict[str, Scalar] = {}
     if len(colors) == 1:
         attrs["color"] = next(iter(colors))
@@ -256,30 +255,18 @@ def trade_in_rejection(phone: ProductQuery | None, policy: str) -> str | None:
     return f"Понял, вы хотите сдать {device}. К сожалению, эту модель мы сейчас не принимаем по trade-in."
 
 
-def _short_variant_choice(text: str, sizes: list[tuple[str | None, int]], colors: set[str]) -> bool:
+def _short_variant_choice(text: str, sizes: list[tuple[str | None, int]], colors: set[str],
+                          import_colors: ImportColors | None) -> bool:
     if not (sizes or colors):
         return False
     value = normalize(_CAPACITY.sub(" ", _TERABYTE.sub(" ", text)))
     value = " ".join(_VARIANT_FILLER.sub(" ", value).split())
     if not value:
         return bool(sizes)
-    return bool(colors and (value in COLORS or len(value.split()) == 1 and _variant_colors(value) == colors))
+    return (import_colors.key(value) if import_colors else color_key(value)) in colors
 
 
-def _sent_subject(title: str) -> ProductQuery | None:
-    title = _QUOTE_COLOR.sub(lambda match: ", " + _QUOTE_COLORS[match[1].casefold()], title)
-    parsed = listing_query(title)
-    named, remainder = _named_phone(title)
-    if not parsed or not named or parsed.brand != named.brand:
-        return parsed
-    # A localized color in a rendered older quote may not be understood by the import parser.
-    # The phone's actual family is still identifiable without taking the color as part of its name.
-    return parsed.model_copy(update={"model": named.model, "attributes": {
-        **parsed.attributes, **query_from_words(named, remainder).attributes,
-    }})
-
-
-def conversation_subject(ctx: ChatContext) -> tuple[ProductQuery | None, bool]:
+def conversation_subject(ctx: ChatContext, import_colors: ImportColors | None = None) -> tuple[ProductQuery | None, bool]:
     """Последний товар по уже отправленным предложениям и явным репликам покупателя."""
     if ctx.quoted_subject is not None:
         return (ProductQuery.model_validate(ctx.quoted_subject) if ctx.quoted_subject.get("model")
@@ -289,7 +276,7 @@ def conversation_subject(ctx: ChatContext) -> tuple[ProductQuery | None, bool]:
         history.pop()
     for index, (author, message) in reversed(list(enumerate(history))):
         if author != "client":
-            quoted = [_sent_subject(match["title"].lstrip("• -")) for line in message.splitlines()
+            quoted = [listing_query(match["title"].lstrip("• -"), import_colors) for line in message.splitlines()
                       if (match := _SENT_PRICE.fullmatch(line))]
             quoted = [query for query in quoted if query and query.brand]
             if quoted:
@@ -298,6 +285,19 @@ def conversation_subject(ctx: ChatContext) -> tuple[ProductQuery | None, bool]:
                        model_key(subject.model or "", subject.brand or "") for query in quoted):
                     return None, True
                 common = {k: v for k, v in subject.attributes.items() if all(q.attributes.get(k) == v for q in quoted)}
+                if "color" not in common and all(q.attributes.get("color") for q in quoted):
+                    previous = next((text for who, text in reversed(history[:index]) if who == "client"), "")
+                    requested = (import_colors.mentions if import_colors else color_mentions)(retail_part(previous))
+                    if not requested and not _COLOR_TURN.fullmatch(normalize(previous)):
+                        listing = listing_query(ctx.item_title, import_colors)
+                        if listing and listing.attributes.get("color") and model_key(
+                            listing.model or "", listing.brand or ""
+                        ) == model_key(subject.model or "", subject.brand or ""):
+                            requested = [str(listing.attributes["color"])]
+                    if len(requested) == 1:
+                        candidates = (import_colors.candidates if import_colors else color_candidates)(requested[0])
+                        if all(q.attributes["color"] in candidates for q in quoted):
+                            common["color"] = requested[0]
                 return subject.model_copy(update={"attributes": common, "reference": "conversation"}), True
         else:
             purchase = retail_part(message)
@@ -309,7 +309,7 @@ def conversation_subject(ctx: ChatContext) -> tuple[ProductQuery | None, bool]:
                 continue
         named, remainder = _named_phone(message)
         if named:
-            attrs, sizes, _ = _options(remainder, named.brand)
+            attrs, sizes, _ = _options(remainder, named.brand, import_colors)
             if len(sizes) == 1:
                 attrs = _with_capacity(attrs, *sizes[0])
             return named.model_copy(update={"attributes": attrs, "reference": "conversation"}), True
@@ -335,7 +335,7 @@ def quoted_subject(search: list[dict]) -> dict:
     context = {"options": options} if len(options) > 1 else {}
     exact = [(result["query"], match) for result in search for match in result["matches"] if match["relation"] == "exact"]
     if not exact:
-        if len(search) == 1 and search[0]["status"] in ("same_model", "unavailable"):
+        if len(search) == 1 and (search[0].get("storefront") or search[0]["status"] in ("same_model", "unavailable")):
             return {**context, **search[0]["query"], "reference": "conversation"}
         return context
     first_query, first_match = exact[0]
@@ -343,6 +343,11 @@ def quoted_subject(search: list[dict]) -> dict:
         return context
     shared = {key: value for key, value in first_match["attributes"].items()
               if key != "few" and all(other["attributes"].get(key) == value for _, other in exact)}
+    requested_color = first_query["attributes"].get("color")
+    if requested_color and "color" not in shared and all(
+        query["attributes"].get("color") == requested_color for query, _ in exact
+    ):
+        shared["color"] = requested_color
     required = [key for key in first_query.get("required", []) if all(
         key in query.get("required", []) and query["attributes"].get(key) == first_query["attributes"].get(key)
         for query, _ in exact
@@ -353,10 +358,10 @@ def quoted_subject(search: list[dict]) -> dict:
             "model_id": first_match.get("model_id")}
 
 
-def price_request(ctx: ChatContext, pending: str) -> QuoteRequest | None:
+def price_request(ctx: ChatContext, pending: str, import_colors: ImportColors | None = None) -> QuoteRequest | None:
     purchase = retail_part(pending)
-    subject, discussed = conversation_subject(ctx)
-    listing = listing_query(ctx.item_title)
+    subject, discussed = conversation_subject(ctx, import_colors)
+    listing = listing_query(ctx.item_title, import_colors)
     named, remainder = _named_phone(purchase)
     payment = "transfer" if _TRANSFER.search(pending) else "card" if _CARD.search(pending) else None
     options = (ctx.quoted_subject or {}).get("options")
@@ -378,14 +383,15 @@ def price_request(ctx: ChatContext, pending: str) -> QuoteRequest | None:
         named is None and any(pattern.search(purchase) for pattern in (_OTHER_PRODUCT, _IPHONE, _SAMSUNG, _PRODUCT_CATEGORY))
     ) or not can_resolve_from_words(purchase)
     source = named or (subject if discussed else listing)
-    extra, capacities, colors = _options(remainder, source.brand if source else None)
+    extra, capacities, colors = _options(remainder, source.brand if source else None, import_colors)
     short_turn = normalize(purchase)
     keep_item = bool(_KEEP_ITEM.fullmatch(short_turn))
     if keep_item:
         source = (subject if ctx.quoted_subject and "из объявления" not in short_turn else listing) or subject
     color_menu = bool(_COLOR_TURN.fullmatch(short_turn))
     variant_choice = bool(not named and not requires_interpretation and (
-        keep_item or color_menu or _AVAILABILITY_TURN.fullmatch(short_turn) or _short_variant_choice(purchase, capacities, colors)
+        keep_item or color_menu or _AVAILABILITY_TURN.fullmatch(short_turn)
+        or _short_variant_choice(purchase, capacities, colors, import_colors)
     ))
     changed_options = bool(extra or capacities or colors)
     wants_price = explicit or variant_choice or (follow_up and changed_options) or (payment == "card" and _CARD_FOLLOWUP.fullmatch(pending))
@@ -428,16 +434,25 @@ def _line(match: Match, card_markup: Decimal | None = None) -> str:
     item = match.item
     name = item.name
     color = item.attributes.get("color")
-    if color and (label := COLORS.get(color)):
-        name = re.sub(rf"\b{re.escape(label[0])}\b", label[1], name, flags=re.IGNORECASE)
     details = []
     if storage := item.attributes.get("storage"):
         if normalize(storage) not in normalize(name) and not ("/" in storage and normalize(storage.split("/")[-1]) in normalize(name)):
             size = item.attributes.get("catalog_attributes", {}).get("storage_gb")
             if not (isinstance(size, int) and size % 1024 == 0 and re.search(rf"\b{size // 1024}\s*(?:тб|tb)\b", name, re.I)):
                 details.append(storage)
-    if color and not any(normalize(label_part) in normalize(name) for label_part in COLORS.get(color, (color,))):
-        details.append(COLORS.get(color, (color, color))[1])
+    if color:
+        official, localized = color_label(color)
+        display = localized or official
+        if localized and len(color_candidates(localized)) > 1:
+            display = f"{localized} ({official})"
+        if localized:
+            # Stored names can already contain both halves of a bilingual label.
+            label = rf"\b{re.escape(official)}\b(?:\s*\(\s*{re.escape(localized)}\s*\))?|\b{re.escape(localized)}\b"
+            name, replaced = re.subn(label, lambda _: display, name, count=1, flags=re.I)
+            if not replaced:
+                details.append(display)
+        elif f" {normalize(official)} " not in f" {normalize(name)} ":
+            details.append(official)
     details.extend(item.attributes[key] for key in ("country", "sim") if item.attributes.get(key))
     title = ", ".join([name, *details])
     line = f"{title} — {format_price(int(item.price))} ₽ без trade-in"
@@ -448,6 +463,8 @@ def _line(match: Match, card_markup: Decimal | None = None) -> str:
 
 
 def _shown_matches(result: SearchResult) -> list[Match]:
+    if result.storefront:
+        return []
     if result.status == "same_model":
         sim_unverified = [match for match in result.matches if match.relation == "same_model"
                           and set(match.differences) == {"sim"} and match.differences["sim"]["found"] is None]
@@ -463,10 +480,12 @@ def _shown_matches(result: SearchResult) -> list[Match]:
         return candidates[:2]
     storage = {m.item.attributes.get("storage") for m in exact}
     if "storage_gb" not in result.query.attributes and len(storage) > 1:
-        first_by_storage = {}
+        first_by_variant = {}
         for match in exact:
-            first_by_storage.setdefault(match.item.attributes.get("storage"), match)
-        candidates = list(first_by_storage.values())
+            attrs = match.item.attributes
+            key = attrs.get("storage"), attrs.get("color") if "color" in result.query.attributes else None
+            first_by_variant.setdefault(key, match)
+        candidates = list(first_by_variant.values())
     return candidates[:4]
 
 
@@ -492,14 +511,21 @@ def format_quote(results: list[SearchResult], card_markup: Decimal | None = None
     seen = set()
     for result in results:
         matches = _shown_matches(result)
-        if result.status == "same_model" and matches and set(matches[0].differences) == {"sim"} and matches[0].differences["sim"]["found"] is None:
+        if result.storefront:
+            lines.append("По каталогу магазина эта комплектация в наличии." if result.storefront == "in_stock"
+                         and result.status != "unavailable" else "Эта комплектация есть в каталоге магазина.")
+            if result.status == "unavailable":
+                lines.append("Данные о наличии расходятся, нужно подтвердить перед покупкой.")
+            lines.append("Розничную цену для Авито пока не могу подтвердить.")
+        elif result.status == "same_model" and matches and set(matches[0].differences) == {"sim"} and matches[0].differences["sim"]["found"] is None:
             # Прайс подтверждает модель, память и цвет. Отдельно обозначаем непроверенную SIM.
             lines.append("Цены по прайсу. Тип SIM у конкретного экземпляра нужно подтвердить.")
         elif result.status != "exact":
             query = result.query
             details = [query.model or query.brand or ""]
             if color := query.attributes.get("color"):
-                details.append(COLORS.get(str(color), (str(color), str(color)))[1])
+                official, localized = color_label(str(color))
+                details.append(localized or official)
             if size := query.attributes.get("storage_gb"):
                 details.append(f"{size // 1024} ТБ" if isinstance(size, int) and size % 1024 == 0 else f"{size} ГБ")
             target = ", ".join(filter(None, details))
@@ -527,10 +553,12 @@ def supplemental_question(text: str) -> str:
     return "\n".join(questions)
 
 
-def without_retail_prices(reply: str) -> str:
+def without_retail_prices(reply: str, *, availability_confirmed: bool = False) -> str:
     """Leave retail prices to the catalog, including statements about whether they are known."""
     kept = []
     for clause in _SUPPLEMENT_CLAUSE.split(reply):
+        if availability_confirmed and _STOCK_DENIAL.search(clause):
+            continue
         amounts = trade_in_amounts(clause)
         service_fee = _SERVICE_FEE.search(clause) and (not amounts or max(amounts) < MIN_QUOTED_PRICE)
         if service_fee or not (amounts or _PRICE_CLAUSE.search(clause)):

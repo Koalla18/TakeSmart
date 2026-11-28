@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol, Sequence
 
+from src.app.core.avito_colors import COLORS, color_candidates, color_key, color_label, color_mentions, color_spans
+
 MSK = timezone(timedelta(hours=3))
 DAY_NAMES = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
 
@@ -1231,71 +1233,31 @@ def audit_reply_prices(reply: str, items: Sequence["CatalogItem"], vocab: set[st
 
 # ── Контроль цветов в ответе ─────────────────────────────────────────────────
 
-# Русские цвета → канонический цвет из прайса. «Красный» осознанно ведёт на burgundy:
-# в ассортименте это ближайший оттенок (бордовый), и мы его предлагаем вместо отказа
-COLOR_WORDS = {
-    "бордовый": "burgundy", "красный": "burgundy", "оранжевый": "orange", "оранж": "orange",
-    "голубой": "blue", "небесно-голубой": "blue", "синий": "blue", "белый": "white",
-    "черный": "black", "серебристый": "silver", "серебро": "silver", "золотой": "gold",
-    "розовый": "pink", "бирюзовый": "teal", "лавандовый": "lavender", "фиолетовый": "purple",
-    "зеленый": "green", "желтый": "yellow", "серый": "gray", "титановый": "titanium",
-    "песочный": "desert", "космос": "cosmic",
-}
-
 _NEGATED = re.compile(r"\b(нет\b|не\b|не\s+бывает|отсутств\w+|к\s+сожалению|без\b)", re.IGNORECASE)
+# These short labels are exposed in existing audit diagnostics. Matching always uses
+# the full color candidates, including the distinction between similarly named finishes.
+_AUDIT_COLOR_NAMES = {"голубой": "blue", "синий": "blue", "черный": "black", "белый": "white",
+                      "серебристый": "silver", "розовый": "pink", "серый": "gray", "фиолетовый": "purple",
+                      "зеленый": "green", "желтый": "yellow", "оранжевый": "orange", "красный": "red"}
 
 
-def _build_color_stems() -> list[tuple[str, str]]:
-    stems: list[tuple[str, str]] = []
-    for word, canon in COLOR_WORDS.items():
-        stem = word.split("-")[-1]
-        if len(stem) > 4 and stem[-2:] in ("ый", "ий", "ой"):
-            stem = stem[:-2]
-        stems.append((stem, canon))
-    return sorted(stems, key=lambda sc: -len(sc[0]))   # длинные корни раньше: «серебрист…» ≠ «серый»
-
-
-_COLOR_STEMS = _build_color_stems()
-
-
-def _canonical_color(token: str) -> str | None:
-    """Цвет слова с учётом падежей: «бордовую» → burgundy, «голубого» → blue."""
-    parts = token.split("-") if token else []
-    for part in parts or [""]:
-        for stem, canon in _COLOR_STEMS:
-            if len(stem) >= 3 and part.startswith(stem):
-                return canon
-    return None
-
-
-def _color_canonicals(items: Sequence["CatalogItem"]) -> set[str]:
-    """Какие цвета реально есть у позиций (en + русские, всё в канонический вид)."""
-    out: set[str] = set()
-    for it in items:
-        a = it.attributes or {}
-        for key in ("color", "color_ru"):
-            value = a.get(key)
-            if not isinstance(value, str) or not value.strip():
-                continue
-            v = normalize(value)
-            canon = _canonical_color(v)
-            out.add(canon or v)
-    return out
+def _asserted_shades(text: str) -> list[tuple[str, str]]:
+    mentions = []
+    for clause in re.split(r"[!?…\n;—–]+|,\s*(?=зато|но|а\s)|\.(?=\s|$)", text or "", flags=re.I):
+        check = re.sub(r"\bбез\s+(?:trade[ -]?in|трейд[ -]?ин\w*|обмена|скидки|доплат\w*)", "", clause, flags=re.I)
+        if not _NEGATED.search(normalize(check)):
+            mentions.extend((clause[start:end], key) for start, end, key in color_spans(clause))
+    return mentions
 
 
 def asserted_colors(reply: str) -> list[str]:
-    """Цвета, названные в ответе УТВЕРДИТЕЛЬНО (не «нет», «не бывает», «к сожалению»).
-    Канонический вид: burgundy, orange, blue…"""
-    out: list[str] = []
-    for clause in re.split(r"[.,!?…\n;—–]+", reply or ""):
-        t = normalize(clause)
-        if not t or _NEGATED.search(t):
-            continue
-        for token in t.split():
-            canon = _canonical_color(token.strip(",:()«»\"'—–-"))
-            if canon and canon not in out:
-                out.append(canon)
-    return out
+    """Утвердительно названные цвета в формате диагностики Авито."""
+    return list(dict.fromkeys(_AUDIT_COLOR_NAMES.get(key, key) for _, key in _asserted_shades(reply)))
+
+
+def _available_colors(items: Sequence["CatalogItem"]) -> set[str]:
+    return {color_key(str(value)) for item in items
+            if (value := item.attributes.get("color") or item.attributes.get("color_ru"))}
 
 
 def audit_reply_colors(reply: str, items: Sequence["CatalogItem"], vocab: set[str],
@@ -1305,13 +1267,14 @@ def audit_reply_colors(reply: str, items: Sequence["CatalogItem"], vocab: set[st
     цвета в отрицательных клаузах («красного нет») не считаются."""
     bad: list[str] = []
     for sentence in re.split(r"[!?;\n]|(?<!\d)\.(?!\d)", _REPLY_MONEY.sub(" ", reply)):
-        colors = asserted_colors(sentence)
+        colors = _asserted_shades(sentence)
         if not colors:
             continue
         variants = _price_variants(items, sentence, anchor, vocab, index, filter_color=False)
-        available = _color_canonicals(variants)
+        available = _available_colors(variants)
         if available:
-            bad.extend(color for color in colors if color not in available)
+            bad.extend(_AUDIT_COLOR_NAMES.get(key, key) for _, key in colors
+                       if key not in available and color_candidates(key).isdisjoint(available))
     return list(dict.fromkeys(bad))
 
 
@@ -1349,19 +1312,8 @@ def _capacity(match: re.Match) -> tuple[str | None, int]:
 
 
 def _variant_colors(text: str) -> set[str]:
-    words = _WORD.findall(normalize(text))
-    colors = set(asserted_colors(text))
-    offset = 0
-    while offset < len(words):
-        for count in range(min(3, len(words) - offset), 0, -1):
-            name = " ".join(words[offset:offset + count])
-            if name.isascii() and name in COLORS:
-                colors.add(normalize(COLORS[name][0]))
-                offset += count
-                break
-        else:
-            offset += 1
-    return colors
+    return {key for _, key in _asserted_shades(text)}
+
 
 
 def _price_variants(items: Sequence[CatalogItem], text: str, anchor: str | None, vocab: set[str],
@@ -1420,12 +1372,15 @@ def _price_variants(items: Sequence[CatalogItem], text: str, anchor: str | None,
         )]
     if filter_color:
         anchor_colors = _variant_colors(anchor or "") if same_listing else set()
+        asked_candidates = set().union(*(color_candidates(color) for color in colors))
+        listing_candidates = set().union(*(color_candidates(color) for color in anchor_colors))
         same_options = same_listing and not (
-            (colors and anchor_colors and colors.isdisjoint(anchor_colors)) or _CAPACITY.search(text)
+            (colors and anchor_colors and asked_candidates.isdisjoint(listing_candidates)) or _CAPACITY.search(text)
         )
         colors = colors or anchor_colors
         if colors:
-            scope = [item for item in scope if colors & _color_canonicals([item])]
+            wanted = colors | (asked_candidates or listing_candidates)
+            scope = [item for item in scope if not wanted.isdisjoint(_available_colors([item]))]
         country = country or (_line_country(anchor or "") if same_options else None)
         sim = sim or (_reply_sim_label(anchor or "") if same_options else None)
         scope = [
@@ -1485,13 +1440,6 @@ def is_own_repeat(reply: str, ctx: "ChatContext") -> bool:
 
 _COLOR_ASK = re.compile(r"есть|нужн\w*|хочу|интересу\w*|ищу|смотр\w*|выбра\w*|выбер\w*|цвет|цвета", re.IGNORECASE)
 _TRADE_IN_HINT = re.compile(r"трейд|trade|зач[её]т|сдать|обмен|оцен\w*|аккумулятор", re.IGNORECASE)
-_RU_COLOR = {"burgundy": "бордовый", "orange": "оранжевый", "blue": "голубой", "white": "белый",
-             "black": "черный", "silver": "серебристый", "gold": "золотой", "pink": "розовый",
-             "teal": "бирюзовый", "lavender": "лавандовый", "purple": "фиолетовый", "green": "зеленый",
-             "yellow": "желтый", "gray": "серый", "titanium": "титановый", "desert": "песочный",
-             "cosmic": "космический"}
-
-
 def color_offer_reply(pending: str, anchor: str | None, items: Sequence["CatalogItem"],
                       vocab: set[str], index: "SearchIndex | None", max_variants: int = 3) -> str | None:
     """Покупатель спрашивает цвет, которого нет у этой модели в прайсе, — отвечаем сами,
@@ -1499,37 +1447,27 @@ def color_offer_reply(pending: str, anchor: str | None, items: Sequence["Catalog
     None — не наш случай (цвет есть, вопрос не про цвет или модель неясна): отвечает модель."""
     if not items or _TRADE_IN_HINT.search(pending or ""):
         return None
-    asked = asserted_colors(pending)
+    asked = _asserted_shades(pending)
     if not asked or not _COLOR_ASK.search(normalize(pending)):
         return None
     same = _price_variants(items, _REPLY_MONEY.sub(" ", pending), anchor, vocab, index, filter_color=False)
-    available = _color_canonicals(same)
+    available = _available_colors(same)
     if not available:
         return None
-    missing = [c for c in asked if c not in available]
+    missing = [label for label, key in asked if key not in available and color_candidates(key).isdisjoint(available)]
     if not missing:
         return None                      # спрошенный цвет есть — пусть отвечает модель
     variants: list[str] = []
     for it in same:
         a = it.attributes or {}
-        canon = _canonical_color(normalize(str(a.get("color") or ""))) or str(a.get("color") or "")
-        color_ru = str(a.get("color_ru") or "") or _RU_COLOR.get(canon, canon)
+        label, translated = color_label(str(a.get("color") or ""))
+        color_ru = a.get("color_ru") or translated or label
         extra = ", ".join(str(a[k]) for k in ("country", "sim") if a.get(k))
         variants.append(f"{color_ru} — {format_price(int(round(it.price)))} ₽" + (f" ({extra})" if extra else ""))
     variants = variants[:max_variants]
     offer = " и ".join([", ".join(variants[:-1]), variants[-1]]) if len(variants) > 1 else variants[0]
-    word = next(w for w, c in _asked_color_words(pending) if c in missing)
+    word = missing[0]
     return (f"Цвета «{word}» у этой модели сейчас нет, но есть {offer}. Какой подойдёт?")
-
-
-def _asked_color_words(text: str) -> list[tuple[str, str]]:
-    """(слово как написал покупатель, канонический цвет) по тексту."""
-    out: list[tuple[str, str]] = []
-    for token in normalize(text).split():
-        canon = _canonical_color(token.strip(",:()«»\"'—–-"))
-        if canon:
-            out.append((token, canon))
-    return out
 
 
 def sanitize_reply(text: str) -> tuple[str, bool]:
@@ -1554,41 +1492,6 @@ COUNTRIES = {
     "RU": "Россия", "KZ": "Казахстан", "TH": "Таиланд", "VN": "Вьетнам", "MY": "Малайзия", "ID": "Индонезия",
     "TW": "Тайвань", "DE": "Германия", "FR": "Франция", "IT": "Италия", "ES": "Испания", "TR": "Турция",
     "PA": "Панама", "ZA": "ЮАР", "CL": "Чили", "SO": "Сомали",
-}
-# Цвет как пишут в прайсе (и с опечатками) → (как называется, по-русски)
-COLORS = {
-    "black": ("Black", "чёрный"), "white": ("White", "белый"), "while": ("White", "белый"),
-    "blue": ("Blue", "синий"), "silver": ("Silver", "серебристый"), "orange": ("Orange", "оранжевый"),
-    "gold": ("Gold", "золотой"), "pink": ("Pink", "розовый"), "teal": ("Teal", "бирюзовый"),
-    "ultramarine": ("Ultramarine", "ультрамарин"), "lavender": ("Lavender", "лавандовый"), "sage": ("Sage", "шалфей, зелёный"),
-    "yellow": ("Yellow", "жёлтый"), "desert": ("Desert", "песочный"), "natural": ("Natural", "натуральный титан"),
-    "night sky": ("Night Sky", "ночное небо, тёмно-синий"), "nightsky": ("Night Sky", "ночное небо, тёмно-синий"),
-    "burg": ("Burgundy", "бордовый"), "burgundy": ("Burgundy", "бордовый"), "green": ("Green", "зелёный"),
-    "purple": ("Purple", "фиолетовый"), "red": ("Red", "красный"), "gray": ("Gray", "серый"), "grey": ("Gray", "серый"),
-    "space gray": ("Space Gray", "серый космос"), "space grey": ("Space Gray", "серый космос"),
-    "space black": ("Space Black", "чёрный космос"), "starlight": ("Starlight", "сияющая звезда"),
-    "midnight": ("Midnight", "тёмная ночь"), "titanium": ("Titanium", "титан"), "graphite": ("Graphite", "графит"),
-    "glacier": ("Glacier", "ледник, голубой"), "cream": ("Cream", "кремовый"), "pistachio": ("Pistachio", "фисташковый"),
-    "violet": ("Violet", "фиолетовый"), "cobalt violet": ("Cobalt Violet", "фиолетовый"),
-    "light violet": ("Light Violet", "светло-фиолетовый"), "light pink": ("Light Pink", "светло-розовый"),
-    "l.blue": ("Light Blue", "голубой"), "sky blue": ("Sky Blue", "небесно-голубой"), "jet black": ("Jet Black", "чёрный"),
-    "jetblack": ("Jet Black", "чёрный"), "rose gold": ("Rose Gold", "розовое золото"), "bronze": ("Bronze", "бронзовый"),
-    "indigo": ("Indigo", "индиго"), "blush": ("Blush", "нежно-розовый"), "citrus": ("Citrus", "цитрусовый, жёлтый"),
-    "obsidian": ("Obsidian", "чёрный"), "snow": ("Snow", "белый"), "frost": ("Frost", "голубой"),
-    "hibiscus": ("Hibiscus", "красный"), "fog": ("Fog", "серо-зелёный"), "canyon": ("Canyon", "терракотовый"),
-    "olive": ("Olive", "оливковый"), "berry": ("Berry", "ягодный"), "mint": ("Mint", "мятный"), "navy": ("Navy", "тёмно-синий"),
-    "silver shadow": ("Silver Shadow", "серебристый"), "icyblue": ("Icy Blue", "голубой"), "lilac": ("Lilac", "сиреневый"),
-    "blueberry": ("Blueberry", "синий"), "a.gray": ("Gray", "серый"), "a.black": ("Black", "чёрный"),
-    "a.icyblue": ("Icy Blue", "голубой"), "a.lilac": ("Lilac", "сиреневый"), "a.navy": ("Navy", "тёмно-синий"),
-    "titanium black": ("Titanium Black", "чёрный титан"), "titanium gray": ("Titanium Gray", "серый титан"),
-    "titanium silverblue": ("Titanium SilverBlue", "серо-голубой титан"),
-    "titanium whitesilver": ("Titanium WhiteSilver", "бело-серебристый титан"),
-    "cosmic orange": ("Orange", "оранжевый"), "deep blue": ("Blue", "синий"), "cloud white": ("White", "белый"),
-    "mist blue": ("Mist Blue", "голубой"), "light gold": ("Light Gold", "золотой"),
-    "ceramic pink": ("Ceramic Pink", "розовый"), "jasper plum": ("Jasper Plum", "сливовый"),
-    "apricot topaz": ("Apricot Topaz", "абрикосовый"), "prussian blue": ("Prussian Blue", "синий"),
-    "черный": ("Black", "чёрный"), "чёрный": ("Black", "чёрный"), "белый": ("White", "белый"),
-    "фиолетовый": ("Violet", "фиолетовый"), "синий": ("Blue", "синий"), "серый": ("Gray", "серый"),
 }
 # С этих слов начинается строка «только цвет — цена»: модель берётся из заголовка над ней
 _BARE_STARTS = {k.split()[0] for k in COLORS} | {"space", "jet", "sky", "ceramic", "jasper", "apricot", "prussian",
@@ -1684,39 +1587,28 @@ def _fix_word(word: str) -> str:
 
 def _color(tokens: list[str]) -> tuple[str, str | None]:
     raw = " ".join(tokens).strip()
-    fixed = raw.lower()
-    if fixed in COLORS:
-        return COLORS[fixed]
-    for i in range(len(tokens), 0, -1):          # «Space Gray Titan» → самое длинное известное начало
-        head = " ".join(tokens[:i]).lower()
-        if head in COLORS:
-            en, ru = COLORS[head]
-            rest = " ".join(tokens[i:])
-            return (f"{en} {rest}".strip(), ru)
-    return (raw.title() if raw.islower() else raw), None
+    return color_label(raw)
 
 
 def _find_color(tokens: list[str]) -> tuple[list[str], list[str]]:
-    """Известный цвет в середине названия («Air 15 Midnight M5»). Забираем, только если он один —
-    у часов «Black Black Alpine Loop» цветов несколько, их не разрываем."""
-    found: list[tuple[int, int]] = []
-    i = 1
-    while i < len(tokens):
-        for size in (2, 1):
-            if i + size <= len(tokens) and " ".join(tokens[i:i + size]).lower() in COLORS:
-                found.append((i, size))
-                i += size
-                break
-        else:
-            i += 1
-    if len(found) != 1:
+    """Отделяем один оттенок от названия модели. Составные комплекты часов сохраняют название."""
+    text = " ".join(tokens[1:])
+    spans = color_spans(text)
+    if len(spans) != 1:
         return tokens, []
-    start, size = found[0]
-    return tokens[:start] + tokens[start + size:], tokens[start:start + size]
+    start, end, _ = spans[0]
+    if (start and not text[start - 1].isspace()) or (end < len(text) and not text[end].isspace()):
+        return tokens, []
+    return [*tokens[:1], *text[:start].split(), *text[end:].split()], text[start:end].split()
 
 
 def _expand_model(text: str) -> str:
     """Сокращения поставщиков → полное название, по которому ищут покупатели."""
+    text = re.sub(
+        r"^(?:смартфон|планшет|ноутбук|наушники|игровая консоль|пылесос|фен|стайлер|смарт[- ]часы)\s+"
+        r"(?=(?:apple|samsung|google|dyson|sony|jbl|xiaomi|huawei|honor|iphone|ipad|macbook|airpods|"
+        r"galaxy|pixel|playstation)\b)", "", text, flags=re.IGNORECASE,
+    )
     text = re.sub(r"^iPro\b", "iPad Pro", text)
     # «Apple iPhone», «Samsung S26», «Galaxy S26» у разных поставщиков — одно и то же название
     text = re.sub(r"^Apple\s+(?=iPhone|iPad|MacBook|AirPods|iMac)", "", text, flags=re.IGNORECASE)
@@ -1844,7 +1736,7 @@ def _parse_free_line(line: str, n: int, ctx: _PriceContext) -> CatalogItem | str
         if "прайс" in low:
             return None
         tail = re.sub(r"[^\w\-—–]+$", "", line)
-        has_color = any(w.strip("().,").lower() in COLORS for w in line.split())
+        has_color = bool(color_mentions(line))
         if re.search(r"\w", line) and (tail.endswith(("-", "—", "–")) and re.search(r"\w\s*[-—–]$", tail)
                                        or has_color and re.search(r"\d", line)):
             return f"Строка {n}: не нашёл цену"
@@ -1863,7 +1755,7 @@ def _parse_free_line(line: str, n: int, ctx: _PriceContext) -> CatalogItem | str
         return f"Строка {n}: не понял модель"
     bare = False
     first = text.split()[0].lower()
-    if first in _BARE_STARTS or re.match(r"^\d+\s*(?:gb|гб)?\s*/\s*\d+(?!\d*\s*w)|^\d+\s*(?:gb|гб|tb|тб)\b"
+    if first in _BARE_STARTS or any(start == 0 for start, _, _ in color_spans(text)) or re.match(r"^\d+\s*(?:gb|гб)?\s*/\s*\d+(?!\d*\s*w)|^\d+\s*(?:gb|гб|tb|тб)\b"
                                           r"|^(?:64|128|256|512|1024)\b", text, re.IGNORECASE):
         if not ctx.title:
             return f"Строка {n}: не понял, к какой модели относится «{text}»"
