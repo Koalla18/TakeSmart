@@ -19,7 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.app.core import avito_bot_service as bot, avito_catalog as catalog, avito_client
 from src.app.api.routers.avito_bot import (
-    PriceApplyIn, PriceUpdateIn, list_listings, price_list_apply, price_list_preview, price_list_undo,
+    PriceApplyIn, PriceUpdateIn, connect, get_settings, list_listings, price_list_apply, price_list_preview, price_list_undo,
+    put_settings,
     test_chat as preview_reply,
 )
 from src.app.database.models.avito_bot import AvitoChat, AvitoItemLink, AvitoMessage
@@ -27,7 +28,7 @@ from src.app.database.models.avito_catalog import imports, variants
 from src.app.database.models.order import Order
 from src.app.database.models.product import Product
 from src.app.database.session import AsyncSessionFactory, engine
-from src.app.schemas.avito_bot import AvitoBotConfig, TestIn
+from src.app.schemas.avito_bot import AvitoBotConfig, AvitoBotConfigIn, TestIn
 
 PRICE = """
 Samsung S26 Ultra 16 256 Black 2 SIM — 80 000 ₽
@@ -36,6 +37,11 @@ Samsung S26 Ultra 12/512 Black SIM + eSIM — 83 000 ₽
 iPhone 17 Pro 256 Orange SIM+eSIM — 99 000 ₽
 !|Dyson|vacuum|V15 Detect|50000|да|{"color":"yellow","kit":"absolute"}
 !|Dyson|vacuum|V15 Detect|45000|да|{"color":"yellow","kit":"animal"}
+iPhone Duo 256 GB White eSIM — 219 990 ₽
+iPhone Duo 512 GB White eSIM — 239 990 ₽
+iPhone Duo 512 GB Black eSIM — 234 990 ₽
+iPhone Duo 1 TB White eSIM — 264 990 ₽
+iPhone Duo 1 TB Black eSIM — 259 990 ₽
 """
 SAMSUNG = "Samsung Galaxy S26 Ultra 16/256 Black 2 SIM"
 IPHONE = "iPhone 17 Pro 256 Orange SIM+eSIM"
@@ -72,7 +78,7 @@ class CatalogIntegration(unittest.IsolatedAsyncioTestCase):
             position_count = len((await session.execute(
                 select(variants.c.key).where(variants.c.import_id == revision)
             )).all())
-            self.assertEqual(position_count, 6)
+            self.assertEqual(position_count, 11)
 
             query = catalog.ProductQuery(brand="Samsung", category="smartphone", model="С26 ультра",
                 attributes={"ram_gb": 16, "storage_gb": 256, "sim": "two_physical", "color": "чёрный"},
@@ -246,6 +252,158 @@ class CatalogIntegration(unittest.IsolatedAsyncioTestCase):
             async with AsyncSessionFactory() as session:
                 self.assertEqual((await session.get(AvitoMessage, late_id)).status, "discarded")
             send.assert_awaited_once()
+
+    async def test_duo_contextual_price_and_mixed_transfer(self):
+        cfg = AvitoBotConfig(
+            enabled=True, listing_scope="selected", allowed_listing_ids=[1001, 1003], collect_messages_seconds=5,
+            mode="auto", human_mode=False, orders_enabled=False, price_list=PRICE, greeting="",
+            llm_provider="deepseek", llm_api_key="fake-test-key",
+        )
+        await self.save(cfg)
+
+        async def duo_model(_config, messages):
+            if messages[0]["content"].startswith("Извлеки поисковые"):
+                if "а на 512?" in messages[0]["content"].lower():
+                    return json.dumps({"queries": [{
+                        "brand": "Apple", "category": "smartphone", "model": "iPhone Duo",
+                        "attributes": {"storage_gb": 512, "color": "white", "sim": "esim"},
+                    }]})
+                return json.dumps({"queries": [{
+                    "brand": "Apple", "category": "smartphone", "model": "iPhone Duo",
+                    "attributes": {"storage_gb": 1024, "color": "white", "sim": "esim"},
+                }]})
+            return json.dumps({"reply": (
+                "Илья, добрый вечер! Подскажите, пожалуйста, есть ли в наличии iPhone Duo 1 ТБ белый? "
+                "И можно ли оплатить переводом на расчётный счёт (юрлицо)?"
+            )})
+
+        listing = "iPhone Duo, 1 ТБ, eSIM"
+        buyer_mixed = (
+            "Здравствуйте, айфон duo 1tb белый какая цена? Могу ли я вам сделать банковский перевод? "
+            "Номер счета получателя, банк получателя и БИК"
+        )
+        async with AsyncSessionFactory() as session:
+            live = AvitoChat(avito_chat_id=f"integration-{uuid4()}", item_id=1003, item_title=listing)
+            session.add(live)
+            await session.commit()
+            live_id, live_external = live.id, live.avito_chat_id
+        started = bot._now()
+        await bot.handle_incoming(live_external, str(uuid4()), 999, "Белый на терабайт сколько?")
+        async with AsyncSessionFactory() as session:
+            due = (await session.get(AvitoChat, live_id)).reply_due_at
+            self.assertGreater(due - started, timedelta(seconds=4))
+            self.assertLess(due - started, timedelta(seconds=7))
+
+        with patch.object(bot, "llm_call", new=duo_model):
+            price = await preview_reply(TestIn(
+                text="белый на терабайт сколько?", item_id=1003, item_title=listing,
+            ))
+            self.assertEqual(price.action, "reply", price.reason)
+            self.assertTrue(any("264 990 ₽" in message.text for message in price.messages))
+            self.assertFalse(any("259 990 ₽" in message.text for message in price.messages))
+            self.assertEqual(len(price.messages), 1)
+            self.assertIn("Здравствуйте", price.messages[0].text)
+
+            white = await preview_reply(TestIn(text="Белый сколько?", item_id=1003, item_title=listing))
+            white_text = white.messages[0].text
+            self.assertIn("219 990 ₽", white_text)
+            self.assertIn("239 990 ₽", white_text)
+            self.assertIn("264 990 ₽", white_text)
+            self.assertNotIn("259 990 ₽", white_text)
+
+            followup = await preview_reply(TestIn(
+                text="а на 512?", item_id=1001, item_title=SAMSUNG,
+                history=[
+                    {"author": "client", "text": "Белый на терабайт сколько?"},
+                    {"author": "bot", "text": price.messages[0].text},
+                ],
+            ))
+            self.assertEqual(followup.action, "reply", followup.reason)
+            self.assertTrue(any("239 990 ₽" in message.text for message in followup.messages))
+            self.assertFalse(any("234 990 ₽" in message.text for message in followup.messages))
+
+            no_call = AsyncMock(side_effect=AssertionError("clear catalog price should not call the model"))
+            with patch.object(bot, "llm_call", new=no_call):
+                fallback = await preview_reply(TestIn(
+                    text="iPhone Duo 1 ТБ белый сколько стоит?", item_id=1003, item_title=listing,
+                ))
+            no_call.assert_not_awaited()
+            self.assertEqual(fallback.action, "reply", fallback.reason)
+            self.assertTrue(any("264 990 ₽" in message.text for message in fallback.messages))
+            self.assertFalse(any("259 990 ₽" in message.text for message in fallback.messages))
+
+            greeting_call = AsyncMock(side_effect=AssertionError("non-price greeting should not call the model"))
+            with patch.object(bot, "llm_call", new=greeting_call):
+                greeting = await preview_reply(TestIn(
+                    text="Привет, я сейчас приеду", item_id=1003, item_title=listing,
+                ))
+            greeting_call.assert_not_awaited()
+            greeting_text = " ".join(message.text for message in greeting.messages)
+            self.assertNotIn("264 990 ₽", greeting_text)
+            self.assertNotIn("259 990 ₽", greeting_text)
+
+            extraction_calls = []
+
+            async def malformed_then_delivery(_config, messages):
+                system = messages[0]["content"]
+                extraction_calls.append(system)
+                if system.startswith("Извлеки поисковые"):
+                    return "Уточню запрос: белый Duo 1 ТБ, цена и доставка."
+                return json.dumps({"reply": "Белый iPhone Duo 1 ТБ — 264 990 ₽. Доставка есть."})
+
+            with patch.object(bot, "llm_call", new=malformed_then_delivery):
+                delivery = await preview_reply(TestIn(
+                    text="Белый Duo 1 ТБ сколько, и доставка есть?", item_id=1003, item_title=listing,
+                ))
+            self.assertEqual(len(extraction_calls), 2)
+            self.assertTrue(extraction_calls[0].startswith("Извлеки поисковые"))
+            delivery_text = " ".join(message.text for message in delivery.messages)
+            self.assertEqual(delivery_text.count("264 990 ₽"), 1)
+            self.assertIn("достав", delivery_text.lower())
+
+            echo = await preview_reply(TestIn(
+                text="Белый Duo 1 ТБ сколько, и доставка есть?", item_id=1003, item_title=listing,
+            ))
+            self.assertEqual(echo.action, "handoff", echo.reason)
+            self.assertIn("264 990 ₽", echo.messages[0].text)
+            self.assertNotIn("Илья, добрый вечер", echo.messages[0].text)
+
+            mixed = await preview_reply(TestIn(
+                text=buyer_mixed, item_id=1003, item_title=listing,
+            ))
+            self.assertIn(mixed.action, ("reply", "handoff"), mixed.reason)
+            mixed_text = " ".join(message.text for message in mixed.messages)
+            self.assertIn("264 990 ₽", mixed_text)
+            self.assertNotIn("Илья, добрый вечер", mixed_text)
+            self.assertNotIn("расчётный счёт", mixed_text)
+            self.assertNotIn("Номер счета", mixed_text)
+            self.assertIn("переводу", mixed_text)
+
+    async def test_enable_setting_survives_in_flight_reconnect(self):
+        await self.save(AvitoBotConfig(
+            enabled=False, listing_scope="selected", allowed_listing_ids=[5001], collect_messages_seconds=5,
+            avito_client_id="fake-id", avito_client_secret="fake-secret", webhook_secret="fake-hook",
+        ))
+
+        async def enable_while_connecting(_creds, _url):
+            response = await put_settings(AvitoBotConfigIn(enabled=True))
+            self.assertTrue(response.enabled)
+
+        with (patch.object(avito_client, "get_self", new=AsyncMock(return_value={"id": 42})),
+              patch.object(avito_client, "subscribe_webhook", new=enable_while_connecting)):
+            connected = await connect()
+        self.assertTrue(connected.ok, connected.detail)
+        settings = await get_settings()
+        self.assertTrue(settings.enabled)
+        self.assertIsNotNone(settings.avito_connected_at)
+        self.assertEqual(settings.allowed_listing_ids, ["5001"])
+        self.assertEqual(settings.collect_messages_seconds, 5)
+
+        await put_settings(AvitoBotConfigIn(enabled=False))
+        settings = await get_settings()
+        self.assertFalse(settings.enabled)
+        self.assertIsNotNone(settings.avito_connected_at)
+        self.assertEqual(settings.avito_user_id, 42)
 
 
 if __name__ == "__main__":

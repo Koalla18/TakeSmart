@@ -157,21 +157,29 @@ async def get_status() -> StatusOut:
 async def connect() -> ConnectOut:
     async with AsyncSessionFactory() as session:
         cfg = await bot.load_config(session)
-        creds = bot.avito_creds(cfg)
-        url = bot.webhook_url(cfg)
-        try:
-            me = await avito_client.get_self(creds)
-            cfg.avito_user_id = int(me["id"])
-            creds.user_id = cfg.avito_user_id
-            await avito_client.subscribe_webhook(creds, url)
-        except (avito_client.AvitoError, KeyError, ValueError, TypeError) as exc:
-            await session.commit()
-            return ConnectOut(ok=False, user_id=cfg.avito_user_id, webhook_url=url, detail=str(exc)[:300])
-        cfg.avito_connected_at = datetime.now(timezone.utc)
-        await bot.save_config(session, cfg)
         await session.commit()
-    logger.info("avito_bot_connected", user_id=cfg.avito_user_id)
-    return ConnectOut(ok=True, user_id=cfg.avito_user_id, webhook_url=url, detail="Авито подключён: новые сообщения будут приходить боту")
+    creds = bot.avito_creds(cfg)
+    url = bot.webhook_url(cfg)
+    try:
+        me = await avito_client.get_self(creds)
+        user_id = int(me["id"])
+        creds.user_id = user_id
+        await avito_client.subscribe_webhook(creds, url)
+    except (avito_client.AvitoError, KeyError, ValueError, TypeError) as exc:
+        return ConnectOut(ok=False, user_id=cfg.avito_user_id, webhook_url=url, detail=str(exc)[:300])
+    async with AsyncSessionFactory() as session:
+        current = await bot.load_config(session, lock=True)
+        if (current.avito_client_id, current.avito_client_secret, current.webhook_secret) != (
+            cfg.avito_client_id, cfg.avito_client_secret, cfg.webhook_secret
+        ):
+            return ConnectOut(ok=False, user_id=current.avito_user_id, webhook_url=bot.webhook_url(current),
+                              detail="Настройки Авито изменились во время подключения. Повторите подключение.")
+        current.avito_user_id = user_id
+        current.avito_connected_at = datetime.now(timezone.utc)
+        await bot.save_config(session, current)
+        await session.commit()
+    logger.info("avito_bot_connected", user_id=user_id)
+    return ConnectOut(ok=True, user_id=user_id, webhook_url=url, detail="Авито подключён: новые сообщения будут приходить боту")
 
 
 @router.post("/llm-check", response_model=DecisionOut, dependencies=ADMIN, summary="Проверить, что модель отвечает")
@@ -643,7 +651,8 @@ async def test_listings() -> list[str]:
     return out
 
 
-@router.post("/test", response_model=DecisionOut, dependencies=ADMIN, summary="Что бот ответит — без сохранения")
+@router.post("/test", response_model=DecisionOut, dependencies=ADMIN,
+             summary="Тест диалога с актуальными ценами из прайса — без сохранения")
 async def test_chat(body: TestIn) -> DecisionOut:
     order_status = body.order_status
     if order_status == "pending" and bot.wants_cancel(body.text):

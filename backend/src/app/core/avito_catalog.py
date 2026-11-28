@@ -10,7 +10,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import case, select, tuple_
+from sqlalchemy import case, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -217,6 +217,7 @@ class SearchIntent(BaseModel):
     queries: list[ProductQuery] = Field(max_length=6)
     clarification: str | None = Field(None, max_length=280)
     booking_requested: bool = False
+    price_requested: bool = False
 
 
 @dataclass
@@ -262,7 +263,8 @@ def _matches_value(key: str, expected: Scalar, actual: Scalar | None) -> bool:
     return actual == expected
 
 
-async def search(session: AsyncSession, import_id: int | None, query: ProductQuery, limit: int = 6) -> SearchResult:
+async def search(session: AsyncSession, import_id: int | None, query: ProductQuery, limit: int = 6,
+                 *, spread_storage: bool = False) -> SearchResult:
     brand = brand_key(query.brand or "")
     category = category_key(query.category or "")
     key = model_key(query.model or "", brand)
@@ -295,9 +297,13 @@ async def search(session: AsyncSession, import_id: int | None, query: ProductQue
     }
     scoring = sum(case((condition, 0), else_=1) for condition in conditions.values())
     scope = scope.where(variants.c.available.is_(True), *(conditions[k] for k in query.required))
-    if conditions:
-        scope = scope.order_by(scoring)
-    rows = (await session.execute(scope.order_by(variants.c.price, variants.c.key).limit(limit))).all()
+    priority = [scoring] if conditions else []
+    price_order = [variants.c.price, variants.c.key]
+    if spread_storage and "storage_gb" not in wanted:
+        priority.append(func.row_number().over(
+            partition_by=variants.c.attributes["storage_gb"].astext, order_by=[*priority, *price_order],
+        ))
+    rows = (await session.execute(scope.order_by(*priority, *price_order).limit(limit))).all()
     matches = []
     for row in rows:
         differences = {k: {"requested": value, "found": row.attributes.get(k)} for k, value in wanted.items()

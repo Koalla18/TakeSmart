@@ -884,14 +884,13 @@ def test_decide_silent_after_farewell():
     assert d.action == "silent" and d.text is None
 
 
-def test_decide_off_topic_silence_suppresses_first_message_template():
+def test_decide_silences_off_topic_and_answers_store_questions():
     """Off-topic первым сообщением — молчание, и продающий шаблон не шлём (ТЗ §11, сценарий 6)."""
     d = _run_decide('{"reply": "", "handoff": false, "off_topic": true}',
                     "решите интеграл x^2 dx", _decide_cfg(), greet=True)
-    assert d.action == "silent" and d.suppress_opening
+    assert d.action == "silent" and not d.text
     d = _run_decide('{"reply": "Бордовый есть — 131 990 ₽", "handoff": false}',
                     "есть красный?", _decide_cfg(), greet=True)
-    assert not d.suppress_opening   # обычный ответ — шаблон на месте
 
 
 def test_asserted_colors():
@@ -1054,24 +1053,25 @@ def test_test_chat_uses_outgoing_plan_and_preserves_history():
     db.__aenter__.return_value.commit = AsyncMock()
 
     async def run():
-        decide = AsyncMock(return_value=svc.Decision("silent", suppress_opening=True))
+        decide = AsyncMock(return_value=svc.Decision("silent"))
         with (patch.object(router, "AsyncSessionFactory", return_value=db),
               patch.object(svc, "load_config", new=AsyncMock(return_value=cfg)),
               patch.object(svc, "test_item_id", new=AsyncMock(return_value=29)),
-              patch.object(svc, "decide", new=decide),
-              patch.object(svc, "find_requested_products", new=AsyncMock(return_value=svc.CatalogContext(
-                  svc.avito_catalog.SearchIntent(queries=[]), []
-              ))),
-              patch.object(svc, "listing_price_info", new=AsyncMock(return_value=("131 990 ₽", "прайс", title)))):
+              patch.object(svc, "decide", new=decide)):
             silent = await router.test_chat(TestIn(item_title=title, text="Решите интеграл"))
             assert silent.action == "silent" and silent.first_message is None and not silent.messages
 
             decide.return_value = svc.Decision("reply", "Да, есть.\n\nМогу отложить.", "llm")
             reply = await router.test_chat(TestIn(item_title=title, text="В наличии?"))
-            assert reply.first_message and len(reply.messages) == 1
-            assert "131 990 ₽" in reply.messages[0].text and "Могу отложить." in reply.messages[0].text
+            assert reply.first_message is None and reply.messages
+            assert not any("₽" in message.text for message in reply.messages)
             assert decide.await_args.kwargs["item_id"] == 29
             assert decide.await_args.args[2].history[-1] == ("client", "В наличии?")
+
+            decide.return_value = svc.Decision("reply", f"{title} — 131 990 ₽ без trade-in", "catalog", price_reply=True)
+            price = await router.test_chat(TestIn(item_title=title, text="Какая цена?"))
+            assert price.first_message and len(price.messages) == 1
+            assert "Здравствуйте" in price.messages[0].text and "131 990 ₽" in price.messages[0].text
 
             decide.return_value = svc.Decision("reply", "Да, есть.\n\nМогу отложить.", "llm")
             continued = await router.test_chat(TestIn(
@@ -1082,7 +1082,7 @@ def test_test_chat_uses_outgoing_plan_and_preserves_history():
 
             parked = await router.test_chat(TestIn(item_title=title, needs_human=True, text="Вы здесь?"))
             assert parked.action == "silent" and not parked.messages
-            assert decide.await_count == 3
+            assert decide.await_count == 4
 
     asyncio.run(run())
 
