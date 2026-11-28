@@ -103,6 +103,9 @@ interface Config {
   knowledge: string
   handoff_topics: string
   handoff_message: string
+  listing_scope?: 'all' | 'selected'
+  allowed_listing_ids?: string[]
+  collect_messages_seconds?: number
   reply_delay_min: number
   reply_delay_max: number
   use_catalog: boolean
@@ -144,6 +147,11 @@ interface Decision {
   first_message: string | null
   messages?: { text: string; rule_id: string | null }[]
   order_status?: 'pending' | 'cancelled' | null
+  search?: {
+    query: { brand?: string; category?: string; model?: string; attributes: Record<string, unknown> }
+    status: string
+    matches: { id: string; name: string; price_rub: number; relation: string; attributes: Record<string, unknown> }[]
+  }[]
 }
 
 type View = 'dialogs' | 'broadcasts' | 'analytics' | 'prices' | 'rules' | 'learning' | 'test' | 'settings'
@@ -1191,6 +1199,13 @@ interface TestTurn { author: 'client' | 'bot'; text: string; decision?: Decision
 interface ListingPrice { price: string | null; source: string | null; matched: string | null }
 interface RunRow { label: string; question: string; d: Decision | null }
 
+function listingId(value: string): string | null {
+  const input = value.trim()
+  const id = /^\d+$/.test(input) ? input : input.match(/^https?:\/\/(?:www\.)?avito\.ru\/[^?#]+_(\d+)(?:[?#].*)?$/i)?.[1]
+  if (!id || !/^\d{1,19}$/.test(id) || BigInt(id) <= BigInt(0) || BigInt(id) > BigInt('9223372036854775807')) return null
+  return BigInt(id).toString()
+}
+
 const QUICK: readonly (readonly [string, string])[] = [
   ['Наличие', 'Здравствуйте! Ещё продаётся?'],
   ['Цвет и память', '16/128 белый есть?'],
@@ -1215,6 +1230,7 @@ const SCRIPTS: readonly { title: string; steps: readonly string[] }[] = [
 
 function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
   const [item, setItem] = useState('iPhone 17 Pro 256 ГБ')
+  const [listingInput, setListingInput] = useState('')
   const [price, setPrice] = useState('')
   const [turns, setTurns] = useState<TestTurn[]>([])
   const [text, setText] = useState('')
@@ -1240,6 +1256,11 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [turns, busy])
 
   const ask = (history: TestTurn[], t: string) => {
+    const itemId = listingId(listingInput)
+    if (listingInput.trim() && !itemId) {
+      toast('Введите ID или ссылку на объявление Авито.', 'error')
+      return Promise.resolve(null)
+    }
     const lastDecision = [...history].reverse().find(turn => turn.decision)?.decision
     return call<Decision>(api, '/test', {
       method: 'POST',
@@ -1247,6 +1268,7 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
         text: t,
         history: history.filter(turn => turn.text).slice(-40).map(({ author, text, rule_id }) => ({ author, text, rule_id })),
         item_title: item.trim() || null,
+        item_id: itemId,
         item_price: price || null,
         needs_human: history.some(turn => turn.decision?.action === 'handoff'),
         order_status: lastDecision?.order_status ?? null,
@@ -1364,10 +1386,13 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
             <input className={`${INPUT} mt-1.5`} value={item} onChange={e => setItem(e.target.value)} list="avito-test-listings" placeholder="Название, как в объявлении" />
             <datalist id="avito-test-listings">{listings.map(l => <option key={l} value={l} />)}</datalist>
           </label>
+          <label className="block"><span className={LABEL}>ID или ссылка на объявление</span>
+            <input className={`${INPUT} mt-1.5`} value={listingInput} onChange={e => setListingInput(e.target.value)} placeholder="Для проверки выборочного запуска" />
+          </label>
           <div className="rounded-lg bg-white/[0.04] px-3 py-2 text-xs leading-relaxed text-slate-400">
             {!item.trim() ? 'Без объявления бот отвечает как на общий вопрос.'
               : lp?.price ? <>Розничная цена в первом сообщении: <b className="text-white">{lp.price}</b><br />из: {lp.source} — {lp.matched}</>
-                : lp ? <span className="text-amber-300">Цена по этому названию не найдена в прайсе. Когда первый ответ требует цену, бот передаст диалог менеджеру.</span> : 'Ищу цену…'}
+                : lp ? <span className="text-amber-300">По названию объявления нет однозначной цены для приветствия. Бот проверит товар и параметры из сообщения покупателя.</span> : 'Ищу цену…'}
           </div>
           <label className="block"><span className={LABEL}>Цена в объявлении</span><input className={`${INPUT} mt-1.5`} value={price} onChange={e => setPrice(e.target.value)} placeholder="Доплата по trade-in, например 25 000 ₽" /></label>
           <div className="flex gap-2">
@@ -1397,6 +1422,15 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
   )
 }
 
+const SEARCH_ATTRS: Record<string, string> = { ram_gb: 'ОЗУ', storage_gb: 'Память', color: 'Цвет', sim: 'SIM', region: 'Регион', kit: 'Комплектация' }
+const SEARCH_SIM: Record<string, string> = { two_physical: '2 физические SIM', one_physical: '1 физическая SIM', physical_esim: 'SIM + eSIM', esim_only: 'только eSIM', has_physical: 'с физической SIM' }
+
+function searchAttributes(attrs: Record<string, unknown>): string[] {
+  return Object.entries(attrs)
+    .filter(([key]) => key !== 'few')
+    .map(([key, value]) => `${SEARCH_ATTRS[key] ?? key} ${SEARCH_SIM[String(value)] ?? value}${key.endsWith('_gb') ? ' ГБ' : ''}`)
+}
+
 function DecisionNote({ d, ruleName }: { d: Decision; ruleName?: string }) {
   const [open, setOpen] = useState(false)
   const label = d.action === 'handoff' ? `Позвал человека: ${d.reason || ''}`
@@ -1407,6 +1441,23 @@ function DecisionNote({ d, ruleName }: { d: Decision; ruleName?: string }) {
     <div className="mt-1 text-[11px] text-slate-500">
       <span className={d.action === 'handoff' ? 'text-amber-300' : ''}>{label}</span>
       {d.order && <div className="text-emerald-300">Оформил бы бронь: {orderText(d.order)}</div>}
+      {!!d.search?.length && (
+        <details className="mt-1 text-left">
+          <summary className="cursor-pointer">Поиск по прайсу</summary>
+          {d.search.map(({ query, status, matches }, index) => (
+            <div className="mt-1" key={index}>
+              <div className="text-slate-300">{[query.brand, query.model, ...searchAttributes(query.attributes)].filter(Boolean).join(' · ')}</div>
+              <div>{({ exact: 'Найдено точное совпадение', same_model: 'Та же модель с отличиями', other_model: 'Найдены другие модели', not_found: 'Совпадений нет', ambiguous: 'Нужно уточнить модель' } as Record<string, string>)[status] ?? status}</div>
+              {matches.map(item => (
+                <div key={item.id}>
+                  {item.name} · {item.price_rub.toLocaleString('ru-RU')} ₽
+                  <span className="block">{searchAttributes(item.attributes).join(' · ')}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </details>
+      )}
       {d.catalog.length > 0 && <button type="button" onClick={() => setOpen(o => !o)} className="ml-2 underline decoration-dotted">каталог ({d.catalog.length})</button>}
       {open && <div className="mt-1 space-y-0.5 text-left">{d.catalog.map(c => <div key={c}>{c}</div>)}</div>}
     </div>
@@ -1459,6 +1510,83 @@ const PROVIDERS: { id: Config['llm_provider']; label: string; hint: string }[] =
   { id: 'openai_compatible', label: 'Другая', hint: 'Любой OpenAI-совместимый адрес: OpenRouter, свой сервер с Qwen и т.п.' },
 ]
 
+type ListingSource = 'avito' | 'chats'
+interface ListingOption { id: string; title: string; url: string | null; status?: string }
+interface ListingPage { items: ListingOption[]; next_page: number | null }
+
+function ListingPicker({ api, selected, onChange }: { api: Api; selected: string[]; onChange: (ids: string[]) => void }) {
+  const [listings, setListings] = useState<ListingOption[]>([])
+  const [source, setSource] = useState<ListingSource>('avito')
+  const [nextPage, setNextPage] = useState<number | null>(null)
+  const [loaded, setLoaded] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [filter, setFilter] = useState('')
+  const [manual, setManual] = useState('')
+  const [manualError, setManualError] = useState('')
+  const visible = listings.filter(item => `${item.title} ${item.id}`.toLowerCase().includes(filter.trim().toLowerCase()))
+
+  const load = async (newSource: ListingSource, page = 1) => {
+    setLoading(true)
+    setSource(newSource)
+    if (page === 1) { setListings([]); setNextPage(null); setLoaded(false) }
+    const result = await call<ListingPage>(api, `/listings?source=${newSource}&page=${page}`)
+    if (result) {
+      setListings(previous => [...new Map([
+        ...(page === 1 ? [] : previous), ...result.items,
+      ].map(item => [item.id, item])).values()])
+      setNextPage(result.next_page)
+      setLoaded(true)
+    }
+    setLoading(false)
+  }
+
+  const add = () => {
+    const id = listingId(manual)
+    if (!id) {
+      setManualError('Введите ID или ссылку на объявление Авито.')
+      return
+    }
+    onChange([...new Set([...selected, id])])
+    setManual('')
+    setManualError('')
+  }
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-slate-400">Выбрано {selected.length}. Если список пуст, бот пропускает все объявления.</p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={BTN_SECONDARY} disabled={loading} onClick={() => load('avito')}>Загрузить из Авито</button>
+        <button type="button" className={BTN_SECONDARY} disabled={loading} onClick={() => load('chats')}>Из диалогов</button>
+      </div>
+      {loaded && <input className={INPUT} aria-label="Поиск объявлений" placeholder="Название или ID" value={filter} onChange={e => setFilter(e.target.value)} />}
+      {visible.length > 0 && (
+        <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border border-white/10 p-3">
+          {visible.map(item => (
+            <label key={item.id} className="flex items-start gap-2 text-sm text-slate-200">
+              <input className="mt-1" type="checkbox" checked={selected.includes(item.id)}
+                onChange={e => onChange(e.target.checked ? [...selected, item.id] : selected.filter(id => id !== item.id))} />
+              <span>{item.title} <small className="text-slate-500">№ {item.id}</small></span>
+            </label>
+          ))}
+        </div>
+      )}
+      {loaded && !visible.length && <p className="text-xs text-slate-400">Объявления не найдены.</p>}
+      {nextPage && <button type="button" className={BTN_SECONDARY} disabled={loading} onClick={() => load(source, nextPage)}>Загрузить ещё</button>}
+      <div className="flex gap-2">
+        <input className={INPUT} aria-label="ID или ссылка объявления" placeholder="ID или ссылка Авито" value={manual}
+          onChange={e => { setManual(e.target.value); setManualError('') }} />
+        <button type="button" className={BTN_SECONDARY} onClick={add} disabled={!manual.trim()}>Добавить</button>
+      </div>
+      {manualError && <p className="text-xs text-amber-300">{manualError}</p>}
+      {selected.length > 0 && <ul className="flex flex-wrap gap-2">
+        {selected.map(id => <li key={id}>
+          <button type="button" className={BTN_SECONDARY} aria-label={`Убрать объявление ${id}`}
+            onClick={() => onChange(selected.filter(value => value !== id))}>№ {id} ×</button>
+        </li>)}
+      </ul>}
+    </div>
+  )
+}
+
 function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; setConfig: (c: Config) => void }) {
   const [form, setForm] = useState<Config>(config)
   const [llmKey, setLlmKey] = useState('')
@@ -1472,7 +1600,9 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
     const body: Record<string, unknown> = patch ?? {
       enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, first_message: form.first_message, trade_in_prices: form.trade_in_prices, staff_takes_over: form.staff_takes_over, human_mode: form.human_mode, allow_emoji: form.allow_emoji, off_topic_silent: form.off_topic_silent, style: form.style, knowledge: form.knowledge,
       handoff_topics: form.handoff_topics, handoff_message: form.handoff_message, reply_delay_min: form.reply_delay_min,
-      reply_delay_max: form.reply_delay_max, use_catalog: form.use_catalog, llm_provider: form.llm_provider,
+      reply_delay_max: form.reply_delay_max, listing_scope: form.listing_scope ?? 'all',
+      allowed_listing_ids: form.allowed_listing_ids ?? [], collect_messages_seconds: form.collect_messages_seconds ?? 15,
+      use_catalog: form.use_catalog, llm_provider: form.llm_provider,
       orders_enabled: form.orders_enabled, pickup_address: form.pickup_address, system_patterns: form.system_patterns,
       reminders_enabled: form.reminders_enabled, reminder_after_minutes: form.reminder_after_minutes,
       reminder_window_hours: form.reminder_window_hours, reminder_from: form.reminder_from, reminder_to: form.reminder_to,
@@ -1515,6 +1645,20 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
           <h3 className="mb-4 font-semibold text-white">Работа бота</h3>
           <div className="space-y-4">
             <Toggle checked={form.enabled} onChange={v => set('enabled', v)} label="Бот включён" hint="Выключенный бот только записывает входящие — отвечаете вы" />
+            <label className="block"><span className={LABEL}>Где бот отвечает</span>
+              <select className={`${INPUT} mt-1.5`} value={form.listing_scope ?? 'all'}
+                onChange={e => set('listing_scope', e.target.value === 'selected' ? 'selected' : 'all')}>
+                <option value="all">Все объявления</option>
+                <option value="selected">Только выбранные</option>
+              </select>
+            </label>
+            {form.listing_scope === 'selected' && <ListingPicker api={api} selected={form.allowed_listing_ids ?? []}
+              onChange={ids => set('allowed_listing_ids', ids)} />}
+            <label className="block"><span className={LABEL}>Ждать после последней реплики, с</span>
+              <input type="number" min={0} max={120} className={`${INPUT} mt-1.5`} value={form.collect_messages_seconds ?? 15}
+                onChange={e => set('collect_messages_seconds', Math.max(0, Math.min(120, Number(e.target.value) || 0)))} />
+              <span className="mt-1 block text-xs text-slate-400">Каждая новая реплика запускает ожидание заново.</span>
+            </label>
             <div>
               <span className={LABEL}>Режим</span>
               <div className="mt-1.5 grid gap-2 sm:grid-cols-2">

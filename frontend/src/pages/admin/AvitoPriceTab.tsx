@@ -13,7 +13,7 @@ import { BTN_ROW, CARD, INPUT } from './installsUi'
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface PriceConfig { price_list: string; price_list_can_undo?: boolean; price_list_updated_at?: string | null }
-interface Item { name: string; price: number; in_stock: boolean; country: string | null; sim: string | null; few?: boolean }
+interface Item { key?: string; brand?: string; category?: string; attributes?: Record<string, unknown>; name: string; price: number; in_stock: boolean; country: string | null; sim: string | null; few?: boolean }
 interface Base { items: Item[]; count: number; errors: string[] }
 type Kind = 'changed' | 'added' | 'removed'
 interface Change { id: string; kind: Kind; item: Item; old_price: number | null; old_key: string | null; warning: string | null }
@@ -33,13 +33,14 @@ const GROUPS: { kind: Kind; title: string; cls: string }[] = [
 ]
 
 const money = (n: number) => `${Math.round(n).toLocaleString('ru-RU')} ₽`
-const itemKey = (it: Item) => `${it.name}|${it.country ?? ''}|${it.sim ?? ''}`
+const itemKey = (it: Item) => it.key ?? `${it.name}|${it.country ?? ''}|${it.sim ?? ''}`
 const meta = (it: Item) => [it.country, it.sim].filter(Boolean).join(' · ')
 
 function Name({ item, className = 'text-slate-200' }: { item: Item; className?: string }) {
   return (
     <span className="min-w-0">
       <span className={className}>{item.name}</span>
+      {item.category && <span className="ml-1.5 text-xs text-slate-500">{[item.brand, item.category].filter(Boolean).join(" · ")}</span>}
       {meta(item) && <span className="ml-1.5 text-xs text-slate-500">{meta(item)}</span>}
       {item.few && <span className="ml-1.5 text-xs text-amber-400">осталось мало</span>}
     </span>
@@ -51,8 +52,10 @@ export function PriceListTab<C extends PriceConfig>({ api, config, setConfig }: 
   const [search, setSearch] = useState('')
   const [text, setText] = useState('')
   const [mode, setMode] = useState<Mode>('models')
-  const [preview, setPreview] = useState<Preview | null>(null)
-  const [comparing, setComparing] = useState(false)
+  const [comparison, setComparison] = useState<{ input: string; mode: Mode; baseText: string; result: Preview | null } | null>(null)
+  const currentComparison = comparison?.input === text && comparison.mode === mode && comparison.baseText === config.price_list
+  const preview = currentComparison ? comparison.result : null
+  const comparing = !!text.trim() && !currentComparison
   const [skip, setSkip] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [raw, setRaw] = useState<string | null>(null)
@@ -66,34 +69,31 @@ export function PriceListTab<C extends PriceConfig>({ api, config, setConfig }: 
 
   const compare = useCallback(async () => {
     const id = ++request.current
-    if (!text.trim()) { setPreview(null); setComparing(false); return }
-    setComparing(true)
+    if (!text.trim()) return
     const p = await call<Preview>(api, '/price-list/preview', { method: 'POST', body: { text, mode } })
     if (id !== request.current) return       // пока ждали ответ, текст уже поменяли
-    setPreview(p)
-    setComparing(false)
-  }, [api, text, mode])
+    setComparison({ input: text, mode, baseText: config.price_list, result: p })
+  }, [api, text, mode, config.price_list])
 
   // Сравниваем сами, чуть подождав после вставки; пока считается, «Применить» выключена
   useEffect(() => {
-    if (text.trim()) setComparing(true)
     const t = window.setTimeout(compare, 400)
     return () => window.clearTimeout(t)
-  }, [compare, config.price_list, text])
+  }, [compare])
 
-  const chosen = preview?.changes.filter(c => !skip.has(c.id)) ?? []
+  const chosen = useMemo(() => preview?.changes.filter(c => !skip.has(c.id)) ?? [], [preview, skip])
 
   const gone = chosen.filter(c => c.kind === 'removed').length
 
   const apply = async () => {
-    if (!preview) return
+    if (!preview || preview.errors.length) return
     if (gone >= 20 && !(await confirmDialog({ title: 'Убрать много позиций?', message: `Из базы уйдёт позиций: ${gone}. Бот перестанет их предлагать.`, confirmLabel: 'Применить', danger: true }))) return
     setBusy(true)
     const c = await call<C>(api, '/price-list/apply', { method: 'POST', body: { text, mode, base_hash: preview.base_hash, skip: [...skip] } })
     setBusy(false)
     if (!c) { compare(); return }
     setConfig(c)
-    setText(''); setPreview(null); setSkip(new Set()); setRaw(null)
+    setText(''); setComparison(null); setSkip(new Set()); setRaw(null)
     toast(`Применено изменений: ${chosen.length} — бот уже отвечает по новым ценам`, 'success')
   }
 
@@ -240,7 +240,7 @@ export function PriceListTab<C extends PriceConfig>({ api, config, setConfig }: 
               {preview.changes.length > 0 && (
                 <div className="flex flex-wrap items-center justify-end gap-3">
                   <button type="button" onClick={() => { setText(''); setSkip(new Set()) }} className={BTN_SECONDARY}>Очистить</button>
-                  <button type="button" onClick={apply} disabled={busy || comparing || !chosen.length} className={BTN_PRIMARY}>{busy ? 'Применяем…' : `Применить: ${chosen.length}`}</button>
+                  <button type="button" onClick={apply} disabled={busy || comparing || !chosen.length || !!preview.errors.length} className={BTN_PRIMARY}>{busy ? 'Применяем…' : `Применить: ${chosen.length}`}</button>
                 </div>
               )}
             </div>
@@ -250,8 +250,10 @@ export function PriceListTab<C extends PriceConfig>({ api, config, setConfig }: 
 
       {/* ── Весь текст базы — на случай ручной правки ── */}
       <details className={CARD} onToggle={e => { if (!(e.target as HTMLDetailsElement).open) setRaw(null) }}>
-        <summary className="cursor-pointer text-sm font-semibold text-white">Весь текст базы (ручная правка)</summary>
+        <summary className="cursor-pointer text-sm font-semibold text-white">Исходный прайс (ручная правка)</summary>
         {base?.errors.length ? <div className="mt-3 space-y-1 text-xs text-rose-300">{base.errors.map(e => <div key={e}>{e}</div>)}</div> : null}
+        <p className="mt-2 text-xs text-slate-400">Для неизвестных моделей укажи производителя, тип и модель явно.</p>
+        <code className="block break-all text-xs text-slate-300">{'!|Dyson|vacuum|V15 Detect|50000|да|{"color":"Yellow","kit":"Absolute"}'}</code>
         <textarea className={`${INPUT} mt-3 h-[45vh] font-mono text-[13px]`} value={raw ?? config.price_list} onChange={e => setRaw(e.target.value)} />
         <div className="mt-3 flex justify-end">
           <button type="button" onClick={saveRaw} disabled={busy || raw === null || raw === config.price_list} className={BTN_PRIMARY}>Сохранить текст</button>
