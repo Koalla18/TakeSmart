@@ -277,7 +277,16 @@ def format_quote(results: list[SearchResult], card_markup: Decimal | None = None
     seen = set()
     for result in results:
         matches = _shown_matches(result)
-        if result.status != "exact":
+        sim_unverified = [
+            match for match in result.matches
+            if match.relation == "same_model" and set(match.differences) == {"sim"}
+            and match.differences["sim"]["found"] is None
+        ]
+        if result.status == "same_model" and sim_unverified:
+            # Прайс подтверждает модель, память и цвет. Отдельно обозначаем непроверенную SIM.
+            matches = sim_unverified[:4]
+            lines.append("Цены по прайсу. Тип SIM у конкретного экземпляра нужно подтвердить.")
+        elif result.status != "exact":
             query = result.query
             details = [query.model or query.brand or ""]
             if color := query.attributes.get("color"):

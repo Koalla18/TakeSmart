@@ -98,6 +98,8 @@ class CatalogIntegration(unittest.IsolatedAsyncioTestCase):
 iPad Air 13 M4 2026 Wi-Fi 512 ГБ Blue — 126 990 ₽
 iPad Air 13 M4 2026 LTE 128 ГБ Blue — 93 990 ₽
 Dyson HS08 Ceramic Pink — 34 990 ₽
+Google Pixel 11 Pro XL 12/256 ГБ Fog — 82 990 ₽
+Google Pixel 11 Pro XL 12/256 ГБ Obsidian — 82 990 ₽
 """
         if path := os.environ.get("TAKESMART_CATALOG_SNAPSHOT"):
             price = Path(path).read_text()
@@ -135,6 +137,16 @@ Dyson HS08 Ceramic Pink — 34 990 ₽
             self.assertEqual(dyson.search[0]["status"], "exact")
             no_model = await preview_reply(TestIn(text="Сколько стоит Dyson HS99?", item_title=listing))
             self.assertNotIn("86 990", no_model.messages[0].text)
+
+            pixel = await preview_reply(TestIn(
+                text="по чем", item_title="Google Pixel 11 Pro XL, 12/256 ГБ, SIM + eSIM", item_price="72990",
+            ))
+            pixel_text = pixel.messages[0].text
+            self.assertIn("82 990 ₽", pixel_text)
+            self.assertIn("Тип SIM у конкретного экземпляра нужно подтвердить", pixel_text)
+            self.assertNotIn("не могу подтвердить", pixel_text)
+            self.assertNotIn("72 990", pixel_text)
+            self.assertEqual(pixel.search[0]["matches"][0]["differences"]["sim"]["found"], None)
 
         await self.save(cfg.model_copy(update={"llm_provider": "deepseek", "llm_api_key": "fake-test-key"}))
 
