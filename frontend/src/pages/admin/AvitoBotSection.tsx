@@ -90,7 +90,6 @@ interface Config {
   mode: 'draft' | 'auto'
   persona_name: string
   greeting: string
-  first_message: string
   price_list: string
   price_list_can_undo?: boolean
   price_list_updated_at?: string | null
@@ -268,9 +267,11 @@ function StatusPill({ config }: { config: Config }) {
     ? ['bg-slate-500', 'Бот выключен']
     : !config.avito_connected_at
       ? ['bg-amber-400', 'Включён · Авито не подключён']
-      : config.mode === 'draft'
-        ? ['bg-emerald-400', 'Работает · черновики']
-        : ['bg-emerald-400', 'Работает · отвечает сам']
+      : config.listing_scope === 'selected' && !config.allowed_listing_ids?.length
+        ? ['bg-amber-400', 'Включён · объявления не выбраны']
+        : config.mode === 'draft'
+          ? ['bg-emerald-400', 'Работает · черновики']
+          : ['bg-emerald-400', 'Работает · отвечает сам']
   return (
     <span className="mb-5 inline-flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-sm text-slate-300">
       <span className={`h-2 w-2 rounded-full ${dot}`} />{text}
@@ -515,7 +516,7 @@ function ChatPanel({ api, chatId, config, onClose, onChanged }: { api: Api; chat
   )
 }
 
-const SOURCE_LABEL: Record<string, string> = { rule: 'автоответ', llm: 'модель', llm_open: 'модель', staff: 'сотрудник', avito: 'из приложения Авито', reminder: 'напоминание', broadcast: 'рассылка' }
+const SOURCE_LABEL: Record<string, string> = { rule: 'автоответ', llm: 'модель', llm_open: 'модель', catalog: 'прайс', staff: 'сотрудник', avito: 'из приложения Авито', reminder: 'напоминание', broadcast: 'рассылка' }
 
 function Bubble({ m, name, api, onDone }: { m: Message; name: string; api: Api; onDone: () => void }) {
   if (m.author === 'system') {
@@ -1275,7 +1276,7 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
       },
     })
   }
-  const outgoing = (d: Decision) => d.messages ?? [d.first_message, d.text]
+  const outgoing = (d: Decision) => d.messages ?? [d.text]
     .filter((message): message is string => Boolean(message))
     .map(message => ({ text: message, rule_id: d.rule_id }))
   const withAnswer = (prev: TestTurn[], t: string, d: Decision): TestTurn[] => {
@@ -1391,8 +1392,8 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
           </label>
           <div className="rounded-lg bg-white/[0.04] px-3 py-2 text-xs leading-relaxed text-slate-400">
             {!item.trim() ? 'Без объявления бот отвечает как на общий вопрос.'
-              : lp?.price ? <>Розничная цена в первом сообщении: <b className="text-white">{lp.price}</b><br />из: {lp.source} — {lp.matched}</>
-                : lp ? <span className="text-amber-300">По названию объявления нет однозначной цены для приветствия. Бот проверит товар и параметры из сообщения покупателя.</span> : 'Ищу цену…'}
+              : lp?.price ? <>Цена варианта по названию объявления: <b className="text-white">{lp.price}</b><br />из: {lp.source} — {lp.matched}</>
+                : lp ? <span className="text-amber-300">По названию объявления нет однозначной цены. Бот проверит товар и параметры из сообщения покупателя.</span> : 'Ищу цену…'}
           </div>
           <label className="block"><span className={LABEL}>Цена в объявлении</span><input className={`${INPUT} mt-1.5`} value={price} onChange={e => setPrice(e.target.value)} placeholder="Доплата по trade-in, например 25 000 ₽" /></label>
           <div className="flex gap-2">
@@ -1436,7 +1437,9 @@ function DecisionNote({ d, ruleName }: { d: Decision; ruleName?: string }) {
   const label = d.action === 'handoff' ? `Позвал человека: ${d.reason || ''}`
     : d.action === 'silent' ? `Промолчал: ${d.reason || ''}`
       : d.source === 'rule' ? `Автоответ «${ruleName || '…'}», через ${d.delay_seconds} с`
-        : `Модель${ruleName ? ` с подсказкой «${ruleName}»` : ''}${d.examples_used ? `, примеров сотрудников: ${d.examples_used}` : ''}, через ${d.delay_seconds} с`
+        : d.source === 'catalog' ? 'Ответ по прайсу'
+          : d.source === 'llm' ? `Модель${ruleName ? ` с подсказкой «${ruleName}»` : ''}${d.examples_used ? `, примеров сотрудников: ${d.examples_used}` : ''}, через ${d.delay_seconds} с`
+            : 'Бот'
   return (
     <div className="mt-1 text-[11px] text-slate-500">
       <span className={d.action === 'handoff' ? 'text-amber-300' : ''}>{label}</span>
@@ -1552,7 +1555,8 @@ function ListingPicker({ api, selected, onChange }: { api: Api; selected: string
   }
   return (
     <div className="space-y-2">
-      <p className="text-xs text-slate-400">Выбрано {selected.length}. Если список пуст, бот пропускает все объявления.</p>
+      <p className="text-xs text-slate-400">Выбрано объявлений: {selected.length}.</p>
+      {selected.length === 0 && <p role="status" className="rounded-lg border border-amber-400/30 bg-amber-400/[0.08] px-3 py-2 text-xs text-amber-200">Список пуст: при режиме «Только выбранные» бот пропускает все объявления.</p>}
       <div className="flex flex-wrap gap-2">
         <button type="button" className={BTN_SECONDARY} disabled={loading} onClick={() => load('avito')}>Загрузить из Авито</button>
         <button type="button" className={BTN_SECONDARY} disabled={loading} onClick={() => load('chats')}>Из диалогов</button>
@@ -1592,13 +1596,28 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
   const [llmKey, setLlmKey] = useState('')
   const [avitoSecret, setAvitoSecret] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  const [enabledPending, setEnabledPending] = useState(false)
   const [check, setCheck] = useState<Decision | null>(null)
   const set = <K extends keyof Config>(k: K, v: Config[K]) => setForm(prev => ({ ...prev, [k]: v }))
   const dirty = JSON.stringify(form) !== JSON.stringify(config) || llmKey !== '' || avitoSecret !== ''
 
+  const toggleEnabled = async (enabled: boolean) => {
+    if (enabledPending) return
+    setForm(prev => ({ ...prev, enabled }))
+    setEnabledPending(true)
+    const c = await call<Config>(api, '/settings', { method: 'PUT', body: { enabled } })
+    setEnabledPending(false)
+    if (!c) {
+      setForm(prev => ({ ...prev, enabled: config.enabled }))
+      return
+    }
+    setConfig(c)
+    setForm(prev => ({ ...prev, enabled: c.enabled }))
+  }
+
   const save = async (patch?: Partial<Config>, quiet?: boolean): Promise<Config | null> => {
     const body: Record<string, unknown> = patch ?? {
-      enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, first_message: form.first_message, trade_in_prices: form.trade_in_prices, staff_takes_over: form.staff_takes_over, human_mode: form.human_mode, allow_emoji: form.allow_emoji, off_topic_silent: form.off_topic_silent, style: form.style, knowledge: form.knowledge,
+      enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, trade_in_prices: form.trade_in_prices, staff_takes_over: form.staff_takes_over, human_mode: form.human_mode, allow_emoji: form.allow_emoji, off_topic_silent: form.off_topic_silent, style: form.style, knowledge: form.knowledge,
       handoff_topics: form.handoff_topics, handoff_message: form.handoff_message, reply_delay_min: form.reply_delay_min,
       reply_delay_max: form.reply_delay_max, listing_scope: form.listing_scope ?? 'all',
       allowed_listing_ids: form.allowed_listing_ids ?? [], collect_messages_seconds: form.collect_messages_seconds ?? 15,
@@ -1621,14 +1640,34 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
     return c
   }
   const connect = async () => {
-    if (dirty && !(await save(undefined, true))) return
     setBusy('connect')
+    const applyConnection = (confirmed: Config) => {
+      setConfig(confirmed)
+      setForm(prev => ({
+        ...prev,
+        avito_client_id: confirmed.avito_client_id,
+        avito_connected_at: confirmed.avito_connected_at,
+        avito_user_id: confirmed.avito_user_id,
+        avito_client_secret_set: confirmed.avito_client_secret_set,
+        webhook_url: confirmed.webhook_url,
+      }))
+    }
+    const credentialsChanged = form.avito_client_id !== config.avito_client_id || avitoSecret !== ''
+    if (credentialsChanged) {
+      const credentialPatch: Record<string, unknown> = { avito_client_id: form.avito_client_id }
+      if (avitoSecret) credentialPatch.avito_client_secret = avitoSecret
+      const saved = await call<Config>(api, '/settings', { method: 'PUT', body: credentialPatch })
+      if (!saved) { setBusy(null); return }
+      applyConnection(saved)
+      setAvitoSecret('')
+    }
     const res = await call<{ ok: boolean; detail: string }>(api, '/connect', { method: 'POST' })
+    if (res) {
+      toast(res.detail, res.ok ? 'success' : 'error', 8000)
+      const connected = await call<Config>(api, '/settings')
+      if (connected) applyConnection(connected)
+    }
     setBusy(null)
-    if (!res) return
-    toast(res.detail, res.ok ? 'success' : 'error', 8000)
-    const c = await call<Config>(api, '/settings')
-    if (c) { setConfig(c); setForm(c) }
   }
   const checkLlm = async () => {
     if (dirty && !(await save(undefined, true))) return
@@ -1644,7 +1683,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
         <section className={CARD}>
           <h3 className="mb-4 font-semibold text-white">Работа бота</h3>
           <div className="space-y-4">
-            <Toggle checked={form.enabled} onChange={v => set('enabled', v)} label="Бот включён" hint="Выключенный бот только записывает входящие — отвечаете вы" />
+            <Toggle checked={form.enabled} onChange={toggleEnabled} disabled={enabledPending || busy !== null} label={enabledPending ? 'Сохраняем состояние бота…' : 'Бот включён'} hint="Состояние сохраняется сразу. Выключенный бот только записывает входящие — отвечаете вы" />
             <label className="block"><span className={LABEL}>Где бот отвечает</span>
               <select className={`${INPUT} mt-1.5`} value={form.listing_scope ?? 'all'}
                 onChange={e => set('listing_scope', e.target.value === 'selected' ? 'selected' : 'all')}>
@@ -1675,12 +1714,9 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
               <label className="block"><span className={LABEL}>Пауза от, с</span><input type="number" min={0} className={`${INPUT} mt-1.5`} value={form.reply_delay_min} onChange={e => set('reply_delay_min', Number(e.target.value) || 0)} /></label>
               <label className="block"><span className={LABEL}>до, с</span><input type="number" min={0} className={`${INPUT} mt-1.5`} value={form.reply_delay_max} onChange={e => set('reply_delay_max', Number(e.target.value) || 0)} /></label>
             </div>
-            <label className="block"><span className={LABEL}>Первое сообщение в диалоге</span>
-              <textarea className={`${INPUT} mt-1.5 h-36`} value={form.first_message} onChange={e => set('first_message', e.target.value)} /></label>
-            <div className="text-xs text-slate-500"><code className="text-slate-300">{'{name}'}</code> — имя менеджера, <code className="text-slate-300">{'{price}'}</code> — розничная цена товара из объявления (из привязанной карточки или по названию объявления). Уходит первым сообщением в каждом новом диалоге, одним сообщением. Если надёжной цены нет, строка с ценой не отправляется. Пусто — бот здоровается по полю ниже.</div>
-            <label className="block"><span className={LABEL}>Приветствие, если первое сообщение пустое</span>
+            <label className="block"><span className={LABEL}>Приветствие</span>
               <input className={`${INPUT} mt-1.5`} value={form.greeting} onChange={e => set('greeting', e.target.value)} placeholder="Здравствуйте! Меня зовут {name}, я менеджер магазина TakeSmart." /></label>
-            <div className="text-xs text-slate-500"><code className="text-slate-300">{'{name}'}</code> — имя менеджера. Бот здоровается так в первом ответе каждого диалога — и моделью, и перед автоответом. Пусто — модель здоровается своими словами, автоответы уходят без приветствия.</div>
+            <div className="text-xs text-slate-500"><code className="text-slate-300">{'{name}'}</code> — имя менеджера. Если поле оставить пустым, первый ответ с ценой начнётся с «Здравствуйте!».</div>
             <div className="text-xs text-slate-500">Пауза — для ответов модели, чтобы они не прилетали мгновенно. У автоответов своя задержка. Если покупатель прямо спросит «вы бот?», бот не станет отрицать — это защищает аккаунт от жалоб.</div>
             <Toggle checked={form.staff_takes_over} onChange={v => set('staff_takes_over', v)} label="Ответ из приложения Авито забирает диалог у бота"
               hint="Если вы ответили покупателю прямо в Авито, бот в этом диалоге замолкает. Выключите, если в Авито ещё работает его встроенный автоответчик — иначе бот замолчит во всех диалогах. Правильнее выключить сам автоответчик Авито: теперь его работу делает бот" />
@@ -1809,7 +1845,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
                 <label className="block"><span className={LABEL}>₽ за 1 млн выходных</span><input type="number" min={0} step="any" className={`${INPUT} mt-1.5`} value={form.llm_price_out} onChange={e => set('llm_price_out', Math.max(0, Number(e.target.value) || 0))} /></label>
               </div>
               <div className="text-xs text-slate-500">Цены из тарифа провайдера — для расходов в «Аналитике». Можно не заполнять.</div>
-              <button type="button" onClick={checkLlm} disabled={busy !== null} className={BTN_SECONDARY}>{busy === 'llm' ? 'Спрашиваем…' : 'Проверить модель'}</button>
+              <button type="button" onClick={checkLlm} disabled={busy !== null || enabledPending} className={BTN_SECONDARY}>{busy === 'llm' ? 'Спрашиваем…' : 'Проверить модель'}</button>
               {check && (
                 <div className={`rounded-xl p-3 text-sm ${check.action === 'reply' && check.source === 'llm' ? 'bg-emerald-400/10 text-emerald-200' : check.action === 'reply' ? 'bg-white/[0.05] text-slate-300' : 'bg-rose-400/10 text-rose-200'}`}>
                   {check.action === 'reply' && check.source === 'llm' ? <>Модель отвечает: «{check.text}»</>
@@ -1825,12 +1861,12 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
           <h3 className="mb-1 font-semibold text-white">Авито</h3>
           <p className="mb-4 text-xs text-slate-500">Ключи — в личном кабинете Авито: Настройки → API (раздел для разработчиков). Нужен доступ к API мессенджера.</p>
           <div className="space-y-3">
-            <label className="block"><span className={LABEL}>client_id</span><input className={`${INPUT} mt-1.5`} value={form.avito_client_id} onChange={e => set('avito_client_id', e.target.value)} autoComplete="off" /></label>
+            <label className="block"><span className={LABEL}>client_id</span><input className={`${INPUT} mt-1.5`} value={form.avito_client_id} onChange={e => set('avito_client_id', e.target.value)} autoComplete="off" disabled={busy === 'connect'} /></label>
             <label className="block"><span className={LABEL}>client_secret</span>
-              <input type="password" autoComplete="off" className={`${INPUT} mt-1.5`} value={avitoSecret} onChange={e => setAvitoSecret(e.target.value)}
+              <input type="password" autoComplete="off" className={`${INPUT} mt-1.5`} value={avitoSecret} onChange={e => setAvitoSecret(e.target.value)} disabled={busy === 'connect'}
                 placeholder={config.avito_client_secret_set ? 'Задан — оставьте пустым, чтобы не менять' : 'Вставьте секрет'} /></label>
             <div className="flex flex-wrap items-center gap-3">
-              <button type="button" onClick={connect} disabled={busy !== null || !form.avito_client_id || (!config.avito_client_secret_set && !avitoSecret)} className={BTN_SECONDARY}>
+              <button type="button" onClick={connect} disabled={busy !== null || enabledPending || !form.avito_client_id || (!config.avito_client_secret_set && !avitoSecret)} className={BTN_SECONDARY}>
                 {busy === 'connect' ? 'Подключаем…' : config.avito_connected_at ? 'Переподключить' : 'Подключить'}
               </button>
               {config.avito_connected_at
@@ -1847,7 +1883,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
         </section>
 
         <div className="sticky bottom-4 flex justify-end">
-          <button type="button" onClick={() => save()} disabled={!dirty || busy !== null} className={BTN_PRIMARY}>{busy === 'save' ? 'Сохраняем…' : 'Сохранить настройки'}</button>
+          <button type="button" onClick={() => save()} disabled={!dirty || busy !== null || enabledPending} className={BTN_PRIMARY}>{busy === 'save' ? 'Сохраняем…' : 'Сохранить настройки'}</button>
         </div>
       </div>
     </div>
