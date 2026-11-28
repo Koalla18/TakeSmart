@@ -1716,7 +1716,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
             </div>
             <label className="block"><span className={LABEL}>Приветствие</span>
               <input className={`${INPUT} mt-1.5`} value={form.greeting} onChange={e => set('greeting', e.target.value)} placeholder="Здравствуйте! Меня зовут {name}, я менеджер магазина TakeSmart." /></label>
-            <div className="text-xs text-slate-500"><code className="text-slate-300">{'{name}'}</code> — имя менеджера. Если поле оставить пустым, первый ответ с ценой начнётся с «Здравствуйте!».</div>
+            <div className="text-xs text-slate-500"><code className="text-slate-300">{'{name}'}</code> — имя менеджера. Если поле оставить пустым, в первом ответе бот поздоровается и представится по умолчанию.</div>
             <div className="text-xs text-slate-500">Пауза — для ответов модели, чтобы они не прилетали мгновенно. У автоответов своя задержка. Если покупатель прямо спросит «вы бот?», бот не станет отрицать — это защищает аккаунт от жалоб.</div>
             <Toggle checked={form.staff_takes_over} onChange={v => set('staff_takes_over', v)} label="Ответ из приложения Авито забирает диалог у бота"
               hint="Если вы ответили покупателю прямо в Авито, бот в этом диалоге замолкает. Выключите, если в Авито ещё работает его встроенный автоответчик — иначе бот замолчит во всех диалогах. Правильнее выключить сам автоответчик Авито: теперь его работу делает бот" />
