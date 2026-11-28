@@ -708,11 +708,15 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     if quote:
         system += ("\nБэкенд уже включит цену, условия распознанного способа оплаты и следующий шаг по trade-in. "
                    "В поле reply пиши только ответы на остальные вопросы покупателя. Не вставляй строку товара с ценой, "
-                   "даже если она есть в истории, результатах поиска или примерах.")
+                   "даже если она есть в истории, результатах поиска или примерах. Для совпадения exact цена уже подтверждена. "
+                   "Не обещай уточнить цену или передать вопрос о цене менеджеру.")
     system += ("\nТы отвечаешь как сотрудник магазина. Не обращайся к продавцу от лица покупателя, "
                "не пересказывай его сообщение вместо ответа и не придумывай банковские реквизиты.")
     try:
-        raw = await llm_call(cfg, build_messages(system, masked_ctx, HISTORY_LIMIT))
+        messages = build_messages(system, masked_ctx, HISTORY_LIMIT)
+        if quote and not requested.intent.booking_requested and (question := avito_quotes.supplemental_question(pending_text)):
+            messages[-1]["content"] = masker.mask(question)
+        raw = await llm_call(cfg, messages)
     except llm_client.LlmError as exc:
         return outcome("handoff", None, reason=f"Модель не ответила: {exc}"[:200], catalog=lines)
 

@@ -34,6 +34,7 @@ _SUPPLEMENT_CLAUSE = re.compile(
     re.IGNORECASE,
 )
 _SERVICE_FEE = re.compile(r"\b(?:достав\w*|предоплат\w*|пвз|сдэк|курьер\w*)\b", re.IGNORECASE)
+_PRICE_CLAUSE = re.compile(r"\b(?:цен[аыуеой]*|ценник\w*|стоимост\w*|прайс\w*|по\s*ч[её]м)\b", re.IGNORECASE)
 _TRANSFER = re.compile(r"\b(?:перевод\w*|безнал\w*|реквизит\w*|бик|(?:расч[её]тн\w*|номер)\s+сч[её]т\w*)\b", re.IGNORECASE)
 _CARD = re.compile(r"\b(?:(?:по|оплата)\s+карт\w*|картой|qr|куар)\b", re.IGNORECASE)
 _CARD_FOLLOWUP = re.compile(r"\s*(?:а\s+)?(?:по карте|картой|qr|куар)\s*\?*\s*", re.IGNORECASE)
@@ -298,12 +299,20 @@ def format_quote(results: list[SearchResult], card_markup: Decimal | None = None
     return "\n".join(lines)
 
 
+def supplemental_question(text: str) -> str:
+    """Keep an independently phrased additional question, with the catalog result as its product context."""
+    parts = _SUPPLEMENT_CLAUSE.split(text)
+    questions = [part.strip() for part in parts if _SUPPLEMENT.search(part) and not _PRICE_CLAUSE.search(part)]
+    return "\n".join(questions)
+
+
 def without_retail_prices(reply: str) -> str:
-    """Leave retail amounts to the catalog but keep separately stated service fees for validation."""
+    """Leave retail prices to the catalog, including statements about whether they are known."""
     kept = []
     for clause in _SUPPLEMENT_CLAUSE.split(reply):
         amounts = trade_in_amounts(clause)
-        if not amounts or (max(amounts) < MIN_QUOTED_PRICE and _SERVICE_FEE.search(clause)):
+        service_fee = _SERVICE_FEE.search(clause) and (not amounts or max(amounts) < MIN_QUOTED_PRICE)
+        if service_fee or not (amounts or _PRICE_CLAUSE.search(clause)):
             kept.append(clause.strip())
     text = " ".join(part for part in kept if part)
     return text[:1].upper() + text[1:]
