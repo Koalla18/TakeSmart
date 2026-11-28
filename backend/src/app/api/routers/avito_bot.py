@@ -652,7 +652,7 @@ async def test_listings() -> list[str]:
 
 
 @router.post("/test", response_model=DecisionOut, dependencies=ADMIN,
-             summary="Тест диалога без сохранения: цены, неподтверждённые характеристики и дополнительные вопросы")
+             summary="Тест диалога без сохранения: цена, выбор комплектации и адрес магазина")
 async def test_chat(body: TestIn) -> DecisionOut:
     order_status = body.order_status
     if order_status == "pending" and bot.wants_cancel(body.text):
