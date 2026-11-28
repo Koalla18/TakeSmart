@@ -9,7 +9,7 @@ import { BTN_ROW, CARD, INPUT } from './installsUi'
 // ─────────────────────────────────────────────────────────────────────────────
 // Прайс бота. Слева — что сейчас в базе, справа — новые цены (одно сообщение
 // поставщика или весь прайс). Разница видна сразу и на обеих сторонах, меняется
-// только после «Применить». Повторы во вставленном — берётся меньшая цена.
+// только после «Применить». Конфликты цен требуют исправления до публикации.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface PriceConfig { price_list: string; price_list_can_undo?: boolean; price_list_updated_at?: string | null }
@@ -27,7 +27,7 @@ const MODES: { id: Mode; label: string; hint: string }[] = [
 ]
 
 const GROUPS: { kind: Kind; title: string; cls: string }[] = [
-  { kind: 'changed', title: 'Изменится цена', cls: 'text-yellow-300' },
+  { kind: 'changed', title: 'Обновится', cls: 'text-yellow-300' },
   { kind: 'added', title: 'Добавится', cls: 'text-emerald-300' },
   { kind: 'removed', title: 'Уйдёт из базы', cls: 'text-rose-300' },
 ]
@@ -183,17 +183,17 @@ export function PriceListTab<C extends PriceConfig>({ api, config, setConfig }: 
               {preview.new_count === 0 && <div className="rounded-xl bg-rose-400/10 p-3 text-sm text-rose-200">Не нашёл ни одной позиции с ценой — база не изменится.</div>}
               {preview.errors.length > 0 && (
                 <div className="rounded-xl bg-rose-400/10 p-3 text-xs text-rose-200">
-                  <div className="mb-1 font-semibold">Эти строки не прочитались ({preview.errors.length})</div>
+                  <div className="mb-1 font-semibold">Исправьте перед публикацией ({preview.errors.length})</div>
                   {preview.errors.map(e => <div key={e}>{e}</div>)}
                 </div>
               )}
-              {preview.duplicates.length > 0 && (
+              {!preview.errors.length && preview.duplicates.length > 0 && (
                 <div className="rounded-xl bg-white/5 p-3 text-xs text-slate-300">
-                  <div className="mb-1 font-semibold">Повторы — взята меньшая цена ({preview.duplicates.length})</div>
+                  <div className="mb-1 font-semibold">Повторы во вставленном прайсе ({preview.duplicates.length})</div>
                   {preview.duplicates.map(d => <div key={d}>{d}</div>)}
                 </div>
               )}
-              {preview.base_errors > 0 && preview.changes.length > 0 && <div className="text-xs text-amber-300">В старой базе строк, которые бот не читал: {preview.base_errors}. После применения они удалятся.</div>}
+              {preview.base_errors > 0 && mode === 'full' && <div className="text-xs text-amber-300">Строк с ошибками в заменяемом прайсе: {preview.base_errors}.</div>}
               {mode !== 'add' && gone > chosen.length - gone && (
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-amber-400/10 p-3 text-sm text-amber-200">
                   <span>Из базы уйдёт позиций: {gone}. Если прислали только часть цен — не удаляйте.</span>

@@ -94,6 +94,7 @@ interface Config {
   price_list_can_undo?: boolean
   price_list_updated_at?: string | null
   trade_in_prices: string
+  card_markup_percent?: number
   staff_takes_over: boolean
   human_mode: boolean
   allow_emoji: boolean
@@ -147,9 +148,10 @@ interface Decision {
   messages?: { text: string; rule_id: string | null }[]
   order_status?: 'pending' | 'cancelled' | null
   search?: {
-    query: { brand?: string; category?: string; model?: string; attributes: Record<string, unknown> }
+    query: { brand?: string; category?: string; model?: string; reference?: string; attributes: Record<string, unknown> }
     status: string
-    matches: { id: string; name: string; price_rub: number; relation: string; attributes: Record<string, unknown> }[]
+    revision?: number | null
+    matches: { id: string; name: string; price_rub: number; relation: string; attributes: Record<string, unknown>; source_number?: number | null; source_line?: string | null }[]
   }[]
 }
 
@@ -1447,14 +1449,16 @@ function DecisionNote({ d, ruleName }: { d: Decision; ruleName?: string }) {
       {!!d.search?.length && (
         <details className="mt-1 text-left">
           <summary className="cursor-pointer">Поиск по прайсу</summary>
-          {d.search.map(({ query, status, matches }, index) => (
+          {d.search.map(({ query, status, matches, revision }, index) => (
             <div className="mt-1" key={index}>
               <div className="text-slate-300">{[query.brand, query.model, ...searchAttributes(query.attributes)].filter(Boolean).join(' · ')}</div>
-              <div>{({ exact: 'Найдено точное совпадение', same_model: 'Та же модель с отличиями', other_model: 'Найдены другие модели', not_found: 'Совпадений нет', ambiguous: 'Нужно уточнить модель' } as Record<string, string>)[status] ?? status}</div>
+              <div>{({ exact: 'Найдено точное совпадение', same_model: 'Та же модель с отличиями', other_model: 'Найдены другие модели', not_found: 'Совпадений нет', ambiguous: 'Нужно уточнить модель', unavailable: 'Запрошенный вариант недоступен' } as Record<string, string>)[status] ?? status}</div>
+              <div>{[revision && `Прайс №${revision}`, ({ listing: 'Из объявления', conversation: 'Из диалога', explicit: 'Из запроса' } as Record<string, string>)[query.reference ?? '']].filter(Boolean).join(' · ')}</div>
               {matches.map(item => (
                 <div key={item.id}>
-                  {item.name} · {item.price_rub.toLocaleString('ru-RU')} ₽
+                  {item.name} · {item.price_rub.toLocaleString('ru-RU')} ₽{item.source_number ? ` · строка ${item.source_number}` : ''}
                   <span className="block">{searchAttributes(item.attributes).join(' · ')}</span>
+                  {item.source_line && <span className="block break-all text-slate-500">{item.source_line}</span>}
                 </div>
               ))}
             </div>
@@ -1617,7 +1621,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
 
   const save = async (patch?: Partial<Config>, quiet?: boolean): Promise<Config | null> => {
     const body: Record<string, unknown> = patch ?? {
-      enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, trade_in_prices: form.trade_in_prices, staff_takes_over: form.staff_takes_over, human_mode: form.human_mode, allow_emoji: form.allow_emoji, off_topic_silent: form.off_topic_silent, style: form.style, knowledge: form.knowledge,
+      enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, trade_in_prices: form.trade_in_prices, card_markup_percent: form.card_markup_percent, staff_takes_over: form.staff_takes_over, human_mode: form.human_mode, allow_emoji: form.allow_emoji, off_topic_silent: form.off_topic_silent, style: form.style, knowledge: form.knowledge,
       handoff_topics: form.handoff_topics, handoff_message: form.handoff_message, reply_delay_min: form.reply_delay_min,
       reply_delay_max: form.reply_delay_max, listing_scope: form.listing_scope ?? 'all',
       allowed_listing_ids: form.allowed_listing_ids ?? [], collect_messages_seconds: form.collect_messages_seconds ?? 15,
@@ -1788,6 +1792,10 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
           <label className="mt-3 block"><span className={LABEL}>Что написать, пока зовём человека</span>
             <input className={`${INPUT} mt-1.5`} value={form.handoff_message} onChange={e => set('handoff_message', e.target.value)} placeholder="Сейчас уточню у коллеги и вернусь к вам. Пусто — бот молчит" />
             <span className="mt-1 block text-xs text-slate-500">Только когда покупатель сам просит менеджера. При сбое, нехватке цены или данных бот ничего не пишет: отмечает прочитанным и зовёт вас.</span></label>
+          <label className="mt-3 block max-w-[240px]"><span className={LABEL}>Наценка при оплате картой, %</span>
+            <input type="number" min={0} max={100} step={0.01} className={`${INPUT} mt-1.5`}
+              value={form.card_markup_percent ?? 16} onChange={e => set('card_markup_percent', Math.min(100, Math.max(0, Number(e.target.value))))} />
+          </label>
           <label className="mt-3 block"><span className={LABEL}>Оценка trade-in</span>
             <textarea className={`${INPUT} mt-1.5 h-72 font-mono text-[13px]`} value={form.trade_in_prices} onChange={e => set('trade_in_prices', e.target.value)} /></label>
           <div className="mt-1 text-xs text-slate-500">Какие модели принимаем в trade-in, вилки оценки и правила. Бот называет только предварительную вилку «до …» и не берёт ничего, чего нет в списке.</div>
