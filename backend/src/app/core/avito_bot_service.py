@@ -687,7 +687,9 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
                 action = "reply"
         return Decision(action, reply, *args, **kwargs)
 
-    masked_ctx = ChatContext(ctx.item_title, ctx.item_price, ctx.client_name, [(a, masker.mask(t)) for a, t in ctx.history])
+    masked_ctx = ChatContext(ctx.item_title, None if price_text else ctx.item_price, ctx.client_name,
+                             [(a, masker.mask(t)) for a, t in ctx.history])
+    omitted_match_fields = {"source_line", "source_number"} | ({"price_rub"} if price_text else set())
     system = build_system_prompt(
         PromptConfig(cfg.persona_name, cfg.style, cfg.knowledge, cfg.handoff_topics, cfg.greeting,
                      cfg.human_mode, cfg.allow_emoji, cfg.off_topic_silent),
@@ -696,16 +698,17 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         orders_enabled=cfg.orders_enabled, pickup_address=cfg.pickup_address,
         order_note=order_note_for_prompt(*order_info) if order_info else None,
         greet=greet,
-        price_overview=price_lines(items),
+        price_overview=[] if price_text else price_lines(items),
         search_context=[{**result, "matches": [
-            {key: value for key, value in match.items() if key not in ("source_line", "source_number")}
+            {key: value for key, value in match.items() if key not in omitted_match_fields}
             for match in result["matches"]
         ]} for result in search_data],
         trade_in=cfg.trade_in_prices,
     )
     if quote:
         system += ("\nБэкенд уже включит цену, условия распознанного способа оплаты и следующий шаг по trade-in. "
-                   "Ответь на остальные вопросы покупателя, не повторяй эти сведения.")
+                   "В поле reply пиши только ответы на остальные вопросы покупателя. Не вставляй строку товара с ценой, "
+                   "даже если она есть в истории, результатах поиска или примерах.")
     system += ("\nТы отвечаешь как сотрудник магазина. Не обращайся к продавцу от лица покупателя, "
                "не пересказывай его сообщение вместо ответа и не придумывай банковские реквизиты.")
     try:
@@ -733,6 +736,14 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         if cfg.off_topic_silent:
             return outcome("silent", reason="Ответ модели ушёл в сторону от магазина — бот промолчал",
                             catalog=lines, examples_used=len(examples))
+    if price_text and reply:
+        # Подтверждённая цена уже будет в сообщении. Не отправляем её пересказ на повторное
+        # сопоставление по тексту: оно может отвергнуть даже правильную сумму.
+        grounded_prices = set(quoted_prices(price_text))
+        reply = " ".join(
+            sentence for sentence in re.split(r"(?<=[.!?])\s+|\n+", reply)
+            if not grounded_prices.intersection(quoted_prices(sentence))
+        ).strip()
     if reply:
         # Контроль цен: каждая названная розничная цена — из прайса; устаревшую исправляем,
         # выдуманную не отправляем вовсе — зовём человека
@@ -754,12 +765,6 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
                             catalog=lines, examples_used=len(examples))
         if price_fixed:
             logger.warning("avito_bot_price_corrected", hint="цена в ответе заменена на актуальную из прайса")
-        if price_text:
-            grounded_prices = set(quoted_prices(price_text))
-            reply = " ".join(
-                sentence for sentence in re.split(r"(?<=[.!?])\s+|\n+", reply)
-                if not grounded_prices.intersection(quoted_prices(sentence))
-            ).strip()
         if is_own_repeat(reply, ctx):
             # Дословный повтор своего же сообщения — не шлём дубль
             logger.warning("avito_bot_repeat", hint="модель повторила своё прошлое сообщение дословно")
