@@ -30,14 +30,14 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import func, or_, select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core import avito_catalog, avito_client, avito_quotes, llm_client
 from src.app.core.avito_bot_engine import (
     MSK, ChatContext, PiiMasker, PromptConfig, build_messages, build_reminder_messages, build_system_prompt,
     human_delay, in_window, match_rule, parse_llm_answer, pick_examples, render_reminder,
-    render_template, rule_covers, starts_with_refusal, wants_opt_out, is_first_reply, with_greeting,
+    render_template, rule_covers, starts_with_refusal, wants_opt_out, is_first_reply, greeting_text,
     split_reply, typing_delay, classify_avito_message, normalize_phone, valid_email, valid_full_name,
     order_note_for_prompt, wants_cancel, CatalogItem, SearchIndex, family_name, catalog_vocab, query_segments, search_catalog,
     is_refusal, strip_greeting, sanitize_reply, price_lines, quoted_prices,
@@ -53,7 +53,7 @@ from src.app.database.models.product import Product
 from src.app.database.models.site_setting import SiteSetting
 from src.app.database.repositories.site_setting_repository import SiteSettingRepository
 from src.app.database.session import AsyncSessionFactory
-from src.app.schemas.avito_bot import SECRET_FIELDS, AvitoBotConfig
+from src.app.schemas.avito_bot import DEFAULT_GREETING, SECRET_FIELDS, AvitoBotConfig
 
 logger = get_logger(__name__)
 
@@ -458,7 +458,9 @@ async def find_requested_products(session: AsyncSession, cfg: AvitoBotConfig, ct
                     "attributes": {**reference.attributes, **query.attributes},
                 })
         if quote:
-            result = await avito_catalog.search(session, import_id, query, spread_storage=True)
+            result = await avito_catalog.search(
+                session, import_id, query, spread_storage=True, allow_other_models=False,
+            )
         else:
             result = await avito_catalog.search(session, import_id, query)
         results.append(result)
@@ -577,7 +579,6 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         return Decision("silent", reason="Покупатель ответил на прощание — молчим")
 
     async def rule_decision(rule: AvitoBotRule) -> Decision:
-        # Первый ответ дня — с приветствием, даже если это готовый автоответ; иначе приветствие вырезаем
         import_id = await avito_catalog.active_import(session, cfg.price_list)
         items = await avito_catalog.listing_items(session, import_id, ctx.item_title)
         text_, unknown, _ = checked_reply_prices(cfg, rule.answer.strip(), ctx.item_title, pending_text, items=items)
@@ -585,8 +586,6 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
             return Decision("handoff", reason=f"Цена в автоответе не подтверждена прайсом ({unknown[0]} ₽)")
         if not greet:
             text_ = strip_greeting(text_) or text_
-        else:
-            text_ = with_greeting(text_, cfg.greeting, cfg.persona_name, "\n\n" if cfg.human_mode else "\n")
         return Decision("reply", text_, "rule", rule, delay_seconds=rule.delay_seconds)
 
     cancelling = bool(order_info) and wants_cancel(pending_text)
@@ -862,12 +861,15 @@ async def plan_chat_reply(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatC
     greet = is_first_reply(ctx) if greet is None else greet
     decision = await decide(session, cfg, ctx, pending, rule_hits, item_id=item_id,
                             order_info=order_info, greet=greet)
-    if not decision.text or decision.action not in ("reply", "handoff"):
+    if decision.action not in ("reply", "handoff"):
         return decision, []
-    greeting = cfg.greeting.strip() or ("Здравствуйте!" if decision.price_reply else "")
-    if greet and greeting:
+    if greet:
+        greeting = greeting_text(cfg.greeting.strip() or DEFAULT_GREETING, cfg.persona_name)
         separator = "\n\n" if cfg.human_mode else "\n"
-        decision.text = with_greeting(decision.text, greeting, cfg.persona_name, separator)
+        body = strip_greeting(decision.text) if decision.text else "Уточню ваш вопрос у коллеги."
+        decision.text = separator.join(part for part in (greeting, body) if part)
+    if not decision.text:
+        return decision, []
     return decision, [PlannedReply(decision.text, decision.source, decision, whole=decision.price_reply)]
 
 
@@ -1326,15 +1328,11 @@ GREET_EVERY = timedelta(hours=24)
 
 
 async def _greeted_recently(session: AsyncSession, chat: AvitoChat) -> bool:
-    """Писали ли мы этому покупателю за последние сутки — в этом чате или в другом (по его ID в Авито).
-    Тогда не здороваемся и не шлём шаблон с ценой ещё раз."""
+    """В новом диалоге представляемся, даже если уже писали покупателю по другому объявлению."""
     since = _now() - GREET_EVERY
-    chat_ids = select(AvitoChat.id).where(AvitoChat.id == chat.id)
-    if chat.client_avito_id and not chat.is_simulated:
-        chat_ids = select(AvitoChat.id).where(or_(AvitoChat.id == chat.id, AvitoChat.client_avito_id == chat.client_avito_id))
     res = await session.execute(
         select(AvitoMessage.id).where(
-            AvitoMessage.chat_id.in_(chat_ids), AvitoMessage.author.in_(("bot", "staff")),
+            AvitoMessage.chat_id == chat.id, AvitoMessage.author.in_(("bot", "staff")),
             AvitoMessage.status == "sent", AvitoMessage.created_at >= since,
         ).limit(1)
     )
@@ -1344,7 +1342,7 @@ async def _greeted_recently(session: AsyncSession, chat: AvitoChat) -> bool:
 async def _import_history(session: AsyncSession, cfg: AvitoBotConfig, chat: AvitoChat, account_id: Any,
                           skip_id: str | None) -> None:
     """Новый для бота чат мог начаться в Авито раньше: подтягиваем последние сообщения, чтобы бот
-    видел разговор и не здоровался заново с тем, с кем уже общались."""
+    видел разговор и не повторял приветствие в том же чате."""
     creds = avito_creds(cfg)
     try:
         creds.user_id = int(account_id) if account_id not in (None, "") else creds.user_id

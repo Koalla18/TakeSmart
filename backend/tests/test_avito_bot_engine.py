@@ -363,6 +363,7 @@ def test_refusal_anywhere_and_greeting_strip():
         assert not is_refusal(t), t
     assert strip_greeting("Здравствуйте! Цена в объявлении — это доплата.") == "Цена в объявлении — это доплата."
     assert strip_greeting("Добрый вечер! Меня зовут Илья, я менеджер. Есть белый 128 ГБ.") == "Есть белый 128 ГБ."
+    assert strip_greeting("Здравствуйте, белый есть в наличии!") == "Белый есть в наличии!"
     assert strip_greeting("Есть в наличии.") == "Есть в наличии."
 
 

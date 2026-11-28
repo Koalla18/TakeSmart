@@ -11,7 +11,7 @@ from src.app.core.avito_bot_engine import (
     quoted_prices,
 )
 
-_PRICE_WORD = re.compile(r"\b(?:цен[ауые]|ценник|поч[её]м|стоимост\w*|сколько стоит)\b", re.IGNORECASE)
+_PRICE_WORD = re.compile(r"\b(?:цен[ауые]|ценник|по\s*ч[её]м|стоимост\w*|сколько стоит)\b", re.IGNORECASE)
 _HOW_MUCH = re.compile(r"\b(?:сколько|скока)\b", re.IGNORECASE)
 _NON_PRODUCT_AMOUNT = re.compile(
     r"\b(?:цен[ауые]|стоимост\w*)\s+доставк\w*\b|"
@@ -39,6 +39,7 @@ _SAMSUNG = re.compile(
     r"\b(?:(?:samsung|самсунг|galaxy|галакси)\s+)*(?P<version>[сsаa]\s*\d{2}[eе]?)"
     r"(?:(?:\s*)(?P<trim>ultra|ультр[ау]|plus|плюс|fe)|(?P<plus>\+))?(?![\w+])", re.IGNORECASE,
 )
+_SAMSUNG_RADIO = re.compile(r"\b([45]\s*g|lte)\b", re.IGNORECASE)
 _TRIMS = {
     "про": "Pro", "промакс": "Pro Max", "promax": "Pro Max", "плюс": "Plus",
     "макс": "Max", "мини": "Mini", "эйр": "Air", "ультра": "Ultra", "ультру": "Ultra", "fe": "FE",
@@ -81,7 +82,10 @@ def _named_phone(text: str) -> tuple[ProductQuery | None, str]:
     model = f"{'iPhone' if brand == 'Apple' else 'Galaxy'} {version.title() if brand == 'Apple' else version.upper()}"
     if suffix:
         model += f" {suffix}"
-    return ProductQuery(brand=brand, category="smartphone", model=model), text[:match.start()] + " " + text[match.end():]
+    remainder = text[:match.start()] + " " + text[match.end():]
+    if brand == "Samsung" and (radio := _SAMSUNG_RADIO.search(remainder)):
+        model += f" {normalize(radio[1]).replace(' ', '').upper()}"
+    return ProductQuery(brand=brand, category="smartphone", model=model), remainder
 
 
 def _options(text: str, brand: str | None) -> tuple[dict[str, Scalar], list[tuple[str | None, int]], set[str]]:

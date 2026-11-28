@@ -263,8 +263,25 @@ def _matches_value(key: str, expected: Scalar, actual: Scalar | None) -> bool:
     return actual == expected
 
 
+_SAMSUNG_PHONE_KEY = re.compile(r"([as]\d{2}[a-z]?(?: (?:ultra|plus|fe))?)(?: ([45] ?g|lte))?")
+
+
+def _compatible_model_keys(key: str, brand: str) -> tuple[str, ...]:
+    # Старые загрузки хранят «5G» как часть модели. Без указания сети ищем обе версии
+    # конкретной модели; явно заданные 4G/LTE и 5G остаются разными.
+    match = _SAMSUNG_PHONE_KEY.fullmatch(key) if brand == "samsung" else None
+    if not match:
+        return (key,)
+    family, network = match.groups()
+    if network in ("5g", "5 g"):
+        return f"{family} 5g", f"{family} 5 g"
+    if network:
+        return f"{family} 4g", f"{family} 4 g", f"{family} lte"
+    return family, f"{family} 5g", f"{family} 5 g", f"{family} 4g", f"{family} 4 g", f"{family} lte"
+
+
 async def search(session: AsyncSession, import_id: int | None, query: ProductQuery, limit: int = 6,
-                 *, spread_storage: bool = False) -> SearchResult:
+                 *, spread_storage: bool = False, allow_other_models: bool = True) -> SearchResult:
     brand = brand_key(query.brand or "")
     category = category_key(query.category or "")
     key = model_key(query.model or "", brand)
@@ -277,16 +294,22 @@ async def search(session: AsyncSession, import_id: int | None, query: ProductQue
         scope = scope.where(models.c.category_key == category)
     same_model = not key
     if key:
-        model_scope = scope.where(models.c.key == key)
+        keys = _compatible_model_keys(key, brand)
+        if brand in ("apple", "samsung") and category == "smartphone" and (
+            attribute_value("sim", query.attributes.get("sim", "")) == "esim_only"
+        ):
+            # До исправления разбора «только eSIM» оставляло «только» в ключе модели.
+            keys += tuple(f"{candidate} только" for candidate in keys)
+        model_scope = scope.where(models.c.key.in_(keys))
         model_ids = list(await session.scalars(
             model_scope.with_only_columns(variants.c.model_id).distinct().limit(2)
         ))
-        if len(model_ids) > 1:
+        if len(model_ids) > 1 and len(keys) == 1:
             return SearchResult(query, [], "ambiguous")
         if model_ids:
             scope = model_scope
             same_model = True
-        elif not (brand and category):
+        elif not (allow_other_models and brand and category):
             return SearchResult(query, [], "not_found")
 
     wanted = {k: attribute_value(k, v) for k, v in query.attributes.items()}

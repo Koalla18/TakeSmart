@@ -140,8 +140,8 @@ class CatalogIntegration(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(listings["items"][0]["id"], str(listing_id))
             self.assertEqual(request.await_args.args[1:], ("GET", "/core/v1/items"))
             self.assertEqual(request.await_args.kwargs["params"], {"page": 2, "per_page": 50, "status": "active"})
-        self.assertEqual({item["id"] for item in (await list_listings(page=1, source="chats"))["items"]},
-                         {"1001", "1002"})
+        listing_ids = {item["id"] for item in (await list_listings(page=1, source="chats"))["items"]}
+        self.assertTrue({"1001", "1002"}.issubset(listing_ids))
 
         async def samsung_model(_config, messages):
             if messages[0]["content"].startswith("Извлеки поисковые"):
@@ -319,7 +319,8 @@ class CatalogIntegration(unittest.IsolatedAsyncioTestCase):
                 ],
             ))
             self.assertEqual(followup.action, "reply", followup.reason)
-            self.assertTrue(any("239 990 ₽" in message.text for message in followup.messages))
+            self.assertTrue(any("239 990 ₽" in message.text for message in followup.messages),
+                            (price.messages[0].text, followup.search, [message.text for message in followup.messages]))
             self.assertFalse(any("234 990 ₽" in message.text for message in followup.messages))
 
             no_call = AsyncMock(side_effect=AssertionError("clear catalog price should not call the model"))
@@ -404,6 +405,61 @@ class CatalogIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(settings.enabled)
         self.assertIsNotNone(settings.avito_connected_at)
         self.assertEqual(settings.avito_user_id, 42)
+
+    async def test_a57_short_price_and_first_greeting_in_new_listing_chat(self):
+        title = "Samsung Galaxy A57, 8/256 ГБ"
+        await self.save(AvitoBotConfig(
+            enabled=True, listing_scope="selected", allowed_listing_ids=[4001], mode="auto",
+            persona_name="Илья", greeting="", human_mode=False, orders_enabled=False,
+            llm_provider="qwen", llm_api_key="fake-test-key",
+            price_list=(
+                "Samsung A57 5G 8/256 Black — 31 990 ₽\n"
+                "Samsung A17 4G 8/256 Gray — 22 990 ₽\n"
+                "Samsung A17 5G 8/256 Gray — 25 990 ₽"
+            ),
+        ))
+        async with AsyncSessionFactory() as session:
+            old = AvitoChat(avito_chat_id=f"integration-{uuid4()}", item_id=4002, client_avito_id=555)
+            new = AvitoChat(avito_chat_id=f"integration-{uuid4()}", item_id=4001, client_avito_id=555, item_title=title)
+            session.add_all([old, new])
+            await session.flush()
+            session.add(AvitoMessage(chat_id=old.id, author="bot", status="sent", text="Здравствуйте!"))
+            await session.commit()
+            new_id, external = new.id, new.avito_chat_id
+
+        no_model = AsyncMock(side_effect=AssertionError("catalog price uses the listing directly"))
+        with (patch.object(bot, "llm_call", new=no_model), patch.object(bot, "_send", new=AsyncMock(return_value=None))):
+            await bot.handle_incoming(external, str(uuid4()), 555, "по чем")
+            await bot._process_chat(new_id)
+            async with AsyncSessionFactory() as session:
+                first = (await session.execute(select(AvitoMessage).where(
+                    AvitoMessage.chat_id == new_id, AvitoMessage.status == "scheduled",
+                ))).scalar_one()
+                self.assertTrue(first.text.startswith("Здравствуйте! Меня зовут Илья"), first.text)
+                self.assertIn("A57 5G 8/256", first.text)
+                self.assertIn("31 990 ₽", first.text)
+                self.assertNotIn("A17", first.text)
+                self.assertEqual(first.source, "catalog")
+                first_id = first.id
+            await bot.deliver_due_message(first_id)
+
+            await bot.handle_incoming(external, str(uuid4()), 555, "по чём?")
+            await bot._process_chat(new_id)
+            async with AsyncSessionFactory() as session:
+                followup = (await session.execute(select(AvitoMessage).where(
+                    AvitoMessage.chat_id == new_id, AvitoMessage.status == "scheduled",
+                ))).scalar_one()
+                self.assertIn("31 990 ₽", followup.text)
+                self.assertNotIn("Здравствуйте", followup.text)
+                self.assertFalse((await session.get(AvitoChat, new_id)).needs_human)
+
+            missing = await preview_reply(TestIn(text="по чем", item_id=4001, item_title="Samsung Galaxy A56, 8/256 ГБ"))
+            self.assertEqual(missing.search[0]["matches"], [])
+            self.assertNotIn("A17", missing.messages[0].text)
+            explicit = await preview_reply(TestIn(text="Почём A17 5G 8/256?", item_id=4001, item_title=title))
+            self.assertIn("25 990 ₽", explicit.messages[0].text)
+            self.assertNotIn("22 990 ₽", explicit.messages[0].text)
+        no_model.assert_not_awaited()
 
 
 if __name__ == "__main__":

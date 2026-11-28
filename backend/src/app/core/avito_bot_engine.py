@@ -1105,7 +1105,7 @@ def is_refusal(text: str) -> bool:
 
 _GREETING_LEAD = re.compile(
     r"^\s*(здравствуйте|здраствуйте|добрый\s+(день|вечер)|доброе\s+утро|доброго\s+(дня|вечера|времени\s+суток)|"
-    r"приветствую|привет)[^.!?\n]*[.!?)]*\s*", re.IGNORECASE)
+    r"приветствую|привет)(?!\w)[.!?,)]*\s*", re.IGNORECASE)
 _INTRO_LEAD = re.compile(r"^\s*(меня\s+зовут\s+[^.!?\n]+|это\s+\w+,\s*менеджер[^.!?\n]*)[.!?]*\s*", re.IGNORECASE)
 
 
@@ -1113,6 +1113,8 @@ def strip_greeting(text: str) -> str:
     """Убрать «Здравствуйте! Меня зовут …» в начале — когда сегодня уже здоровались."""
     out = _GREETING_LEAD.sub("", text or "", count=1)
     out = _INTRO_LEAD.sub("", out, count=1)
+    if out == text:
+        return out
     out = out.lstrip(" \n,—-")
     return out[:1].upper() + out[1:] if out else ""
 
@@ -1572,7 +1574,7 @@ _SIM_PHYS = re.compile(
     r"(?<!\w)([12]|две)\s*(?:физическ\w+\s+)?(?:i\s*)?(?:sim|ism|sm|сим)(?![a-zа-я])", re.IGNORECASE,
 )
 _ONE_PHYSICAL_SIM = re.compile(r"(?<!\w)(?:1|одна)\s+физическ\w+\s+(?:sim|сим)\b", re.IGNORECASE)
-_ESIM = re.compile(rf"(?<![a-zа-я]){_ESIM_WORD}", re.IGNORECASE)
+_ESIM = re.compile(rf"(?<![a-zа-я])(?:(?:только|only)\s+)?{_ESIM_WORD}", re.IGNORECASE)
 
 # Память: «8/256», «16GB / 512GB», «36/1TB», «256», «1ТБ». «M2/M3» и «40/60w» — не память.
 # Через пробел или запятую — только если у ОЗУ написано «GB»: в «iPhone 16 128GB» 16 — модель
