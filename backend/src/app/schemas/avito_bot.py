@@ -62,6 +62,7 @@ class AvitoBotConfig(BaseModel):
     handoff_message: str = Field("", max_length=500, description="Что написать покупателю, когда зовём человека; пусто — молчать")
     listing_scope: ListingScope = "all"
     allowed_listing_ids: list[int] = Field(default_factory=list, max_length=5000)
+    trade_in_listing_ids: list[int] = Field(default_factory=list, max_length=5000)
     collect_messages_seconds: int = Field(15, ge=0, le=120)
     reply_delay_min: int = Field(5, ge=0, le=300)
     reply_delay_max: int = Field(15, ge=0, le=600)
@@ -123,6 +124,7 @@ class AvitoBotConfigOut(BaseModel):
     handoff_message: str
     listing_scope: ListingScope
     allowed_listing_ids: list[str]
+    trade_in_listing_ids: list[str] = Field(default_factory=list)
     collect_messages_seconds: int
     reply_delay_min: int
     reply_delay_max: int
@@ -173,6 +175,7 @@ class AvitoBotConfigIn(BaseModel):
     handoff_message: str | None = Field(None, max_length=500)
     listing_scope: ListingScope | None = None
     allowed_listing_ids: list[int] | None = Field(None, max_length=5000)
+    trade_in_listing_ids: list[int] | None = Field(None, max_length=5000)
     collect_messages_seconds: int | None = Field(None, ge=0, le=120)
     reply_delay_min: int | None = Field(None, ge=0, le=300)
     reply_delay_max: int | None = Field(None, ge=0, le=600)
@@ -292,6 +295,7 @@ class MessageOut(BaseModel):
     send_at: datetime | None = None
     attempts: int = 0
     order_payload: dict | None = None
+    decision_trace: list[dict] | None = None
     created_at: datetime
     sent_at: datetime | None
     model_config = {"from_attributes": True}
@@ -347,6 +351,7 @@ class SendIn(BaseModel):
 
 
 class ApproveIn(BaseModel):
+    confirm_order: bool = False
     text: str | None = Field(None, min_length=1, max_length=4000)
 
 
@@ -364,6 +369,7 @@ class TestTurn(BaseModel):
     author: Literal["client", "bot", "staff"]
     text: str = Field(..., max_length=4000)
     rule_id: uuid.UUID | None = None
+    quoted_subject: dict | None = None
 
 
 class TestIn(BaseModel):
@@ -380,6 +386,7 @@ class TestIn(BaseModel):
 class TestMessage(BaseModel):
     text: str
     rule_id: uuid.UUID | None = None
+    quoted_subject: dict | None = None
 
 
 class DecisionOut(BaseModel):
@@ -491,7 +498,8 @@ class AvitoAnalyticsOut(BaseModel):
     bot_by_rule: int
     bot_by_llm: int
     staff_replies: int
-    auto_handled: int = Field(description="Активные диалоги, где не понадобился человек")
+    auto_handled: int = Field(description="Активные диалоги, где бот отправил ответ и справился сам")
+    dialogs_unanswered: int = 0
     handoffs: int
     response_median_s: float | None
     response_p90_s: float | None

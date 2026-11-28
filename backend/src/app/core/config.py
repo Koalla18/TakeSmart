@@ -1,11 +1,12 @@
 from pathlib import Path
 from urllib.parse import quote_plus
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Корень проекта (два уровня вверх от этого файла: core → app → src → root)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
+DEFAULT_SECRET_KEY = "changeme-set-in-production"
 
 
 class Settings(BaseSettings):
@@ -38,10 +39,12 @@ class Settings(BaseSettings):
         return int(v)
 
     # Security / JWT
-    SECRET_KEY: str = "changeme-set-in-production"
-    ALGORITHM: str = "HS256"
+    SECRET_KEY: str = Field(DEFAULT_SECRET_KEY, validation_alias=AliasChoices("SECRET_KEY", "JWT_SECRET"), repr=False)
+    ALGORITHM: str = Field("HS256", validation_alias=AliasChoices("ALGORITHM", "JWT_ALGORITHM"))
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    INTEGRATION_ENCRYPTION_KEY: str = Field("", repr=False)
+    INTEGRATION_LEGACY_KEY: str = Field("", repr=False)
 
     # Admin credentials
     ADMIN_USERNAME: str = "admin"

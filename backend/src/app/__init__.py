@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 
 from src.app.core.config import settings
 from src.app.core.logger import setup_logging, get_logger
-from src.app.core.middleware import LoggingMiddleware
+from src.app.core.middleware import LoggingMiddleware, log_path
 from src.app.core.admin_password import sync_admin_password
 from src.app.core.avito_bot_worker import start as start_avito_bot_worker, stop as stop_avito_bot_worker
 from src.app.redis.client import get_redis_pool, close_redis_pool
@@ -89,7 +89,7 @@ async def lifespan(app: FastAPI):
 
     try:
         await get_redis_pool()
-        logger.info("redis_connected", url=settings.redis_url)
+        logger.info("redis_pool_ready")
     except Exception as e:
         logger.warning("redis_connect_failed", error=str(e))
 
@@ -150,7 +150,7 @@ def create_app() -> FastAPI:
 
         logger.warning(
             "validation_error",
-            path=str(request.url.path),
+            path=log_path(request),
             method=request.method,
             errors=details,
         )
@@ -168,11 +168,11 @@ def create_app() -> FastAPI:
         request: Request, exc: Exception
     ) -> JSONResponse:
         """Перехватывает все необработанные исключения."""
-        logger.exception(
+        logger.error(
             "unhandled_exception",
-            path=str(request.url.path),
+            path=log_path(request),
             method=request.method,
-            error=str(exc),
+            error_type=type(exc).__name__,
         )
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

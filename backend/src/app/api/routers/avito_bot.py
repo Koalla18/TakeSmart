@@ -16,8 +16,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel, Field, ValidationError
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from sqlalchemy import delete, func, or_, select
 
@@ -34,7 +34,7 @@ from src.app.database.models.product import Product
 from src.app.database.session import AsyncSessionFactory
 from src.app.schemas.avito_bot import (
     PRICE_LIMIT,
-    SECRET_FIELDS, ApproveIn, AudienceChatOut, AudienceOut, AvitoAnalyticsOut, AvitoBotConfigIn, BroadcastCreate,
+    SECRET_FIELDS, ApproveIn, AudienceChatOut, AudienceOut, AvitoAnalyticsOut, AvitoBotConfig, AvitoBotConfigIn, BroadcastCreate,
     BroadcastDetailOut, BroadcastOut, BroadcastPreviewIn, BroadcastRecipientOut, OptOutIn, AvitoBotConfigOut, ChatDetailOut, ChatOut, ChatsOut, ConnectOut,
     DecisionOut, ExampleOut, ExamplePatch, HealthOut, LearningOut, LinkedProductOut, LinkIn, MessageOut, RuleIn,
     RuleOut, RulePatch, RulesImportIn, RulesImportOut, SendIn, SimulateIn, StatusOut, TestIn, TestMessage, UnansweredOut,
@@ -50,6 +50,7 @@ def _config_out(cfg) -> AvitoBotConfigOut:
     for f in SECRET_FIELDS:
         data.pop(f, None)
     data["allowed_listing_ids"] = [str(item_id) for item_id in cfg.allowed_listing_ids]
+    data["trade_in_listing_ids"] = [str(item_id) for item_id in cfg.trade_in_listing_ids]
     return AvitoBotConfigOut(
         **{k: v for k, v in data.items() if k in AvitoBotConfigOut.model_fields},
         price_list_can_undo=bool(cfg.price_list_prev),
@@ -85,14 +86,15 @@ async def put_settings(body: AvitoBotConfigIn) -> AvitoBotConfigOut:
             if errors:
                 raise HTTPException(status_code=422, detail=errors[0])
             _remember_price_list(cfg)
-        for key in ("listing_scope", "allowed_listing_ids", "collect_messages_seconds", "card_markup_percent"):
+        for key in ("listing_scope", "allowed_listing_ids", "trade_in_listing_ids", "collect_messages_seconds", "card_markup_percent"):
             if key in data and data[key] is None:
                 raise HTTPException(status_code=422, detail=f"Поле {key} обязательно при изменении")
-        if "allowed_listing_ids" in data:
-            ids = data["allowed_listing_ids"]
-            if any(not 0 < item_id < 2**63 for item_id in ids):
-                raise HTTPException(status_code=422, detail="Некорректный ID объявления")
-            data["allowed_listing_ids"] = list(dict.fromkeys(ids))
+        for key in ("allowed_listing_ids", "trade_in_listing_ids"):
+            if key in data:
+                ids = data[key]
+                if any(not 0 < item_id < 2**63 for item_id in ids):
+                    raise HTTPException(status_code=422, detail="Некорректный ID объявления")
+                data[key] = list(dict.fromkeys(ids))
         avito_account_changed = (
             data.get("avito_client_id", cfg.avito_client_id) != cfg.avito_client_id
             or bool(data.get("avito_client_secret"))
@@ -103,6 +105,11 @@ async def put_settings(body: AvitoBotConfigIn) -> AvitoBotConfigOut:
                     continue          # пустое поле — «не менять»
                 value = value or ""   # null — стереть
             setattr(cfg, key, value)
+        try:
+            cfg = AvitoBotConfig.model_validate(cfg.model_dump())
+        except ValidationError as exc:
+            field = ".".join(str(part) for part in exc.errors()[0]["loc"])
+            raise HTTPException(status_code=422, detail=f"Некорректная настройка: {field}") from exc
         if cfg.reply_delay_min > cfg.reply_delay_max:
             cfg.reply_delay_max = cfg.reply_delay_min
         if avito_account_changed:
@@ -388,9 +395,10 @@ async def chat_delete(chat_id: UUID) -> Response:
     return Response(status_code=204)
 
 
+@router.post("/messages/{message_id}/booking-draft", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN)
 @router.post("/messages/{message_id}/approve", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, dependencies=ADMIN)
 async def message_approve(message_id: UUID, body: ApproveIn) -> Response:
-    await _act(bot.approve_draft(message_id, body.text))
+    await _act(bot.approve_draft(message_id, body.text, body.confirm_order))
     return Response(status_code=204)
 
 
@@ -664,7 +672,22 @@ async def test_chat(body: TestIn) -> DecisionOut:
         )
 
     history = [(turn.author, turn.text) for turn in body.history if turn.text.strip()] + [("client", body.text)]
-    ctx = ChatContext(body.item_title, body.item_price, None, history)
+    subject = None
+    for turn in reversed(body.history):
+        if turn.author == "staff":
+            break
+        if turn.author == "bot" and turn.quoted_subject is not None:
+            try:
+                subject = avito_catalog.ProductQuery.model_validate(turn.quoted_subject).model_dump() if turn.quoted_subject else {}
+                options = turn.quoted_subject.get("options", [])
+                if not isinstance(options, list) or len(options) > 24:
+                    raise ValueError("Некорректные предложения")
+                if options:
+                    subject["options"] = [avito_catalog.ProductQuery.model_validate(option).model_dump() for option in options]
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="Некорректный контекст товара") from exc
+            break
+    ctx = ChatContext(body.item_title, body.item_price, None, history, subject)
     pending: list[str] = []
     for author, message in history:
         if author == "client":
@@ -692,7 +715,8 @@ async def test_chat(body: TestIn) -> DecisionOut:
     messages: list[TestMessage] = []
     for plan in planned:
         rule_id = plan.decision.rule.id if plan.decision and plan.decision.rule else None
-        messages.extend(TestMessage(text=part, rule_id=rule_id if i == 0 else None)
+        messages.extend(TestMessage(text=part, rule_id=rule_id if i == 0 else None,
+                        quoted_subject=plan.decision.quoted_subject if i == 0 and plan.decision else None)
                         for i, part in enumerate(bot.planned_parts(cfg, plan)))
     first = next((plan.text for plan in planned if plan.whole), None)
     reply = next((plan.text for plan in planned if not plan.whole), None)
@@ -826,16 +850,16 @@ async def simulate(body: SimulateIn) -> ChatOut:
 # ── Webhook ──────────────────────────────────────────────────────────────────
 
 @router.post("/webhook/{secret}", include_in_schema=False)
-async def webhook(secret: str, request: Request, background: BackgroundTasks) -> dict:
+async def webhook(secret: str, request: Request) -> dict:
     async with AsyncSessionFactory() as session:
         cfg = await bot.load_config(session)
+        if not cfg.webhook_secret or not hmac.compare_digest(secret, cfg.webhook_secret):
+            raise HTTPException(status_code=404)
+        try:
+            payload = await request.json()
+        except ValueError:
+            return {"ok": True}
+        if isinstance(payload, dict):
+            await bot.enqueue_webhook(session, payload)
         await session.commit()
-    if not cfg.webhook_secret or not hmac.compare_digest(secret, cfg.webhook_secret):
-        raise HTTPException(status_code=404)
-    try:
-        payload = await request.json()
-    except ValueError:
-        return {"ok": True}
-    # Авито ждёт быстрый 200 — разбор и ответ идут фоном
-    background.add_task(bot.handle_webhook, payload)
     return {"ok": True}

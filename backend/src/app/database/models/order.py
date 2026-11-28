@@ -58,7 +58,10 @@ class Order(Base):
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     discount_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     shipping_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    payment_surcharge: Mapped[Decimal] = mapped_column(Numeric(12, 2), server_default="0", nullable=False)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    payment_method: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    delivery_method: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     # Статусы
     status: Mapped[str] = mapped_column(
@@ -164,6 +167,9 @@ class OrderItem(Base):
     )
     product_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("products.id", ondelete="SET NULL"), nullable=True
+    )
+    variant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("product_variants.id", ondelete="SET NULL", name="fk_order_items_variant"), nullable=True
     )
 
     # Снэпшот товара на момент заказа

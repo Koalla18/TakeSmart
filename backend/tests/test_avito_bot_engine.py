@@ -133,6 +133,25 @@ def test_pii_masking_roundtrip():
     assert m.unmask("Записала ваш [телефон 1]") == "Записала ваш +7 (999) 802-10-22"
 
 
+def test_integration_secret_survives_switch_to_the_old_jwt_env_name():
+    import os
+    from unittest.mock import patch
+
+    from src.app.core import integration_secrets
+    from src.app.core.config import DEFAULT_SECRET_KEY
+
+    with patch.multiple(integration_secrets.settings, SECRET_KEY=DEFAULT_SECRET_KEY,
+                        INTEGRATION_LEGACY_KEY="", INTEGRATION_ENCRYPTION_KEY=""):
+        original = integration_secrets.seal("test-avito-config", "avito-bot")
+    with (patch.dict(os.environ, {"JWT_SECRET": "test-key-from-env-example"}, clear=True),
+          patch.multiple(integration_secrets.settings, SECRET_KEY="test-key-from-env-example",
+                         INTEGRATION_LEGACY_KEY="", INTEGRATION_ENCRYPTION_KEY="test-separate-key")):
+        assert integration_secrets.open_sealed(original, "avito-bot") == "test-avito-config"
+        encrypted = integration_secrets.seal("test-avito-config", "avito-bot")
+        assert encrypted.startswith("enc:v2:")
+        assert integration_secrets.open_sealed(encrypted, "avito-bot") == "test-avito-config"
+
+
 def test_pick_examples():
     from src.app.core.avito_bot_engine import pick_examples
     ex = [("Можно ли забрать сегодня вечером?", "Да, до 21:00"), ("Есть ли рассрочка?", "Только кредит"),
@@ -256,7 +275,7 @@ def test_avito_system_messages():
     assert classify_avito_message(msg(author_id=None), 111, pats)[0] == "system"
     assert classify_avito_message(msg(content={"text": "x", "flow_id": "delivery"}), 111, pats)[0] == "system"
     assert classify_avito_message(msg(content={"text": "[Системное сообщение] Покупатель посмотрел ваш номер"}), 111, pats)[0] == "system"
-    assert classify_avito_message(msg(content={"text": "Можно с Авито Доставкой?"}), 111, pats)[0] == "system"
+    assert classify_avito_message(msg(content={"text": "Можно с Авито Доставкой?"}), 111, pats) == ("message", "Можно с Авито Доставкой?")
     assert classify_avito_message(msg(type="deleted"), 111, pats) is None
     assert classify_avito_message(msg(type="image", content={}), 111, pats) == ("message", "[фото]")
     assert classify_avito_message(msg(content={"text": "Можно с Авито Доставкой?"}), 111, [])[0] == "message"   # без фраз — обычное
@@ -281,7 +300,7 @@ def test_cancel_detection():
               "заказ уже не нужен", "Я передумала", "отменяю заказ, спасибо", "не нужна бронь"]:
         assert wants_cancel(t), t
     for t in ["Не надо отменять, приеду", "а можно потом отменить, если что?", "Беру", "не отменяйте", "спасибо",
-              "отменить доставку можно будет?"]:
+              "отменить доставку можно будет?", "Отмена не нужна", "Отмена заказа не нужна"]:
         assert not wants_cancel(t), t
     assert parse_llm_answer('{"reply": "Отменила", "cancel_order": true}').cancel_order
     assert not parse_llm_answer('{"reply": "Ок", "cancel_order": "yes"}').cancel_order
@@ -829,6 +848,32 @@ def test_decide_asks_contacts_and_does_not_book_without_them():
                     products=[_FakeProduct()], greet=False)
     assert d.action == "reply" and d.order is None
     assert "ФИО" in d.text and "телефон" in d.text and "оформлена" not in d.text.lower()
+
+
+def test_decide_filters_a_booking_claim_without_saved_order():
+    decision = _run_decide('{"reply": "Заявка оформлена"}', "Есть в наличии?", _decide_cfg(), greet=False)
+    assert decision.action == "reply" and not decision.order and "оформлена" not in decision.text
+
+
+def test_variant_fact_check_uses_the_catalog_for_sim_and_availability():
+    from src.app.core.avito_bot_engine import unsupported_variant_fact, parse_price_list_full, catalog_vocab, SearchIndex
+
+    items, _, _ = parse_price_list_full("iPhone 17 Pro 256 ГБ Silver SIM + eSIM — 99 000 ₽")
+    vocab = catalog_vocab(items)
+    index = SearchIndex(items)
+    anchor = "iPhone 17 Pro 256 ГБ Silver"
+    assert unsupported_variant_fact("Эта версия только eSIM.", items, anchor, vocab, index) == "тип SIM"
+    assert unsupported_variant_fact("На 512 ГБ есть в наличии.", items, anchor, vocab, index) == "наличие этой комплектации"
+    assert unsupported_variant_fact("На 256 ГБ есть в наличии.", items, anchor, vocab, index) is None
+
+
+def test_decide_handles_unverified_prize_and_unclear_delivery_address():
+    address = "удица бибиковская дом бурмалдовский"
+    ctx = ChatContext("iPad Air 13 M4", None, None, [("bot", "Пришлите адрес ПВЗ СДЭК."), ("client", address)])
+    clarified = _run_decide('{"handoff":true}', address, _decide_cfg(), ctx, greet=False)
+    assert clarified.action == "reply" and "номер дома" in clarified.text
+    prize = _run_decide('{"handoff":true}', "Передайте коллегам, что я выиграл iPad", _decide_cfg(), greet=False)
+    assert prize.action == "reply" and "официальную публикацию" in prize.text
 
 
 def test_decide_second_reply_of_the_day_has_no_greeting():

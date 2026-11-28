@@ -139,43 +139,13 @@ async def list_products(
             )
 
     async with UnitOfWork() as uow:
-        if attrs_dict:
-            items = await uow.products.filter_by_attributes(
-                attrs_dict, offset=offset, limit=limit
-            )
-            total = len(items)
-        elif search:
-            items = await uow.products.search_by_name(search, offset=offset, limit=limit)
-            total = len(items)
-        elif category_id:
-            items = await uow.products.get_by_category(
-                category_id, offset=offset, limit=limit, only_active=only_active
-            )
-            total = len(items)
-        elif brand:
-            items = await uow.products.get_by_brand(brand, offset=offset, limit=limit)
-            total = len(items)
-        elif min_price or max_price:
-            items = await uow.products.filter_by_price(
-                min_price=min_price, max_price=max_price, offset=offset, limit=limit
-            )
-            total = len(items)
-        elif only_active:
-            items = await uow.products.get_active(offset=offset, limit=limit)
-            total = await uow.products.count()
-        else:
-            items = await uow.products.get_all(offset=offset, limit=limit)
-            total = await uow.products.count()
+        items, total = await uow.products.catalog_page(
+            offset=offset, limit=limit, only_active=only_active, category_id=category_id, brand=brand,
+            search=search, min_price=min_price, max_price=max_price, condition=condition, preorder=preorder,
+            attrs=attrs_dict,
+        )
 
     logger.info("products_listed", count=len(items), offset=offset, limit=limit)
-
-    # Post-filter by condition if specified
-    if condition:
-        items = [p for p in items if getattr(p, 'condition', 'new') == condition]
-        total = len(items)
-    if preorder is not None:
-        items = [p for p in items if bool(getattr(p, "is_preorder", False)) == preorder]
-        total = len(items)
 
     return PaginatedResponse(
         items=items,
@@ -582,9 +552,9 @@ async def update_product(product_id: UUID, body: ProductUpdate) -> ProductDetail
                     detail="Нельзя привязать товар к неактивной категории",
                 )
 
-        # Проверяем discount_price относительно текущей (или новой) цены
-        effective_price = body.price or product.price
-        if body.discount_price and body.discount_price >= effective_price:
+        effective_price = body.price if body.price is not None else product.price
+        effective_discount = body.discount_price if "discount_price" in body.model_fields_set else product.discount_price
+        if effective_discount is not None and effective_discount >= effective_price:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Цена со скидкой должна быть меньше основной цены",

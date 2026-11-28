@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from typing import Callable
@@ -12,13 +13,18 @@ from starlette.types import ASGIApp
 from src.app.core.logger import get_logger
 
 logger = get_logger(__name__)
+_SENSITIVE_PATH = re.compile(r"(/(?:avito-bot/webhook|installs/public/orders|i)/)[^/]+")
+
+
+def log_path(request: Request) -> str:
+    return _SENSITIVE_PATH.sub(r"\g<1>{redacted}", request.url.path)
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
     """
     Middleware логирует каждый HTTP-запрос и ответ:
       - request_id   — уникальный UUID каждого запроса (можно прокидывать в заголовке X-Request-ID)
-      - метод, путь, query-параметры
+      - метод и путь с замаскированными токенами
       - статус ответа
       - время выполнения в миллисекундах
       - IP клиента
@@ -41,7 +47,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         structlog.contextvars.bind_contextvars(
             request_id=request_id,
             method=request.method,
-            path=request.url.path,
+            path=log_path(request),
         )
 
         start_time = time.perf_counter()
@@ -49,7 +55,6 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         # Логируем входящий запрос
         logger.info(
             "request_started",
-            query_params=str(request.query_params) or None,
             client_ip=_get_client_ip(request),
             user_agent=request.headers.get("user-agent"),
         )
@@ -59,11 +64,12 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             response: Response = await call_next(request)
         except Exception as exc:
             duration_ms = _elapsed_ms(start_time)
-            logger.exception(
+            logger.error(
                 "request_failed",
                 duration_ms=duration_ms,
-                error=str(exc),
+                error_type=type(exc).__name__,
             )
+            structlog.contextvars.clear_contextvars()
             raise
 
         duration_ms = _elapsed_ms(start_time)

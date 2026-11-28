@@ -47,6 +47,11 @@ _KEEP_ITEM = re.compile(
     r"(?:этот|эту|это)(?: вариант| модель| товар)?(?: из объявления)?(?: хочу| нужен| нужна)?"
 )
 _PRODUCT_CATEGORY = re.compile(r"\b(?:планшет\w*|смартфон\w*|ноутбук\w*|наушник\w*|пылесос\w*|приставк\w*)\b", re.IGNORECASE)
+_PHYSICAL_SIM = re.compile(r"\bфизическ\w*\s+(?:sim|сим)(?:[- ]карт\w*)?\b", re.IGNORECASE)
+_ORDINAL_OPTION = re.compile(
+    r"(?:а |и )?(?:(?:у|на|за) )?(перв\w+|втор\w+|трет\w+|четверт\w+|[1-4])"
+    r"(?: вариант\w*)?(?: сколько(?: стоит)?| по чем| цена)?$"
+)
 _SUPPLEMENT_CLAUSE = re.compile(
     r"(?<=[.!?;])\s+|\n+|,\s*(?=(?:(?:а|и|по)\s+)*(?:гарант|достав|самовывоз|цена|стоимост|ценник))",
     re.IGNORECASE,
@@ -166,6 +171,8 @@ def _options(text: str, brand: str | None) -> tuple[dict[str, Scalar], list[tupl
         attrs["color"] = next(iter(colors))
     if sim := _reply_sim_label(("iPhone " if brand == "Apple" else "") + text):
         attrs["sim"] = attribute_value("sim", sim)
+    elif _PHYSICAL_SIM.search(text):
+        attrs["sim"] = "has_physical"
     if country := _line_country(text):
         attrs["region"] = attribute_value("region", country)
     if brand == "Samsung" and len(capacities) == 1 and not capacities[0][0] and (ram := _BARE_RAM.search(text)):
@@ -275,7 +282,8 @@ def _sent_subject(title: str) -> ProductQuery | None:
 def conversation_subject(ctx: ChatContext) -> tuple[ProductQuery | None, bool]:
     """Последний товар по уже отправленным предложениям и явным репликам покупателя."""
     if ctx.quoted_subject is not None:
-        return (ProductQuery.model_validate(ctx.quoted_subject) if ctx.quoted_subject else None), True
+        return (ProductQuery.model_validate(ctx.quoted_subject) if ctx.quoted_subject.get("model")
+                or ctx.quoted_subject.get("model_id") else None), True
     history = list(ctx.history)
     while history and history[-1][0] == "client":
         history.pop()
@@ -311,17 +319,37 @@ def conversation_subject(ctx: ChatContext) -> tuple[ProductQuery | None, bool]:
 
 
 def quoted_subject(search: list[dict]) -> dict:
-    """Контекст только по вариантам, для которых покупатель получил подтверждённую цену."""
+    """Храним выбранную комплектацию или однозначный запрос с обязательными условиями."""
+    options = []
+    seen = set()
+    for result in search:
+        query = result["query"]
+        for match in result["matches"]:
+            if not match.get("shown") or match["id"] in seen:
+                continue
+            seen.add(match["id"])
+            attrs = {key: value for key, value in match["attributes"].items() if key != "few"}
+            options.append({**query, "model": match["model"], "model_id": match["model_id"],
+                            "attributes": attrs, "required": [key for key in query.get("required", []) if key in attrs],
+                            "reference": "conversation"})
+    context = {"options": options} if len(options) > 1 else {}
     exact = [(result["query"], match) for result in search for match in result["matches"] if match["relation"] == "exact"]
     if not exact:
-        return {}
+        if len(search) == 1 and search[0]["status"] in ("same_model", "unavailable"):
+            return {**context, **search[0]["query"], "reference": "conversation"}
+        return context
     first_query, first_match = exact[0]
     if any(other.get("model_id") != first_match.get("model_id") for _, other in exact):
-        return {}
+        return context
     shared = {key: value for key, value in first_match["attributes"].items()
               if key != "few" and all(other["attributes"].get(key) == value for _, other in exact)}
-    return {**first_query, "model": first_match.get("model") or first_query.get("model"),
-            "attributes": shared, "required": [], "reference": "conversation",
+    required = [key for key in first_query.get("required", []) if all(
+        key in query.get("required", []) and query["attributes"].get(key) == first_query["attributes"].get(key)
+        for query, _ in exact
+    )]
+    shared.update({key: first_query["attributes"][key] for key in required})
+    return {**context, **first_query, "model": first_match.get("model") or first_query.get("model"),
+            "attributes": shared, "required": required, "reference": "conversation",
             "model_id": first_match.get("model_id")}
 
 
@@ -331,6 +359,14 @@ def price_request(ctx: ChatContext, pending: str) -> QuoteRequest | None:
     listing = listing_query(ctx.item_title)
     named, remainder = _named_phone(purchase)
     payment = "transfer" if _TRANSFER.search(pending) else "card" if _CARD.search(pending) else None
+    options = (ctx.quoted_subject or {}).get("options")
+    if options and (ordinal := _ORDINAL_OPTION.fullmatch(normalize(purchase))):
+        word = ordinal[1]
+        number = int(word) if word.isdigit() else next(i for i, stem in enumerate(("перв", "втор", "трет", "четверт"), 1)
+                                                       if word.startswith(stem))
+        if number <= len(options):
+            return QuoteRequest([ProductQuery.model_validate(options[number - 1])], payment)
+        return QuoteRequest([], payment, clarification="Подскажите, пожалуйста, какой вариант из списка вы имеете в виду?")
     possible_price = _NON_PRODUCT_AMOUNT.sub(" ", purchase)
     explicit = bool(_PRICE_WORD.search(possible_price) or _HOW_MUCH.search(possible_price))
     last_answer = next((message for author, message in reversed(ctx.history) if author in ("bot", "staff")), "")
@@ -375,10 +411,12 @@ def price_request(ctx: ChatContext, pending: str) -> QuoteRequest | None:
         attrs.pop("ram_gb", None)
     attrs.update(extra)
     options = [_with_capacity(attrs, *capacity) for capacity in capacities] if capacities else [attrs]
-    required = []
+    required = [key for key in source.required if all(key in option for option in options)]
     if re.search(r"\b(?:только|обязательно|строго)\b", pending, re.IGNORECASE):
-        required.extend(extra)
-        if capacities:
+        required.extend(key for key in extra if key not in required)
+        required_size = any(_CAPACITY.search(clause) or _TERABYTE.search(clause) for clause in re.findall(
+            r"\b(?:только|обязательно|строго)\b[^.!?\n;]*", pending, re.IGNORECASE))
+        if capacities and required_size and "storage_gb" not in required:
             required.append("storage_gb")
     if keep_item:
         required = list(attrs)
@@ -410,6 +448,11 @@ def _line(match: Match, card_markup: Decimal | None = None) -> str:
 
 
 def _shown_matches(result: SearchResult) -> list[Match]:
+    if result.status == "same_model":
+        sim_unverified = [match for match in result.matches if match.relation == "same_model"
+                          and set(match.differences) == {"sim"} and match.differences["sim"]["found"] is None]
+        if sim_unverified:
+            return sim_unverified[:4]
     exact = [match for match in result.matches if match.relation == "exact"]
     candidates = exact or result.matches
     if not exact:
@@ -427,6 +470,21 @@ def _shown_matches(result: SearchResult) -> list[Match]:
     return candidates[:4]
 
 
+def quote_trace(results: list[SearchResult], with_prices: bool) -> list[dict]:
+    trace = []
+    seen = set()
+    for result in results:
+        row = result.context()
+        shown = {match.item.key: _line(match) for match in _shown_matches(result)} if with_prices else {}
+        for match in row["matches"]:
+            line = shown.get(match["id"])
+            if line and line not in seen:
+                match["shown"] = True
+                seen.add(line)
+        trace.append(row)
+    return trace
+
+
 def format_quote(results: list[SearchResult], card_markup: Decimal | None = None) -> str:
     if not results or all(r.status == "ambiguous" for r in results):
         return "Подскажите, пожалуйста, какую модель вы имеете в виду?"
@@ -434,14 +492,8 @@ def format_quote(results: list[SearchResult], card_markup: Decimal | None = None
     seen = set()
     for result in results:
         matches = _shown_matches(result)
-        sim_unverified = [
-            match for match in result.matches
-            if match.relation == "same_model" and set(match.differences) == {"sim"}
-            and match.differences["sim"]["found"] is None
-        ]
-        if result.status == "same_model" and sim_unverified:
+        if result.status == "same_model" and matches and set(matches[0].differences) == {"sim"} and matches[0].differences["sim"]["found"] is None:
             # Прайс подтверждает модель, память и цвет. Отдельно обозначаем непроверенную SIM.
-            matches = sim_unverified[:4]
             lines.append("Цены по прайсу. Тип SIM у конкретного экземпляра нужно подтвердить.")
         elif result.status != "exact":
             query = result.query
@@ -454,7 +506,10 @@ def format_quote(results: list[SearchResult], card_markup: Decimal | None = None
             if result.status == "unavailable":
                 lines.append(f"{target or 'Запрошенная комплектация'} сейчас отмечена в прайсе как недоступная.")
             else:
-                lines.append(f"Цену на {target} пока не могу подтвердить." if target else "Пока не могу подтвердить цену.")
+                if result.status == "same_model" and target:
+                    lines.append(f"В актуальном прайсе нет точной комплектации: {target}.")
+                else:
+                    lines.append(f"Цену на {target} пока не могу подтвердить." if target else "Пока не могу подтвердить цену.")
             if matches:
                 lines.append("Из доступных вариантов:")
         for match in matches:
@@ -482,6 +537,11 @@ def without_retail_prices(reply: str) -> str:
             kept.append(clause.strip())
     text = " ".join(part for part in kept if part)
     return text[:1].upper() + text[1:]
+
+
+def without_trade_in_restatement(reply: str) -> str:
+    return " ".join(part.strip() for part in _SUPPLEMENT_CLAUSE.split(reply) if part.strip()
+                    and not re.search(r"\b(?:trade[\s-]*in|трейд[\s-]*ин|в зач[её]т)\b", part, re.I))
 
 
 def remove_buyer_voice(reply: str, pending: str) -> str:

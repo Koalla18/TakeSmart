@@ -3,7 +3,7 @@
 диалоги не учитываются.
 
   Диалоги        — новые и активные (где покупатель писал за период)
-  Без человека   — активные диалоги без ответа сотрудника и без передачи человеку
+  Без человека   — диалоги с ответом бота, без ответа сотрудника и передачи человеку
   Время ответа   — от первого сообщения покупателя за период до первого ответа (медиана, 90-й процентиль)
   Рассылки и напоминания — не «ответы»: их нет ни во времени ответа, ни в ответах сотрудников
   Брони          — заказы, оформленные ботом из чата, и их сумма (без отменённых)
@@ -54,6 +54,9 @@ async def build(session: AsyncSession, cfg: AvitoBotConfig, days: int) -> AvitoA
     auto_handled = await _scalar(session, f"""
         SELECT count(DISTINCT m.chat_id) FROM {_LIVE_MSGS}
         WHERE m.author = 'client' AND m.created_at >= :since
+          AND EXISTS (SELECT 1 FROM avito_messages b WHERE b.chat_id = m.chat_id AND b.author = 'bot'
+                      AND b.status = 'sent' AND coalesce(b.source, '') NOT IN ('broadcast', 'reminder')
+                      AND coalesce(b.sent_at, b.created_at) >= m.created_at)
           AND NOT EXISTS (SELECT 1 FROM avito_messages s WHERE s.chat_id = m.chat_id AND s.author = 'staff'
                           AND s.status = 'sent' AND coalesce(s.source, '') <> 'broadcast' AND s.created_at >= :since)
           AND NOT EXISTS (SELECT 1 FROM avito_bot_events e WHERE e.chat_id = m.chat_id AND e.kind = 'handoff'
@@ -73,8 +76,9 @@ async def build(session: AsyncSession, cfg: AvitoBotConfig, days: int) -> AvitoA
               AND coalesce(o.sent_at, o.created_at) >= f.t0) - f.t0) AS s
           FROM firsts f
         )
-        SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY s), percentile_cont(0.9) WITHIN GROUP (ORDER BY s)
-        FROM answered WHERE s IS NOT NULL""", p)
+        SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY s), percentile_cont(0.9) WITHIN GROUP (ORDER BY s),
+               count(*) FILTER (WHERE s IS NULL)
+        FROM answered""", p)
 
     orders = await _one(session, """
         SELECT count(*), coalesce(sum(o.total_amount), 0) FROM avito_chats c JOIN orders o ON o.id = c.order_id
@@ -123,6 +127,7 @@ async def build(session: AsyncSession, cfg: AvitoBotConfig, days: int) -> AvitoA
         auto_handled=auto_handled or 0, handoffs=handoffs or 0,
         response_median_s=float(resp[0]) if resp[0] is not None else None,
         response_p90_s=float(resp[1]) if resp[1] is not None else None,
+        dialogs_unanswered=resp[2],
         orders=orders[0] or 0, orders_sum=float(orders[1] or 0),
         reminders=rem[0] or 0, reminders_replied=rem[1] or 0, reminders_orders=rem[2] or 0,
         examples_learned=learned or 0,

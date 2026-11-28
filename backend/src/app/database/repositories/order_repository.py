@@ -16,6 +16,22 @@ class OrderRepository(BaseRepository[Order]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Order, session)
 
+    async def page(
+        self, *, offset: int, limit: int, status: OrderStatus | None,
+        payment_status: PaymentStatus | None, customer_email: str | None,
+    ) -> tuple[Sequence[Order], int]:
+        filters = []
+        if status is not None:
+            filters.append(Order.status == status.value)
+        if payment_status is not None:
+            filters.append(Order.payment_status == payment_status.value)
+        if customer_email:
+            filters.append(Order.customer_email == customer_email)
+        rows = await self.session.scalars(select(Order).where(*filters)
+            .order_by(Order.created_at.desc(), Order.id.desc()).offset(offset).limit(limit))
+        total = await self.session.scalar(select(func.count(Order.id)).where(*filters))
+        return rows.all(), int(total or 0)
+
     async def get_all(
         self,
         *,

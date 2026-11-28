@@ -20,7 +20,7 @@ async def get_redis_pool() -> aioredis.Redis:
         decode_responses=True,
         max_connections=20,
     )
-    logger.debug("redis_pool_created", url=settings.redis_url, max_connections=20)
+    logger.debug("redis_pool_created", max_connections=20)
     return redis_pool
 
 

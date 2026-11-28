@@ -18,6 +18,35 @@ class ProductRepository(BaseRepository[Product]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Product, session)
 
+    async def catalog_page(
+        self, *, offset: int, limit: int, only_active: bool, category_id: UUID | None, brand: str | None,
+        search: str | None, min_price: Decimal | None, max_price: Decimal | None, condition: str | None,
+        preorder: bool | None, attrs: dict[str, Any] | None,
+    ) -> tuple[Sequence[Product], int]:
+        filters = []
+        if only_active:
+            filters.append(Product.is_active.is_(True))
+        if category_id is not None:
+            filters.append(Product.category_id == category_id)
+        if brand:
+            filters.append(Product.brand.ilike(brand))
+        if search:
+            filters.append(Product.name.ilike(f"%{search}%"))
+        if min_price is not None:
+            filters.append(Product.price >= min_price)
+        if max_price is not None:
+            filters.append(Product.price <= max_price)
+        if condition:
+            filters.append(Product.condition == condition)
+        if preorder is not None:
+            filters.append(Product.is_preorder.is_(preorder))
+        if attrs:
+            filters.append(Product.attributes.cast(JSONB).contains(attrs))
+        rows = await self.session.scalars(select(Product).where(*filters)
+            .order_by(Product.created_at.desc(), Product.id.desc()).offset(offset).limit(limit))
+        total = await self.session.scalar(select(func.count(Product.id)).where(*filters))
+        return rows.all(), int(total or 0)
+
     async def get_by_slug(self, slug: str) -> Product | None:
         """Найти товар по slug."""
         result = await self.session.execute(

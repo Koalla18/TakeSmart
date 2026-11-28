@@ -13,7 +13,7 @@ Apple ID салона. На время установки на телефоне 
 
 Пароль Apple ID салона на сервере не хранится и отсюда никуда не отдаётся: его знает и вводит
 сотрудник. Код подтверждения, который сотрудник передаёт покупателю через страницу заказа,
-живёт в памяти процесса CODE_FRESH_SECONDS секунд и в базу не пишется.
+хранится в Redis в зашифрованном виде до истечения CODE_FRESH_SECONDS.
 """
 from __future__ import annotations
 
@@ -25,17 +25,21 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
+from cryptography.fernet import InvalidToken
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import ValidationError
+from redis.exceptions import RedisError
 
 from src.app.api.admin.endpoints import get_current_admin
+from src.app.core.integration_secrets import open_sealed, seal
 from src.app.core.logger import get_logger
 from src.app.core.push_service import send_push_to_all
 from src.app.database.models.admin import Admin
 from src.app.database.models.install_order import InstallAccount, InstallApp, InstallOrder
 from src.app.database.unit_of_work import UnitOfWork
 from src.app.core.security import get_password_hash, verify_password
+from src.app.redis import client as redis_client
 from src.app.schemas.install_order import (
     AccountIn, AccountOut, AccountPatch, AppBulkIn, AppCreate, AppOut, AppPatch, ImportIn, ImportOut,
     InstallsConfig, OrderActionIn, OrderAppPatch, OrderCodeIn, OrderCreateIn, OrderOut, OrderStatsOut,
@@ -52,8 +56,6 @@ CONFIG_KEY = "installs_config"
 MAX_EVENTS = 100
 OPEN_STATUSES = ("new", "ready", "active")
 
-# Код подтверждения: order_id → (код, когда сотрудник его ввёл). Только в памяти процесса.
-ORDER_CODES: dict[str, tuple[str, float]] = {}
 CODE_FRESH_SECONDS = 90
 CODE_REQUEST_GAP_SECONDS = 20
 
@@ -135,15 +137,24 @@ def _events(order: InstallOrder | None, who: str, msg: str) -> list[dict[str, An
     return log[-MAX_EVENTS:]
 
 
-def _fresh_code(order_id: UUID) -> tuple[str, int] | None:
-    item = ORDER_CODES.get(str(order_id))
-    if not item:
+def _code_key(order_id: UUID, delivered_at: datetime) -> str:
+    return f"takesmart:installs:code:{order_id}:{delivered_at.isoformat()}"
+
+
+async def _fresh_code(order: InstallOrder) -> tuple[str, int] | None:
+    delivered = order.code_delivered_at
+    if order.status != "active" or delivered is None or _code_waiting(order):
         return None
-    age = time.time() - item[1]
-    if age > CODE_FRESH_SECONDS:
-        ORDER_CODES.pop(str(order_id), None)
+    age = (_now() - delivered).total_seconds()
+    redis = redis_client.redis_pool
+    if age >= CODE_FRESH_SECONDS or redis is None:
         return None
-    return item[0], int(age)
+    try:
+        value = await redis.get(_code_key(order.id, delivered))
+        return (open_sealed(value, "install-code"), max(0, int(age))) if value else None
+    except (RedisError, InvalidToken):
+        logger.warning("install_code_unavailable")
+        return None
 
 
 def _code_waiting(order: InstallOrder) -> bool:
@@ -160,16 +171,15 @@ def _seconds_left(order: InstallOrder) -> int | None:
 async def _expire(uow: UnitOfWork, order: InstallOrder) -> tuple[InstallOrder, bool]:
     """Окно установки вышло — заказ закрывается сам при первом же чтении."""
     if order.status == "active" and order.expires_at and order.expires_at <= _now():
-        ORDER_CODES.pop(str(order.id), None)
         fresh = await uow.install_orders.update(order.id, status="expired",
                                                 events=_events(order, "system", "Время на установку вышло"))
         return fresh or order, True
     return order, False
 
 
-def _order_out(order: InstallOrder, cfg: InstallsConfig, accounts: dict[UUID, InstallAccount]) -> OrderOut:
+async def _order_out(order: InstallOrder, cfg: InstallsConfig, accounts: dict[UUID, InstallAccount]) -> OrderOut:
     acc = accounts.get(order.account_id) if order.account_id else None
-    fresh = _fresh_code(order.id)
+    fresh = await _fresh_code(order)
     return OrderOut(
         id=order.id, number=order.number, token=order.token, account_id=order.account_id,
         account_label=(acc.label if acc else order.account_label), apple_id=(acc.apple_id if acc else None),
@@ -589,7 +599,7 @@ async def list_orders(scope: str = Query("all", pattern="^(all|open)$"), limit: 
             dirty = dirty or changed
             if scope == "open" and row.status not in OPEN_STATUSES:
                 continue
-            item = _order_out(row, cfg, accounts)
+            item = await _order_out(row, cfg, accounts)
             if brief:
                 item.events = []
             out.append(item)
@@ -645,7 +655,7 @@ async def create_order(body: OrderCreateIn, admin: Admin = Depends(get_current_a
             events=_events(None, "admin", f"Установка на свой iPhone: {len(apps)} прил." if body.for_self else f"Заказ оформлен: {len(apps)} прил."),
         )
         await uow.commit()
-        return _order_out(order, cfg, {account.id: account} if account else {})
+        return await _order_out(order, cfg, {account.id: account} if account else {})
 
 
 async def _admin_order(uow: UnitOfWork, order_id: UUID) -> InstallOrder:
@@ -661,7 +671,7 @@ async def get_order(order_id: UUID) -> OrderOut:
     async with UnitOfWork() as uow:
         order = await _admin_order(uow, order_id)
         await uow.commit()
-        return _order_out(order, await _config(uow), await _accounts_map(uow))
+        return await _order_out(order, await _config(uow), await _accounts_map(uow))
 
 
 @router.post("/orders/{order_id}/action", response_model=OrderOut, dependencies=ADMIN, summary="Действие с заказом")
@@ -709,11 +719,11 @@ async def order_action(order_id: UUID, body: OrderActionIn) -> OrderOut:
             if not body.mode:
                 raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Не указано, где идёт установка")
             data = {"mode": body.mode}
-        if data.get("status") in ("done", "cancelled") or act == "reset_codes":
-            ORDER_CODES.pop(str(order.id), None)
+        if data.get("status") in ("done", "cancelled"):
+            data["code_delivered_at"] = None
         order = await uow.install_orders.update(order_id, **data)
         await uow.commit()
-        return _order_out(order, cfg, await _accounts_map(uow))
+        return await _order_out(order, cfg, await _accounts_map(uow))
 
 
 @router.post("/orders/{order_id}/code", response_model=OrderOut, dependencies=ADMIN,
@@ -724,11 +734,18 @@ async def deliver_code(order_id: UUID, body: OrderCodeIn) -> OrderOut:
         order = await _admin_order(uow, order_id)
         if order.status != "active":
             raise HTTPException(status.HTTP_409_CONFLICT, "Код передаётся только пока идёт установка. Нажмите «Начать» или «Продлить».")
-        ORDER_CODES[str(order.id)] = (body.code, time.time())
-        order = await uow.install_orders.update(order_id, code_delivered_at=_now(),
+        redis = redis_client.redis_pool
+        delivered = _now()
+        try:
+            if redis is None:
+                raise RedisError("unavailable")
+            await redis.set(_code_key(order.id, delivered), seal(body.code, "install-code"), ex=CODE_FRESH_SECONDS)
+        except RedisError as exc:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Код временно не передан. Попробуйте ещё раз.") from exc
+        order = await uow.install_orders.update(order_id, code_delivered_at=delivered,
                                                 events=_events(order, "admin", "Код передан покупателю"))
         await uow.commit()
-        return _order_out(order, cfg, await _accounts_map(uow))
+        return await _order_out(order, cfg, await _accounts_map(uow))
 
 
 def _set_app_status(order: InstallOrder, key: str, new_status: str) -> list[dict[str, Any]]:
@@ -746,7 +763,7 @@ async def admin_mark_app(order_id: UUID, key: str, body: OrderAppPatch) -> Order
         order = await _admin_order(uow, order_id)
         order = await uow.install_orders.update(order_id, apps=_set_app_status(order, key, body.status))
         await uow.commit()
-        return _order_out(order, await _config(uow), await _accounts_map(uow))
+        return await _order_out(order, await _config(uow), await _accounts_map(uow))
 
 
 @router.delete("/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=ADMIN)
@@ -755,7 +772,6 @@ async def delete_order(order_id: UUID) -> Response:
         if not await uow.install_orders.delete(order_id):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Заказ не найден")
         await uow.commit()
-    ORDER_CODES.pop(str(order_id), None)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -897,7 +913,7 @@ async def _public_out(uow: UnitOfWork, order: InstallOrder, response: Response) 
     response.headers["Cache-Control"] = "no-store"
     cfg = await _config(uow)
     account = await uow.install_accounts.get_by_id(order.account_id) if order.account_id else None
-    fresh = _fresh_code(order.id) if order.status == "active" else None
+    fresh = await _fresh_code(order)
     since_request = (_now() - order.code_requested_at).total_seconds() if order.code_requested_at else None
     retry_in = max(0, int(CODE_REQUEST_GAP_SECONDS - since_request)) if since_request is not None else 0
     return PublicOrderOut(
@@ -952,7 +968,6 @@ async def public_request_code(token: str, response: Response, background: Backgr
         now = _now()
         if order.code_requested_at and (now - order.code_requested_at).total_seconds() < CODE_REQUEST_GAP_SECONDS:
             raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Код уже запрошен — подождите несколько секунд")
-        ORDER_CODES.pop(str(order.id), None)
         order = await uow.install_orders.update(order.id, code_requests=order.code_requests + 1, code_requested_at=now,
                                                 events=_events(order, "customer", "Покупатель просит код подтверждения"))
         await uow.commit()
@@ -981,7 +996,7 @@ async def public_finish(token: str, body: PublicFinishIn, response: Response) ->
             done = sum(1 for a in order.apps or [] if a.get("status") == "installed")
             data = {"status": "done", "finished_at": _now(),
                     "events": _events(order, "customer", f"Покупатель завершил установку: {done} из {len(order.apps or [])}")}
-            ORDER_CODES.pop(str(order.id), None)
+            data["code_delivered_at"] = None
         elif order.status != "done":
             raise HTTPException(status.HTTP_409_CONFLICT, "Заказ сейчас не в работе")
         if body.rating is not None:

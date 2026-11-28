@@ -35,6 +35,10 @@ class AvitoError(Exception):
     pass
 
 
+class SendUnconfirmed(AvitoError):
+    """Авито мог принять сообщение, но подтверждение не получено."""
+
+
 @dataclass
 class AvitoCreds:
     client_id: str
@@ -73,7 +77,7 @@ def forget_token(client_id: str) -> None:
 
 
 async def _request(creds: AvitoCreds, method: str, path: str, json: Any = None,
-                   params: dict[str, Any] | None = None) -> Any:
+                   params: dict[str, Any] | None = None, *, sending: bool = False) -> Any:
     if not creds.ready:
         raise AvitoError("Авито не подключён: нет client_id или client_secret")
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
@@ -81,13 +85,22 @@ async def _request(creds: AvitoCreds, method: str, path: str, json: Any = None,
         try:
             resp = await client.request(method, f"{BASE}{path}", json=json, params=params, headers={"Authorization": f"Bearer {token}"})
         except httpx.HTTPError as exc:
+            if sending and not isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)):
+                raise SendUnconfirmed() from exc
             raise AvitoError(f"Нет связи с Авито: {exc.__class__.__name__}") from exc
+        if sending and (resp.status_code == 408 or resp.status_code >= 500):
+            raise SendUnconfirmed()
         if resp.status_code == 401:
             forget_token(creds.client_id)
         if resp.status_code >= 400:
-            logger.warning("avito_http_error", path=path, status=resp.status_code, body=resp.text[:300])
-            raise AvitoError(f"Авито ответил ошибкой {resp.status_code}: {resp.text[:160]}")
-        return resp.json() if resp.content else {}
+            logger.warning("avito_http_error", method=method, status=resp.status_code)
+            raise AvitoError(f"Авито ответил ошибкой {resp.status_code}")
+        try:
+            return resp.json() if resp.content else {}
+        except ValueError as exc:
+            if sending:
+                raise SendUnconfirmed() from exc
+            raise AvitoError("Авито вернул некорректный ответ") from exc
 
 
 def _need_user(creds: AvitoCreds) -> int:
@@ -119,7 +132,7 @@ async def get_chat(creds: AvitoCreds, chat_id: str) -> dict[str, Any]:
 
 async def send_text(creds: AvitoCreds, chat_id: str, text: str) -> dict[str, Any]:
     return await _request(creds, "POST", f"/messenger/v1/accounts/{_need_user(creds)}/chats/{chat_id}/messages",
-                          json={"message": {"text": text}, "type": "text"})
+                          json={"message": {"text": text}, "type": "text"}, sending=True)
 
 
 async def mark_read(creds: AvitoCreds, chat_id: str) -> None:

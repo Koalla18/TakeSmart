@@ -85,6 +85,17 @@ class AvitoChat(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class AvitoWebhookEvent(Base):
+    __tablename__ = "avito_webhook_events"
+    __table_args__ = (Index("ix_avito_webhook_events_chat_created", "chat_id", "created_at", "key"),)
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    chat_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class AvitoMessage(Base):
     __tablename__ = "avito_messages"
     __table_args__ = (Index("ix_avito_messages_chat_created", "chat_id", "created_at"),)
@@ -105,6 +116,8 @@ class AvitoMessage(Base):
     order_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True,
                                                                  comment="Бронь, которую бот оформит, когда сообщение уйдёт")
     quoted_subject: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    decision_trace: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    send_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

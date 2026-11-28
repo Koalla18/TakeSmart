@@ -5,6 +5,7 @@ The database must be named takesmart_avito_test. Avito and the LLM are stubbed.
 from __future__ import annotations
 
 import json
+import asyncio
 import os
 import sys
 import unittest
@@ -13,23 +14,28 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
+from fastapi import BackgroundTasks, HTTPException, Request, Response
+from httpx import ASGITransport, AsyncClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from src.app import app
 from src.app.core import avito_bot_service as bot, avito_catalog as catalog, avito_client
 from src.app.api.routers.avito_bot import (
     PriceApplyIn, PriceUpdateIn, connect, get_settings, list_listings, price_list_apply, price_list_preview, price_list_undo,
     put_settings,
     test_chat as preview_reply,
 )
-from src.app.database.models.avito_bot import AvitoChat, AvitoItemLink, AvitoMessage
+from src.app.database.models.avito_bot import AvitoChat, AvitoItemLink, AvitoMessage, AvitoWebhookEvent
 from src.app.database.models.avito_catalog import imports, variants
 from src.app.database.models.admin import Admin
 from src.app.database.models.order import Order
 from src.app.database.models.product import Product
+from src.app.database.models.product_variant import ProductVariant
 from src.app.database.session import AsyncSessionFactory, engine
 from src.app.schemas.avito_bot import AvitoBotConfig, AvitoBotConfigIn, TestIn
+from src.app.schemas.order import OrderCreate
 
 PRICE = """
 Samsung S26 Ultra 16 256 Black 2 SIM — 80 000 ₽
@@ -61,6 +67,226 @@ class CatalogIntegration(unittest.IsolatedAsyncioTestCase):
         async with AsyncSessionFactory() as session:
             await bot.save_config(session, cfg)
             await session.commit()
+
+    async def test_webhook_deduplication_and_reply_lease_recovery(self):
+        external = f"integration-{uuid4()}"
+        message_id = str(uuid4())
+        payload = {"payload": {"type": "message", "value": {"id": message_id, "chat_id": external,
+                   "author_id": 999, "type": "text", "content": {"text": "По чём?"}}}}
+        await self.save(AvitoBotConfig(enabled=True, mode="auto", collect_messages_seconds=0, price_list=PRICE))
+        async with AsyncSessionFactory.begin() as session:
+            session.add(AvitoChat(avito_chat_id=external, item_title=SAMSUNG))
+            secret = (await bot.load_config(session)).webhook_secret
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as http:
+            self.assertEqual((await http.post("/api/v1/avito-bot/webhook/wrong-secret", json=payload)).status_code, 404)
+            for _ in range(2):
+                response = await http.post(f"/api/v1/avito-bot/webhook/{secret}", json=payload)
+                self.assertEqual(response.json(), {"ok": True})
+            system_payload = {"payload": {"type": "message", "value": {"id": str(uuid4()), "chat_id": external,
+                              "type": "system", "content": {"text": "Служебное сообщение"}}}}
+            await http.post(f"/api/v1/avito-bot/webhook/{secret}", json=system_payload)
+        claims = await bot.claim_webhook_events(10)
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(await bot.claim_webhook_events(10), [])
+        async with AsyncSessionFactory.begin() as session:
+            await session.execute(update(AvitoWebhookEvent).values(due_at=bot._now() - timedelta(seconds=1)))
+        self.assertEqual(await bot.claim_webhook_events(10), claims)
+        await bot.process_webhook_event(*claims[0])
+        subsequent = await bot.claim_webhook_events(10)
+        self.assertEqual([event for _, event in subsequent], [system_payload])
+        await bot.process_webhook_event(*subsequent[0])
+        with patch.object(bot, "send_push_to_all", new=AsyncMock()):
+            await bot.handle_webhook(payload)
+        async with AsyncSessionFactory.begin() as session:
+            chat = await session.scalar(select(AvitoChat).where(AvitoChat.avito_chat_id == external))
+            chat_id = chat.id
+            self.assertEqual(await session.scalar(select(func.count()).select_from(AvitoMessage).where(
+                AvitoMessage.chat_id == chat_id, AvitoMessage.author == "client")), 1)
+        expired = dict(await bot.claim_due_chats(100))[chat_id]
+        self.assertNotIn(chat_id, dict(await bot.claim_due_chats(100)))
+        async with AsyncSessionFactory.begin() as session:
+            chat = await session.get(AvitoChat, chat_id)
+            chat.reply_due_at = bot._now() - timedelta(seconds=1)
+        fresh = dict(await bot.claim_due_chats(100))[chat_id]
+        await bot._process_chat(chat_id, expired)
+        await bot._process_chat(chat_id, fresh)
+        async with AsyncSessionFactory() as session:
+            self.assertIsNone((await session.get(AvitoChat, chat_id)).reply_due_at)
+            answer = await session.scalar(select(AvitoMessage).where(
+                AvitoMessage.chat_id == chat_id, AvitoMessage.status == "scheduled"))
+            self.assertIn("80 000 ₽", answer.text)
+            self.assertEqual(answer.decision_trace[0]["status"], "exact")
+
+    async def test_physical_sim_and_trade_in_listing_in_preview(self):
+        price = PRICE + "\nSamsung S26 Ultra 12/512 Black eSIM — 79 000 ₽"
+        await self.save(AvitoBotConfig(enabled=True, price_list=price, trade_in_listing_ids=[123]))
+        first = await preview_reply(TestIn(text="Только с физической SIM. Сколько за 256?", item_title=SAMSUNG, item_id=123))
+        answer = first.messages[0]
+        self.assertIn("Цена в объявлении действует при сдаче устройства по trade-in.", answer.text)
+        self.assertIn("80 000 ₽", answer.text)
+        self.assertEqual(answer.quoted_subject["attributes"]["sim"], "has_physical")
+        second = await preview_reply(TestIn(text="А на 512?", item_title=SAMSUNG, item_id=123,
+            history=[{"author": "client", "text": "Только с физической SIM. Сколько за 256?"},
+                     {"author": "bot", **answer.model_dump()}]))
+        self.assertIn("83 000 ₽", second.messages[0].text)
+        self.assertNotIn("79 000 ₽", second.messages[0].text)
+        self.assertNotIn("Цена в объявлении действует", second.messages[0].text)
+        self.assertEqual(second.search[0]["query"]["required"], ["sim"])
+        self.assertEqual(second.search[0]["query"]["attributes"]["sim"], "has_physical")
+
+    async def test_ordinal_selects_the_option_that_was_displayed(self):
+        await self.save(AvitoBotConfig(enabled=True, price_list=PRICE))
+        first = await preview_reply(TestIn(text="Сколько стоит белый iPhone Duo?"))
+        answer = first.messages[0]
+        shown = [line for line in answer.text.splitlines() if "₽" in line]
+        self.assertEqual(len(shown), 3)
+        next_answer = await preview_reply(TestIn(text="А у второго?", history=[
+            {"author": "client", "text": "Сколько стоит белый iPhone Duo?"}, {"author": "bot", **answer.model_dump()},
+        ]))
+        self.assertEqual(next_answer.messages[0].text, shown[1])
+        self.assertEqual(next_answer.search[0]["query"]["reference"], "conversation")
+
+    async def test_booking_rechecks_retail_price_and_requires_separate_draft_approval(self):
+        await self.save(AvitoBotConfig(enabled=True, mode="draft", price_list="Dyson HS08 Ceramic Pink — 34 990 ₽"))
+        async with AsyncSessionFactory.begin() as session:
+            product = Product(name="Dyson HS08 Ceramic Pink", slug=f"booking-{uuid4()}", price=1, stock_quantity=0)
+            chat = AvitoChat(avito_chat_id=f"integration-{uuid4()}")
+            session.add_all([product, chat])
+            await session.flush()
+            pid, cid = product.id, chat.id
+            draft = AvitoMessage(chat_id=cid, author="bot", status="draft", text="Заявка оформлена.",
+                order_payload={"product_id": str(pid), "product_name": product.name, "price": 34000,
+                               "price_source": "avito_price_list"})
+            session.add(draft)
+            await session.flush()
+            mid = draft.id
+        with patch.object(bot, "_send", new=AsyncMock(return_value=None)) as send:
+            with self.assertRaisesRegex(bot.ActionError, "отдельно подтвердите"):
+                await bot.approve_draft(mid, None)
+            with self.assertRaisesRegex(bot.ActionError, "Уберите из текста подтверждение"):
+                await bot.approve_draft(mid, "Заявка оформлена. Хорошего дня!")
+            with self.assertRaisesRegex(bot.ActionError, "цена изменилась на 34 990 ₽"):
+                await bot.approve_draft(mid, None, confirm_order=True)
+            send.assert_not_awaited()
+            async with AsyncSessionFactory.begin() as session:
+                self.assertIsNone((await session.get(AvitoChat, cid)).order_id)
+                draft = await session.get(AvitoMessage, mid)
+                draft.status = "draft"
+            await bot.approve_draft(mid, "Спасибо, давайте уточним детали.")
+            send.assert_awaited_once()
+        async with AsyncSessionFactory() as session:
+            self.assertIsNone((await session.get(AvitoChat, cid)).order_id)
+            self.assertIsNone((await session.get(AvitoMessage, mid)).order_payload)
+
+    async def test_uncertain_send_uses_avito_history_and_never_reposts(self):
+        cfg = AvitoBotConfig(enabled=True, mode="auto", avito_user_id=42)
+        await self.save(cfg)
+        with (patch.object(bot, "_send", new=AsyncMock(side_effect=avito_client.SendUnconfirmed())) as send,
+              patch.object(bot, "send_push_to_all", new=AsyncMock()),
+              patch.object(avito_client, "list_messages", new=AsyncMock()) as remote):
+            for was_sent in (True, False):
+                async with AsyncSessionFactory.begin() as session:
+                    chat = AvitoChat(avito_chat_id=f"integration-{uuid4()}")
+                    session.add(chat)
+                    await session.flush()
+                    msg = AvitoMessage(chat_id=chat.id, author="bot", status="scheduled", text="Цена из прайса",
+                                       send_at=bot._now(), send_started_at=bot._now())
+                    session.add(msg)
+                    await session.flush()
+                    cid, mid = chat.id, msg.id
+                    remote.return_value = ([{"id": str(uuid4()), "author_id": 42, "direction": "out",
+                                            "created": int(msg.send_started_at.timestamp()),
+                                            "content": {"text": msg.text}}] if was_sent else [])
+                await bot.deliver_due_message(mid)
+                await bot.deliver_due_message(mid)
+                async with AsyncSessionFactory() as session:
+                    self.assertEqual((await session.get(AvitoMessage, mid)).status, "sent" if was_sent else "failed")
+                    self.assertEqual((await session.get(AvitoChat, cid)).needs_human, not was_sent)
+            send.assert_not_awaited()
+
+    async def test_checkout_keeps_variant_payment_and_shipping(self):
+        from src.app.api.routers.orders import create_order
+
+        async with AsyncSessionFactory.begin() as session:
+            product = Product(name="Планшет для проверки корзины", slug=f"integration-{uuid4()}", price=50000, stock_quantity=0)
+            session.add(product)
+            await session.flush()
+            red = ProductVariant(product_id=product.id, name="Красный", stock_quantity=1)
+            blue = ProductVariant(product_id=product.id, name="Синий", stock_quantity=1)
+            session.add_all([red, blue])
+            await session.flush()
+            pid, red_id, blue_id = product.id, red.id, blue.id
+        body = OrderCreate(customer_name="Тестовый покупатель", customer_email="buyer@example.com",
+            shipping_address="Тестовый адрес 1", shipping_city="Москва", payment_method="card", delivery_method="courier",
+            expected_total=117000, items=[{"product_id": pid, "variant_id": variant_id, "quantity": 1}
+                                         for variant_id in (red_id, blue_id)])
+        failed = body.model_copy(update={"expected_total": 116000})
+        with self.assertRaises(HTTPException) as mismatch:
+            await create_order(failed, BackgroundTasks())
+        self.assertEqual(mismatch.exception.status_code, 409)
+        outcomes = await asyncio.gather(create_order(body, BackgroundTasks()), create_order(body, BackgroundTasks()),
+                                        return_exceptions=True)
+        order = next(result for result in outcomes if not isinstance(result, Exception))
+        rejected = next(result for result in outcomes if isinstance(result, HTTPException))
+        self.assertEqual(rejected.status_code, 409)
+        self.assertEqual(order.total_amount, 117000)
+        self.assertEqual(order.payment_surcharge, 16000)
+        self.assertEqual(order.shipping_cost, 1000)
+        self.assertEqual({line.variant_id for line in order.items}, {red_id, blue_id})
+        self.assertEqual({line.product_name.split(" — ")[-1] for line in order.items}, {"Синий", "Красный"})
+
+    async def test_checkout_preserves_the_total_displayed_in_an_old_cart(self):
+        from src.app.api.routers.orders import create_order
+
+        async with AsyncSessionFactory.begin() as session:
+            product = Product(name="Товар старой корзины", slug=f"legacy-{uuid4()}", price=100000, stock_quantity=1)
+            session.add(product)
+            await session.flush()
+            product_id = product.id
+        body = OrderCreate(customer_name="Тестовый покупатель", customer_email="buyer@example.com",
+            shipping_address="Тестовый адрес 1", shipping_city="Москва",
+            customer_note="Оплата: Картой — к оплате 118 647 ₽ (включая налог 15% — 17 647 ₽) | Доставка: Курьер",
+            items=[{"product_id": product_id, "quantity": 1}])
+        order = await create_order(body, BackgroundTasks())
+        self.assertEqual((order.payment_method, order.delivery_method), ("card", "courier"))
+        self.assertEqual(order.total_amount, 118647)
+        self.assertEqual(order.payment_surcharge, 17647)
+
+    async def test_admin_refresh_is_single_use(self):
+        from src.app.api.admin.endpoints import RefreshRequest, refresh_tokens
+        from src.app.core.security import create_refresh_token
+
+        username = f"session-{uuid4()}"
+        async with AsyncSessionFactory.begin() as session:
+            session.add(Admin(username=username, hashed_password="test-db-record"))
+        token = create_refresh_token({"sub": username})
+        self.assertNotEqual(token, create_refresh_token({"sub": username}))
+        request = Request({"type": "http", "path": "/api/v1/admin/refresh", "headers": [(b"host", b"localhost")]})
+
+        async def rotate(value):
+            async with AsyncSessionFactory.begin() as session:
+                response = Response()
+                new = await refresh_tokens(request, response, RefreshRequest(refresh_token=value), session)
+                self.assertIn("HttpOnly", response.headers["set-cookie"])
+                return new
+
+        attempts = await asyncio.gather(rotate(token), rotate(token), return_exceptions=True)
+        reply = next(value for value in attempts if not isinstance(value, Exception))
+        denial = next(value for value in attempts if isinstance(value, HTTPException))
+        self.assertEqual(denial.status_code, 401)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as http:
+            issued = await http.post("/api/v1/admin/refresh", json={"refresh_token": reply.refresh_token})
+            self.assertEqual(issued.status_code, 200)
+            response = await http.post("/api/v1/admin/refresh")
+            self.assertEqual(response.status_code, 200)
+            self.assertNotEqual(response.json()["refresh_token"], issued.json()["refresh_token"])
+            self.assertEqual((await http.get("/api/v1/admin/me", headers={
+                "Authorization": f"Bearer {response.json()['access_token']}",
+            })).json()["username"], username)
+            self.assertEqual((await http.post("/api/v1/admin/logout")).status_code, 204)
+            self.assertEqual((await http.post("/api/v1/admin/refresh", json={
+                "refresh_token": response.json()["refresh_token"],
+            })).status_code, 401)
 
     async def test_routine_color_choice_and_store_visit_without_model(self):
         path = os.environ.get("TAKESMART_CATALOG_SNAPSHOT")
@@ -346,6 +572,7 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
             revision = await catalog.active_import(session, raw)
             published = (await session.execute(catalog.rows_for(revision))).all()
             self.assertEqual({row["key"] for row in rows}, {row.key for row in published})
+            misses = []
             for row in published:
                 if not row.available:
                     continue
@@ -354,6 +581,15 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
                 result = await catalog.search(session, revision, query, allow_other_models=False)
                 self.assertTrue(any(m.item.key == row.key and m.item.price == row.price and m.relation == "exact"
                                     for m in result.matches), (row.name, result))
+                item = catalog._item(row)
+                title = ", ".join([item.name] + [item.attributes[key] for key in ("country", "sim") if item.attributes.get(key)])
+                by_name = catalog.listing_query(title)
+                if by_name:
+                    result = await catalog.search(session, revision, by_name, allow_other_models=False)
+                    if any(m.item.key == row.key and m.item.price == row.price and m.relation == "exact" for m in result.matches):
+                        continue
+                misses.append((title, row.model_key, by_name and by_name.model, by_name and by_name.attributes))
+            self.assertFalse(misses, f"Position title lookup failed for {len(misses)} rows: {misses}")
 
     async def test_catalog_and_pilot_through_runtime(self):
         cfg = AvitoBotConfig(
@@ -500,7 +736,7 @@ iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
                 persisted_chat = await verifier.get(AvitoChat, chat.id)
                 order = await verifier.get(Order, persisted_chat.order_id)
                 self.assertEqual(int(order.total_amount), 99000)
-                self.assertEqual((await verifier.get(Product, iphone_id)).stock_quantity, 2)
+                self.assertEqual((await verifier.get(Product, iphone_id)).stock_quantity, 3)
                 self.assertEqual((await verifier.get(Product, samsung_id)).stock_quantity, 3)
             self.assertNotIn("80 000", msg.text)
             return None

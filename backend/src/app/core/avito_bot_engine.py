@@ -560,18 +560,29 @@ _PII = [
     ("карта", re.compile(r"(?<!\d)(?:\d[ -]?){15,18}\d(?!\d)")),
     ("телефон", re.compile(r"(?<![\w+])(?:\+7|8)[\s(-]*\d{3}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}(?!\d)")),
     ("почта", re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")),
+    ("адрес", re.compile(r"(?<!\w)(?:адрес\s*:|улица\s+|ул\.\s+|проспект\s+|переулок\s+)"
+                         r"[^\n!?;]{2,95}?\b\d+[а-я]?(?:/\d+)?(?:\s*,?\s*(?:кв\.?|квартира|корпус|стр\.)\s*\d+)*", re.I)),
+    ("имя", re.compile(r"(?<!\w)(?:ФИО\s*:?\s*|[Мм]еня зовут\s+)([А-ЯЁ][а-яё-]+(?:\s+[А-ЯЁ][а-яё-]+){0,2})")),
+    ("имя", re.compile(r"\b[А-ЯЁ][а-яё-]+(?:\s+[А-ЯЁ][а-яё-]+){1,2}(?=\s*[,;]?\s*\[телефон \d+\])")),
 ]
 
 
 class PiiMasker:
-    def __init__(self) -> None:
+    def __init__(self, participant: str | None = None) -> None:
         self.mapping: dict[str, str] = {}
         self._reverse: dict[str, str] = {}
         self._counts: dict[str, int] = {}
+        name = (participant or "").strip()
+        self._participant = re.compile(rf"(?<!\w){re.escape(name)}(?!\w)", re.I) if len(name) >= 3 else None
 
     def mask(self, text: str) -> str:
         for kind, rx in _PII:
-            text = rx.sub(lambda m, k=kind: self._token(k, m.group(0)), text)
+            def replace(match, kind=kind):
+                value = match.group(1) if match.lastindex else match.group(0)
+                return match.group(0).replace(value, self._token(kind, value), 1)
+            text = rx.sub(replace, text)
+        if self._participant:
+            text = self._participant.sub(lambda match: self._token("имя", match.group(0)), text)
         return text
 
     def _token(self, kind: str, value: str) -> str:
@@ -676,9 +687,7 @@ SYSTEM_TYPES = {"system", "call", "appCall", "app_call"}
 
 
 def classify_avito_message(value: dict[str, Any], own_user_id: int | None, patterns: Sequence[str]) -> tuple[str, str] | None:
-    """Сообщение из вебхука или опроса → ("message" | "system", текст) или None (не хранить).
-    Системным считаем служебный тип, сообщение без автора, сценарий Авито (flow) или текст
-    с фразой из списка в настройках — бот на них не отвечает и не учитывает в разговоре."""
+    """Отличает служебные метаданные и явные заголовки от обычных реплик покупателей."""
     msg_type = value.get("type") or "text"
     if msg_type == "deleted":
         return None
@@ -693,11 +702,9 @@ def classify_avito_message(value: dict[str, Any], own_user_id: int | None, patte
         return "system", text_
     if (author in (None, 0, "0")) and author != own_user_id:
         return "system", text_
-    low = normalize(text_)
-    for p in patterns:
-        p = normalize(p)
-        if p and p in low:
-            return "system", text_
+    if any(marker.startswith("[") and marker.endswith("]") and
+           text_.casefold().startswith(marker.casefold()) for marker in patterns):
+        return "system", text_
     return "message", text_
 
 
@@ -738,7 +745,8 @@ _CANCEL = re.compile(
     r"передумал\w*|уже\s+не\s+(надо|нужно|актуально)|(не|больше\s+не)\s+(буду|будем)\s+(брать|покупать|забирать)|"
     r"(заказ|бронь|заявка)\s+(уже\s+)?не\s+(нуж|актуал)\w*|не\s+нуж\w*\s+(уже\s+)?(заказ|бронь|заявка)|"
     r"снимите\s+(бронь|резерв)|не\s+приеду)")
-_NOT_CANCEL = re.compile(r"\bне\s+(надо|нужно|стоит)\s+отмен|\bне\s+отмен")
+_NOT_CANCEL = re.compile(r"\bне\s+(надо|нужно|стоит)\s+отмен|\bне\s+отмен|"
+                         r"\bотмен\w*\s+(?:(?:заказа|брони|заявки)\s+)?не\s+(?:нуж\w*|надо|требу\w*)")
 
 
 def wants_cancel(text: str) -> bool:
@@ -1305,6 +1313,29 @@ def audit_reply_colors(reply: str, items: Sequence["CatalogItem"], vocab: set[st
         if available:
             bad.extend(color for color in colors if color not in available)
     return list(dict.fromkeys(bad))
+
+
+def unsupported_variant_fact(reply: str, items: Sequence[CatalogItem], anchor: str | None,
+                             vocab: set[str], index: SearchIndex | None) -> str | None:
+    """Проверяем явно заявленные характеристики и наличие для предмета ответа."""
+    for clause in re.split(r"(?<=[.!?])\s+|[;\n]+", reply):
+        if clause.rstrip().endswith("?") or re.search(r"\b(?:если|уточню|подтвердить|проверю|не могу)\b", clause, re.I):
+            continue
+        sim = _reply_sim_label(clause)
+        if sim == "только eSIM" and not re.search(r"\bтолько\s+e[ -]?sim|\be[ -]?sim[- ]only\b", clause, re.I):
+            sim = None
+        region = _line_country(clause) if re.search(r"\b(?:версия|регион|поставк\w*|для рынка)\b", clause, re.I) else None
+        available = bool(re.search(r"\b(?:есть|сейчас)\s+в\s+наличии\b", clause, re.I))
+        if not (sim or region or available):
+            continue
+        candidates = _price_variants(items, clause, anchor, vocab, index)
+        if sim and not any(item.attributes.get("sim") == sim for item in candidates):
+            return "тип SIM"
+        if region and not any(item.attributes.get("country") == region for item in candidates):
+            return "регион поставки"
+        if available and not any(item.stock > 0 for item in candidates):
+            return "наличие этой комплектации"
+    return None
 
 
 _CAPACITY = re.compile(r"(?<![\w/])(?:(\d+)\s*/\s*)?(\d+)\s*(гб|gb|тб|tb)\b|"

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from uuid import UUID
 
 
@@ -11,11 +12,14 @@ from src.app.api.admin.endpoints import get_current_admin
 from src.app.api.routers.gta6 import GIFT_NAME, gift_product_ids
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 from fastapi.responses import Response
+from sqlalchemy import select
 
 from src.app.core.logger import get_logger
 from src.app.core.push_service import send_order_push
 from src.app.database.models.admin import Admin
 from src.app.database.models.order import Order, OrderStatus, PaymentStatus
+from src.app.database.models.product import Product
+from src.app.database.models.product_variant import ProductVariant
 from src.app.database.unit_of_work import UnitOfWork
 from src.app.schemas.common import PaginatedResponse
 from src.app.schemas.order import (
@@ -33,6 +37,14 @@ from src.app.schemas.order import (
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
+CARD_MARKUP_PERCENT = 16
+DELIVERY_PRICES = {"pickup": 0, "courier": 1000, "post": 800}
+_LEGACY_PAYMENT = {"Наличными": "cash", "Картой": "card", "QR-код в магазине": "qr"}
+_LEGACY_DELIVERY = {"Самовывоз": "pickup", "Курьер": "courier", "Почта": "post"}
+_LEGACY_CART_NOTE = re.compile(
+    r"^Оплата: (Наличными|Картой|QR-код в магазине)(?: — к оплате [^|]+)?"
+    r" \| Доставка: (Самовывоз|Курьер|Почта)(?: \||$)"
+)
 
 
 def _generate_order_number() -> str:
@@ -54,22 +66,8 @@ async def list_orders(
     customer_email: str | None = Query(None, description="Фильтр по email покупателя"),
 ) -> PaginatedResponse[OrderOut]:
     async with UnitOfWork() as uow:
-        if customer_email:
-            items = await uow.orders.get_by_customer_email(
-                customer_email, offset=offset, limit=limit
-            )
-            total = len(items)
-        elif status:
-            items = await uow.orders.get_by_status(status, offset=offset, limit=limit)
-            total = len(items)
-        elif payment_status:
-            items = await uow.orders.get_by_payment_status(
-                payment_status, offset=offset, limit=limit
-            )
-            total = len(items)
-        else:
-            items = await uow.orders.get_all(offset=offset, limit=limit)
-            total = await uow.orders.count()
+        items, total = await uow.orders.page(offset=offset, limit=limit, status=status,
+            payment_status=payment_status, customer_email=customer_email)
 
     logger.info("orders_listed", count=len(items), offset=offset, limit=limit)
     return PaginatedResponse(
@@ -79,6 +77,11 @@ async def list_orders(
         limit=limit,
         has_next=(offset + limit) < total,
     )
+
+
+@router.get("/checkout-options")
+async def checkout_options() -> dict:
+    return {"card_markup_percent": CARD_MARKUP_PERCENT, "delivery_prices": DELIVERY_PRICES}
 
 
 @router.get(
@@ -122,6 +125,8 @@ async def get_order_by_number(order_number: str) -> OrderDetailOut:
     return order
 
 
+@router.post("/checkout", response_model=OrderDetailOut, status_code=status.HTTP_201_CREATED,
+             summary="Оформить заказ с проверкой суммы и выбранных вариантов")
 @router.post(
     "",
     response_model=OrderDetailOut,
@@ -139,8 +144,15 @@ async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> 
         order_lines = []
         subtotal = Decimal("0.00")
 
+        session = uow.products.session
+        product_ids = {item.product_id for item in body.items}
+        variant_ids = {item.variant_id for item in body.items if item.variant_id is not None}
+        products = {product.id: product for product in await session.scalars(select(Product)
+                    .where(Product.id.in_(product_ids)).order_by(Product.id).with_for_update(of=Product))}
+        variants = {variant.id: variant for variant in await session.scalars(select(ProductVariant)
+                    .where(ProductVariant.id.in_(variant_ids)).order_by(ProductVariant.id).with_for_update(of=ProductVariant))}
         for item_in in body.items:
-            product = await uow.products.get_by_id(item_in.product_id)
+            product = products.get(item_in.product_id)
 
             if not product:
                 raise HTTPException(
@@ -152,13 +164,16 @@ async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> 
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=f"Товар '{product.name}' недоступен для заказа",
                 )
-            # Предзаказ — бронь до поступления: остаток не проверяем и не списываем
-            if not product.is_preorder and product.stock_quantity < item_in.quantity:
+            variant = variants.get(item_in.variant_id) if item_in.variant_id else None
+            if item_in.variant_id and (variant is None or variant.product_id != product.id or not variant.is_active):
+                raise HTTPException(status_code=409, detail=f"Выбранный вариант товара «{product.name}» больше недоступен")
+            stock_item = variant or product
+            if not product.is_preorder and stock_item.stock_quantity < item_in.quantity:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(
                         f"Недостаточно товара '{product.name}' на складе. "
-                        f"Доступно: {product.stock_quantity}, запрошено: {item_in.quantity}"
+                        f"Доступно: {stock_item.stock_quantity}, запрошено: {item_in.quantity}"
                     ),
                 )
 
@@ -168,12 +183,30 @@ async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> 
 
             order_lines.append({
                 "product": product,
+                "variant": variant,
                 "quantity": item_in.quantity,
                 "unit_price": unit_price,
                 "total_price": line_total,
             })
 
-        total_amount = subtotal  # shipping_cost и discount в будущем
+        payment_method, delivery_method = body.payment_method, body.delivery_method
+        legacy_checkout = (payment_method is None and delivery_method is None and body.expected_total is None
+                           and _LEGACY_CART_NOTE.match(body.customer_note or ""))
+        if legacy_checkout:
+            payment_method = _LEGACY_PAYMENT[legacy_checkout[1]]
+            delivery_method = _LEGACY_DELIVERY[legacy_checkout[2]]
+        shipping_cost = Decimal(DELIVERY_PRICES.get(delivery_method, 0))
+        payment_surcharge = Decimal("0")
+        if payment_method in ("card", "qr"):
+            if legacy_checkout:
+                # Открытая до обновления корзина показывает старую формулу надбавки.
+                payment_surcharge = (subtotal / Decimal("0.85")).quantize(Decimal("1"), rounding=ROUND_HALF_UP) - subtotal
+            else:
+                payment_surcharge = (subtotal * CARD_MARKUP_PERCENT / 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        total_amount = subtotal + shipping_cost + payment_surcharge
+        if body.expected_total is not None and body.expected_total != total_amount:
+            formatted = format(total_amount, ",.2f").replace(",", " ").replace(".", ",").removesuffix(",00")
+            raise HTTPException(status_code=409, detail=f"Сумма заказа изменилась на {formatted} ₽. Обновите корзину и проверьте цены.")
         has_preorder = any(line["product"].is_preorder for line in order_lines)
         # Подарок (GTA VI к консолям со страницы /gta6): к каким позициям он положен
         gift_ids = await gift_product_ids(uow)
@@ -191,7 +224,10 @@ async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> 
             customer_note=body.customer_note,
             subtotal=subtotal,
             discount_amount=Decimal("0.00"),
-            shipping_cost=Decimal("0.00"),
+            shipping_cost=shipping_cost,
+            delivery_method=delivery_method,
+            payment_method=payment_method,
+            payment_surcharge=payment_surcharge,
             total_amount=total_amount,
             is_preorder=has_preorder,
             gift=GIFT_NAME if has_gift else None,
@@ -200,18 +236,22 @@ async def create_order(body: OrderCreate, background_tasks: BackgroundTasks) -> 
         # ── 3. Создаём позиции и списываем остатки ────────────────────
         for line in order_lines:
             product = line["product"]
+            variant = line["variant"]
+            name = f"{product.name} — {variant.name}"[:255] if variant else product.name
             await uow.order_items.create(
                 order_id=order.id,
                 product_id=product.id,
-                product_name=product.name,
-                product_sku=product.sku,
+                variant_id=variant.id if variant else None,
+                product_name=name,
+                product_sku=(variant.sku or product.sku) if variant else product.sku,
                 quantity=line["quantity"],
                 unit_price=line["unit_price"],
                 total_price=line["total_price"],
                 gift=GIFT_NAME if product.id in gift_ids else None,
             )
             if not product.is_preorder:
-                await uow.products.decrement_stock(product.id, line["quantity"])
+                stock_item = variant or product
+                stock_item.stock_quantity -= line["quantity"]
 
         await uow.commit()
 

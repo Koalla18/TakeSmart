@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, EmailStr
 
@@ -16,12 +16,14 @@ from src.app.database.models.order import OrderStatus, PaymentStatus
 
 class OrderItemCreate(BaseModel):
     product_id: uuid.UUID
+    variant_id: uuid.UUID | None = None
     quantity: int = Field(..., ge=1, le=999, description="Количество единиц товара")
 
 
 class OrderItemOut(BaseModel):
     id: uuid.UUID
     product_id: Optional[uuid.UUID]
+    variant_id: uuid.UUID | None = None
     product_name: str
     product_sku: Optional[str]
     quantity: int
@@ -49,12 +51,15 @@ class OrderCreate(BaseModel):
     shipping_city: str = Field(..., min_length=2, max_length=100, examples=["Москва"])
     shipping_postal_code: Optional[str] = Field(None, pattern=r"^\d{5,10}$", examples=["123456"])
     customer_note: Optional[str] = Field(None, max_length=1000)
+    payment_method: Literal["cash", "card", "qr"] | None = None
+    delivery_method: Literal["pickup", "courier", "post"] | None = None
+    expected_total: Decimal | None = Field(None, ge=0, max_digits=12, decimal_places=2)
     items: list[OrderItemCreate] = Field(..., min_length=1, description="Минимум 1 позиция в заказе")
 
     @field_validator("items")
     @classmethod
     def no_duplicate_products(cls, items: list[OrderItemCreate]) -> list[OrderItemCreate]:
-        ids = [i.product_id for i in items]
+        ids = [(item.product_id, item.variant_id) for item in items]
         if len(ids) != len(set(ids)):
             raise ValueError("В заказе не должно быть дублирующихся товаров — объедините их в одну позицию")
         return items
@@ -156,6 +161,9 @@ class OrderOut(BaseModel):
     subtotal: Decimal
     discount_amount: Decimal
     shipping_cost: Decimal
+    payment_surcharge: Decimal = Decimal("0")
+    payment_method: str | None = None
+    delivery_method: str | None = None
     total_amount: Decimal
     status: str
     payment_status: str
