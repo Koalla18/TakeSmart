@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { API_BASE_URL } from '../lib/config'
+import { readStaffName, storeStaffName, commentTime, type OrderComment, type OrderCommentPreview, type OrderCommentsRequest } from './orderCommentData'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Комментарии сотрудников к заказу — общая лента для админки и приложения
@@ -8,25 +9,6 @@ import { API_BASE_URL } from '../lib/config'
 // которое сотрудник указал на своём устройстве (запоминается в браузере).
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface OrderComment {
-  id: string
-  order_id: string
-  author_name: string
-  body: string
-  created_at: string
-  edited_at?: string | null
-}
-
-/** Последний комментарий в списке заказов — одной строкой */
-export interface OrderCommentPreview {
-  author_name: string
-  body: string
-  created_at: string
-}
-
-export type OrderCommentsRequest = (url: string, init?: RequestInit) => Promise<Response>
-
-const NAME_KEY = 'takesmart_staff_name'
 const MAX_LENGTH = 2000
 const POLL_MS = 30_000
 const QUICK_PHRASES = ['Позвонил клиенту', 'Не дозвонился', 'Ждём оплату', 'Товар отложен', 'Клиент заберёт сам']
@@ -54,23 +36,6 @@ function storeDraft(orderId: string, text: string) {
     if (text.trim()) localStorage.setItem(DRAFT_PREFIX + orderId, JSON.stringify({ text, at: Date.now() }))
     else localStorage.removeItem(DRAFT_PREFIX + orderId)
   } catch { /* хранилище недоступно — черновик просто не переживёт закрытие */ }
-}
-
-export function readStaffName(): string {
-  try { return (localStorage.getItem(NAME_KEY) || '').trim() } catch { return '' }
-}
-
-function storeStaffName(name: string) {
-  try { localStorage.setItem(NAME_KEY, name) } catch { /* приватный режим — просто не запомним */ }
-}
-
-/** Превью для списка заказов из полной ленты — тот же вид, что отдаёт сервер */
-export function commentsPreview(comments: OrderComment[]): { comments_count: number; last_comment: OrderCommentPreview | null } {
-  const last = comments[comments.length - 1]
-  return {
-    comments_count: comments.length,
-    last_comment: last ? { author_name: last.author_name, body: last.body.replace(/\s+/g, ' ').trim(), created_at: last.created_at } : null,
-  }
 }
 
 // ── Внешний вид ──────────────────────────────────────────────────────────────
@@ -130,25 +95,6 @@ function SendIcon({ className = 'h-4 w-4' }: { className?: string }) {
       <path d="M5 12h13M13 6l6 6-6 6" />
     </svg>
   )
-}
-
-function sameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
-}
-
-/** «только что», «12 мин назад», «сегодня, 14:05», «вчера, 18:20», «12 окт., 18:40» */
-export function commentTime(iso: string, now: Date = new Date()): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const diffMin = (now.getTime() - d.getTime()) / 60000
-  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-  if (diffMin < 1) return 'только что'
-  if (diffMin < 60 && sameDay(d, now)) return `${Math.floor(diffMin)} мин назад`
-  if (sameDay(d, now)) return `сегодня, ${time}`
-  const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1)
-  if (sameDay(d, yesterday)) return `вчера, ${time}`
-  if (d.getFullYear() === now.getFullYear()) return `${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}, ${time}`
-  return `${d.toLocaleDateString('ru-RU')}, ${time}`
 }
 
 function fullTime(iso: string): string {

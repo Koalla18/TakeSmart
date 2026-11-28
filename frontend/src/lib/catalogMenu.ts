@@ -24,10 +24,11 @@ export async function fetchMenuCategories(): Promise<MenuCategory[]> {
     const res = await fetch(`${API_BASE_URL}/api/categories?limit=100&only_active=true`)
     if (!res.ok) return []
     const data = await res.json()
-    const list = Array.isArray(data) ? data : (data.items ?? [])
+    const list: Array<Omit<MenuCategory, 'image_url'> & { image_url?: string | null }> =
+      Array.isArray(data) ? data : (data.items ?? [])
     return list
-      .filter((c: any) => !String(c.name).toLowerCase().includes('б/у'))
-      .map((c: any) => ({ id: c.id, name: c.name, slug: c.slug, image_url: c.image_url ?? null }))
+      .filter(c => !String(c.name).toLowerCase().includes('б/у'))
+      .map(c => ({ id: c.id, name: c.name, slug: c.slug, image_url: c.image_url ?? null }))
   } catch {
     return []
   }
@@ -45,7 +46,7 @@ export async function fetchCategoryBrands(categoryId: string): Promise<MenuBrand
     if (res.ok) {
       const data = await res.json()
       if (Array.isArray(data)) {
-        return data.map((b: any) => ({ name: String(b.name), count: Number(b.count ?? 0) }))
+        return data.map((b: { name: unknown; count?: unknown }) => ({ name: String(b.name), count: Number(b.count ?? 0) }))
       }
     }
   } catch {

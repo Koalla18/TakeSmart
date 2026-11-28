@@ -1,53 +1,10 @@
 import { useEffect, useState } from 'react'
-
-// Промис-модалка подтверждения (замена нативного confirm()): вызывается из любого
-// обработчика как `if (await confirmDialog({...})) { ... }`. <ConfirmHost/> рендерится
-// один раз (в AdminPage) и показывает диалог. Тёмная тема — под админку.
-
-interface ConfirmOptions {
-  title?: string
-  message: string
-  confirmLabel?: string
-  cancelLabel?: string
-  danger?: boolean
-}
-
-interface ConfirmState extends ConfirmOptions {
-  id: number
-  resolve: (ok: boolean) => void
-}
-
-let current: ConfirmState | null = null
-let listeners: Array<(s: ConfirmState | null) => void> = []
-let seq = 0
-
-function emit() {
-  for (const l of listeners) l(current)
-}
-
-export function confirmDialog(opts: ConfirmOptions | string): Promise<boolean> {
-  const options: ConfirmOptions = typeof opts === 'string' ? { message: opts } : opts
-  return new Promise<boolean>(resolve => {
-    current = { id: ++seq, ...options, resolve }
-    emit()
-  })
-}
-
-function close(ok: boolean) {
-  if (!current) return
-  current.resolve(ok)
-  current = null
-  emit()
-}
+import { getSnapshot, subscribe, close, type ConfirmState } from './confirm'
 
 export function ConfirmHost() {
-  const [state, setState] = useState<ConfirmState | null>(current)
+  const [state, setState] = useState<ConfirmState | null>(getSnapshot)
 
-  useEffect(() => {
-    const l = (s: ConfirmState | null) => setState(s ? { ...s } : null)
-    listeners.push(l)
-    return () => { listeners = listeners.filter(x => x !== l) }
-  }, [])
+  useEffect(() => subscribe(next => setState(next ? { ...next } : null)), [])
 
   // Esc — отмена (намеренно НЕ вешаем Enter, чтобы не подтвердить удаление случайно)
   useEffect(() => {

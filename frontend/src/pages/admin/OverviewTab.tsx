@@ -89,7 +89,13 @@ function useCountUp(target: number, durationMs = 800): number {
     const from = fromRef.current
     if (from === target) return
     const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-    if (reduce) { fromRef.current = target; setValue(target); return }
+    if (reduce) {
+      fromRef.current = target
+      // Синхронизируем значение сразу, когда пользователь отключил анимацию.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setValue(target)
+      return
+    }
     const start = performance.now()
     let raf = 0
     const tick = (now: number) => {

@@ -1,15 +1,7 @@
-import { createContext, useCallback, useContext, useState, useEffect, type ReactNode } from 'react'
+import { useCallback, useState, useEffect, type ReactNode } from 'react'
 import { API_BASE_URL } from './config'
 import { authFetch, storeToken, TOKEN_KEY, AUTH_CHANGED } from './adminSession'
-
-interface AuthContextType {
-  token: string | null
-  isAuthenticated: boolean
-  login: (username: string, password: string) => Promise<boolean>
-  logout: () => void
-}
-
-const AuthContext = createContext<AuthContextType | null>(null)
+import { AuthContext } from './auth'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => {
@@ -81,18 +73,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   )
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext)
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider')
-  }
-  return context
-}
-
-// Helper for authenticated API calls
-export function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem(TOKEN_KEY)
-  return token ? { Authorization: `Bearer ${token}` } : {}
 }

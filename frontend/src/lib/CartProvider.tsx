@@ -1,34 +1,10 @@
-import { createContext, useCallback, useContext, useState, useEffect, type ReactNode } from 'react'
+import { useCallback, useState, useEffect, type ReactNode } from 'react'
 import { cartItemKey } from './cartKey'
 import type { Product } from '../data/products'
 import { ymEcommerceAdd, ymReachGoal } from './metrika'
-
-export interface CartItem {
-  product: Product
-  quantity: number
-  variantId?: string
-}
-
-// ─── Ограничения корзины ─────────────────────────────────────────────────────
-export const MAX_QUANTITY_PER_ITEM = 15
-export const MAX_TOTAL_ITEMS = 15
-export const MAX_POSITIONS = 20
+import { CartContext, MAX_POSITIONS, MAX_QUANTITY_PER_ITEM, MAX_TOTAL_ITEMS, type CartItem } from './cart'
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-interface CartContextType {
-  items: CartItem[]
-  addItem: (product: Product, quantity?: number, variantId?: string) => boolean
-  removeItem: (key: string) => void
-  refreshProducts: (products: Map<string, Product>) => void
-  updateQuantity: (key: string, quantity: number) => boolean
-  clearCart: () => void
-  getItemCount: () => number
-  getTotal: () => number
-  isInCart: (productId: string) => boolean
-}
-
-const CartContext = createContext<CartContextType | null>(null)
 
 const CART_STORAGE_KEY = 'takesmart_cart'
 
@@ -193,12 +169,4 @@ export function CartProvider({ children }: { children: ReactNode }) {
       {children}
     </CartContext.Provider>
   )
-}
-
-export function useCart() {
-  const context = useContext(CartContext)
-  if (!context) {
-    throw new Error('useCart must be used within CartProvider')
-  }
-  return context
 }

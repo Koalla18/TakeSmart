@@ -422,7 +422,7 @@ export function WeeklySlides() {
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/weekly-slides`)
       .then(res => (res.ok ? res.json() : Promise.reject()))
-      .then((data: any[]) => {
+      .then((data: Array<Partial<Omit<Slide, 'isNew'>> & Pick<Slide, 'title' | 'price'> & { is_new?: boolean }>) => {
         if (data.length > 0) {
           setSlides(
             data.map(s => ({

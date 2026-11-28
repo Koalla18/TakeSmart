@@ -23,31 +23,28 @@ interface CommandPaletteProps {
 }
 
 export function CommandPalette({ open, onClose, search }: CommandPaletteProps) {
+  return open ? <OpenCommandPalette onClose={onClose} search={search} /> : null
+}
+
+function OpenCommandPalette({ onClose, search }: Omit<CommandPaletteProps, 'open'>) {
   const [query, setQuery] = useState('')
   const [cursor, setCursor] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
-  const items = useMemo(() => (open ? search(query) : []), [open, query, search])
+  const items = useMemo(() => search(query), [query, search])
 
   useEffect(() => {
-    if (!open) return
-    setQuery('')
-    setCursor(0)
     const t = window.setTimeout(() => inputRef.current?.focus(), 10)
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => { window.clearTimeout(t); document.body.style.overflow = prev }
-  }, [open])
-
-  useEffect(() => { setCursor(0) }, [query])
+  }, [])
 
   useEffect(() => {
     const el = listRef.current?.querySelector<HTMLElement>(`[data-index="${cursor}"]`)
     el?.scrollIntoView({ block: 'nearest' })
   }, [cursor, items])
-
-  if (!open) return null
 
   const select = (item: PaletteItem) => { onClose(); item.onSelect() }
 
@@ -75,7 +72,7 @@ export function CommandPalette({ open, onClose, search }: CommandPaletteProps) {
           <input
             ref={inputRef}
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={e => { setQuery(e.target.value); setCursor(0) }}
             onKeyDown={onKeyDown}
             placeholder="Заказ, товар, категория, бренд или раздел…"
             className="h-14 w-full bg-transparent text-[15px] text-white placeholder-slate-500 outline-none"

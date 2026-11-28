@@ -43,7 +43,10 @@ function readUndo(): UndoBatch | null {
   try { const raw = localStorage.getItem(UNDO_KEY); return raw ? JSON.parse(raw) as UndoBatch : null } catch { return null }
 }
 function writeUndo(batch: UndoBatch | null) {
-  try { batch ? localStorage.setItem(UNDO_KEY, JSON.stringify(batch)) : localStorage.removeItem(UNDO_KEY) } catch { /* приватный режим */ }
+  try {
+      if (batch) localStorage.setItem(UNDO_KEY, JSON.stringify(batch))
+      else localStorage.removeItem(UNDO_KEY)
+    } catch { /* приватный режим */ }
 }
 
 // Встроенное распознавание речи (Chrome, Android, Safari 14.1+). Без него кнопки микрофона просто нет.

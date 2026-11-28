@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useAuth, getAuthHeaders } from '../lib/auth'
 import { API_BASE_URL } from '../lib/config'
-import { toast, ToastHost } from '../lib/toast'
+import { toast } from '../lib/toast'
+import { ToastHost } from '../lib/ToastHost'
 import { PriceCommandBar } from '../components/PriceCommand'
 import { modelCodeFromName, stripModelCode, withModelCode, normalizeModelCode } from '../lib/modelCode'
 import { matchesSearchStrict } from '../lib/searchRank'
@@ -105,7 +106,7 @@ function pluralRu(n: number, one: string, few: string, many: string): string {
 
 /** «12 990», «12990,50», «12 990 ₽» → число; мусор → null */
 function parseMoney(raw: string): number | null {
-  const s = raw.replace(/[\s ₽]/g, '').replace(',', '.')
+  const s = raw.replace(/[\s₽]/g, '').replace(',', '.')
   if (!s || !/^\d+(\.\d+)?$/.test(s)) return null
   const n = Number(s)
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : null

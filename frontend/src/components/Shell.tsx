@@ -99,8 +99,12 @@ function CategoryIcon({ name, className = 'h-5 w-5' }: { name: string; className
 
 // Картинка категории из админки (image_url); фолбэк — SVG-иконка по названию.
 function CategoryVisual({ name, imageUrl, className = 'h-5 w-5' }: { name: string; imageUrl?: string | null; className?: string }) {
+  const [previousImageUrl, setPreviousImageUrl] = useState(imageUrl)
   const [failed, setFailed] = useState(false)
-  useEffect(() => setFailed(false), [imageUrl])
+  if (previousImageUrl !== imageUrl) {
+    setPreviousImageUrl(imageUrl)
+    setFailed(false)
+  }
   if (imageUrl && !failed) {
     return (
       <img
@@ -128,8 +132,12 @@ function BrandLogo({ name, className = 'h-5 w-auto max-w-[92px]' }: { name: stri
     return () => { cancelled = true }
   }, [])
   const logo = brandLogo(name)
+  const [previousLogo, setPreviousLogo] = useState(logo)
   const [failed, setFailed] = useState(false)
-  useEffect(() => setFailed(false), [logo])
+  if (previousLogo !== logo) {
+    setPreviousLogo(logo)
+    setFailed(false)
+  }
   if (!logo || failed) return <span className="text-sm font-bold text-gray-900">{name}</span>
   return (
     <img
@@ -170,7 +178,7 @@ function ModelThumb({ src, alt }: { src: string; alt: string }) {
 function CatalogMegaMenu() {
   const [open, setOpen] = useState(false)
   const [cats, setCats] = useState<MenuCategory[]>([])
-  const [loadedCats, setLoadedCats] = useState(false)
+  const loadedCats = useRef(false)
   const [activeCat, setActiveCat] = useState<MenuCategory | null>(null)
   const [groupsByCat, setGroupsByCat] = useState<Record<string, MenuBrandGroup[]>>({})
   const closeTimer = useRef<number | undefined>(undefined)
@@ -186,13 +194,13 @@ function CatalogMegaMenu() {
 
   // Категории — один раз при первом открытии
   useEffect(() => {
-    if (!open || loadedCats) return
-    setLoadedCats(true)
+    if (!open || loadedCats.current) return
+    loadedCats.current = true
     fetchMenuCategories().then(list => {
       setCats(list)
       if (list[0]) setActiveCat(list[0])
     })
-  }, [open, loadedCats])
+  }, [open])
 
   // Бренды+модели активной категории — лениво, с кэшем (undefined = ещё грузим)
   useEffect(() => {
@@ -398,14 +406,14 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
   const [categories, setCategories] = useState<MenuCategory[]>([])
   const [groupsByCat, setGroupsByCat] = useState<Record<string, MenuBrandGroup[]>>({})
   const [drillCat, setDrillCat] = useState<MenuCategory | null>(null)
-  const [dataFetched, setDataFetched] = useState(false)
+  const dataFetched = useRef(false)
 
   // Категории — один раз при открытии (лёгкий запрос).
   useEffect(() => {
-    if (!isOpen || dataFetched) return
-    setDataFetched(true)
+    if (!isOpen || dataFetched.current) return
+    dataFetched.current = true
     fetchMenuCategories().then(setCategories)
-  }, [isOpen, dataFetched])
+  }, [isOpen])
 
   // Drill в категорию: 2-й уровень + ленивая загрузка брендов+моделей (с кэшем).
   const openCategory = (cat: MenuCategory) => {
@@ -420,7 +428,6 @@ function MobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose: () => void 
   // Блокируем скролл body + сбрасываем drill при закрытии.
   useEffect(() => {
     document.body.style.overflow = isOpen ? 'hidden' : ''
-    if (!isOpen) setDrillCat(null)
     return () => { document.body.style.overflow = '' }
   }, [isOpen])
 

@@ -265,6 +265,10 @@ function FilterSidebar({
 
 export function CatalogPage() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const urlCategory = searchParams.get('category') || 'all'
+  const urlBrand = searchParams.get('brand') || 'all'
+  const urlQuery = searchParams.get('q') || ''
+  const [initialCategory] = useState(urlCategory)
   const [isLoading, setIsLoading] = useState(true)
   const [showMobileFilters, setShowMobileFilters] = useState(false)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
@@ -279,8 +283,8 @@ export function CatalogPage() {
   const [categoryBrandsMap, setCategoryBrandsMap] = useState<Record<string, CatalogBrand[]>>({})
 
   // Filter states
-  const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || 'all')
-  const [selectedBrand, setSelectedBrand] = useState(searchParams.get('brand') || 'all')
+  const [selectedCategory, setSelectedCategory] = useState(urlCategory)
+  const [selectedBrand, setSelectedBrand] = useState(urlBrand)
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 999999999])
   const [inStockOnly, setInStockOnly] = useState(false)
   const [preorderOnly, setPreorderOnly] = useState(searchParams.get('preorder') === '1')
@@ -289,7 +293,7 @@ export function CatalogPage() {
   const preorderVisible = preorderState.visible
   const preorderInCatalog = preorderState.inCatalog
   const [sort, setSort] = useState<SortOption>('popular')
-  const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '')
+  const [searchQuery, setSearchQuery] = useState(urlQuery)
 
   // ─── Загрузка данных из API ──────────────────────────────────────────────────
   useEffect(() => {
@@ -363,7 +367,7 @@ export function CatalogPage() {
 
           if (isFirst) {
             // Resolve category from URL alias (один раз, по первой порции)
-            const urlCat = searchParams.get('category')
+            const urlCat = initialCategory
             if (urlCat && urlCat !== 'all') {
               const knownSlugs = new Set(apiCategories.map(c => c.id))
               if (!knownSlugs.has(urlCat)) {
@@ -428,20 +432,20 @@ export function CatalogPage() {
 
     fetchData()
     return () => { cancelled = true }
-  }, [])
+  }, [initialCategory])
 
   // Sync filters from URL (e.g. when navigating from homepage category links)
   useEffect(() => {
-    const cat = searchParams.get('category') || 'all'
-    const brand = searchParams.get('brand') || 'all'
-    const q = searchParams.get('q') || ''
-    setSelectedCategory(cat)
-    setSelectedBrand(brand)
-    setSearchQuery(q)
-  }, [searchParams.get('category'), searchParams.get('brand'), searchParams.get('q')])
+    // При навигации URL обновляет фильтры, оставляя локальное редактирование независимым.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedCategory(urlCategory)
+    setSelectedBrand(urlBrand)
+    setSearchQuery(urlQuery)
+  }, [urlCategory, urlBrand, urlQuery])
   
-  // Simulate loading
+  // Сохраняем индикатор до завершения таймера при смене фильтра.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoading(true)
     const timer = setTimeout(() => setIsLoading(false), 500)
     return () => clearTimeout(timer)
@@ -458,12 +462,14 @@ export function CatalogPage() {
   
   const currentCategory = displayCategories.find(c => c.id === selectedCategory)
 
+  const quickFilters = currentCategory?.quickFilters
+
   // Filter and sort products
   const filteredProducts = useMemo(() => {
     let result = [...displayProducts]
     const hasSearch = searchQuery.trim().length > 0
     // Быстрый фильтр — это подбор ВНУТРИ выбранной категории и бренда, а не глобальный поиск
-    const isQuickFilter = hasSearch && !!currentCategory?.quickFilters.some(qf => qf.query === searchQuery)
+    const isQuickFilter = hasSearch && !!quickFilters?.some(qf => qf.query === searchQuery)
 
     // Категория и бренд для обычного списка. Ручной поиск из строки — глобальный,
     // а быстрый фильтр сам подбирает внутри категории и бренда (lib/quickFilter)
@@ -498,7 +504,7 @@ export function CatalogPage() {
           category: selectedCategory,
           brand: selectedBrand,
           query: searchQuery,
-          siblings: currentCategory?.quickFilters.map(qf => qf.query) ?? [],
+          siblings: quickFilters?.map(qf => qf.query) ?? [],
         }, popular)
       } else {
         // Ручной поиск: по силе совпадения; описание и slug — только слабый резерв
@@ -531,7 +537,7 @@ export function CatalogPage() {
     }
 
     return result
-  }, [displayProducts, selectedCategory, selectedBrand, priceRange, inStockOnly, preorderOnly, preorderInCatalog, sort, searchQuery])
+  }, [displayProducts, selectedCategory, selectedBrand, priceRange, inStockOnly, preorderOnly, preorderInCatalog, sort, searchQuery, quickFilters])
 
   // Новинки по предзаказу — для чипа, пункта в сайдбаре и блока над сеткой
   // Ближайшие поступления первыми (как на /preorder), без даты — в конце
@@ -549,9 +555,12 @@ export function CatalogPage() {
 
   // ─── Бесконечная прокрутка: рендерим порциями по PAGE_SIZE ──────────────────
   // Сбрасываем счётчик при смене фильтров (но НЕ при дозагрузке данных в фоне).
+  const [minPrice, maxPrice] = priceRange
   useEffect(() => {
+    // Сбрасываем страницу по фильтрам даже при совпадающем количестве результатов.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVisibleCount(PAGE_SIZE)
-  }, [selectedCategory, selectedBrand, priceRange[0], priceRange[1], inStockOnly, preorderOnly, sort, searchQuery])
+  }, [selectedCategory, selectedBrand, minPrice, maxPrice, inStockOnly, preorderOnly, sort, searchQuery])
 
   const visibleProducts = useMemo(
     () => filteredProducts.slice(0, visibleCount),

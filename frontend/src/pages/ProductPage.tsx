@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useLayoutEffect, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
@@ -87,7 +87,7 @@ function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs
     // RAM is the last ГБ/ТБ number BEFORE the SSD match
     const beforeSsd = name.slice(0, ssdMatch.index ?? 0)
     const allRamMatches = [...beforeSsd.matchAll(/(\d+)\s*(ГБ|GB|ТБ|TB)/gi)]
-    let connectivity: string | null = null
+    const connectivity: string | null = null
     if (allRamMatches.length > 0) {
       const last = allRamMatches[allRamMatches.length - 1]
       const unit = /ТБ|TB/i.test(last[2]) ? 'ТБ' : 'ГБ'
@@ -112,8 +112,8 @@ function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs
     // оставалась голая «)», и она показывалась как «Размер ремешка: )».
     remainder = remainder.replace(/,/g, '').trim();
     while (/^[)\]]/.test(remainder)) remainder = remainder.slice(1).trim();
-    while (/[(\[]$/.test(remainder)) remainder = remainder.slice(0, -1).trim();
-    if (/^[()\[\]\s]*$/.test(remainder)) remainder = '';
+    while (/[([]$/.test(remainder)) remainder = remainder.slice(0, -1).trim();
+    if (/^[()[\]\s]*$/.test(remainder)) remainder = '';
     stor = remainder || null;
     
     return { storage: stor, connectivity: conn, ram, color: color || null };
@@ -154,7 +154,7 @@ function parseAttrsFromProduct(name: string, color?: string | null): ParsedAttrs
           // Make sure it's not followed by unit-like suffixes that indicate non-storage
           const afterIdx = (m.index ?? 0) + m[0].length
           const after = name.slice(afterIdx, afterIdx + 5)
-          if (!/^\s*(мм|mm|мес|Вт|W|"|\'|шт|₽)/i.test(after)) {
+          if (!/^\s*(мм|mm|мес|Вт|W|"|'|шт|₽)/i.test(after)) {
             storage = m[1]
             break
           }
@@ -346,7 +346,9 @@ function ImageLightbox({
   // и при настоящем нажатии стрелки браузер успевал снять старую подписку до того, как
   // дойти до неё: просмотр на весь экран не листался.
   const keysRef = useRef({ onClose, goPrev, goNext, multi })
-  keysRef.current = { onClose, goPrev, goNext, multi }
+  useLayoutEffect(() => {
+    keysRef.current = { onClose, goPrev, goNext, multi }
+  }, [onClose, goPrev, goNext, multi])
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const k = keysRef.current
@@ -374,7 +376,8 @@ function ImageLightbox({
     if (!dragStart || zoomed) return
     const dx = e.changedTouches[0].clientX - dragStart.x
     if (Math.abs(dx) > 60 && multi) {
-      dx > 0 ? goPrev() : goNext()
+      if (dx > 0) goPrev()
+      else goNext()
     }
     setDragStart(null)
   }
@@ -561,6 +564,8 @@ interface CategoryProductField {
 }
 
 interface ApiSibling {
+  brand?: ApiProduct['brand']
+  category?: ApiProduct['category']
   id: string
   name: string
   slug: string
@@ -732,12 +737,16 @@ export function ProductPage() {
     loadProduct()
   }, [id])
 
+  const apiProductId = apiProduct?.id
+
   // Load variants once apiProduct is known
   useEffect(() => {
-    if (!apiProduct) return
-    fetch(`${API_BASE_URL}/api/products/${apiProduct.id}/variants`)
+    if (!apiProductId) return
+    let cancelled = false
+    fetch(`${API_BASE_URL}/api/products/${apiProductId}/variants`)
       .then(res => res.ok ? res.json() : [])
       .then((data: ApiVariant[]) => {
+        if (cancelled) return
         setVariants(data)
         if (data.length > 0) {
           setSelectedColor(data[0].color ?? null)
@@ -746,7 +755,8 @@ export function ProductPage() {
         }
       })
       .catch(() => {})
-  }, [apiProduct?.id])
+    return () => { cancelled = true }
+  }, [apiProductId])
 
   useEffect(() => {
     if (!apiProduct?.category_id) {
@@ -1138,8 +1148,8 @@ export function ProductPage() {
                     { id: apiProduct.id, name: apiProduct.name, slug: apiProduct.slug, color: apiProduct.color, main_image_url: apiProduct.main_image_url, price: apiProduct.price, discount_price: apiProduct.discount_price, is_active: true, attributes: apiProduct.attributes, category: apiProduct.category, brand: apiProduct.brand },
                     ...apiProduct.siblings.map(s => ({
                       ...s,
-                      brand: (s as any).brand ?? apiProduct.brand,
-                      category: (s as any).category ?? apiProduct.category,
+                      brand: s.brand ?? apiProduct.brand,
+                      category: s.category ?? apiProduct.category,
                     })),
                   ]
 
@@ -1367,9 +1377,15 @@ export function ProductPage() {
                   }
 
                   // Механизм A2 (легаси): разбор осей из названия/attributes конструктора групп.
-                  const getParsed = (item: any) => {
-                    const attrs = item.attributes || {};
-                    if (Object.keys(attrs).length > 0 && (attrs.storage || attrs.connectivity || attrs.processor)) {
+                  const getParsed = (item: ApiSibling): ParsedAttrs => {
+                    const attributes = item.attributes
+                    const attrs = {
+                      storage: attributes?.storage ? String(attributes.storage) : null,
+                      connectivity: attributes?.connectivity ? String(attributes.connectivity) : null,
+                      processor: attributes?.processor ? String(attributes.processor) : null,
+                    }
+                    const hasAttributes = Object.keys(attributes ?? {}).length > 0
+                    if (attrs.storage || attrs.connectivity || attrs.processor) {
                       const brand = String(item.brand || '').toLowerCase()
                       const categorySlug = String(item.category?.slug || '').toLowerCase()
                       const connectivityRaw = String(attrs.connectivity || '')
@@ -1440,7 +1456,7 @@ export function ProductPage() {
                     const parsed = parseAttrsFromProduct(item.name, item.color)
                     const isWatch = item.category?.slug === 'watches' || item.category?.slug === 'smart-bands' || /watch/i.test(item.name || '')
                     
-                    if (isWatch && Object.keys(attrs).length === 0) {
+                    if (isWatch && !hasAttributes) {
                         let wConn = null;
                         let wStorage = null;
                         let wRam = null;
@@ -1462,7 +1478,7 @@ export function ProductPage() {
                         if (wConn) remainder = remainder.replace(new RegExp(wConn.replace(/\s+/g,'\\s*'), 'ig'), '');
                         if (wStorage) remainder = remainder.replace(new RegExp(`\\b${wStorage.replace('/','\\/')}\\b`, 'ig'), '');
                         remainder = remainder.replace(/apple watcheee|apple watch series \d+|apple watch se \d+|apple watch se|apple watch ultra \d+|apple watch ultra|apple watch|watch|часы|\b202\d\b/ig, '');
-                        remainder = remainder.replace(/[,\(\)]/g, '').replace(/[\-]/g, ' ');
+                        remainder = remainder.replace(/[,()]/g, '').replace(/[-]/g, ' ');
                         wRam = remainder.replace(/\s+/g, ' ').trim() || null;
 
                         parsed.connectivity = wConn || parsed.connectivity;

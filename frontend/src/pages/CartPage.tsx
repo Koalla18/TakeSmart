@@ -26,7 +26,7 @@ function validateName(value: string): string | null {
   if (!value.trim()) return 'Введите имя'
   if (value.trim().length < 2) return 'Имя должно быть не менее 2 символов'
   if (value.trim().length > 100) return 'Имя слишком длинное'
-  if (!/^[а-яА-ЯёЁa-zA-Z\s\-]+$/.test(value.trim()))
+  if (!/^[а-яА-ЯёЁa-zA-Z\s-]+$/.test(value.trim()))
     return 'Имя может содержать только буквы, пробелы и дефисы'
   return null
 }
@@ -224,7 +224,7 @@ export function CartPage() {
       errs.city = 'Слишком короткое название города'
     } else if (cityT.length > 100) {
       errs.city = 'Не более 100 символов'
-    } else if (!/^[а-яА-ЯёЁa-zA-Z\s\-\.]+$/.test(cityT)) {
+    } else if (!/^[а-яА-ЯёЁa-zA-Z\s\-.]+$/.test(cityT)) {
       errs.city = 'Город может содержать только буквы, пробелы и дефисы'
     } else if (isJunkString(cityT)) {
       errs.city = 'Укажите корректное название города'
@@ -238,7 +238,7 @@ export function CartPage() {
       errs.street = 'Слишком короткое название улицы'
     } else if (streetT.length > 100) {
       errs.street = 'Не более 100 символов'
-    } else if (!/^[а-яА-ЯёЁa-zA-Z0-9\s\-\.«»"]+$/.test(streetT)) {
+    } else if (!/^[а-яА-ЯёЁa-zA-Z0-9\s\-.«»"]+$/.test(streetT)) {
       errs.street = 'Улица содержит недопустимые символы'
     } else if (isJunkString(streetT)) {
       errs.street = 'Укажите корректное название улицы'
@@ -250,7 +250,7 @@ export function CartPage() {
       errs.house = 'Укажите номер дома'
     } else if (houseT.length > 20) {
       errs.house = 'Не более 20 символов'
-    } else if (!/^\d+([а-яА-ЯёЁa-zA-Z]{0,3})?([\/\-]\d+([а-яА-ЯёЁa-zA-Z]{0,3})?)?$/.test(houseT)) {
+    } else if (!/^\d+([а-яА-ЯёЁa-zA-Z]{0,3})?([/-]\d+([а-яА-ЯёЁa-zA-Z]{0,3})?)?$/.test(houseT)) {
       errs.house = 'Формат: 10, 10А, 10/2, 10к1, 10-2'
     }
 
@@ -259,7 +259,7 @@ export function CartPage() {
     if (aptT) {
       if (aptT.length > 20) {
         errs.apartment = 'Не более 20 символов'
-      } else if (!/^[а-яА-ЯёЁa-zA-Z0-9\-\/]+$/.test(aptT)) {
+      } else if (!/^[а-яА-ЯёЁa-zA-Z0-9\-/]+$/.test(aptT)) {
         errs.apartment = 'Только цифры и буквы'
       }
     }

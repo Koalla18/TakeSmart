@@ -5,7 +5,8 @@ import { API_BASE_URL } from '../lib/config'
 import { PricesPanel } from './PricesPanel'
 import { IphoneTab } from './IphoneTab'
 import { useStations } from '../lib/installStations'
-import { OrderComments, LastCommentLine, commentsPreview, type OrderComment, type OrderCommentPreview, type OrderCommentsRequest } from '../components/OrderComments'
+import { OrderComments, LastCommentLine } from '../components/OrderComments'
+import { commentsPreview, type OrderComment, type OrderCommentPreview, type OrderCommentsRequest } from '../components/orderCommentData'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // «TakeSmart — Заказы»: отдельное премиальное мини-приложение (PWA) для владельца
@@ -1023,7 +1024,7 @@ function AppShell() {
   // ВСЕГДА (скрыта через display:none) — опрос заказов, звук и пуш-подписка
   // работают независимо от активной вкладки.
   const [pricesMounted, setPricesMounted] = useState(tab === 'prices')
-  useEffect(() => { if (tab === 'prices') setPricesMounted(true) }, [tab])
+  if (tab === 'prices' && !pricesMounted) setPricesMounted(true)
   const [pricesDirty, setPricesDirty] = useState(0)
   // Помощники на Mac опрашиваются всегда: подключили к Mac новый iPhone — сами
   // открываем вкладку «iPhone» с его приложениями. Тот же телефон второй раз не дёргает.

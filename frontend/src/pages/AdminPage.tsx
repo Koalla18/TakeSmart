@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useEffect, useEffectEvent, useMemo, useState, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { authFetch } from '../lib/adminSession'
 import { API_BASE_URL } from '../lib/config'
 import { formatPrice } from '../data/products'
-import { toast, ToastHost } from '../lib/toast'
-import { confirmDialog, ConfirmHost } from '../lib/confirm'
+import { toast } from '../lib/toast'
+import { ToastHost } from '../lib/ToastHost'
+import { confirmDialog } from '../lib/confirm'
+import { ConfirmHost } from '../lib/ConfirmHost'
 import { AnalyticsTab } from './admin/AnalyticsTab'
-import { AdminShell, AdminShellSkeleton, SegmentedTabs, BTN_PRIMARY, BTN_SECONDARY, readLayoutMode, storeLayoutMode, type AdminLayoutMode } from './admin/AdminShell'
+import { AdminShell, AdminShellSkeleton, SegmentedTabs, BTN_PRIMARY, BTN_SECONDARY } from './admin/AdminShell'
+import { readLayoutMode, storeLayoutMode, type AdminLayoutMode } from './admin/adminLayout'
 import { greetingByHour, timeAgo } from './admin/format'
 import { AdminIcon } from './admin/AdminIcons'
 import { ADMIN_NAV, ADMIN_SECTION_META, CATEGORY_SEGMENTS, isAdminSection, type AdminSection } from './admin/adminNav'
@@ -18,7 +21,8 @@ import { InstallsSection } from './admin/InstallsSection'
 import { Gta6Section } from './admin/Gta6Section'
 import { AvitoBotSection } from './admin/AvitoBotSection'
 import { PriceCommandBar } from '../components/PriceCommand'
-import { OrderComments, LastCommentLine, commentsPreview, type OrderComment, type OrderCommentPreview } from '../components/OrderComments'
+import { OrderComments, LastCommentLine } from '../components/OrderComments'
+import { commentsPreview, type OrderComment, type OrderCommentPreview } from '../components/orderCommentData'
 import { rankSearch } from '../lib/searchRank'
 
 // ============ TYPES ============
@@ -462,7 +466,6 @@ export function AdminPage() {
   const [isBannerModalOpen, setIsBannerModalOpen] = useState(false)
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const [_error, setError] = useState<string | null>(null)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -580,15 +583,19 @@ export function AdminPage() {
 
   const loadAllData = async () => {
     setIsLoading(true)
-    setError(null)
     try {
       await Promise.all([loadOrders(), loadPendingOrders(), loadProducts(), loadCategories(), loadSlides(), loadBanners(), loadBrands(), loadTradeInOffers()])
-    } catch { setError('Ошибка загрузки') }
+    } catch (error) { console.error('Ошибка загрузки админки', error) }
     finally { setIsLoading(false) }
   }
 
-  useEffect(() => { if (isAuthenticated) loadAllData() }, [isAuthenticated])
-  useEffect(() => { if (isAuthenticated) loadOrders() }, [statusFilter])
+  const loadOnSignIn = useEffectEvent(() => { void loadAllData() })
+  const loadOrdersOnFilterChange = useEffectEvent(() => {
+    if (isAuthenticated) void loadOrders()
+  })
+
+  useEffect(() => { if (isAuthenticated) loadOnSignIn() }, [isAuthenticated])
+  useEffect(() => { loadOrdersOnFilterChange() }, [statusFilter])
 
   // Order actions
   const loadOrderDetail = async (orderId: string) => {
@@ -2167,7 +2174,7 @@ function OrderModal({
         }
       } catch { /* нет фото */ }
     })
-  }, [order.id])
+  }, [order.items])
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 backdrop-blur-sm p-4 pt-8 overflow-y-auto" onClick={onClose}>
@@ -2420,8 +2427,9 @@ function ProductModal({
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Load images on mount if product already exists
+  const loadSavedImages = useEffectEvent((productId: string) => { void loadImages(productId) })
   useEffect(() => {
-    if (savedProductId) loadImages(savedProductId)
+    if (savedProductId) loadSavedImages(savedProductId)
   }, [savedProductId])
 
   const loadImages = async (productId: string) => {
@@ -2432,7 +2440,7 @@ function ProductModal({
         const data: ImageRecord[] = await res.json()
         setImages(data.sort((a, b) => a.sort_order - b.sort_order))
       }
-    } catch {}
+    } catch (error) { console.error('Не удалось загрузить изображения', error) }
     finally { setLoadingImages(false) }
   }
 
@@ -2615,7 +2623,7 @@ function ProductModal({
         body: JSON.stringify({ ordered_ids: newOrder.map(i => i.id) }),
       })
       await loadImages(savedProductId)
-    } catch {}
+    } catch (error) { console.error('Не удалось сохранить порядок изображений', error) }
   }
 
   // ─── Variants state (LOCAL-FIRST) ───────────────────────────────────────
@@ -2656,8 +2664,9 @@ function ProductModal({
   // Dirty tracking
   const [variantsDirty, setVariantsDirty] = useState(false)
 
+  const loadSavedVariants = useEffectEvent((productId: string) => { void loadVariants(productId) })
   useEffect(() => {
-    if (savedProductId) loadVariants(savedProductId)
+    if (savedProductId) loadSavedVariants(savedProductId)
   }, [savedProductId])
 
   const syncAttrsFromVariants = (vs: LocalVariant[]) => {
@@ -2688,7 +2697,7 @@ function ProductModal({
         setVariantsLoaded(true)
         syncAttrsFromVariants(local)
       }
-    } catch {}
+    } catch (error) { console.error('Не удалось загрузить варианты', error) }
   }
 
   // Generate matrix LOCALLY — no API call until Save

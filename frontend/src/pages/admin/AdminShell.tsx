@@ -15,15 +15,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { AdminIcon } from './AdminIcons'
 import { ADMIN_NAV, type AdminSection } from './adminNav'
 
-export type AdminLayoutMode = 'dock' | 'sidebar'
-const LAYOUT_KEY = 'takesmart_admin_layout'
-
-export function readLayoutMode(): AdminLayoutMode {
-  try { return localStorage.getItem(LAYOUT_KEY) === 'sidebar' ? 'sidebar' : 'dock' } catch { return 'dock' }
-}
-export function storeLayoutMode(mode: AdminLayoutMode): void {
-  try { localStorage.setItem(LAYOUT_KEY, mode) } catch { /* приватный режим — просто не запомним */ }
-}
+import type { AdminLayoutMode } from './adminLayout'
 
 const HOTKEY_LABEL = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K'
 
@@ -219,7 +211,12 @@ export function AdminShell({
   layout, onToggleLayout, onOpenSearch, onLogout, children,
 }: AdminShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false)
-  useEffect(() => { setDrawerOpen(false) }, [active, layout])
+  const drawerScope = `${active}:${layout}`
+  const [previousDrawerScope, setPreviousDrawerScope] = useState(drawerScope)
+  if (previousDrawerScope !== drawerScope) {
+    setPreviousDrawerScope(drawerScope)
+    setDrawerOpen(false)
+  }
   useEffect(() => {
     if (!drawerOpen) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDrawerOpen(false) }
