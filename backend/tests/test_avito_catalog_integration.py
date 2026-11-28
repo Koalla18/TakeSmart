@@ -62,6 +62,79 @@ class CatalogIntegration(unittest.IsolatedAsyncioTestCase):
             await bot.save_config(session, cfg)
             await session.commit()
 
+    async def test_routine_color_choice_and_store_visit_without_model(self):
+        path = os.environ.get("TAKESMART_CATALOG_SNAPSHOT")
+        price = Path(path).read_text() if path else (
+            "iPhone 18 Pro Max 512 Black SIM + eSIM — 147 990 ₽\n"
+            "iPhone 18 Pro Max 512 Black eSIM — 138 990 ₽\n"
+            "iPhone 18 Pro Max 512 Silver SIM + eSIM — 153 990 ₽"
+        )
+        listing = "iPhone 18 Pro Max, 512 ГБ, SIM + eSIM"
+        cfg = AvitoBotConfig(enabled=True, mode="auto", persona_name="Илья", price_list=price, llm_provider="deepseek",
+                            llm_api_key="fake-test-key", pickup_address="ул. Барклая, 10, павильон А60",
+                            knowledge="Работаем ежедневно с 10:30 до 20:30.")
+        await self.save(cfg)
+        no_model = AsyncMock(side_effect=AssertionError("routine reply must not require LLM"))
+        with patch.object(bot, "llm_call", new=no_model):
+            offered = await preview_reply(TestIn(text="че в итоге по цене ты мне скажешь на эту модель и когда можно приехать",
+                                                 item_title=listing))
+            self.assertEqual(offered.action, "reply", offered.reason)
+            self.assertIn("147 990 ₽", offered.messages[0].text)
+            self.assertIn("Наш адрес — ул. Барклая, 10, павильон А60.", offered.messages[0].text)
+            self.assertIn("Работаем ежедневно с 10:30 до 20:30.", offered.messages[0].text)
+            followup = await preview_reply(TestIn(text="мне надо черный", item_title=listing, history=[
+                {"author": "client", "text": "По чём?"},
+                {"author": "bot", "text": offered.messages[0].text},
+            ]))
+            self.assertEqual(followup.action, "reply", followup.reason)
+            self.assertIn("Да, такой вариант есть.", followup.messages[0].text)
+            self.assertIn("147 990 ₽", followup.messages[0].text)
+            self.assertNotIn("138 990 ₽", followup.messages[0].text)
+            self.assertNotIn("153 990 ₽", followup.messages[0].text)
+            self.assertEqual(followup.search[0]["query"]["attributes"]["storage_gb"], 512)
+            self.assertEqual(followup.search[0]["query"]["attributes"]["sim"], "physical_esim")
+
+            unknown = await preview_reply(TestIn(text="мне надо черный"))
+            self.assertEqual(unknown.action, "reply", unknown.reason)
+            self.assertIn("какая модель вам нужна", unknown.messages[0].text)
+            address = await preview_reply(TestIn(text="Подскажите, пожалуйста, адрес"))
+            self.assertEqual(address.action, "reply", address.reason)
+            self.assertIn("Наш адрес — ул. Барклая, 10, павильон А60.", address.messages[0].text)
+            self.assertIn("во сколько вам удобно подъехать?", address.messages[0].text)
+            colors = await preview_reply(TestIn(text="Какие цвета есть?", item_title=listing))
+            self.assertEqual(colors.action, "reply", colors.reason)
+            self.assertIn("147 990 ₽", colors.messages[0].text)
+            self.assertIn("153 990 ₽", colors.messages[0].text)
+
+            external = f"integration-{uuid4()}"
+            async with AsyncSessionFactory.begin() as session:
+                chat = AvitoChat(avito_chat_id=external, item_title=listing)
+                session.add(chat)
+                await session.flush()
+                chat_id = chat.id
+                session.add(AvitoMessage(chat_id=chat_id, author="bot", text=offered.messages[0].text,
+                                         status="sent", sent_at=bot._now()))
+            with patch.object(bot, "send_push_to_all", new=AsyncMock()) as push:
+                await bot.handle_incoming(external, str(uuid4()), 999, "мне надо черный")
+                await bot._process_chat(chat_id)
+                push.assert_not_awaited()
+            async with AsyncSessionFactory() as session:
+                self.assertFalse((await session.get(AvitoChat, chat_id)).needs_human)
+                planned = await session.scalar(select(AvitoMessage.text).where(
+                    AvitoMessage.chat_id == chat_id, AvitoMessage.status == "scheduled",
+                ))
+                self.assertIn("147 990 ₽", planned)
+            no_model.assert_not_awaited()
+
+        with patch.object(bot, "llm_call", new=AsyncMock(side_effect=[
+            "Выбор вариантов в обсуждаемом объявлении.",
+            '{"reply":"Подскажите, пожалуйста, какая модель вам нужна?"}',
+        ])) as model:
+            recovered = await preview_reply(TestIn(text="Я выбираю вариант"))
+            self.assertEqual(recovered.action, "reply", recovered.reason)
+            self.assertIn("какая модель вам нужна", " ".join(message.text for message in recovered.messages))
+            self.assertEqual(model.await_count, 2)
+
     async def test_admin_password_changes_after_env_update(self):
         from src.app.api.admin.endpoints import authenticate_admin
         from src.app.core import admin_password

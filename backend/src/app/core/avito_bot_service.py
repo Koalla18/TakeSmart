@@ -70,6 +70,40 @@ _VISIT = re.compile(
     r"^(?:(?:привет|здравствуйте|добрый день|добрый вечер) )?(?:да )?(?:я )?"
     r"(?:(?:сейчас|скоро) )?(?:приеду|подъеду|зайду)(?: (?:сейчас|скоро|сегодня))?$",
 )
+_STORE_VISIT = re.compile(
+    r"\b(?:где\s+вы\s+(?:находитесь|расположены)|где\s+ваш\s+магазин|"
+    r"какой\s+(?:у\s+вас\s+)?адрес(?:\s+у\s+вас)?|(?:ваш|точный)\s+адрес|"
+    r"куда\s+(?:можно\s+|мне\s+)?(?:подъехать|приехать|зайти|подойти)|"
+    r"(?:когда|во\s+сколько)\s+(?:можно\s+|лучше\s+|мне\s+)?(?:к\s+вам\s+)?"
+    r"(?:приехать|подъехать|зайти|подойти)|до\s+скольки\s+(?:вы\s+)?(?:работаете|открыты))\b",
+    re.IGNORECASE,
+)
+_VISIT_FILLER = re.compile(r"\b(?:а|и|привет|здравствуйте|подскажите|скажите|пожалуйста|сегодня|спасибо|к\s+вам)\b")
+_STORE_VISIT_SHORT = re.compile(r"(?:адрес|где вы|куда ехать|часы работы|режим работы|до скольки)")
+_STORE_HOURS = re.compile(
+    r"\bработаем\s+(?:(ежедневно|каждый день)\s+)?с\s+(\d{1,2}:\d{2})\s+до\s+(\d{1,2}:\d{2})\b",
+    re.IGNORECASE,
+)
+
+
+def store_visit_reply(cfg: AvitoBotConfig, pending: str) -> tuple[str | None, str]:
+    address = cfg.pickup_address.strip().rstrip(".")
+    brief = " ".join(_VISIT_FILLER.sub(" ", normalize(pending)).split())
+    if not address:
+        return None, pending
+    if _STORE_VISIT_SHORT.fullmatch(brief):
+        remaining = ""
+    elif _STORE_VISIT.search(pending):
+        remaining = _STORE_VISIT.sub(" ", pending)
+        if not _VISIT_FILLER.sub(" ", normalize(remaining)).strip():
+            remaining = ""
+    else:
+        return None, pending
+    answer = f"Наш адрес — {address}."
+    if hours := _STORE_HOURS.search(cfg.knowledge):
+        daily = " ежедневно" if hours[1] else ""
+        answer += f" Работаем{daily} с {hours[2]} до {hours[3]}."
+    return f"{answer} Подскажите, пожалуйста, во сколько вам удобно подъехать?", remaining
 
 
 def _now() -> datetime:
@@ -418,6 +452,7 @@ class CatalogContext:
     results: list[avito_catalog.SearchResult]
     listing: list[CatalogItem] = field(default_factory=list)
     quote: avito_quotes.QuoteRequest | None = None
+    search_parse_failed: bool = False
 
     @property
     def items(self) -> list[CatalogItem]:
@@ -433,6 +468,8 @@ async def quote_product(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatCon
     intent = avito_catalog.SearchIntent(queries=[])
     if not ready and quote is None:
         return CatalogContext(intent, [])
+    if quote and quote.clarification:
+        return CatalogContext(intent, [], quote=quote)
     import_id = await avito_catalog.active_import(session, cfg.price_list)
     purchase = avito_quotes.retail_part(pending)
     grounded = []
@@ -444,12 +481,16 @@ async def quote_product(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatCon
             quote.queries = [avito_quotes.query_from_words(grounded[0], purchase)]
         elif grounded:
             quote.queries = []
+    search_parse_failed = False
     if ready and not (quote and quote.queries and not quote.supplement):
         try:
             intent = await extract_search_intent(cfg, ctx, pending, masker)
-        except (llm_client.LlmError, ValueError) as exc:
+        except ValueError as exc:
+            search_parse_failed = True
+            logger.warning("avito_bot_search_intent_invalid", error_type=type(exc).__name__)
+        except llm_client.LlmError as exc:
             if quote is None:
-                raise llm_client.LlmError("Модель вернула неверные параметры поиска") from exc
+                raise
             logger.warning("avito_bot_quote_intent_fallback", error_type=type(exc).__name__)
     if quote is None and intent.price_requested:
         quote = avito_quotes.QuoteRequest([], supplement=True)
@@ -483,7 +524,7 @@ async def quote_product(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatCon
             result = await avito_catalog.search(session, import_id, query)
         results.append(result)
     listing = await avito_catalog.listing_items(session, import_id, ctx.item_title) if not results and quote is None else []
-    return CatalogContext(intent, results, listing, quote)
+    return CatalogContext(intent, results, listing, quote, search_parse_failed)
 
 
 async def extract_search_intent(cfg: AvitoBotConfig, ctx: ChatContext, pending: str,
@@ -492,6 +533,7 @@ async def extract_search_intent(cfg: AvitoBotConfig, ctx: ChatContext, pending: 
         "Извлеки поисковые запросы на покупку техники из последних реплик покупателя. "
         "Не отвечай покупателю. price_requested=true, если просят цену, её подтверждение или уточнение. "
         "«Почём?», «а на 512?», «а белый?» после разговора о цене требуют поиск. "
+        "«Мне нужен чёрный» после списка цветов — выбор варианта обсуждаемой модели, а не просьба оформить бронь. "
         "Сначала товар из новой реплики, затем последний обсуждаемый товар, затем объявление. "
         "«Белый на терабайт сколько?» — укажи цвет white и storage_gb=1024, модель возьми из разговора "
         "или объявления. При смене товара не переноси характеристики предыдущей модели. "
@@ -580,6 +622,9 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     """order_info — (номер, статус) заявки этого диалога: модель знает о ней и может её отменить."""
     if _VISIT.fullmatch(normalize(pending_text)):
         return Decision("reply", "Хорошо, будем ждать.", "rule")
+    visit_text, search_text = store_visit_reply(cfg, pending_text)
+    if visit_text and not search_text:
+        return Decision("reply", visit_text, "rule")
     now = now or _now()
     rules = await active_rules(session)
     llm = llm_settings(cfg)
@@ -616,16 +661,22 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     masker = PiiMasker()
     if requested is None:
         try:
-            requested = await quote_product(session, cfg, ctx, pending_text, masker)
+            requested = await quote_product(session, cfg, ctx, search_text, masker)
         except llm_client.LlmError as exc:
             if match and match.rule.verbatim and rule_covers(pending_text):
                 return await rule_decision(match.rule)
             return Decision("handoff", reason=f"Не удалось разобрать запрос: {exc}"[:200])
     search_data = [result.context() for result in requested.results]
     quote = requested.quote
-    price_text = avito_quotes.format_quote(
+    price_text = (quote.clarification or avito_quotes.format_quote(
         requested.results, cfg.card_markup_percent if quote.payment == "card" else None
-    ) if quote else None
+    )) if quote else None
+    if quote and quote.variant_choice and requested.results and all(result.status == "exact" for result in requested.results):
+        count = sum(match.relation == "exact" for result in requested.results for match in result.matches)
+        intro = "Да, такой вариант есть. Вот цена по прайсу:" if count == 1 else "Подскажу, какие варианты есть по прайсу:"
+        price_text = f"{intro}\n{price_text}"
+    if price_text and visit_text:
+        price_text += f"\n\n{visit_text}"
     if quote and price_text and quote.trade_in:
         price_text += "\n\nПо trade-in напишите модель, объём памяти и состояние устройства, которое хотите сдать. Уточним оценку."
     if quote and price_text and quote.payment == "card":
@@ -664,7 +715,7 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
                 clarification = strip_greeting(clarification)
             if clarification:
                 return Decision("reply", clarification, "llm")
-        return Decision("handoff", reason="Модель не сформулировала уточняющий вопрос")
+        return Decision("reply", "Подскажите, пожалуйста, какая модель вам нужна?", "rule")
     anchor = None
     if len(requested.results) == 1 and items and requested.results[0].status in ("exact", "same_model"):
         exact = [match.item for match in requested.results[0].matches if match.relation == "exact"]
@@ -683,6 +734,10 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         if price_text:
             reply = "\n\n".join(part for part in (price_text, reply) if part)
             kwargs["price_reply"] = True
+            if action == "silent":
+                action = "reply"
+        elif visit_text:
+            reply = "\n\n".join(part for part in (visit_text, reply) if part)
             if action == "silent":
                 action = "reply"
         return Decision(action, reply, *args, **kwargs)
@@ -714,8 +769,10 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
                "не пересказывай его сообщение вместо ответа и не придумывай банковские реквизиты.")
     try:
         messages = build_messages(system, masked_ctx, HISTORY_LIMIT)
-        if quote and not requested.intent.booking_requested and (question := avito_quotes.supplemental_question(pending_text)):
+        if quote and not requested.intent.booking_requested and (question := avito_quotes.supplemental_question(search_text)):
             messages[-1]["content"] = masker.mask(question)
+        elif visit_text:
+            messages[-1]["content"] = masker.mask(search_text)
         raw = await llm_call(cfg, messages)
     except llm_client.LlmError as exc:
         return outcome("handoff", None, reason=f"Модель не ответила: {exc}"[:200], catalog=lines)
@@ -794,7 +851,10 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
                             reason=order_problem or verdict.reason or "Модель просит сотрудника", delay_seconds=delay,
                             catalog=lines, examples_used=len(examples))
     elif not reply:
-        decision = outcome("silent", reason="Модель решила, что отвечать не нужно", catalog=lines, examples_used=len(examples))
+        if requested.search_parse_failed and not price_text and not visit_text:
+            decision = outcome("reply", "Подскажите, пожалуйста, какая модель вас интересует или что хотите узнать?", "rule")
+        else:
+            decision = outcome("silent", reason="Модель решила, что отвечать не нужно", catalog=lines, examples_used=len(examples))
     else:
         decision = outcome("reply", reply, "llm", rule, delay_seconds=delay, catalog=lines, order=order,
                             examples_used=len(examples))

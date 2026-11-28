@@ -399,7 +399,7 @@ def test_prompt_scope_and_trade_in():
     p = build_system_prompt(PromptConfig("Илья", "", "", ""), [], ctx, [], NOW, greet=False,
                             price_overview=["- iPhone 16: 128 ГБ — 62 990 ₽ (Белый)"], trade_in=DEFAULT_TRADE_IN_PRICES)
     assert "Говори ТОЛЬКО о магазине" in p and "математика" in p
-    assert "Не переспрашивай" in p and "относится к товару ИЗ ОБЪЯВЛЕНИЯ" in p
+    assert "Не переспрашивай" in p and "относится к товару из разговора" in p
     assert "АКТУАЛЬНЫЙ ПРАЙС" in p and "iPhone 17 Pro Max — 65 000–70 000 ₽" in p
     assert "НЕ здоровайся" in p and "ПЕРВОЕ сообщение" not in p
 

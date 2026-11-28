@@ -35,6 +35,15 @@ _SUPPLEMENT_CLAUSE = re.compile(
 )
 _SERVICE_FEE = re.compile(r"\b(?:достав\w*|предоплат\w*|пвз|сдэк|курьер\w*)\b", re.IGNORECASE)
 _PRICE_CLAUSE = re.compile(r"\b(?:цен[аыуеой]*|ценник\w*|стоимост\w*|прайс\w*|по\s*ч[её]м)\b", re.IGNORECASE)
+_VARIANT_FILLER = re.compile(
+    r"\b(?:а|и|да|мне|вам|у|вас|нужен|нужна|нужно|нужны|надо|хочу|хотел|хотела|"
+    r"бы|можно|есть|имеется|бывает|в|на|цвет|цвете|цвета|вариант|памяти|только|пожалуйста|подскажите)\b"
+)
+_AVAILABILITY_TURN = re.compile(
+    r"(?:(?:а|подскажите|пожалуйста) )*"
+    r"(?:(?:еще )?(?:в наличии|продается)|(?:еще )?есть(?: в наличии)?|наличие|товар еще есть)"
+)
+_COLOR_TURN = re.compile(r"(?:(?:а|подскажите|пожалуйста) )*(?:какие цвета(?: есть| в наличии)?|в каких цветах(?: есть)?)")
 _TRANSFER = re.compile(r"\b(?:перевод\w*|безнал\w*|реквизит\w*|бик|(?:расч[её]тн\w*|номер)\s+сч[её]т\w*)\b", re.IGNORECASE)
 _CARD = re.compile(r"\b(?:(?:по|оплата)\s+карт\w*|картой|qr|куар)\b", re.IGNORECASE)
 _CARD_FOLLOWUP = re.compile(r"\s*(?:а\s+)?(?:по карте|картой|qr|куар)\s*\?*\s*", re.IGNORECASE)
@@ -79,6 +88,8 @@ class QuoteRequest:
     supplement: bool = False
     trade_in: bool = False
     has_separate_product: bool = False
+    variant_choice: bool = False
+    clarification: str | None = None
 
 
 def retail_part(pending: str) -> str:
@@ -140,6 +151,28 @@ def _with_capacity(attrs: dict[str, Scalar], ram: str | None, size: int) -> dict
     return {**attrs, "storage_gb": size, **({"ram_gb": int(ram)} if ram else {})}
 
 
+def _short_variant_choice(text: str, sizes: list[tuple[str | None, int]], colors: set[str]) -> bool:
+    if not (sizes or colors):
+        return False
+    value = normalize(_CAPACITY.sub(" ", _TERABYTE.sub(" ", text)))
+    value = " ".join(_VARIANT_FILLER.sub(" ", value).split())
+    if not value:
+        return bool(sizes)
+    return bool(colors and (value in COLORS or len(value.split()) == 1 and _variant_colors(value) == colors))
+
+
+def _sent_subject(title: str) -> ProductQuery | None:
+    parsed = listing_query(title)
+    named, remainder = _named_phone(title)
+    if not parsed or not named or parsed.brand != named.brand:
+        return parsed
+    # A localized color in a rendered older quote may not be understood by the import parser.
+    # The phone's actual family is still identifiable without taking the color as part of its name.
+    return parsed.model_copy(update={"model": named.model, "attributes": {
+        **parsed.attributes, **query_from_words(named, remainder).attributes,
+    }})
+
+
 def conversation_subject(ctx: ChatContext) -> tuple[ProductQuery | None, bool]:
     """Последний товар по уже отправленным предложениям и явным репликам покупателя."""
     if ctx.quoted_subject is not None:
@@ -149,7 +182,7 @@ def conversation_subject(ctx: ChatContext) -> tuple[ProductQuery | None, bool]:
         history.pop()
     for author, message in reversed(history):
         if author != "client":
-            quoted = [listing_query(match["title"].lstrip("• -")) for line in message.splitlines()
+            quoted = [_sent_subject(match["title"].lstrip("• -")) for line in message.splitlines()
                       if (match := _SENT_PRICE.fullmatch(line))]
             quoted = [query for query in quoted if query and query.brand]
             if quoted:
@@ -204,22 +237,32 @@ def price_request(ctx: ChatContext, pending: str) -> QuoteRequest | None:
         named is None and any(pattern.search(purchase) for pattern in (_OTHER_PRODUCT, _IPHONE, _SAMSUNG, _PRODUCT_CATEGORY))
     ) or not can_resolve_from_words(purchase)
     source = named or (subject if discussed else listing)
-    extra, capacities, colors = _options(remainder, source.brand if source else None) if explicit or follow_up or payment else ({}, [], set())
+    extra, capacities, colors = _options(remainder, source.brand if source else None)
+    short_turn = normalize(purchase)
+    color_menu = bool(_COLOR_TURN.fullmatch(short_turn))
+    variant_choice = bool(not named and not requires_interpretation and (
+        color_menu or _AVAILABILITY_TURN.fullmatch(short_turn) or _short_variant_choice(purchase, capacities, colors)
+    ))
     changed_options = bool(extra or capacities or colors)
-    wants_price = explicit or (follow_up and changed_options) or (payment == "card" and _CARD_FOLLOWUP.fullmatch(pending))
+    wants_price = explicit or variant_choice or (follow_up and changed_options) or (payment == "card" and _CARD_FOLLOWUP.fullmatch(pending))
     trade_in = bool(_BARE_TRADE_IN.search(pending) and not (_RETAIL_QUESTION.search(pending) and purchase == pending))
     if not wants_price or (_TRADE_IN_AMOUNT.search(purchase) and not _RETAIL_QUESTION.search(purchase)):
         return None
 
     supplement = bool(_SUPPLEMENT.search(pending))
+    if not source and variant_choice:
+        return QuoteRequest([], payment, supplement, trade_in, variant_choice=True,
+                            clarification="Подскажите, пожалуйста, какая модель вам нужна?")
     if not source or requires_interpretation or len(colors) > 1:
         return QuoteRequest([], payment, supplement, trade_in, not can_resolve_from_words(purchase))
     attrs = dict(source.attributes)
+    if color_menu:
+        attrs.pop("color", None)
     if named:
         reference = subject if discussed else listing
         if reference and model_key(reference.model or "", reference.brand or "") == model_key(named.model or "", named.brand or ""):
             attrs.update({k: v for k, v in reference.attributes.items() if k in ("sim", "region")})
-    elif not discussed and colors and not capacities:
+    elif not discussed and colors and not capacities and not variant_choice:
         attrs.pop("storage_gb", None)
         attrs.pop("ram_gb", None)
     attrs.update(extra)
@@ -230,7 +273,7 @@ def price_request(ctx: ChatContext, pending: str) -> QuoteRequest | None:
         if capacities:
             required.append("storage_gb")
     queries = [source.model_copy(update={"attributes": attrs_, "required": required}) for attrs_ in options[:6]]
-    return QuoteRequest(queries, payment, supplement, trade_in)
+    return QuoteRequest(queries, payment, supplement, trade_in, variant_choice=variant_choice)
 
 
 def _line(match: Match, card_markup: Decimal | None = None) -> str:
