@@ -168,6 +168,8 @@ class CatalogIntegration(unittest.IsolatedAsyncioTestCase):
     async def test_quote_ipad_dyson_followup_card_and_trade_in(self):
         listing = 'iPad Air (M4, 2026) 13" Wi-Fi 128 гб, «Blue»'
         price = """iPad Air 13 M4 2026 Wi-Fi 128 ГБ Blue — 86 990 ₽
+iPad Air 13 M4 Wi-Fi 128 ГБ Space Gray Канада — 79 990 ₽
+iPad Air 13 M4 2026 Wi-Fi 256 ГБ Blue — 97 990 ₽
 iPad Air 13 M4 2026 Wi-Fi 512 ГБ Blue — 126 990 ₽
 iPad Air 13 M4 2026 LTE 128 ГБ Blue — 93 990 ₽
 Dyson HS08 Ceramic Pink — 34 990 ₽
@@ -190,6 +192,24 @@ Google Pixel 11 Pro XL 12/256 ГБ Obsidian — 82 990 ₽
             self.assertNotIn("93 990", text)
             self.assertEqual(first.search[0]["status"], "exact")
             self.assertGreater(first.search[0]["matches"][0]["source_number"], 0)
+            gray = await preview_reply(TestIn(
+                text=request, item_title="iPad Air 13 (M4, 2026) Wi-Fi 128 гб, Space Gray", item_price="62990",
+            ))
+            gray_text = gray.messages[0].text
+            self.assertEqual(gray.action, "reply", gray.reason)
+            for expected in ("Илья", "79 990 ₽", "92 788 ₽", "128 ГБ", "16%", "trade-in", "состояние"):
+                self.assertIn(expected, gray_text)
+            for unrelated in ("62 990 ₽", "86 990 ₽", "97 990 ₽", "не могу подтвердить"):
+                self.assertNotIn(unrelated, gray_text)
+            self.assertEqual(gray.search[0]["status"], "exact")
+            self.assertIn("Space Gray", gray.search[0]["matches"][0]["source_line"])
+            unavailable_color = await preview_reply(TestIn(
+                text="по чем", item_title="iPad Air 13 (M4, 2026) Wi-Fi 256 гб, Space Gray",
+            ))
+            self.assertEqual(unavailable_color.search[0]["status"], "same_model")
+            self.assertIn("97 990 ₽", unavailable_color.messages[0].text)
+            self.assertNotIn("79 990 ₽", unavailable_color.messages[0].text)
+            self.assertNotIn("86 990 ₽", unavailable_color.messages[0].text)
             async with AsyncSessionFactory() as session:
                 chat = AvitoChat(avito_chat_id=f"integration-{uuid4()}", item_title=SAMSUNG)
                 session.add(chat)
@@ -202,6 +222,11 @@ Google Pixel 11 Pro XL 12/256 ГБ Obsidian — 82 990 ₽
                 self.assertIn("126 990 ₽", decision.text)
                 self.assertNotIn("93 990 ₽", decision.text)
                 self.assertEqual(decision.search[0]["query"]["reference"], "conversation")
+                context = bot.avito_quotes.quoted_subject(gray.search)
+                context["attributes"] = {"color": "blue", "storage_gb": 512}
+                result = await catalog.search(session, gray.search[0]["revision"], catalog.ProductQuery.model_validate(context))
+                self.assertEqual(result.status, "exact")
+                self.assertEqual(result.matches[0].item.price, 126990)
             dyson = await preview_reply(TestIn(
                 text="Почём HS08 Ceramic Pink?", item_title=listing, item_price="61990",
             ))
@@ -237,6 +262,76 @@ Google Pixel 11 Pro XL 12/256 ГБ Obsidian — 82 990 ₽
             self.assertNotIn("39 990", dyson.messages[0].text)
             self.assertNotIn("уточню", dyson.messages[0].text)
             self.assertIn("12 месяцев", dyson.messages[0].text)
+
+    async def test_ipad_year_alias_keeps_conflicting_years_and_hardware_apart(self):
+        price = """iPad Air 13 M4 Wi-Fi 128 ГБ Space Gray — 79 990 ₽
+iPad Air 13 M4 2025 Wi-Fi 128 ГБ Space Gray — 74 990 ₽
+iPad Air 13 M4 2026 Wi-Fi 128 ГБ Blue — 86 990 ₽
+iPad Air 11 M4 2026 Wi-Fi 128 ГБ Space Gray — 69 990 ₽
+iPad Air 13 M4 2026 LTE 128 ГБ Space Gray — 99 990 ₽
+iPad Air 13 M3 2026 Wi-Fi 128 ГБ Space Gray — 65 990 ₽
+"""
+        await self.save(AvitoBotConfig(enabled=True, price_list=price))
+        response = await preview_reply(TestIn(
+            text="по чем", item_title="iPad Air 13 (M4, 2026) Wi-Fi 128 гб, Space Gray",
+        ))
+        self.assertEqual(response.search[0]["status"], "same_model")
+        self.assertEqual([match["price_rub"] for match in response.search[0]["matches"]], [86990])
+
+    async def test_trade_in_duo_does_not_replace_selected_ipad_or_escalate(self):
+        title = "iPad Air 13 (M4, 2026) Wi-Fi 128 гб, Space Gray"
+        price = ("iPad Air 13 M4 2026 Wi-Fi 128 ГБ Blue — 86 990 ₽\n"
+                 "iPad Air 13 M4 Wi-Fi 128 ГБ Space Gray — 79 990 ₽\n"
+                 "iPhone Duo 256 ГБ White — 191 990 ₽")
+        if path := os.environ.get("TAKESMART_CATALOG_SNAPSHOT"):
+            price = Path(path).read_text()
+        cfg = AvitoBotConfig(enabled=True, persona_name="Илья", price_list=price,
+                            llm_provider="deepseek", llm_api_key="fake-test-key")
+        await self.save(cfg)
+        history = [
+            {"author": "client", "text": "по чем, можно по карте? и хочу сдать свою технику"},
+            {"author": "bot", "text": "iPad Air 13 M4 2026 Wi-Fi 128 ГБ, Blue — 86 990 ₽ без trade-in\n"
+                                      "По trade-in напишите модель, объём памяти и состояние устройства."},
+        ]
+        with patch.object(bot, "llm_call", new=AsyncMock(side_effect=AssertionError("known case must bypass LLM"))) as model:
+            only_this = await preview_reply(TestIn(text="нет я только этот хочу", item_title=title, history=history))
+            self.assertEqual(only_this.action, "reply", only_this.reason)
+            self.assertIn("79 990 ₽", only_this.messages[0].text)
+            self.assertNotIn("86 990 ₽", only_this.messages[0].text)
+            history.append({"author": "client", "text": "нет я только этот хочу"})
+            history.append({"author": "bot", "text": only_this.messages[0].text})
+
+            for request in ("у меня айфон DUO 256gb", "новый айфон дуо", "нет я хочу сдать этот айфон дуо"):
+                declined = await preview_reply(TestIn(text=request, item_title=title, history=history))
+                self.assertEqual(declined.action, "reply", declined.reason)
+                self.assertIn("iPhone Duo на 256 ГБ", declined.messages[0].text)
+                self.assertIn("не принимаем по trade-in", declined.messages[0].text)
+                self.assertNotIn("191 990", declined.messages[0].text)
+                history.append({"author": "client", "text": request})
+                history.append({"author": "staff", "text": "К сожалению, не можем принять."})
+
+            again = await preview_reply(TestIn(text="А за этот сколько?", item_title=title, history=history))
+            self.assertEqual(again.action, "reply", again.reason)
+            self.assertIn("79 990 ₽", again.messages[0].text)
+            self.assertNotIn("191 990", again.messages[0].text)
+
+            mixed = await preview_reply(TestIn(text="По чём? И хочу сдать свой айфон Duo 256gb", item_title=title))
+            self.assertEqual(mixed.action, "reply", mixed.reason)
+            self.assertIn("79 990 ₽", mixed.messages[0].text)
+            self.assertIn("не принимаем по trade-in", mixed.messages[0].text)
+            model.assert_not_awaited()
+
+        phone = bot.avito_quotes.trade_in_phone([], "хочу сдать iPhone Duo 256gb")
+        self.assertIsNone(bot.avito_quotes.trade_in_rejection(phone, "iPhone Duo — 65 000–75 000 ₽"))
+        for request in ("хочу купить iPhone Duo по trade-in", "не хочу сдавать iPhone Duo"):
+            self.assertIsNone(bot.avito_quotes.trade_in_phone([], request))
+
+        await self.save(cfg.model_copy(update={"trade_in_prices": "iPhone Duo — 65 000–75 000 ₽"}))
+        with patch.object(bot, "llm_call", new=AsyncMock(return_value='{"reply":"Подскажите состояние телефона."}')) as accepted:
+            reply = await preview_reply(TestIn(text="хочу сдать iPhone Duo 256gb", item_title=title))
+            self.assertEqual(reply.action, "reply", reply.reason)
+            accepted.assert_awaited_once()
+            self.assertIn("Устройство покупателя для сдачи по trade-in: iPhone Duo, 256 ГБ", accepted.call_args.args[1][0]["content"])
 
     async def test_full_price_snapshot(self):
         path = os.environ.get("TAKESMART_CATALOG_SNAPSHOT")

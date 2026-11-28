@@ -625,6 +625,13 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     visit_text, search_text = store_visit_reply(cfg, pending_text)
     if visit_text and not search_text:
         return Decision("reply", visit_text, "rule")
+    trade_device = avito_quotes.trade_in_phone(ctx.history, search_text)
+    trade_rejection = avito_quotes.trade_in_rejection(trade_device, cfg.trade_in_prices)
+    trade_only = trade_device is not None and avito_quotes.retail_part(search_text) == search_text
+    if trade_rejection and trade_only:
+        if ctx.item_title or ctx.quoted_subject:
+            trade_rejection += " Выбранный товар можно купить без обмена."
+        return Decision("reply", trade_rejection, "rule")
     now = now or _now()
     rules = await active_rules(session)
     llm = llm_settings(cfg)
@@ -659,6 +666,8 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         if not llm.ready:
             return Decision("reply", "Заявку отменила. Если передумаете — пишите, с радостью помогу.", "rule")
     masker = PiiMasker()
+    if requested is None and trade_only:
+        requested = CatalogContext(avito_catalog.SearchIntent(queries=[]), [])
     if requested is None:
         try:
             requested = await quote_product(session, cfg, ctx, search_text, masker)
@@ -678,7 +687,13 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
     if price_text and visit_text:
         price_text += f"\n\n{visit_text}"
     if quote and price_text and quote.trade_in:
-        price_text += "\n\nПо trade-in напишите модель, объём памяти и состояние устройства, которое хотите сдать. Уточним оценку."
+        if trade_rejection:
+            price_text += f"\n\n{trade_rejection}"
+        elif trade_device:
+            details = "состояние устройства" if "storage_gb" in trade_device.attributes else "объём памяти и состояние устройства"
+            price_text += f"\n\nДля предварительной оценки {trade_device.model} подскажите, пожалуйста, {details}."
+        else:
+            price_text += "\n\nПо trade-in напишите модель, объём памяти и состояние устройства, которое хотите сдать. Уточним оценку."
     if quote and price_text and quote.payment == "card":
         price_text += f"\n\nПри оплате картой — плюс {cfg.card_markup_percent:g}% к розничной цене."
     if quote and price_text and quote.payment == "transfer":
@@ -760,6 +775,10 @@ async def decide(session: AsyncSession, cfg: AvitoBotConfig, ctx: ChatContext, p
         ]} for result in search_data],
         trade_in=cfg.trade_in_prices,
     )
+    if trade_device:
+        size = trade_device.attributes.get("storage_gb")
+        device = f"{trade_device.model}, {size} ГБ" if size else trade_device.model
+        system += f"\nУстройство покупателя для сдачи по trade-in: {device}. Это отдельный товар. Не подставляй его в запрос покупки."
     if quote:
         system += ("\nБэкенд уже включит цену, условия распознанного способа оплаты и следующий шаг по trade-in. "
                    "В поле reply пиши только ответы на остальные вопросы покупателя. Не вставляй строку товара с ценой, "

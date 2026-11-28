@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
@@ -28,6 +29,23 @@ _TRADE_CONJUNCTION = re.compile(r"(?:[?!.\n;,]+|\bи\s+(?:хочу\s+|ещ[её]
 _DEPENDENT_PRODUCT = re.compile(r"\b(?:чехол\w*|стекл\w*|кабел\w*|адаптер\w*|зарядк\w*|ремонт\w*|замен\w*)\b", re.IGNORECASE)
 _COMPARISON = re.compile(r"\b(?:сравн\w*|кажд\w*|только не|кроме|или|не\s+ч[её]рн\w*)\b", re.IGNORECASE)
 _BARE_TRADE_IN = re.compile(r"\b(?:trade[\s-]*in|трейд[\s-]*ин|сдать|сдам)\b", re.IGNORECASE)
+_TRADE_CONTEXT = re.compile(
+    r"\b(?:trade[\s-]*in|трейд[\s-]*ин|сда(ть|ете|ёте|ваем\w*)|сдам|не\s+(?:можем\s+)?прин(?:ять|имаем))\b",
+    re.IGNORECASE,
+)
+_TRADE_DEVICE_REQUEST = re.compile(
+    r"(?:для\s+оценки|что\s+(?:вы\s+)?(?:сда[её]те|хотите\s+сдать)|"
+    r"(?:напишите|укажите|подскажите)\b[^.!?\n]*(?:модел|устройств|телефон))",
+    re.IGNORECASE,
+)
+_OWN_DEVICE = re.compile(r"\b(?:у меня|мой|моя|мо[её]|свой|могу сдать)\b", re.IGNORECASE)
+_OFFER_DEVICE = re.compile(r"\b(?:сдать|сдам|примете|выкуп\w*|сколько\s+дадите)\b", re.IGNORECASE)
+_BUY_DEVICE = re.compile(r"\b(?:купить|куплю|покупаю|беру|заберу)\b", re.IGNORECASE)
+_NO_TRADE_DEVICE = re.compile(r"\b(?:не (?:хочу|буду|планирую) сда(?:ть|вать)|не сдаю)\b", re.IGNORECASE)
+_KEEP_ITEM = re.compile(
+    r"(?:нет )?(?:я |мне )?(?:(?:хочу|нужен|нужна|надо) )?(?:только|именно) "
+    r"(?:этот|эту|это)(?: вариант| модель| товар)?(?: из объявления)?(?: хочу| нужен| нужна)?"
+)
 _PRODUCT_CATEGORY = re.compile(r"\b(?:планшет\w*|смартфон\w*|ноутбук\w*|наушник\w*|пылесос\w*|приставк\w*)\b", re.IGNORECASE)
 _SUPPLEMENT_CLAUSE = re.compile(
     r"(?<=[.!?;])\s+|\n+|,\s*(?=(?:(?:а|и|по)\s+)*(?:гарант|достав|самовывоз|цена|стоимост|ценник))",
@@ -53,7 +71,7 @@ _SUPPLEMENT = re.compile(
 )
 _IPHONE = re.compile(
     r"\b(?:(?:iphone|айфон\w*)\s*(?P<version>\d{2}(?:e|с)?|duo|дуо|air|эйр|se|x[rs]?)|(?P<duo>duo|дуо))"
-    r"(?:(?:\s*)(?P<trim>pro\s*max|про\s*макс|pro|про|plus|плюс|max|макс|mini|мини|air|эйр)|(?P<plus>\+))?"
+    r"(?:(?:\s*)(?P<trim>pro\s*max|про\s*макс|pro|про|plus|плюс|max|макс|mini|мини|air|эйр|duo|дуо)|(?P<plus>\+))?"
     r"(?![\w+])", re.IGNORECASE,
 )
 _SAMSUNG = re.compile(
@@ -63,7 +81,7 @@ _SAMSUNG = re.compile(
 _SAMSUNG_RADIO = re.compile(r"\b([45]\s*g|lte)\b", re.IGNORECASE)
 _TRIMS = {
     "про": "Pro", "промакс": "Pro Max", "promax": "Pro Max", "плюс": "Plus",
-    "макс": "Max", "мини": "Mini", "эйр": "Air", "ультра": "Ultra", "ультру": "Ultra", "fe": "FE",
+    "макс": "Max", "мини": "Mini", "эйр": "Air", "дуо": "Duo", "ультра": "Ultra", "ультру": "Ultra", "fe": "FE",
 }
 _OTHER_PRODUCT = re.compile(
     r"\b(?:iphone|айфон\w*|samsung|самсунг|galaxy|галакси|pixel|пиксел\w*|xiaomi|redmi|poco|"
@@ -72,6 +90,14 @@ _OTHER_PRODUCT = re.compile(
 _TERABYTE = re.compile(r"\b(?:(1|2|4|8)\s*)?терабайт\w*\b", re.IGNORECASE)
 _BARE_RAM = re.compile(r"(?<![\w/])(4|6|8|12|16|18|24)\s+(?=(?:128|256|512|1024)\b)")
 _SENT_PRICE = re.compile(r"^(?P<title>.+?)\s+—\s+\d[\d\s]*\s*₽(?:\s+без trade-in)?(?:\s+\(картой — [\d\s]+₽\))?\.?\s*$")
+_rendered_colors: dict[str, set[str]] = defaultdict(set)
+for _official_color, _translated_color in COLORS.values():
+    _rendered_colors[_translated_color.casefold()].add(_official_color)
+_QUOTE_COLORS = {label: next(iter(names)) for label, names in _rendered_colors.items() if len(names) == 1}
+_QUOTE_COLOR = re.compile(
+    r",\s*(" + "|".join(re.escape(label) for label in sorted(_QUOTE_COLORS, key=len, reverse=True)) + r")(?=\s*(?:,|$))",
+    re.IGNORECASE,
+)
 _BUYER_VOICE = re.compile(
     r"^\s*(?:(?:[А-ЯЁ][а-яё-]+),\s*)?(?:(?:добрый (?:день|вечер)|доброе утро|здравствуйте|привет)[!.,\s]+)?"
     r"(?:подскажите(?:, пожалуйста)?,?\s+(?:есть ли|можно ли|сколько стоит|какая цена|"
@@ -151,6 +177,78 @@ def _with_capacity(attrs: dict[str, Scalar], ram: str | None, size: int) -> dict
     return {**attrs, "storage_gb": size, **({"ram_gb": int(ram)} if ram else {})}
 
 
+def trade_in_followup(history: list[tuple[str, str]]) -> bool:
+    """Recognize a reply giving the old device after the store asked about an exchange."""
+    for author, message in reversed(history[-10:]):
+        if author == "client":
+            if retail_part(message) == message and not _TRADE_CONTEXT.search(message) and _PRICE_WORD.search(message):
+                return False
+            if _TRADE_CONTEXT.search(message) and not re.search(r"\bбез\s+(?:trade|трейд|обмена)", message, re.I):
+                return True
+        elif _TRADE_CONTEXT.search(message) and (
+            _TRADE_DEVICE_REQUEST.search(message) or re.search(r"\bне\s+(?:можем\s+)?прин", message, re.I)
+        ):
+            return True
+    return False
+
+
+def trade_in_phone(history: list[tuple[str, str]], pending: str) -> ProductQuery | None:
+    retail = retail_part(pending)
+    separate = retail != pending
+    offer = pending[len(retail):] if separate else pending
+    if _NO_TRADE_DEVICE.search(offer):
+        return None
+    if not separate and (_PRICE_WORD.search(offer) or _HOW_MUCH.search(offer) or _BUY_DEVICE.search(offer)):
+        if not (_OWN_DEVICE.search(offer) or _OFFER_DEVICE.search(offer)):
+            return None
+    if not separate and not (_TRADE_CONTEXT.search(offer) or _OFFER_DEVICE.search(offer)):
+        if (_PRICE_WORD.search(offer) or _HOW_MUCH.search(offer) or _SUPPLEMENT.search(offer)
+                or not trade_in_followup(history)):
+            return None
+    if re.search(r"\bбез\s+(?:trade|трейд|обмена)", offer, re.I) and not _OWN_DEVICE.search(offer):
+        return None
+    named, remainder = _named_phone(offer)
+    if not named:
+        return None
+    phone = query_from_words(named, remainder)
+    if "storage_gb" in phone.attributes:
+        return phone
+    for index, (author, message) in reversed(list(enumerate(history))[-10:]):
+        if author != "client":
+            continue
+        old = retail_part(message)
+        if old != message:
+            old = message[len(old):]
+        elif not (_TRADE_CONTEXT.search(message) or _OWN_DEVICE.search(message)
+                  or (not _PRICE_WORD.search(message) and trade_in_followup(history[:index]))):
+            continue
+        previous, remainder = _named_phone(old)
+        if previous and previous.model == named.model:
+            prior = query_from_words(previous, remainder)
+            if "storage_gb" in prior.attributes:
+                return phone.model_copy(update={"attributes": {**prior.attributes, **phone.attributes}})
+    return phone
+
+
+def trade_in_rejection(phone: ProductQuery | None, policy: str) -> str | None:
+    if not phone or not phone.model:
+        return None
+    accepted = set()
+    for line in policy.splitlines():
+        parts = re.split(r"\s+[—–-]\s+|:\s+", line.lstrip(" \t•-·"), maxsplit=1)
+        if len(parts) != 2 or not trade_in_amounts(parts[1]):
+            continue
+        model, remainder = _named_phone(parts[0])
+        if model and not normalize(remainder).strip():
+            accepted.add((model.brand, model.model))
+    if not accepted or (phone.brand, phone.model) in accepted:
+        return None
+    size = phone.attributes.get("storage_gb")
+    device = phone.model + (f" на {size // 1024} ТБ" if isinstance(size, int) and size % 1024 == 0
+                           else f" на {size} ГБ" if isinstance(size, int) else "")
+    return f"Понял, вы хотите сдать {device}. К сожалению, эту модель мы сейчас не принимаем по trade-in."
+
+
 def _short_variant_choice(text: str, sizes: list[tuple[str | None, int]], colors: set[str]) -> bool:
     if not (sizes or colors):
         return False
@@ -162,6 +260,7 @@ def _short_variant_choice(text: str, sizes: list[tuple[str | None, int]], colors
 
 
 def _sent_subject(title: str) -> ProductQuery | None:
+    title = _QUOTE_COLOR.sub(lambda match: ", " + _QUOTE_COLORS[match[1].casefold()], title)
     parsed = listing_query(title)
     named, remainder = _named_phone(title)
     if not parsed or not named or parsed.brand != named.brand:
@@ -180,7 +279,7 @@ def conversation_subject(ctx: ChatContext) -> tuple[ProductQuery | None, bool]:
     history = list(ctx.history)
     while history and history[-1][0] == "client":
         history.pop()
-    for author, message in reversed(history):
+    for index, (author, message) in reversed(list(enumerate(history))):
         if author != "client":
             quoted = [_sent_subject(match["title"].lstrip("• -")) for line in message.splitlines()
                       if (match := _SENT_PRICE.fullmatch(line))]
@@ -192,8 +291,14 @@ def conversation_subject(ctx: ChatContext) -> tuple[ProductQuery | None, bool]:
                     return None, True
                 common = {k: v for k, v in subject.attributes.items() if all(q.attributes.get(k) == v for q in quoted)}
                 return subject.model_copy(update={"attributes": common, "reference": "conversation"}), True
-        elif _TRADE_IN_AMOUNT.search(message) and not _RETAIL_QUESTION.search(message):
-            continue
+        else:
+            purchase = retail_part(message)
+            if purchase != message:
+                message = purchase
+            elif trade_in_phone(history[:index], message) or (
+                _TRADE_IN_AMOUNT.search(message) and not _RETAIL_QUESTION.search(message)
+            ):
+                continue
         named, remainder = _named_phone(message)
         if named:
             attrs, sizes, _ = _options(remainder, named.brand)
@@ -239,9 +344,12 @@ def price_request(ctx: ChatContext, pending: str) -> QuoteRequest | None:
     source = named or (subject if discussed else listing)
     extra, capacities, colors = _options(remainder, source.brand if source else None)
     short_turn = normalize(purchase)
+    keep_item = bool(_KEEP_ITEM.fullmatch(short_turn))
+    if keep_item:
+        source = (subject if ctx.quoted_subject and "из объявления" not in short_turn else listing) or subject
     color_menu = bool(_COLOR_TURN.fullmatch(short_turn))
     variant_choice = bool(not named and not requires_interpretation and (
-        color_menu or _AVAILABILITY_TURN.fullmatch(short_turn) or _short_variant_choice(purchase, capacities, colors)
+        keep_item or color_menu or _AVAILABILITY_TURN.fullmatch(short_turn) or _short_variant_choice(purchase, capacities, colors)
     ))
     changed_options = bool(extra or capacities or colors)
     wants_price = explicit or variant_choice or (follow_up and changed_options) or (payment == "card" and _CARD_FOLLOWUP.fullmatch(pending))
@@ -272,6 +380,8 @@ def price_request(ctx: ChatContext, pending: str) -> QuoteRequest | None:
         required.extend(extra)
         if capacities:
             required.append("storage_gb")
+    if keep_item:
+        required = list(attrs)
     queries = [source.model_copy(update={"attributes": attrs_, "required": required}) for attrs_ in options[:6]]
     return QuoteRequest(queries, payment, supplement, trade_in, variant_choice=variant_choice)
 
@@ -303,6 +413,10 @@ def _shown_matches(result: SearchResult) -> list[Match]:
     exact = [match for match in result.matches if match.relation == "exact"]
     candidates = exact or result.matches
     if not exact:
+        if "storage_gb" in result.query.attributes:
+            same_storage = [match for match in candidates if "storage_gb" not in match.differences]
+            if same_storage:
+                return same_storage[:2]
         return candidates[:2]
     storage = {m.item.attributes.get("storage") for m in exact}
     if "storage_gb" not in result.query.attributes and len(storage) > 1:

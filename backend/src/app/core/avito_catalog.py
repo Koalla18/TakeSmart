@@ -333,6 +333,43 @@ def _matches_value(key: str, expected: Scalar, actual: Scalar | None) -> bool:
 
 
 _SAMSUNG_PHONE_KEY = re.compile(r"([as]\d{2}[a-z]?(?: (?:ultra|plus|fe))?)(?: ([45] ?g|lte))?")
+_IPAD_YEAR = re.compile(r"20\d{2}")
+_IPAD_CHIP = re.compile(r"m[1-9]\d*")
+
+
+def _ipad_release(key: str) -> tuple[tuple[str, ...], str | None] | None:
+    ipad, _, tail = key.partition(" ")
+    features = tail.split()
+    years = [value for value in features if _IPAD_YEAR.fullmatch(value)]
+    hardware = tuple(value for value in features if not _IPAD_YEAR.fullmatch(value))
+    if (ipad != "ipad" or len(years) > 1 or len(hardware) != 4
+            or len(set(hardware) & {"air", "pro"}) != 1
+            or len(set(hardware) & {"11", "12", "13"}) != 1
+            or len(set(hardware) & {"wifi", "cellular"}) != 1
+            or sum(bool(_IPAD_CHIP.fullmatch(value)) for value in hardware) != 1):
+        return None
+    return hardware, years[0] if years else None
+
+
+async def _ipad_year_keys(session: AsyncSession, scope, key: str, model_id: int | None) -> tuple[str, ...]:
+    release = _ipad_release(key)
+    if not release:
+        return (key,)
+    hardware, year = release
+    rows = (await session.execute(scope.with_only_columns(variants.c.model_id, models.c.key)
+                                  .where(models.c.key.like("ipad %")).distinct())).all()
+    if model_id and not any(row.model_id == model_id and row.key == key for row in rows):
+        return (key,)
+    candidates = {}
+    for row in rows:
+        candidate = _ipad_release(row.key)
+        if candidate and candidate[0] == hardware:
+            candidates[row.key] = candidate[1]
+    known_years = {value for value in [year, *candidates.values()] if value}
+    # An omitted year is compatible only in the absence of contrary year evidence for the same hardware.
+    if len(known_years) > 1:
+        return (key,)
+    return tuple(dict.fromkeys((key, *candidates)))
 
 
 def _compatible_model_keys(key: str, brand: str) -> tuple[str, ...]:
@@ -362,7 +399,11 @@ async def search(session: AsyncSession, import_id: int | None, query: ProductQue
     if category:
         scope = scope.where(models.c.category_key == category)
     same_model = not key
-    if query.model_id:
+    year_keys = await _ipad_year_keys(session, scope, key, query.model_id) if key.startswith("ipad ") else (key,)
+    if len(year_keys) > 1:
+        scope = scope.where(models.c.key.in_(year_keys))
+        same_model = True
+    elif query.model_id:
         scope = scope.where(variants.c.model_id == query.model_id)
         same_model = True
     elif key:
@@ -406,7 +447,9 @@ async def search(session: AsyncSession, import_id: int | None, query: ProductQue
     scoring = sum(case((condition, 0), else_=1) for condition in conditions.values())
     model_scope = scope
     scope = scope.where(variants.c.available.is_(True), *(conditions[k] for k in query.required))
-    priority = [scoring] if conditions else []
+    priority = [case((conditions[k], 0), else_=1) for k in ("storage_gb", "ram_gb") if k in conditions]
+    if conditions:
+        priority.append(scoring)
     price_order = [variants.c.price, variants.c.key]
     if spread_storage and "storage_gb" not in wanted:
         priority.append(func.row_number().over(
