@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo, type FormEvent } from 'react'
-import { useAuth, getAuthHeaders } from '../lib/auth'
+import { useAuth } from '../lib/auth'
+import { authFetch } from '../lib/adminSession'
 import { API_BASE_URL } from '../lib/config'
 import { PricesPanel } from './PricesPanel'
 import { IphoneTab } from './IphoneTab'
@@ -130,9 +131,9 @@ async function subscribeToPush(): Promise<boolean> {
     const j = sub.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } }
     if (!j.endpoint || !j.keys?.p256dh || !j.keys?.auth) return false
     try { const tk = localStorage.getItem('takesmart_admin_token'); if (tk) await idbPutToken(tk) } catch { /* */ }
-    const r = await fetch(`${API_BASE_URL}/api/push/subscribe`, {
+    const r = await authFetch(`${API_BASE_URL}/api/push/subscribe`, {
       method: 'POST',
-      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ endpoint: j.endpoint, keys: { p256dh: j.keys.p256dh, auth: j.keys.auth }, user_agent: navigator.userAgent.slice(0, 280) }),
     })
     return r.ok
@@ -150,9 +151,9 @@ async function unsubscribePush(): Promise<void> {
     const ep = (sub.toJSON() as { endpoint?: string }).endpoint
     if (ep) {
       try {
-        await fetch(`${API_BASE_URL}/api/push/unsubscribe`, {
+        await authFetch(`${API_BASE_URL}/api/push/unsubscribe`, {
           method: 'POST',
-          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ endpoint: ep }),
         })
       } catch { /* */ }
@@ -371,7 +372,7 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange, onDeleted, onComme
   const { logout } = useAuth()
   // Запросы ленты комментариев: с токеном, по 401 — на вход
   const commentsRequest = useCallback<OrderCommentsRequest>(async (url, init) => {
-    const res = await fetch(url, { ...init, headers: { ...getAuthHeaders(), ...(init?.headers || {}) } })
+    const res = await authFetch(url, init)
     if (res.status === 401) logout()
     return res
   }, [logout])
@@ -394,7 +395,7 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange, onDeleted, onComme
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    fetch(`${API_BASE_URL}/api/orders/${orderId}`, { headers: getAuthHeaders() })
+    authFetch(`${API_BASE_URL}/api/orders/${orderId}`)
       .then((r) => { if (r.status === 401) { logout(); throw new Error('401') } return r.ok ? r.json() : Promise.reject() })
       .then((d: OrderDetail) => {
         if (cancelled) return
@@ -416,7 +417,7 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange, onDeleted, onComme
     if (!order || s === order.status || saving) return
     setSaving(true)
     try {
-      const r = await fetch(`${API_BASE_URL}/api/orders/${order.id}/status`, { method: 'PATCH', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ status: s }) })
+      const r = await authFetch(`${API_BASE_URL}/api/orders/${order.id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: s }) })
       if (r.ok) { setOrder({ ...order, status: s }); onStatusChange(order.id, s) }
     } finally { setSaving(false) }
   }
@@ -426,7 +427,7 @@ function OrderDetailSheet({ orderId, onClose, onStatusChange, onDeleted, onComme
     if (!window.confirm(`Удалить заказ ${order.order_number}? Это действие нельзя отменить.`)) return
     setDeleting(true)
     try {
-      const r = await fetch(`${API_BASE_URL}/api/orders/${order.id}`, { method: 'DELETE', headers: getAuthHeaders() })
+      const r = await authFetch(`${API_BASE_URL}/api/orders/${order.id}`, { method: 'DELETE' })
       if (r.status === 204 || r.ok) { onDeleted(order.id); close() }
       else if (r.status === 401) { logout() }
       else if (r.status === 409) { const d = await r.json().catch(() => ({} as { detail?: string })); alert(d.detail || 'Нельзя удалить заказ в этом статусе. Сначала отмените его (статус «Отменён»).') }
@@ -656,6 +657,8 @@ function OrdersFeed() {
   const { logout } = useAuth()
   const { perm, request } = useNotifyPermission()
   const [orders, setOrders] = useState<AppOrder[]>([])
+  const [pageCount, setPageCount] = useState(1)
+  const [hasOlder, setHasOlder] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
@@ -687,13 +690,22 @@ function OrdersFeed() {
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/orders?limit=50`, { headers: getAuthHeaders() })
-      if (res.status === 401) { logout(); return }
-      if (!res.ok) throw new Error(String(res.status))
-      const data = await res.json()
-      const items: AppOrder[] = (Array.isArray(data) ? data : data.items ?? []).slice().sort((a: AppOrder, b: AppOrder) => +new Date(b.created_at) - +new Date(a.created_at))
+      const result = new Map<string, AppOrder>()
+      let latest: AppOrder[] = []
+      let hasNext = true
+      for (let page = 0; page < pageCount && hasNext; page++) {
+        const res = await authFetch(`${API_BASE_URL}/api/orders?limit=50&offset=${page * 50}`)
+        if (res.status === 401) { logout(); return }
+        if (!res.ok) throw new Error(String(res.status))
+        const data = await res.json()
+        const pageOrders: AppOrder[] = Array.isArray(data) ? data : data.items ?? []
+        if (page === 0) latest = pageOrders
+        pageOrders.forEach(order => result.set(order.id, order))
+        hasNext = Boolean(data.has_next)
+      }
+      const items = Array.from(result.values())
       if (seenIds.current) {
-        const fresh = items.filter((o) => !seenIds.current!.has(o.id))
+        const fresh = latest.filter((o) => !seenIds.current!.has(o.id))
         if (fresh.length) {
           if (soundOnRef.current) playAlert()
           setFreshIds((prev) => { const n = new Set(prev); fresh.forEach((o) => n.add(o.id)); return n })
@@ -704,10 +716,11 @@ function OrdersFeed() {
         }
       }
       seenIds.current = new Set(items.map((o) => o.id))
+      setHasOlder(hasNext)
       setOrders(items); setError(''); setUpdatedAt(new Date())
     } catch { setError('Не удалось обновить. Проверьте связь.') }
     finally { setLoading(false); setRefreshing(false) }
-  }, [logout])
+  }, [logout, pageCount])
 
   useEffect(() => {
     load()
@@ -729,7 +742,7 @@ function OrdersFeed() {
 
   const quickConfirm = useCallback(async (id: string) => {
     try {
-      const r = await fetch(`${API_BASE_URL}/api/orders/${id}/status`, { method: 'PATCH', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'confirmed' }) })
+      const r = await authFetch(`${API_BASE_URL}/api/orders/${id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'confirmed' }) })
       if (r.ok) setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status: 'confirmed' } : o)))
     } catch { /* */ }
   }, [])
@@ -737,7 +750,7 @@ function OrdersFeed() {
   const testPush = useCallback(async () => {
     unlockAudio()
     try {
-      const r = await fetch(`${API_BASE_URL}/api/push/test`, { method: 'POST', headers: getAuthHeaders() })
+      const r = await authFetch(`${API_BASE_URL}/api/push/test`, { method: 'POST' })
       if (!r.ok) { alert(`Не удалось отправить тест (HTTP ${r.status}).`); return }
       const d = await r.json().catch(() => ({} as PushResult))
       const sent = d.sent ?? 0, total = d.total ?? 0, errors = d.errors ?? []
@@ -758,7 +771,7 @@ function OrdersFeed() {
   // при ЗАКРЫТОМ приложении (закрой приложение сразу после нажатия).
   const testPushBackground = useCallback(async () => {
     try {
-      const r = await fetch(`${API_BASE_URL}/api/push/test?delay=10`, { method: 'POST', headers: getAuthHeaders() })
+      const r = await authFetch(`${API_BASE_URL}/api/push/test?delay=10`, { method: 'POST' })
       if (!r.ok) { alert(`Не удалось запланировать тест (HTTP ${r.status}).`); return }
       const d = await r.json().catch(() => ({} as { total?: number }))
       if (typeof d.total === 'number' && d.total === 0) {
@@ -950,6 +963,7 @@ function OrdersFeed() {
             </section>
           ))
         )}
+        {hasOlder && <button type="button" onClick={() => setPageCount(value => value + 1)} className="w-full rounded-xl border border-white/10 px-4 py-3 text-sm text-slate-200 hover:bg-white/5">Загрузить более ранние заказы</button>}
       </div>
 
       {selectedId && <OrderDetailSheet orderId={selectedId} onClose={() => setSelectedId(null)} onStatusChange={patchStatus} onDeleted={removeOrder} onCommentsChange={patchComments} />}

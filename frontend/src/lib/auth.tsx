@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useState, useEffect, type ReactNode } from 'react'
 import { API_BASE_URL } from './config'
+import { authFetch, storeToken, TOKEN_KEY, AUTH_CHANGED } from './adminSession'
 
 interface AuthContextType {
   token: string | null
@@ -9,8 +10,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
-
-const TOKEN_KEY = 'takesmart_admin_token'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => {
@@ -28,6 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const response = await fetch(`${API_BASE_URL}/api/v1/admin/token`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString(),
       })
@@ -38,8 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const data = await response.json()
       const newToken = data.access_token
-      localStorage.setItem(TOKEN_KEY, newToken)
-      setToken(newToken)
+      storeToken(newToken)
       return true
     } catch (error) {
       console.error('Login error:', error)
@@ -47,27 +46,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const logout = () => {
-    localStorage.removeItem(TOKEN_KEY)
-    setToken(null)
-  }
+  const logout = useCallback(() => {
+    storeToken(null)
+    const revoke = () => fetch(`${API_BASE_URL}/api/v1/admin/logout`, { method: 'POST', credentials: 'include' })
+    void (navigator.locks ? navigator.locks.request('takesmart-admin-refresh', revoke) : revoke()).catch(() => {})
+  }, [])
 
-  // Verify token on mount by calling any authenticated endpoint
+  useEffect(() => {
+    const sync = () => setToken(localStorage.getItem(TOKEN_KEY))
+    window.addEventListener(AUTH_CHANGED, sync)
+    window.addEventListener('storage', sync)
+    return () => {
+      window.removeEventListener(AUTH_CHANGED, sync)
+      window.removeEventListener('storage', sync)
+    }
+  }, [])
+
+  // Проверяем сохранённую сессию при запуске.
   useEffect(() => {
     if (token) {
-      // No dedicated verify endpoint — try fetching orders to check token validity
-      fetch(`${API_BASE_URL}/api/orders?limit=1&check_auth=1`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      authFetch(`${API_BASE_URL}/api/v1/admin/me`)
         .then((res) => {
-          if (res.status === 401) {
+          if (res.status === 401 && localStorage.getItem(TOKEN_KEY) === token) {
             logout()
           }
         })
         // Do NOT logout on network errors — backend may just be slow
         .catch(() => {})
     }
-  }, [token])
+  }, [logout, token])
 
   return (
     <AuthContext.Provider value={{ token, isAuthenticated, login, logout }}>

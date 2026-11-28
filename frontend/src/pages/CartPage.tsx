@@ -4,11 +4,12 @@ import { Link } from 'react-router-dom'
 import { Container } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
 import { useCart, MAX_QUANTITY_PER_ITEM, MAX_TOTAL_ITEMS } from '../lib/cart'
-import { formatPrice, mapApiProduct, type ApiProductOut } from '../data/products'
+import { cartItemKey } from '../lib/cartKey'
+import { formatPrice, mapApiProduct, type ApiProductOut, type Product } from '../data/products'
 import { API_BASE_URL } from '../lib/config'
 import { ymEcommercePurchase, ymReachGoal } from '../lib/metrika'
 import { GTA6_GIFT_NAME, useGta6GiftIds } from '../lib/gta6'
-import { PAYMENT_TAX_RATE, PAYMENT_TAX_PCT, taxSurcharge, effectivePercent } from '../lib/paymentTax'
+import { DEFAULT_CARD_MARKUP_PERCENT, paymentSurcharge } from '../lib/paymentTax'
 
 function isImageUrl(url?: string): boolean {
   if (!url) return false
@@ -73,18 +74,20 @@ interface OrderPayload {
   shipping_city: string
   shipping_postal_code: string | null
   customer_note: string | null
+  payment_method: string
+  delivery_method: string
+  expected_total: string
   items: Array<{
     product_id: string
+    variant_id?: string
     quantity: number
   }>
 }
 
-// Налог при безнале живёт в lib/paymentTax.ts — ставка меняется там одной цифрой,
-// подписи и суммы здесь пересчитываются сами.
 const PAYMENT_METHODS = [
-  { id: 'cash', label: 'Наличными', icon: '💵', desc: 'При получении', taxRate: 0 },
-  { id: 'card', label: 'Картой', icon: '💳', desc: `Налог ${PAYMENT_TAX_PCT}%`, taxRate: PAYMENT_TAX_RATE },
-  { id: 'qr', label: 'QR-код в магазине', icon: '📱', desc: `Налог ${PAYMENT_TAX_PCT}%`, taxRate: PAYMENT_TAX_RATE },
+  { id: 'cash', label: 'Наличными', icon: '💵', desc: 'При получении', hasSurcharge: false },
+  { id: 'card', label: 'Картой', icon: '💳', desc: 'Банковская карта', hasSurcharge: true },
+  { id: 'qr', label: 'QR-код в магазине', icon: '📱', desc: 'Безналичная оплата', hasSurcharge: true },
 ]
 
 const DELIVERY_METHODS = [
@@ -94,29 +97,59 @@ const DELIVERY_METHODS = [
 ]
 
 const STORE_ADDRESS = 'г. Москва, ул. Барклая, д. 10, ТЦ «Багратионовский», павильон А60'
+type CheckoutOptions = { card_markup_percent: number; delivery_prices: Partial<Record<string, number>> }
 
 export function CartPage() {
   const { items, removeItem, updateQuantity, clearCart, getTotal, refreshProducts } = useCart()
+  const [checkout, setCheckout] = useState<CheckoutOptions | null>(null)
+  const [checkoutUnavailable, setCheckoutUnavailable] = useState(false)
+  const [refresh, setRefresh] = useState(0)
+  const [savedTotal, setSavedTotal] = useState<number | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch(`${API_BASE_URL}/api/orders/checkout-options`, { signal: controller.signal })
+      .then(response => response.ok ? response.json() : null)
+      .then(options => {
+        if (controller.signal.aborted) return
+        const available = typeof options?.card_markup_percent === 'number' && !!options.delivery_prices
+        setCheckout(available ? options : null)
+        setCheckoutUnavailable(!available)
+      })
+      .catch(() => { if (!controller.signal.aborted) { setCheckout(null); setCheckoutUnavailable(true) } })
+    return () => controller.abort()
+  }, [refresh])
 
   useEffect(() => {
     if (items.length === 0) return
 
     let cancelled = false
 
-    Promise.all(items.map(async ({ product }) => {
+    Promise.all(items.map(async ({ product, variantId }): Promise<[string, Product] | null> => {
       const response = await fetch(`${API_BASE_URL}/api/products/${product.id}`)
       if (!response.ok) return null
-      return mapApiProduct(await response.json() as ApiProductOut)
+      const live = mapApiProduct(await response.json() as ApiProductOut)
+      if (!variantId) return [product.id, live]
+      const variantsResponse = await fetch(`${API_BASE_URL}/api/products/${product.id}/variants`)
+      if (!variantsResponse.ok) return null
+      const variants: { id: string; stock_quantity: number; is_active: boolean }[] = await variantsResponse.json()
+      const variant = variants.find(row => row.id === variantId && row.is_active)
+      const stock = variant?.stock_quantity ?? 0
+      return [cartItemKey(product.id, variantId), {
+        ...live,
+        inStock: Boolean(variant && (live.preorder || stock > 0)),
+        stockQuantity: variant && live.preorder ? undefined : stock,
+      }]
     }))
       .then(products => {
         if (!cancelled) {
-          refreshProducts(products.filter((product): product is NonNullable<typeof product> => product !== null))
+          refreshProducts(new Map(products.filter((row): row is [string, Product] => row !== null)))
         }
       })
       .catch(() => {})
 
     return () => { cancelled = true }
-  }, [items, refreshProducts])
+  }, [items, refresh, refreshProducts])
   
   const [formData, setFormData] = useState({
     name: '',
@@ -150,9 +183,9 @@ export function CartPage() {
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0)
 
   // Обработчик изменения количества с показом предупреждения
-  const handleQuantityChange = (productId: string, newQuantity: number) => {
+  const handleQuantityChange = (key: string, newQuantity: number) => {
     setLimitWarning(null)
-    const currentItem = items.find(i => i.product.id === productId)
+    const currentItem = items.find(i => cartItemKey(i.product.id, i.variantId) === key)
     const stockLimit = currentItem?.product.stockQuantity != null ? currentItem.product.stockQuantity : MAX_QUANTITY_PER_ITEM
     const effectiveMax = Math.min(MAX_QUANTITY_PER_ITEM, stockLimit)
     if (newQuantity > effectiveMax) {
@@ -164,7 +197,7 @@ export function CartPage() {
       setLimitWarning(`Максимум ${MAX_TOTAL_ITEMS} товаров в заказе`)
       return
     }
-    updateQuantity(productId, newQuantity)
+    updateQuantity(key, newQuantity)
   }
 
   // ─── Вспомогательные проверки адреса ──────────────────────────────────────
@@ -244,20 +277,19 @@ export function CartPage() {
   }
 
   const subtotal = getTotal()
-  const deliveryPrice = DELIVERY_METHODS.find(d => d.id === deliveryMethod)?.price || 0
-  const paymentTaxRate = PAYMENT_METHODS.find(p => p.id === paymentMethod)?.taxRate || 0
-  const paymentTaxAmount = taxSurcharge(subtotal, paymentTaxRate)
-  const total = subtotal + deliveryPrice + paymentTaxAmount
+  const deliveryPriceFor = (method: string) => checkout?.delivery_prices[method] ?? DELIVERY_METHODS.find(d => d.id === method)?.price ?? 0
+  const deliveryPrice = deliveryPriceFor(deliveryMethod)
+  const markupPercent = checkout?.card_markup_percent ?? DEFAULT_CARD_MARKUP_PERCENT
+  const surcharge = PAYMENT_METHODS.find(p => p.id === paymentMethod)?.hasSurcharge ? paymentSurcharge(subtotal, markupPercent) : 0
+  const total = subtotal + deliveryPrice + surcharge
 
   // ─── Вспомогательная функция: непосредственная отправка заказа ──────────────
-  const submitOrder = async (orderItems: Array<{ product_id: string; quantity: number }>) => {
+  const submitOrder = async (orderItems: OrderPayload['items']) => {
     const deliveryAddress = buildDeliveryAddress()
     const paymentLabel = PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label || paymentMethod
     const deliveryLabel = DELIVERY_METHODS.find(d => d.id === deliveryMethod)?.label || deliveryMethod
     const noteParts: string[] = []
-    noteParts.push(paymentTaxAmount > 0
-      ? `Оплата: ${paymentLabel} — к оплате ${total.toLocaleString('ru-RU')} ₽ (включая налог ${PAYMENT_TAX_PCT}% — ${paymentTaxAmount.toLocaleString('ru-RU')} ₽)`
-      : `Оплата: ${paymentLabel}`)
+    noteParts.push(`Оплата: ${paymentLabel}`)
     noteParts.push(`Доставка: ${deliveryLabel}`)
     // Предзаказ дублируем в примечание — сотрудник видит его даже там, где нет флага заказа
     const preorderNames = items.filter(item => item.product.preorder).map(item => item.product.name)
@@ -276,6 +308,9 @@ export function CartPage() {
       shipping_city: shippingCity,
       shipping_postal_code: null,
       customer_note: noteParts.join(' | ') || null,
+      payment_method: paymentMethod,
+      delivery_method: deliveryMethod,
+      expected_total: total.toFixed(2),
       items: orderItems,
     }
 
@@ -285,7 +320,7 @@ export function CartPage() {
 
     let res: Response
     try {
-      res = await fetch(`${API_BASE_URL}/api/orders`, {
+      res = await fetch(`${API_BASE_URL}/api/orders/checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -301,6 +336,10 @@ export function CartPage() {
     }
 
     if (!res.ok) {
+      if (res.status === 404 || res.status === 405) {
+        setRefresh(value => value + 1)
+        throw new Error('Оформление заказа временно недоступно. Попробуйте ещё раз через минуту.')
+      }
       if (res.status === 422) {
         const data = await res.json().catch(() => null)
         const details = data?.details as Array<{ field?: string | null; message: string }> | undefined
@@ -311,6 +350,7 @@ export function CartPage() {
       if (res.status === 429) throw new Error('Слишком много попыток. Подождите несколько минут и повторите')
       if (res.status === 409) {
         const data = await res.json().catch(() => null)
+        setRefresh(value => value + 1)
         throw new Error(data?.detail || 'Недостаточно товара на складе. Уменьшите количество или удалите товар из корзины.')
       }
       throw new Error('Ошибка при оформлении заказа')
@@ -320,30 +360,33 @@ export function CartPage() {
 
     // Аналитика: успешный заказ (цель + e-commerce purchase). Считаем до clearCart,
     // пока items/total ещё актуальны в этом замыкании.
-    ymReachGoal('order_success', { revenue: total })
+    const confirmedTotal = Number(order.total_amount)
+    setSavedTotal(confirmedTotal)
+    ymReachGoal('order_success', { revenue: confirmedTotal })
     ymEcommercePurchase(
       String(order.order_number ?? order.id ?? ''),
       items.map(item => ({
-        id: item.product.id,
+        id: item.variantId ?? item.product.id,
         name: item.product.name,
         price: item.product.price,
         brand: item.product.brand || undefined,
         category: item.product.category || undefined,
         quantity: item.quantity,
       })),
-      total,
+      confirmedTotal,
     )
 
     clearCart()
     setOrderNumber(order.order_number ?? null)
     setOrderGift(order.gift ?? null)
     // Отдельная цель для рекламы GTA VI: заказ консоли с игрой в подарок
-    if (order.gift) ymReachGoal('gta6_order', { revenue: total, order: order.order_number })
+    if (order.gift) ymReachGoal('gta6_order', { revenue: confirmedTotal, order: order.order_number })
     setIsSuccess(true)
   }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    if (!checkout || isSubmitting) return
     setLimitWarning(null)
     
     // Клиентская валидация
@@ -394,7 +437,7 @@ export function CartPage() {
     setError(null)
 
     try {
-      await submitOrder(items.map(item => ({ product_id: item.product.id, quantity: item.quantity })))
+      await submitOrder(items.map(item => ({ product_id: item.product.id, variant_id: item.variantId, quantity: item.quantity })))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка отправки')
     } finally {
@@ -416,6 +459,7 @@ export function CartPage() {
               <div className="mb-4 rounded-xl bg-yellow-50 px-6 py-3 text-center">
                 <span className="text-sm text-gray-500">Номер заказа</span>
                 <div className="text-2xl font-bold text-yellow-600">{orderNumber}</div>
+                {savedTotal !== null && <div className="mt-1 text-sm text-gray-700">К оплате {formatPrice(savedTotal)}</div>}
               </div>
             )}
             {orderGift && (
@@ -488,7 +532,7 @@ export function CartPage() {
                 
                 <div className="divide-y">
                   {items.map(item => (
-                    <div key={item.product.id} className="flex gap-3 py-4">
+                    <div key={cartItemKey(item.product.id, item.variantId)} className="flex gap-3 py-4">
                       <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gray-100 sm:h-20 sm:w-20">
                         {isImageUrl(item.product.image) ? (
                           <img
@@ -518,16 +562,16 @@ export function CartPage() {
                         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
                           {/* Quantity */}
                           <div className="flex items-center gap-2 rounded-lg border px-2">
-                            <button type="button" onClick={() => handleQuantityChange(item.product.id, item.quantity - 1)} className="px-2 py-1 text-gray-500 hover:text-gray-900">−</button>
+                            <button type="button" onClick={() => handleQuantityChange(cartItemKey(item.product.id, item.variantId), item.quantity - 1)} className="px-2 py-1 text-gray-500 hover:text-gray-900">−</button>
                             <span className="w-8 text-center">{item.quantity}</span>
                             <button 
                               type="button" 
-                              onClick={() => handleQuantityChange(item.product.id, item.quantity + 1)} 
+                              onClick={() => handleQuantityChange(cartItemKey(item.product.id, item.variantId), item.quantity + 1)}
                               className={`px-2 py-1 ${item.quantity >= Math.min(MAX_QUANTITY_PER_ITEM, item.product.stockQuantity ?? MAX_QUANTITY_PER_ITEM) || totalQuantity >= MAX_TOTAL_ITEMS ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-gray-900'}`}
                               disabled={item.quantity >= Math.min(MAX_QUANTITY_PER_ITEM, item.product.stockQuantity ?? MAX_QUANTITY_PER_ITEM) || totalQuantity >= MAX_TOTAL_ITEMS}
                             >+</button>
                           </div>
-                          <button type="button" onClick={() => removeItem(item.product.id)} className="text-sm text-red-500">Удалить</button>
+                          <button type="button" onClick={() => removeItem(cartItemKey(item.product.id, item.variantId))} className="text-sm text-red-500">Удалить</button>
                         </div>
                       </div>
                       <div className="flex-shrink-0 text-right">
@@ -582,7 +626,7 @@ export function CartPage() {
                       key={method.id}
                       className={`relative flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 p-5 transition-all ${
                         paymentMethod === method.id 
-                          ? method.taxRate > 0 
+                          ? method.hasSurcharge && markupPercent > 0
                             ? 'border-orange-400 bg-orange-50' 
                             : 'border-green-400 bg-green-50' 
                           : 'border-gray-200 hover:border-gray-300'
@@ -598,9 +642,9 @@ export function CartPage() {
                       />
                       <span className="text-4xl">{method.icon}</span>
                       <span className="text-lg font-semibold">{method.label}</span>
-                      {method.taxRate > 0 ? (
+                      {method.hasSurcharge && markupPercent > 0 ? (
                         <span className="rounded-full bg-orange-100 px-3 py-1 text-sm font-medium text-orange-700">
-                          {subtotal > 0 ? `+${formatPrice(taxSurcharge(subtotal, method.taxRate))}` : `+${effectivePercent(method.taxRate)}% к цене`} · налог {PAYMENT_TAX_PCT}%
+                          {subtotal > 0 ? `+${formatPrice(paymentSurcharge(subtotal, markupPercent))}` : `+${markupPercent}% к цене`}
                         </span>
                       ) : (
                         <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700">
@@ -608,7 +652,7 @@ export function CartPage() {
                         </span>
                       )}
                       {paymentMethod === method.id && (
-                        <span className={`absolute right-3 top-3 ${method.taxRate > 0 ? 'text-orange-500' : 'text-green-500'}`}>✓</span>
+                        <span className={`absolute right-3 top-3 ${method.hasSurcharge && markupPercent > 0 ? 'text-orange-500' : 'text-green-500'}`}>✓</span>
                       )}
                     </label>
                   ))}
@@ -642,7 +686,7 @@ export function CartPage() {
                         <span className="font-semibold">{method.label}</span>
                         <span className="text-sm text-gray-500">{method.desc}</span>
                         <span className="font-medium text-yellow-600">
-                          {method.price === 0 ? 'Бесплатно' : `+${formatPrice(method.price)}`}
+                          {deliveryPriceFor(method.id) === 0 ? 'Бесплатно' : `+${formatPrice(deliveryPriceFor(method.id))}`}
                         </span>
                         {deliveryMethod === method.id && (
                           <span className="absolute right-2 top-2 text-yellow-500">✓</span>
@@ -845,10 +889,10 @@ export function CartPage() {
                     <span className="text-gray-500">Товары ({items.length})</span>
                     <span>{formatPrice(subtotal)}</span>
                   </div>
-                  {paymentTaxAmount > 0 && (
+                  {surcharge > 0 && (
                     <div className="flex justify-between text-orange-600">
-                      <span>Налог {PAYMENT_TAX_PCT}% ({PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label})</span>
-                      <span>+{formatPrice(paymentTaxAmount)}</span>
+                      <span>Надбавка за безналичную оплату ({markupPercent}%)</span>
+                      <span>+{formatPrice(surcharge)}</span>
                     </div>
                   )}
                   <div className="flex justify-between">
@@ -863,9 +907,9 @@ export function CartPage() {
                   </div>
                 </div>
                 
-                {paymentTaxAmount > 0 && (
+                {surcharge > 0 && (
                   <div className="mt-3 rounded-xl bg-orange-50 p-3 text-sm text-orange-700">
-                    ⚠️ При оплате {paymentMethod === 'card' ? 'картой' : 'по QR-коду'} добавляется налог {PAYMENT_TAX_PCT}%. Он считается с начисленной суммы, поэтому к цене выходит ≈ +{effectivePercent(paymentTaxRate)}%. Наличными — без надбавки.
+                    При оплате {paymentMethod === 'card' ? 'картой' : 'по QR-коду'} к стоимости товаров добавляется {markupPercent}%. Наличными действует цена на сайте.
                   </div>
                 )}
 
@@ -895,7 +939,8 @@ export function CartPage() {
                   )}
                 </div>
                 
-                <Button type="submit" disabled={isSubmitting} size="lg" className="mt-6 w-full">
+                {checkoutUnavailable && <p className="mt-3 text-sm text-red-700" role="status">Оформление заказа временно недоступно. <button type="button" className="underline" onClick={() => setRefresh(value => value + 1)}>Проверить ещё раз</button></p>}
+                <Button type="submit" disabled={isSubmitting || !checkout} size="lg" className="mt-6 w-full">
                   {isSubmitting ? 'Оформляем...' : 'Оформить заказ'}
                 </Button>
                 
@@ -915,11 +960,11 @@ export function CartPage() {
               <div className="min-w-0 flex-1">
                 <div className="truncate text-xs text-gray-500">К оплате</div>
                 <div className="text-lg font-bold text-yellow-600">{formatPrice(total)}</div>
-                {paymentTaxAmount > 0 && (
-                  <div className="text-xs text-orange-600">налог +{formatPrice(paymentTaxAmount)} — {PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label}</div>
+                {surcharge > 0 && (
+                  <div className="text-xs text-orange-600">Надбавка +{formatPrice(surcharge)} — {PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label}</div>
                 )}
               </div>
-              <Button type="submit" disabled={isSubmitting} size="md" className="shrink-0">
+              <Button type="submit" disabled={isSubmitting || !checkout} size="md" className="shrink-0">
                 {isSubmitting ? 'Оформляем...' : 'Оформить заказ'}
               </Button>
             </div>

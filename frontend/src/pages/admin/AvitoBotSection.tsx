@@ -62,6 +62,7 @@ interface Message {
   send_at: string | null
   attempts: number
   order_payload: OrderPayload | null
+  decision_trace?: Decision['search']
   created_at: string
 }
 interface CatalogProduct { id: string; name: string; price: number; stock_quantity: number; is_preorder: boolean }
@@ -77,6 +78,7 @@ interface BotAnalytics {
   days: number; dialogs_new: number; dialogs_active: number; client_messages: number
   bot_replies: number; bot_by_rule: number; bot_by_llm: number; staff_replies: number
   auto_handled: number; handoffs: number; response_median_s: number | null; response_p90_s: number | null
+  dialogs_unanswered?: number
   orders: number; orders_sum: number; reminders: number; reminders_replied: number; reminders_orders: number
   examples_learned: number; llm_calls: number; llm_errors: number; llm_tokens_in: number; llm_tokens_out: number; llm_cost: number | null
   series: { day: string; dialogs: number; bot_replies: number; staff_replies: number; orders: number }[]
@@ -105,6 +107,7 @@ interface Config {
   handoff_message: string
   listing_scope?: 'all' | 'selected'
   allowed_listing_ids?: string[]
+  trade_in_listing_ids?: string[]
   collect_messages_seconds?: number
   reply_delay_min: number
   reply_delay_max: number
@@ -145,7 +148,7 @@ interface Decision {
   order: OrderPayload | null
   examples_used: number
   first_message: string | null
-  messages?: { text: string; rule_id: string | null }[]
+  messages?: { text: string; rule_id: string | null; quoted_subject?: Record<string, unknown> | null }[]
   order_status?: 'pending' | 'cancelled' | null
   search?: {
     query: { brand?: string; category?: string; model?: string; reference?: string; attributes: Record<string, unknown> }
@@ -463,7 +466,7 @@ function ChatPanel({ api, chatId, config, onClose, onChanged }: { api: Api; chat
             <button type="button" onClick={() => setLinkOpen(true)} className="mt-1 text-xs text-slate-500 hover:text-slate-300">
               {chat.linked_product
                 ? <>Товар каталога: <span className="text-slate-300">{chat.linked_product.name}</span> · {Math.round(chat.linked_product.price).toLocaleString('ru-RU')} ₽ · {chat.linked_product.is_preorder ? 'предзаказ' : `${chat.linked_product.stock_quantity} шт.`} — изменить</>
-                : <span className="underline decoration-dotted">Привязать объявление к товару каталога — для точной цены и наличия</span>}
+                : <span className="underline decoration-dotted">Привязать товар для брони</span>}
             </button>
           ) : null}
           <button type="button" onClick={() => act(`/chats/${chatId}/opt-out`, { value: !chat.opted_out }, chat.opted_out ? 'Рассылки снова разрешены' : 'Рассылки этому покупателю отключены')}
@@ -555,23 +558,30 @@ function ChatBubble({ m, name, api, onDone }: { m: Message; name: string; api: A
         </div>
         <div className="whitespace-pre-wrap text-sm text-slate-200">{m.text}</div>
         {m.order_payload && <div className="mt-1.5 text-xs text-emerald-300">Оформит бронь: {orderText(m.order_payload)}</div>}
+        <SearchTrace search={m.decision_trace} />
         {m.error && <div className="mt-1 text-xs text-rose-300">{m.error}</div>}
         <button type="button" disabled={busy} onClick={() => run(`/messages/${m.id}/discard`, {})} className={`${BTN_ROW} mt-2`}>Не отправлять</button>
       </div>
     )
   }
   if (m.status === 'draft') {
+    const canApprove = !m.order_payload || Object.hasOwn(m, 'decision_trace')
     return (
       <div className="ml-auto max-w-[85%] rounded-2xl border border-dashed border-sky-400/40 bg-sky-400/[0.06] p-3">
         <div className="mb-1 text-[11px] text-sky-300">Черновик · {meta}</div>
         {editing
           ? <textarea className={`${INPUT} h-24`} value={text} onChange={e => setText(e.target.value)} />
           : <div className="whitespace-pre-wrap text-sm text-slate-100">{m.text}</div>}
-        {m.order_payload && <div className="mt-1.5 rounded-lg bg-emerald-400/10 px-2 py-1 text-xs text-emerald-200">После отправки оформится бронь: {orderText(m.order_payload)}</div>}
+        {m.order_payload && <div className="mt-1.5 rounded-lg bg-emerald-400/10 px-2 py-1 text-xs text-emerald-200">{editing ? 'Правка отправится без брони. Уберите из текста обещание брони.' : `Бронь на подтверждение: ${orderText(m.order_payload)}`}</div>}
+        {!canApprove && <div className="mt-1 text-xs text-amber-300">Подтверждение брони станет доступно после обновления сервера.</div>}
+        <SearchTrace search={m.decision_trace} />
         {m.error && <div className="mt-1 text-xs text-rose-300">{m.error}</div>}
         <div className="mt-2.5 flex flex-wrap gap-2">
-          <button type="button" disabled={busy} onClick={() => run(`/messages/${m.id}/approve`, editing ? { text } : {})} className={`${BTN_PRIMARY} !px-3 !py-1.5`}>Отправить</button>
-          {!editing && <button type="button" onClick={() => setEditing(true)} className={BTN_ROW}>Изменить</button>}
+          <button type="button" disabled={busy || !canApprove || (editing && (!text.trim() || (!!m.order_payload && text.trim() === m.text.trim())))}
+            onClick={() => run(`/messages/${m.id}/${m.order_payload ? 'booking-draft' : 'approve'}`, editing ? { text } : m.order_payload ? { confirm_order: true } : {})}
+            className={`${BTN_PRIMARY} !px-3 !py-1.5`}>{m.order_payload ? editing ? 'Отправить только текст' : 'Оформить бронь и отправить' : 'Отправить'}</button>
+          {!editing && canApprove && <button type="button" onClick={() => setEditing(true)} className={BTN_ROW}>Изменить</button>}
+          {editing && <button type="button" onClick={() => { setEditing(false); setText(m.text) }} className={BTN_ROW}>Отменить правку</button>}
           {editing && <span className="self-center text-[11px] text-slate-500">Ваш вариант запомнится — бот будет отвечать так в похожих случаях</span>}
           <button type="button" disabled={busy} onClick={() => run(`/messages/${m.id}/discard`, {})} className={BTN_ROW}>Не отвечать</button>
         </div>
@@ -588,6 +598,7 @@ function ChatBubble({ m, name, api, onDone }: { m: Message; name: string; api: A
           {m.status === 'failed' ? `Не отправлено: ${m.error || 'ошибка'}` : meta}
         </div>
       )}
+      <SearchTrace search={m.decision_trace} />
     </div>
   )
 }
@@ -613,7 +624,7 @@ function LinkProductModal({ api, itemId, itemTitle, current, onClose, onDone }: 
   }
   return (
     <Modal title="Товар для объявления" onClose={onClose}>
-      <p className="mb-3 text-sm text-slate-400">Бот будет брать цену и наличие из этой карточки во всех диалогах по объявлению «{itemTitle || itemId}».</p>
+      <p className="mb-3 text-sm text-slate-400">Карточка помогает оформить бронь по объявлению «{itemTitle || itemId}». Розничную цену покупателю бот берёт из прайса Авито.</p>
       <input className={INPUT} value={q} onChange={e => setQ(e.target.value)} placeholder="iPhone 17 Pro 256" autoFocus />
       <div className="mt-3 max-h-80 space-y-1.5 overflow-y-auto">
         {hits === null ? null : hits.length === 0 ? <div className="text-sm text-slate-500">Ничего не нашлось</div> : hits.map(p => (
@@ -920,6 +931,7 @@ function BotAnalyticsTab({ api }: { api: Api }) {
             <Stat label="Диалогов" value={num(a.dialogs_active)} hint={`новых ${num(a.dialogs_new)} · сообщений покупателей ${num(a.client_messages)}`} />
             <Stat label="Без участия человека" value={pct(a.auto_handled, a.dialogs_active)} hint={`${num(a.auto_handled)} из ${num(a.dialogs_active)} · звал человека ${num(a.handoffs)} раз`} />
             <Stat label="Время первого ответа" value={fmtDuration(a.response_median_s)} hint={`медиана · у 90% быстрее ${fmtDuration(a.response_p90_s)}`} />
+            {a.dialogs_unanswered !== undefined && <Stat label="Диалоги без ответа" value={num(a.dialogs_unanswered)} />}
             <Stat label="Брони из чата" value={num(a.orders)} hint={`${Math.round(a.orders_sum).toLocaleString('ru-RU')} ₽ · конверсия ${pct(a.orders, a.dialogs_active)}`} />
             <Stat label="Ответил бот" value={num(a.bot_replies)} hint={`автоответом ${num(a.bot_by_rule)} · моделью ${num(a.bot_by_llm)} · сотрудники ${num(a.staff_replies)}`} />
             <Stat label="Напоминаний" value={num(a.reminders)} hint={`ответили ${num(a.reminders_replied)} (${pct(a.reminders_replied, a.reminders)}) · брони ${num(a.reminders_orders)}`} />
@@ -1198,7 +1210,7 @@ function ImportModal({ api, onClose, onDone }: { api: Api; onClose: () => void; 
 
 // ── Тест ─────────────────────────────────────────────────────────────────────
 
-interface TestTurn { author: 'client' | 'bot'; text: string; decision?: Decision; rule_id?: string | null }
+interface TestTurn { author: 'client' | 'bot'; text: string; decision?: Decision; rule_id?: string | null; quoted_subject?: Record<string, unknown> | null }
 interface ListingPrice { price: string | null; source: string | null; matched: string | null }
 interface RunRow { label: string; question: string; d: Decision | null }
 
@@ -1269,7 +1281,7 @@ function TestTab({ api, rules }: { api: Api; rules: Rule[] | null }) {
       method: 'POST',
       body: {
         text: t,
-        history: history.filter(turn => turn.text).slice(-40).map(({ author, text, rule_id }) => ({ author, text, rule_id })),
+        history: history.filter(turn => turn.text).slice(-40).map(({ author, text, rule_id, quoted_subject }) => ({ author, text, rule_id, quoted_subject })),
         item_title: item.trim() || null,
         item_id: itemId,
         item_price: price || null,
@@ -1434,6 +1446,29 @@ function searchAttributes(attrs: Record<string, unknown>): string[] {
     .map(([key, value]) => `${SEARCH_ATTRS[key] ?? key} ${SEARCH_SIM[String(value)] ?? value}${key.endsWith('_gb') ? ' ГБ' : ''}`)
 }
 
+function SearchTrace({ search }: { search?: Decision['search'] }) {
+  if (!search?.length) return null
+  return (
+    <details className="mt-1 text-left text-[11px] text-slate-500">
+      <summary className="cursor-pointer">Поиск по прайсу</summary>
+      {search.map(({ query, status, matches, revision }, index) => (
+        <div className="mt-1" key={index}>
+          <div className="text-slate-300">{[query.brand, query.model, ...searchAttributes(query.attributes)].filter(Boolean).join(' · ')}</div>
+          <div>{({ exact: 'Найдено точное совпадение', same_model: 'Та же модель с отличиями', other_model: 'Найдены другие модели', not_found: 'Совпадений нет', ambiguous: 'Нужно уточнить модель', unavailable: 'Запрошенный вариант недоступен' } as Record<string, string>)[status] ?? status}</div>
+          <div>{[revision && `Прайс №${revision}`, ({ listing: 'Из объявления', conversation: 'Из диалога', explicit: 'Из запроса' } as Record<string, string>)[query.reference ?? '']].filter(Boolean).join(' · ')}</div>
+          {matches.map(item => (
+            <div key={item.id}>
+              {item.name} · {item.price_rub.toLocaleString('ru-RU')} ₽{item.source_number ? ` · строка ${item.source_number}` : ''}
+              <span className="block">{searchAttributes(item.attributes).join(' · ')}</span>
+              {item.source_line && <span className="block break-all text-slate-500">{item.source_line}</span>}
+            </div>
+          ))}
+        </div>
+      ))}
+    </details>
+  )
+}
+
 function DecisionNote({ d, ruleName }: { d: Decision; ruleName?: string }) {
   const [open, setOpen] = useState(false)
   const label = d.action === 'handoff' ? `Позвал человека: ${d.reason || ''}`
@@ -1446,25 +1481,7 @@ function DecisionNote({ d, ruleName }: { d: Decision; ruleName?: string }) {
     <div className="mt-1 text-[11px] text-slate-500">
       <span className={d.action === 'handoff' ? 'text-amber-300' : ''}>{label}</span>
       {d.order && <div className="text-emerald-300">Оформил бы бронь: {orderText(d.order)}</div>}
-      {!!d.search?.length && (
-        <details className="mt-1 text-left">
-          <summary className="cursor-pointer">Поиск по прайсу</summary>
-          {d.search.map(({ query, status, matches, revision }, index) => (
-            <div className="mt-1" key={index}>
-              <div className="text-slate-300">{[query.brand, query.model, ...searchAttributes(query.attributes)].filter(Boolean).join(' · ')}</div>
-              <div>{({ exact: 'Найдено точное совпадение', same_model: 'Та же модель с отличиями', other_model: 'Найдены другие модели', not_found: 'Совпадений нет', ambiguous: 'Нужно уточнить модель', unavailable: 'Запрошенный вариант недоступен' } as Record<string, string>)[status] ?? status}</div>
-              <div>{[revision && `Прайс №${revision}`, ({ listing: 'Из объявления', conversation: 'Из диалога', explicit: 'Из запроса' } as Record<string, string>)[query.reference ?? '']].filter(Boolean).join(' · ')}</div>
-              {matches.map(item => (
-                <div key={item.id}>
-                  {item.name} · {item.price_rub.toLocaleString('ru-RU')} ₽{item.source_number ? ` · строка ${item.source_number}` : ''}
-                  <span className="block">{searchAttributes(item.attributes).join(' · ')}</span>
-                  {item.source_line && <span className="block break-all text-slate-500">{item.source_line}</span>}
-                </div>
-              ))}
-            </div>
-          ))}
-        </details>
-      )}
+      <SearchTrace search={d.search} />
       {d.catalog.length > 0 && <button type="button" onClick={() => setOpen(o => !o)} className="ml-2 underline decoration-dotted">каталог ({d.catalog.length})</button>}
       {open && <div className="mt-1 space-y-0.5 text-left">{d.catalog.map(c => <div key={c}>{c}</div>)}</div>}
     </div>
@@ -1521,7 +1538,7 @@ type ListingSource = 'avito' | 'chats'
 interface ListingOption { id: string; title: string; url: string | null; status?: string }
 interface ListingPage { items: ListingOption[]; next_page: number | null }
 
-function ListingPicker({ api, selected, onChange }: { api: Api; selected: string[]; onChange: (ids: string[]) => void }) {
+function ListingPicker({ api, selected, onChange, emptyWarning = false }: { api: Api; selected: string[]; onChange: (ids: string[]) => void; emptyWarning?: boolean }) {
   const [listings, setListings] = useState<ListingOption[]>([])
   const [source, setSource] = useState<ListingSource>('avito')
   const [nextPage, setNextPage] = useState<number | null>(null)
@@ -1560,7 +1577,7 @@ function ListingPicker({ api, selected, onChange }: { api: Api; selected: string
   return (
     <div className="space-y-2">
       <p className="text-xs text-slate-400">Выбрано объявлений: {selected.length}.</p>
-      {selected.length === 0 && <p role="status" className="rounded-lg border border-amber-400/30 bg-amber-400/[0.08] px-3 py-2 text-xs text-amber-200">Список пуст: при режиме «Только выбранные» бот пропускает все объявления.</p>}
+      {emptyWarning && selected.length === 0 && <p role="status" className="rounded-lg border border-amber-400/30 bg-amber-400/[0.08] px-3 py-2 text-xs text-amber-200">Список пуст: при режиме «Только выбранные» бот пропускает все объявления.</p>}
       <div className="flex flex-wrap gap-2">
         <button type="button" className={BTN_SECONDARY} disabled={loading} onClick={() => load('avito')}>Загрузить из Авито</button>
         <button type="button" className={BTN_SECONDARY} disabled={loading} onClick={() => load('chats')}>Из диалогов</button>
@@ -1624,7 +1641,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
       enabled: form.enabled, mode: form.mode, persona_name: form.persona_name, greeting: form.greeting, trade_in_prices: form.trade_in_prices, card_markup_percent: form.card_markup_percent, staff_takes_over: form.staff_takes_over, human_mode: form.human_mode, allow_emoji: form.allow_emoji, off_topic_silent: form.off_topic_silent, style: form.style, knowledge: form.knowledge,
       handoff_topics: form.handoff_topics, handoff_message: form.handoff_message, reply_delay_min: form.reply_delay_min,
       reply_delay_max: form.reply_delay_max, listing_scope: form.listing_scope ?? 'all',
-      allowed_listing_ids: form.allowed_listing_ids ?? [], collect_messages_seconds: form.collect_messages_seconds ?? 15,
+      allowed_listing_ids: form.allowed_listing_ids ?? [], trade_in_listing_ids: form.trade_in_listing_ids ?? [], collect_messages_seconds: form.collect_messages_seconds ?? 15,
       use_catalog: form.use_catalog, llm_provider: form.llm_provider,
       orders_enabled: form.orders_enabled, pickup_address: form.pickup_address, system_patterns: form.system_patterns,
       reminders_enabled: form.reminders_enabled, reminder_after_minutes: form.reminder_after_minutes,
@@ -1695,7 +1712,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
                 <option value="selected">Только выбранные</option>
               </select>
             </label>
-            {form.listing_scope === 'selected' && <ListingPicker api={api} selected={form.allowed_listing_ids ?? []}
+            {form.listing_scope === 'selected' && <ListingPicker api={api} selected={form.allowed_listing_ids ?? []} emptyWarning
               onChange={ids => set('allowed_listing_ids', ids)} />}
             <label className="block"><span className={LABEL}>Ждать после последней реплики, с</span>
               <input type="number" min={0} max={120} className={`${INPUT} mt-1.5`} value={form.collect_messages_seconds ?? 15}
@@ -1791,7 +1808,7 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
           <label className="mt-3 block"><span className={LABEL}>Когда звать человека</span><input className={`${INPUT} mt-1.5`} value={form.handoff_topics} onChange={e => set('handoff_topics', e.target.value)} /></label>
           <label className="mt-3 block"><span className={LABEL}>Что написать, пока зовём человека</span>
             <input className={`${INPUT} mt-1.5`} value={form.handoff_message} onChange={e => set('handoff_message', e.target.value)} placeholder="Сейчас уточню у коллеги и вернусь к вам. Пусто — бот молчит" />
-            <span className="mt-1 block text-xs text-slate-500">Только когда покупатель сам просит менеджера. При сбое, нехватке цены или данных бот ничего не пишет: отмечает прочитанным и зовёт вас.</span></label>
+            <span className="mt-1 block text-xs text-slate-500">Если у бота есть полезная часть ответа, он её отправит. Это сообщение используется при передаче, когда ответа нет. Оставьте поле пустым, чтобы в этом случае только уведомить сотрудника.</span></label>
           <label className="mt-3 block max-w-[240px]"><span className={LABEL}>Наценка при оплате картой, %</span>
             <input type="number" min={0} max={100} step={0.01} className={`${INPUT} mt-1.5`}
               value={form.card_markup_percent ?? 16} onChange={e => set('card_markup_percent', Math.min(100, Math.max(0, Number(e.target.value))))} />
@@ -1799,9 +1816,14 @@ function SettingsTab({ api, config, setConfig }: { api: Api; config: Config; set
           <label className="mt-3 block"><span className={LABEL}>Оценка trade-in</span>
             <textarea className={`${INPUT} mt-1.5 h-72 font-mono text-[13px]`} value={form.trade_in_prices} onChange={e => set('trade_in_prices', e.target.value)} /></label>
           <div className="mt-1 text-xs text-slate-500">Какие модели принимаем в trade-in, вилки оценки и правила. Бот называет только предварительную вилку «до …» и не берёт ничего, чего нет в списке.</div>
+          <details className="mt-3 space-y-2">
+            <summary className={`${LABEL} cursor-pointer`}>Объявления с ценой по trade-in</summary>
+            <p className="text-xs text-slate-400">В первом сообщении бот пояснит, что цена в этих объявлениях действует при обмене.</p>
+            <ListingPicker api={api} selected={form.trade_in_listing_ids ?? []} onChange={ids => set('trade_in_listing_ids', ids)} />
+          </details>
           <label className="mt-3 block"><span className={LABEL}>Системные сообщения Авито</span>
             <textarea className={`${INPUT} mt-1.5 h-28 font-mono text-[13px]`} value={form.system_patterns} onChange={e => set('system_patterns', e.target.value)} /></label>
-          <div className="mt-1 text-xs text-slate-500">По одной фразе в строке. Сообщение, в котором есть такая фраза, бот считает служебным сообщением Авито: не отвечает на него и не учитывает в разговоре, в диалоге оно показывается серой плашкой. Служебные типы сообщений Авито бот пропускает и без этого списка. Если бот ответил на системное сообщение — скопируйте сюда его кусок.</div>
+          <div className="mt-1 text-xs text-slate-500">Авито помечает служебные события отдельно. Здесь можно дополнить список заголовками в квадратных скобках, по одному в строке, например [Системное сообщение].</div>
         </section>
       </div>
 

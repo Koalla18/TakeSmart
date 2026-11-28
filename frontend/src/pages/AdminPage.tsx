@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useAuth, getAuthHeaders } from '../lib/auth'
+import { useAuth } from '../lib/auth'
+import { authFetch } from '../lib/adminSession'
 import { API_BASE_URL } from '../lib/config'
 import { formatPrice } from '../data/products'
 import { toast, ToastHost } from '../lib/toast'
@@ -391,11 +392,8 @@ async function compressImageForUpload(file: File, maxDim = 1600, maxBytes = 900_
 /** Module-level fetch wrapper that auto-logouts on 401/403 */
 function makeAuthFetch(logoutFn: () => void) {
   return async (url: string, init?: RequestInit): Promise<Response> => {
-    const res = await fetch(url, {
-      ...init,
-      headers: { ...getAuthHeaders(), ...(init?.headers || {}) },
-    })
-    if (res.status === 401 || res.status === 403) {
+    const res = await authFetch(url, init)
+    if (res.status === 401) {
       logoutFn()
       throw new Error('Сессия истекла')
     }

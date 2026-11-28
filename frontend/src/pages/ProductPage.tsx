@@ -677,7 +677,7 @@ export function ProductPage() {
 
   // Derive best-matching variant from the 3 independent selections
   const selectedVariant = useMemo<ApiVariant | null>(() => {
-    if (variants.length === 0) return null
+    if (variants.length === 0 || apiProduct?.siblings?.length) return null
     // Exact match
     const exact = variants.find(v =>
       (!selectedColor || v.color === selectedColor) &&
@@ -696,7 +696,7 @@ export function ProductPage() {
       if (m) return m
     }
     return variants[0]
-  }, [variants, selectedColor, selectedStorage, selectedSize])
+  }, [variants, selectedColor, selectedStorage, selectedSize, apiProduct?.siblings?.length])
   
   // Load from API — always try slug first (reliable), then fallback to numeric id
   useEffect(() => {
@@ -845,8 +845,9 @@ export function ProductPage() {
         ].filter(Boolean) as Array<{label: string; value: string}>
       }
 
-      for (let i = 0; i < quantity; i++) {
-        addItem(cartProduct)
+      if (!addItem(cartProduct, quantity, selectedVariant?.id)) {
+        setStockWarning('Уменьшите количество. Больше добавить в корзину не получится.')
+        return
       }
 
       navigate('/cart')

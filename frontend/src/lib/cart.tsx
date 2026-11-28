@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useState, useEffect, type ReactNode } from 'react'
+import { cartItemKey } from './cartKey'
 import type { Product } from '../data/products'
 import { ymEcommerceAdd, ymReachGoal } from './metrika'
 
 export interface CartItem {
   product: Product
   quantity: number
+  variantId?: string
 }
 
 // ─── Ограничения корзины ─────────────────────────────────────────────────────
@@ -16,10 +18,10 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 interface CartContextType {
   items: CartItem[]
-  addItem: (product: Product, quantity?: number) => boolean // false если превышен лимит
-  removeItem: (productId: string) => void
-  refreshProducts: (products: Product[]) => void
-  updateQuantity: (productId: string, quantity: number) => boolean // false если превышен лимит
+  addItem: (product: Product, quantity?: number, variantId?: string) => boolean
+  removeItem: (key: string) => void
+  refreshProducts: (products: Map<string, Product>) => void
+  updateQuantity: (key: string, quantity: number) => boolean
   clearCart: () => void
   getItemCount: () => number
   getTotal: () => number
@@ -55,9 +57,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // only on mount
 
-  const addItem = (product: Product, quantity = 1): boolean => {
+  const addItem = (product: Product, quantity = 1, variantId?: string): boolean => {
     // Проверка лимитов
-    const existing = items.find(item => item.product.id === product.id)
+    const key = cartItemKey(product.id, variantId)
+    const existing = items.find(item => cartItemKey(item.product.id, item.variantId) === key)
     const currentTotal = items.reduce((sum, item) => sum + item.quantity, 0)
     
     // Лимит на основе остатка на складе
@@ -75,15 +78,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
     }
     
     setItems(current => {
-      const exist = current.find(item => item.product.id === product.id)
+      const exist = current.find(item => cartItemKey(item.product.id, item.variantId) === key)
       if (exist) {
         return current.map(item =>
-          item.product.id === product.id
+          cartItemKey(item.product.id, item.variantId) === key
             ? { ...item, quantity: Math.min(item.quantity + quantity, effectiveMax) }
             : item
         )
       }
-      return [...current, { product, quantity: Math.min(quantity, effectiveMax) }]
+      return [...current, { product, variantId, quantity }]
     })
 
     // Аналитика: добавление в корзину (цель + e-commerce)
@@ -100,18 +103,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
     return true
   }
 
-  const removeItem = (productId: string) => {
-    setItems(current => current.filter(item => item.product.id !== productId))
+  const removeItem = (key: string) => {
+    setItems(current => current.filter(item => cartItemKey(item.product.id, item.variantId) !== key))
   }
 
-  const updateQuantity = (productId: string, quantity: number): boolean => {
+  const updateQuantity = (key: string, quantity: number): boolean => {
     if (quantity <= 0) {
-      removeItem(productId)
+      removeItem(key)
       return true
     }
     
     // Проверка лимитов
-    const currentItem = items.find(item => item.product.id === productId)
+    const currentItem = items.find(item => cartItemKey(item.product.id, item.variantId) === key)
     const stockLimit = currentItem?.product.stockQuantity != null ? currentItem.product.stockQuantity : MAX_QUANTITY_PER_ITEM
     const effectiveMax = Math.min(MAX_QUANTITY_PER_ITEM, stockLimit)
     if (quantity > effectiveMax) return false
@@ -122,19 +125,17 @@ export function CartProvider({ children }: { children: ReactNode }) {
     
     setItems(current =>
       current.map(item =>
-        item.product.id === productId ? { ...item, quantity } : item
+        cartItemKey(item.product.id, item.variantId) === key ? { ...item, quantity } : item
       )
     )
     return true
   }
 
-  const refreshProducts = useCallback((products: Product[]) => {
-    const productsById = new Map(products.map(product => [product.id, product]))
-
+  const refreshProducts = useCallback((products: Map<string, Product>) => {
     setItems(current => {
       let hasChanges = false
       const nextItems = current.map(item => {
-        const currentProduct = productsById.get(item.product.id)
+        const currentProduct = products.get(cartItemKey(item.product.id, item.variantId))
         if (!currentProduct) return item
 
         const product = {

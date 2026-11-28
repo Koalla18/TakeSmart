@@ -1,6 +1,6 @@
 import { Container, Section } from '../components/ui/Layout'
 import { Button } from '../components/ui/Button'
-import { PAYMENT_TAX_PCT, effectivePercent, taxSurcharge } from '../lib/paymentTax'
+import { DEFAULT_CARD_MARKUP_PERCENT, paymentSurcharge } from '../lib/paymentTax'
 
 export function DeliveryPage() {
   return (
@@ -147,11 +147,11 @@ export function DeliveryPage() {
                 <div>
                   <h3 className="mb-2 text-2xl font-bold text-gray-900">Банковской картой</h3>
                   <div className="mb-4 inline-flex rounded-full bg-orange-100 px-4 py-2 text-orange-700 font-semibold">
-                    Налог {PAYMENT_TAX_PCT}% (≈ +{effectivePercent()}% к цене)
+                    +{DEFAULT_CARD_MARKUP_PERCENT}% к стоимости товаров
                   </div>
                   <p className="text-gray-600">
                     Оплата картой или по QR-коду при получении. К безналичной оплате добавляется
-                    налог {PAYMENT_TAX_PCT}% — он считается с начисленной суммы, поэтому к ценнику выходит ≈ +{effectivePercent()}%.
+                    надбавка {DEFAULT_CARD_MARKUP_PERCENT}% к стоимости товаров.
                     Точная сумма показывается в корзине.
                   </p>
                   <div className="mt-4 flex gap-2">
@@ -187,7 +187,7 @@ export function DeliveryPage() {
               },
               {
                 q: 'Почему при оплате картой сумма больше?',
-                a: `К безналичной оплате добавляется налог ${PAYMENT_TAX_PCT}%. Считается он с начисленной суммы, а не с ценника, поэтому к цене выходит ≈ +${effectivePercent()}% — например, товар за 100 000 ₽ картой обойдётся в ${(100000 + taxSurcharge(100000)).toLocaleString('ru-RU')} ₽. Наличными — ровно по ценнику.`
+                a: `При оплате картой или по QR-коду к стоимости товаров добавляется ${DEFAULT_CARD_MARKUP_PERCENT}%. Например, товар за 100 000 ₽ картой обойдётся в ${(100000 + paymentSurcharge(100000)).toLocaleString('ru-RU')} ₽. Наличными — по цене на сайте.`
               },
               {
                 q: 'Работаете с юрлицами?',
